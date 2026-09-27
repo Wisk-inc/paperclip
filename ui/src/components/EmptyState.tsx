@@ -1,6 +1,8 @@
 import { Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { resolveAgentAppearance } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface EmptyStateProps {
   icon: LucideIcon;
@@ -26,8 +28,13 @@ export function EmptyState({
 }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="bg-muted/50 p-4 mb-4">
-        <Icon className="h-10 w-10 text-muted-foreground/50" />
+      {/* A Paperclip character (palette picked from the message, so each empty
+          state keeps its own face) with the section icon as a badge. */}
+      <div className="relative mb-4">
+        <AgentAvatar appearance={resolveAgentAppearance(null, title ?? message)} size={96} pose="idle" />
+        <span className="absolute -bottom-1 -right-1 flex size-9 items-center justify-center rounded-full border border-border bg-background">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </span>
       </div>
       {title ? (
         <>

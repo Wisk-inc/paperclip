@@ -1,5 +1,6 @@
 import { isRetiredComposioConnection, RETIRED_COMPOSIO_MESSAGE } from "@paperclipai/shared";
 import { ManagedAiConnectionRow } from "@/components/ai-connections/ManagedAiConnectionDetails";
+import { ConnectorsIllustration } from "@/components/illustrations/ConnectorsIllustration";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -640,6 +641,18 @@ export function Browse({ renderAccountDetails = (connection) => connection.conne
 
   return (
     <div className="max-w-5xl space-y-5 pb-12">
+      {!trimmed ? (
+        <section className="flex flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card md:flex-row md:items-center">
+          <ConnectorsIllustration className="rounded-none md:h-40 md:w-80 md:shrink-0" />
+          <div className="space-y-1 px-4 pb-4 md:py-4 md:pr-6">
+            <h2 className="font-display text-lg font-semibold tracking-tight">Give your agents the access they need</h2>
+            <p className="text-sm text-muted-foreground">
+              Connect Gmail, GitHub, Notion, Slack, and more. Choose which agents get access, which accounts they use,
+              and which actions they can take.
+            </p>
+          </div>
+        </section>
+      ) : null}
       <header className="flex justify-start">
         <div className="relative w-full max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
