@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Send to Automa</string>
+    <string name="shortcut_files_short">Files</string>
+    <string name="shortcut_files_long">Files and requests</string>
+    <string name="shortcut_new_task_short">New task</string>
+    <string name="shortcut_new_task_long">Start a new task</string>
+    <string name="shortcut_server_short">Change server</string>
+    <string name="shortcut_server_long">Connect to another Automa server</string>
+    <string name="choose_file">Choose a file</string>
+    <string name="saved_to_downloads">Saved %1$s to Downloads/Automa</string>
+    <string name="saved_to_app_downloads">Saved %1$s to the app\'s Downloads folder</string>
+    <string name="download_failed">Could not save %1$s</string>
+    <string name="no_app_for_link">No app can open this link</string>
+</resources>

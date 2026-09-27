@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Automa servers are self-hosted: often a laptop on the same Wi-Fi or a
+     Tailscale address reached over plain HTTP. Cleartext is therefore allowed,
+     and the connect screen warns before using HTTP outside a private network.
+     Only system certificate authorities are trusted. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
