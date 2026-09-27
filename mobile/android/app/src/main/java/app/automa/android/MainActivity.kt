@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var sharedFolder: SharedFolder
     private lateinit var incoming: IncomingShares
     private lateinit var bridge: AutomaBridge
+    private lateinit var bundledUi: BundledUi
     private lateinit var assetLoader: WebViewAssetLoader
     private val executor: ExecutorService = Executors.newFixedThreadPool(2)
 
@@ -167,6 +168,7 @@ class MainActivity : ComponentActivity() {
         }
 
         bridge = AutomaBridge(this, config, sharedFolder, incoming, executor)
+        bundledUi = BundledUi(this)
         installWebView()
         installServiceWorkerInterception()
 
@@ -362,7 +364,7 @@ class MainActivity : ComponentActivity() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url
                 if (url.host == ASSETS_HOST) return assetLoader.shouldInterceptRequest(url)
-                return bridge.intercept(url)
+                return bridge.intercept(url) ?: bundledUi.intercept(request, config.serverOrigin())
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -467,7 +469,8 @@ class MainActivity : ComponentActivity() {
     private fun installServiceWorkerInterception() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) return
         ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(object : ServiceWorkerClientCompat() {
-            override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? = bridge.intercept(request.url)
+            override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? =
+                bridge.intercept(request.url) ?: bundledUi.intercept(request, config.serverOrigin())
         })
     }
 }

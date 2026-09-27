@@ -13,10 +13,11 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 
 ## What the app does
 
-- **Every board feature**: the app loads your server's board, so tasks,
-  approvals, agents, routines, connectors, costs, and settings all work, in a
-  layout designed for phones (bottom navigation in thumb reach, sentence-case
-  titles, 44px+ touch targets).
+- **Every board feature, with the UI inside the APK**: the board UI ships in
+  the app itself, so the phone layout (create buttons in the thumb zone, the
+  mascot, Undo, haptics) is the same whatever server version you connect to.
+  Your server supplies the data: tasks, approvals, agents, routines,
+  connectors, costs, and settings all work.
 - **Device Files** (new): connect the phone, share one folder, and agents can
   pull the files they need from it. With auto-send on, a requested file in
   that folder is sent without asking; otherwise the request waits on the
@@ -56,11 +57,17 @@ covered by our tests: install Node.js and PostgreSQL from Termux, set
 Requirements: JDK 17+ and the Android SDK (platform 36, build-tools 36).
 
 ```sh
+pnpm install
+pnpm mobile:bundle-ui        # builds the board UI and copies it into the app (assets/ui)
 cd mobile/android
 echo "sdk.dir=$ANDROID_HOME" > local.properties
 ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk (id: app.automa.android.debug)
 ./gradlew lintDebug          # Android Lint (0 errors expected)
 ```
+
+Run `pnpm mobile:bundle-ui` again whenever the UI changes. Release builds
+refuse to build without the bundled UI; a debug build without it shows the
+server's own UI instead.
 
 Install on a phone with USB debugging: `adb install -r app/build/outputs/apk/debug/app-debug.apk`,
 or copy the APK to the phone and open it (allow "install unknown apps").
@@ -136,7 +143,16 @@ Before you submit:
 | `IncomingShares.kt` | Share-sheet inbox (copied to private cache until you confirm) |
 | `Downloads.kt` | Saves downloads to `Downloads/Automa` with the session cookie |
 | `ServerConfig.kt` | Server address, recent servers, install identity, health check |
+| `BundledUi.kt` | Serves the bundled board UI (`assets/ui`) on the server's origin; `/api` still goes to the server |
 | `assets/connect/` | The bundled first-run connect screen |
+
+How the bundled UI loads: pages keep your server's address, so sign-in
+cookies, the API, live updates, and plugin UIs behave exactly as in a
+browser. The app answers only the UI's own files (the page shell and
+`/assets/…`) from the APK; every `/api/…`, `/_plugins/…`, and `/mcp/…`
+request goes to the server. Newer app versions can therefore need a
+server that has the matching API (for example, Files needs the Device Files
+API from this release).
 
 Security notes: only the configured server origin (and the bundled connect
 screen) loads inside the app; every other link opens in the browser. Bridge

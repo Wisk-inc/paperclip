@@ -13,6 +13,7 @@
     "dev:server": "pnpm --filter @paperclipai/server dev",
     "dev:ui": "pnpm --filter @paperclipai/ui dev",
     "dev:mobile": "pnpm --filter @paperclipai/ui build && pnpm --filter @paperclipai/ui preview",
+    "mobile:bundle-ui": "pnpm --filter @paperclipai/ui build && node scripts/bundle-mobile-ui.mjs",
     "dev:both": "node scripts/dev-both.mjs",
     "storybook": "pnpm --filter @paperclipai/ui storybook",
     "build-storybook": "pnpm --filter @paperclipai/ui build-storybook",

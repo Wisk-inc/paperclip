@@ -77,3 +77,17 @@ dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
 }
+
+// Release builds must carry the board UI (see BundledUi.kt). Debug builds may
+// skip it and then show the server's own UI.
+val checkBundledUi by tasks.registering {
+    val index = layout.projectDirectory.file("src/main/assets/ui/index.html").asFile
+    doLast {
+        if (!index.exists()) {
+            throw GradleException(
+                "The board UI is not bundled. From the repository root run `pnpm mobile:bundle-ui`, then build again.",
+            )
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkBundledUi) }
