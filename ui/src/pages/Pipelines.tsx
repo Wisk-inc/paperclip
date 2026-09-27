@@ -85,6 +85,7 @@ import { instanceSettingsApi } from "../api/instanceSettings";
 import { issuesApi } from "../api/issues";
 import { projectsApi } from "../api/projects";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { IssueChatThread } from "../components/IssueChatThread";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -958,7 +959,7 @@ function PipelinesIndex() {
             {formatNumber(pipelines.length)} pipeline{pipelines.length === 1 ? "" : "s"}. Connected ones are grouped from upstream work into downstream work.
           </p>
         </div>
-        <Button onClick={() => setNewPipelineOpen(true)}>
+        <Button className="hidden md:inline-flex" onClick={() => setNewPipelineOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New pipeline
         </Button>
@@ -971,19 +972,23 @@ function PipelinesIndex() {
       {pipelines.length === 0 && !pipelinesQuery.error ? (
         <EmptyState
           icon={Hexagon}
-          message="No pipelines yet."
+          title="No pipelines yet"
+          message="A pipeline moves work through stages, from upstream tasks to the teams downstream."
           action="New pipeline"
           onAction={() => setNewPipelineOpen(true)}
         />
       ) : (
-        <PipelinesIndexTable
-          pipelines={pipelines}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          connectionsAvailable={connectionsAvailable}
-          search={search}
-          onSearchChange={setSearch}
-        />
+        <>
+          <PipelinesIndexTable
+            pipelines={pipelines}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            connectionsAvailable={connectionsAvailable}
+            search={search}
+            onSearchChange={setSearch}
+          />
+          <ThumbAction label="New pipeline" onClick={() => setNewPipelineOpen(true)} />
+        </>
       )}
 
       <NewPipelineDialog

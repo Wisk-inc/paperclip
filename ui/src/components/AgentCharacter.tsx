@@ -13,8 +13,17 @@ export interface AgentCharacterProps extends Omit<AgentAvatarProps, "pose"> {
   trackingScope?: "region" | "page";
   followCursor?: boolean;
   followRotation?: boolean;
+  /** Where the eyes rest when no pointer is tracked, e.g. `{ x: 0, y: -0.6 }` to look at an action below. */
+  restingGaze?: { x: number; y: number };
+  /** Skip the built-in still image (the caller renders its own fallback). */
+  hideStill?: boolean;
+  /** Reports whether the live, animated character is currently drawn. */
+  onLiveChange?: (live: boolean) => void;
 }
-export function AgentCharacter({ agent, appearance, size = 256, state = "idle", muted = false, motion = "auto", trackingRegion, trackingScope = "region", followCursor = true, followRotation = true, className, label, name }: AgentCharacterProps) {
+export function AgentCharacter({ agent, appearance, size = 256, state = "idle", muted = false, motion = "auto", trackingRegion, trackingScope = "region", followCursor = true, followRotation = true, restingGaze, hideStill = false, onLiveChange, className, label, name }: AgentCharacterProps) {
+  const restX = restingGaze?.x, restY = restingGaze?.y;
+  const liveChange = useRef(onLiveChange);
+  liveChange.current = onLiveChange;
   const identity = useMemo(() => resolveAgentAppearance(appearance ?? agent?.appearance, agent?.id), [appearance, agent?.appearance, agent?.id]);
   const root = useRef<HTMLSpanElement>(null), host = useRef<HTMLSpanElement>(null), player = useRef<Player | null>(null);
   const slotId = useRef(Symbol("agent-character"));
@@ -43,11 +52,13 @@ export function AgentCharacter({ agent, appearance, size = 256, state = "idle", 
       player.current = runtime.createCharacter(host.current, library.characterDefinition(identity, muted), {
         animation: library.animationId(state), trackingRegion: trackingRegion?.current ?? root.current ?? undefined,
         followCursor, followRotation, trackingScope, displaySize: size, onError: () => setFailed(true),
+        restingGaze: restX === undefined || restY === undefined ? undefined : { x: restX, y: restY },
       });
       setReady(true);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; player.current?.destroy(); player.current = null; setReady(false); };
-  }, [active, owner, trackingRegion, trackingScope, size, followCursor, followRotation]);
+  }, [active, owner, trackingRegion, trackingScope, size, followCursor, followRotation, restX, restY]);
+  useEffect(() => { liveChange.current?.(ready); }, [ready]);
   useEffect(() => {
     if (!player.current) return;
     void import("@paperclipai/shared/cliplab/definition").then(library => {
@@ -57,7 +68,7 @@ export function AgentCharacter({ agent, appearance, size = 256, state = "idle", 
   }, [identity, muted, state, ready]);
   return <span ref={root} role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : true}
     className={cn("relative inline-block shrink-0", avatarSizeClasses[size], className)}>
-    <AgentAvatar agent={agent} appearance={identity} size={size < 256 ? 256 : size} name={name} pose={state} muted={muted} className={cn("size-full", ready && "invisible")} />
+    {hideStill ? null : <AgentAvatar agent={agent} appearance={identity} size={size < 256 ? 256 : size} name={name} pose={state} muted={muted} className={cn("size-full", ready && "invisible")} />}
     <span ref={host} className="absolute inset-0" />
   </span>;
 }

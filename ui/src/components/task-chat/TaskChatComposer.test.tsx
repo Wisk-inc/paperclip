@@ -956,7 +956,9 @@ describe("TaskChatComposer", () => {
     expect(send.classList).toContain("rounded-full");
     expect(send.classList).toContain("bg-foreground");
     expect(send.classList).toContain("text-background");
-    expect(send.classList).toContain("disabled:opacity-100");
+    // Empty composer: the send button shrinks and dims until there is something to send.
+    expect(send.classList).toContain("scale-90");
+    expect(send.classList).toContain("disabled:opacity-40");
   });
 
   it("passes reopen=true when the issue resumes-to-todo and the assignee is an agent", async () => {

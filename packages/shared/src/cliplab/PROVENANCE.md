@@ -7,7 +7,8 @@ License: MIT (see LICENSE). Three.js is MIT licensed.
 
 Paperclip adaptations: ESM extensions, optional graphics backend for Node SVG
 snapshots, region-scoped runtime input (with explicit page scope for onboarding),
-suspended frame scheduling, and supersampled live textures/canvases. Live-only
+suspended frame scheduling, supersampled live textures/canvases, and an
+optional resting gaze (where the eyes rest when no pointer is tracked). Live-only
 framing leaves the versioned static snapshot geometry unchanged. The Vue
 studio and media encoders are not included. Keep this version immutable after
 release; new artwork or rasterization changes require a new character version.

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/utils";
+import { haptic } from "@/lib/haptics";
 import { useComposerStop } from "@/hooks/useComposerStop";
 import { useStreamlinedTaskChatPresentation } from "./presentation-mode";
 import {
@@ -960,6 +961,7 @@ export function TaskChatComposer({
       else clearDraft(draftKey);
     }
     setBody("");
+    haptic("tick");
     setSubmitting(true);
     let attemptId: string | null = null;
     try {
@@ -1125,6 +1127,9 @@ export function TaskChatComposer({
 
   return (
     <div
+      // While a message is sending or an agent is answering, the input box
+      // carries a soft moving sheen (see .paperclip-task-chat-composer in index.css).
+      data-awaiting={submitting || Boolean(onStop) ? "true" : undefined}
       className={cn(
         streamlined
           ? "paperclip-task-chat-composer rounded-(--radius-task-composer) border border-border bg-card p-(--sz-18px) shadow-(--shadow-task-composer) dark:border-0 dark:bg-muted dark:shadow-none"
@@ -1603,10 +1608,17 @@ export function TaskChatComposer({
                     : "Send"
               }
               className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-105 disabled:scale-100",
+                // Micro-states: empty shrinks and dims, ready pops back to
+                // full size, a press squeezes, and sending holds full size.
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-(--tp-transform-opacity) duration-(--motion-duration-fast) ease-(--motion-ease-out-expo) hover:scale-105 active:scale-90 disabled:scale-100",
                 streamlined
                   ? "bg-foreground text-background disabled:bg-foreground disabled:text-background disabled:opacity-100"
                   : "bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground",
+                !showStop &&
+                  !submitting &&
+                  body.trim().length === 0 &&
+                  attachedRefs.length === 0 &&
+                  "scale-90 opacity-40 disabled:scale-90 disabled:opacity-40",
               )}
               data-testid={
                 showStop ? "task-chat-composer-stop" : "task-chat-composer-send"

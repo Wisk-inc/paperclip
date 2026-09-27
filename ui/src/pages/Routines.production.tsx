@@ -23,6 +23,7 @@ import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "
 import { getRecentProjectIds, trackRecentProject } from "../lib/recent-projects";
 import { usePublishSharedQueryData, useSharedPollingQuery } from "../hooks/useSharedPolling";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
@@ -814,7 +815,7 @@ export function Routines() {
             Recurring work definitions that materialize into auditable execution tasks.
           </p>
         </div>
-        <Button onClick={openCreateRoutine}>
+        <Button className="hidden md:inline-flex" onClick={openCreateRoutine}>
           <Plus className="mr-2 h-4 w-4" />
           Create routine
         </Button>
@@ -957,7 +958,7 @@ export function Routines() {
       >
         <DialogContent
           showCloseButton={false}
-          className="flex max-h-(--sz-calc-18) max-w-3xl flex-col gap-0 overflow-hidden p-0"
+          className="fab-sheet flex max-h-(--sz-calc-18) max-w-3xl flex-col gap-0 overflow-hidden p-0"
         >
           <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
             <div>
@@ -1282,27 +1283,20 @@ export function Routines() {
             />
           ) : null}
           {visibleRoutines.length === 0 ? (
-            <div className="py-12">
-              <EmptyState
-                icon={Repeat}
-                message="No active routines. Use Create routine to define the first recurring workflow."
-              />
-            </div>
+            <EmptyState
+              icon={Repeat}
+              title="No routines yet"
+              message="A routine starts a task on a schedule, like a weekly report or a daily inbox sweep."
+              action="Create routine"
+              onAction={openCreateRoutine}
+            />
           ) : sortedRoutines.length === 0 ? (
-            <div className="py-12">
-              <EmptyState
-                icon={Repeat}
-                message={folderSelection === "all" ? "No routines match this view." : "This folder is empty."}
-              />
-              {folderSelection !== "all" ? (
-                <div className="mt-3 flex justify-center">
-                  <Button size="sm" onClick={openCreateRoutine}>
-                    <Plus className="mr-2 h-3.5 w-3.5" />
-                    New routine in this folder
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            <EmptyState
+              icon={Repeat}
+              message={folderSelection === "all" ? "No routines match this view." : "This folder is empty."}
+              action={folderSelection !== "all" ? "New routine in this folder" : undefined}
+              onAction={folderSelection !== "all" ? openCreateRoutine : undefined}
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {routineSections.map((group) => {
@@ -1436,6 +1430,7 @@ export function Routines() {
           runRoutine.mutate({ id: runDialogRoutine.id, data });
         }}
       />
+      {visibleRoutines.length > 0 ? <ThumbAction label="Create routine" onClick={openCreateRoutine} /> : null}
     </div>
   );
 }

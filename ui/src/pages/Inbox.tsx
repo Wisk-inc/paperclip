@@ -2718,6 +2718,7 @@ function StreamlinedInbox() {
       {tab !== "blocked" && allLoaded && visibleSections.length === 0 && (
         <EmptyState
           icon={searchQuery.trim() ? Search : InboxIcon}
+          tone={!searchQuery.trim() && (tab === "mine" || tab === "unread") ? "success" : "empty"}
           message={
             searchQuery.trim()
               ? "No inbox items match your search."

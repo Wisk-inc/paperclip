@@ -26,7 +26,9 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
 import { useThisDevice } from "../hooks/useThisDevice";
+import { useUndoableAction } from "../hooks/useUndoableAction";
 import { automaNative, isAutomaApp, type AutomaIncomingShare } from "../lib/automa-native";
+import { haptic } from "../lib/haptics";
 import { queryKeys } from "../lib/queryKeys";
 import { timeAgo } from "../lib/timeAgo";
 import { formatBytes } from "../lib/issue-output";
@@ -42,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 
 type Tab = "requests" | "files" | "devices";
@@ -136,6 +139,7 @@ export function DeviceFiles() {
       return input.files.length;
     },
     onSuccess: (count) => {
+      haptic("success");
       pushToast({ title: count === 1 ? "File sent to your agents" : `${count} files sent to your agents`, tone: "success" });
       refreshAll();
       setSearchParams((params) => {
@@ -143,7 +147,10 @@ export function DeviceFiles() {
         return params;
       });
     },
-    onError: (error) => pushToast({ title: "Upload failed", body: errorMessage(error), tone: "error" }),
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Upload failed", body: errorMessage(error), tone: "error" });
+    },
   });
 
   const onPickToSend = (event: ChangeEvent<HTMLInputElement>) => {
@@ -164,7 +171,7 @@ export function DeviceFiles() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 pb-28 md:pb-8">
+    <div className="mx-auto w-full max-w-3xl space-y-6 md:pb-8">
       <ThisDevicePanel
         inApp={inApp}
         device={thisDevice.device}
@@ -242,6 +249,8 @@ export function DeviceFiles() {
           <DevicesView
             devices={devices}
             thisDeviceId={thisDevice.deviceId}
+            connecting={thisDevice.register.isPending}
+            onConnect={() => thisDevice.register.mutate()}
             onChanged={(removedId) => {
               if (removedId && removedId === thisDevice.deviceId) thisDevice.forget();
               refreshAll();
@@ -251,18 +260,26 @@ export function DeviceFiles() {
       </div>
 
       {/* The one primary action on this page lives in the thumb zone on
-          phones (just above the tab bar) and inline on wider screens. */}
+          phones (just above the tab bar) and inline on wider screens. The
+          empty Files tab already offers it under the mascot, so it is not
+          repeated there. */}
       <input ref={sendInputRef} type="file" multiple className="hidden" onChange={onPickToSend} />
-      <div className="fixed inset-x-0 bottom-(--sz-calc-14) z-20 border-t border-border bg-background px-4 py-3 md:static md:border-0 md:bg-transparent md:p-0">
-        <Button
-          className="h-12 w-full text-base md:h-10 md:w-auto md:text-sm"
-          onClick={() => sendInputRef.current?.click()}
+      <Button
+        className="hidden md:inline-flex"
+        onClick={() => sendInputRef.current?.click()}
+        disabled={upload.isPending}
+      >
+        <Upload className="h-4 w-4" />
+        {upload.isPending ? "Sending…" : "Send a file to your agents"}
+      </Button>
+      {tab === "files" && !files.isLoading && (files.data?.length ?? 0) === 0 ? null : (
+        <ThumbAction
+          label={upload.isPending ? "Sending…" : "Send a file"}
+          icon={Upload}
           disabled={upload.isPending}
-        >
-          <Upload className="h-4 w-4" />
-          {upload.isPending ? "Sending…" : "Send a file to your agents"}
-        </Button>
-      </div>
+          onClick={() => sendInputRef.current?.click()}
+        />
+      )}
     </div>
   );
 }
@@ -493,6 +510,16 @@ function RequestsView({
   thisDeviceId: string | null;
   onChanged: () => void;
 }) {
+  const { pushToast } = useToastActions();
+  const decline = useUndoableAction({
+    commit: (requestId) =>
+      deviceFilesApi.declineRequest(requestId, { deviceId: thisDeviceId }).then(onChanged, (error: unknown) => {
+        pushToast({ title: "Could not decline", body: errorMessage(error), tone: "error" });
+        throw error;
+      }),
+  });
+  const waiting = pending.filter((request) => !decline.hiddenIds.has(request.id));
+
   if (loading) return <PageSkeleton variant="list" />;
   if (pending.length === 0 && resolved.length === 0) {
     return (
@@ -505,11 +532,11 @@ function RequestsView({
   }
   return (
     <div className="space-y-6">
-      {pending.length > 0 ? (
+      {waiting.length > 0 ? (
         <div className="space-y-3">
           <SectionLabel>Waiting on you</SectionLabel>
           <ul className="space-y-3">
-            {pending.map((request) => (
+            {waiting.map((request) => (
               <RequestCard
                 key={request.id}
                 request={request}
@@ -517,6 +544,7 @@ function RequestsView({
                 deviceName={deviceName}
                 thisDeviceId={thisDeviceId}
                 onChanged={onChanged}
+                onDecline={() => decline.run(request.id, `Declined “${request.title}”`)}
               />
             ))}
           </ul>
@@ -560,12 +588,14 @@ function RequestCard({
   deviceName,
   thisDeviceId,
   onChanged,
+  onDecline,
 }: {
   request: DeviceFileRequest;
   agentName: (id: string | null) => string | null;
   deviceName: (id: string | null) => string | null;
   thisDeviceId: string | null;
   onChanged: () => void;
+  onDecline: () => void;
 }) {
   const { pushToast } = useToastActions();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -581,19 +611,18 @@ function RequestCard({
         devicePath: input.devicePath ?? null,
       }),
     onSuccess: () => {
+      haptic("success");
       pushToast({ title: "Sent", body: `${agentName(request.requestedByAgentId) ?? "The requester"} has the file now.`, tone: "success" });
       onChanged();
     },
-    onError: (error) => pushToast({ title: "Could not send the file", body: errorMessage(error), tone: "error" }),
-  });
-  const decline = useMutation({
-    mutationFn: () => deviceFilesApi.declineRequest(request.id, { deviceId: thisDeviceId }),
-    onSuccess: onChanged,
-    onError: (error) => pushToast({ title: "Could not decline", body: errorMessage(error), tone: "error" }),
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Could not send the file", body: errorMessage(error), tone: "error" });
+    },
   });
 
   const requester = request.requestedByAgentId ? agentName(request.requestedByAgentId) : "A board member";
-  const busy = fulfill.isPending || decline.isPending;
+  const busy = fulfill.isPending;
 
   return (
     <li className="rounded-lg border border-border bg-card p-4">
@@ -651,7 +680,7 @@ function RequestCard({
           >
             {fulfill.isPending ? "Sending…" : inShared ? "Pick another" : "Choose file"}
           </Button>
-          <Button variant="ghost" className="h-11" disabled={busy} onClick={() => decline.mutate()}>
+          <Button variant="ghost" className="h-11" disabled={busy} onClick={onDecline}>
             Decline
           </Button>
         </div>
@@ -678,14 +707,17 @@ function FilesView({
   onSend: () => void;
 }) {
   const { pushToast } = useToastActions();
-  const remove = useMutation({
-    mutationFn: (fileId: string) => deviceFilesApi.deleteFile(fileId),
-    onSuccess: onChanged,
-    onError: (error) => pushToast({ title: "Could not delete", body: errorMessage(error), tone: "error" }),
+  const remove = useUndoableAction({
+    commit: (fileId) =>
+      deviceFilesApi.deleteFile(fileId).then(onChanged, (error: unknown) => {
+        pushToast({ title: "Could not delete", body: errorMessage(error), tone: "error" });
+        throw error;
+      }),
   });
+  const visible = files.filter((file) => !remove.hiddenIds.has(file.id));
 
   if (loading) return <PageSkeleton variant="list" />;
-  if (files.length === 0) {
+  if (visible.length === 0) {
     return (
       <EmptyState
         icon={Upload}
@@ -698,8 +730,8 @@ function FilesView({
     );
   }
 
-  const toThisDevice = files.filter((file) => thisDeviceId && file.targetDeviceId === thisDeviceId);
-  const rest = files.filter((file) => !(thisDeviceId && file.targetDeviceId === thisDeviceId));
+  const toThisDevice = visible.filter((file) => thisDeviceId && file.targetDeviceId === thisDeviceId);
+  const rest = visible.filter((file) => !(thisDeviceId && file.targetDeviceId === thisDeviceId));
 
   const origin = (file: DeviceFile) => {
     if (file.sourceDeviceId) return `from ${deviceName(file.sourceDeviceId)}`;
@@ -751,11 +783,7 @@ function FilesView({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   className="text-destructive"
-                  onSelect={() => {
-                    if (window.confirm(`Delete ${file.filename}? Agents will no longer be able to download it.`)) {
-                      remove.mutate(file.id);
-                    }
-                  }}
+                  onSelect={() => remove.run(file.id, `Deleted ${file.filename}`)}
                 >
                   <Trash2 className="h-4 w-4" />
                   Delete
@@ -776,10 +804,12 @@ function FilesView({
           {renderList(toThisDevice)}
         </div>
       ) : null}
-      <div className="space-y-2">
-        {toThisDevice.length > 0 ? <SectionLabel>All files</SectionLabel> : null}
-        {renderList(rest)}
-      </div>
+      {rest.length > 0 ? (
+        <div className="space-y-2">
+          {toThisDevice.length > 0 ? <SectionLabel>All files</SectionLabel> : null}
+          {renderList(rest)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -787,10 +817,14 @@ function FilesView({
 function DevicesView({
   devices,
   thisDeviceId,
+  connecting,
+  onConnect,
   onChanged,
 }: {
   devices: CompanyDevice[];
   thisDeviceId: string | null;
+  connecting: boolean;
+  onConnect: () => void;
   onChanged: (removedId?: string) => void;
 }) {
   const { pushToast } = useToastActions();
@@ -805,25 +839,34 @@ function DevicesView({
     },
     onError: (error) => pushToast({ title: "Could not rename", body: errorMessage(error), tone: "error" }),
   });
-  const remove = useMutation({
-    mutationFn: (id: string) => deviceFilesApi.removeDevice(id),
-    onSuccess: (_result, id) => onChanged(id),
-    onError: (error) => pushToast({ title: "Could not remove", body: errorMessage(error), tone: "error" }),
+  const remove = useUndoableAction({
+    commit: (id) =>
+      deviceFilesApi.removeDevice(id).then(
+        () => onChanged(id),
+        (error: unknown) => {
+          pushToast({ title: "Could not remove", body: errorMessage(error), tone: "error" });
+          throw error;
+        },
+      ),
   });
+  const visible = devices.filter((device) => !remove.hiddenIds.has(device.id));
 
-  if (devices.length === 0) {
+  if (visible.length === 0) {
     return (
       <EmptyState
         icon={Smartphone}
         title="No devices connected"
-        message="Connect a phone or browser above so agents can reach it."
+        message="Connect this phone or browser so agents can ask it for files."
+        action={connecting ? "Connecting…" : thisDeviceId ? undefined : "Connect this device"}
+        onAction={connecting || thisDeviceId ? undefined : onConnect}
+        hideActionIcon
       />
     );
   }
 
   return (
     <ul className="divide-y divide-border rounded-lg border border-border bg-card">
-      {devices.map((device) => {
+      {visible.map((device) => {
         const Icon = platformIconFor(device);
         const isThis = device.id === thisDeviceId;
         return (
@@ -839,7 +882,15 @@ function DevicesView({
                     if (name) rename.mutate({ id: device.id, name });
                   }}
                 >
-                  <Input value={draftName} onChange={(event) => setDraftName(event.target.value)} autoFocus aria-label="Device name" />
+                  <Input
+                    value={draftName}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    autoFocus
+                    autoCapitalize="words"
+                    enterKeyHint="done"
+                    maxLength={120}
+                    aria-label="Device name"
+                  />
                   <Button type="submit" size="sm" disabled={rename.isPending || !draftName.trim()}>
                     Save
                   </Button>
@@ -883,9 +934,7 @@ function DevicesView({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
-                    onSelect={() => {
-                      if (window.confirm(`Remove ${device.name}? Agents will stop sending requests to it.`)) remove.mutate(device.id);
-                    }}
+                    onSelect={() => remove.run(device.id, `Removed ${device.name}`)}
                   >
                     <Trash2 className="h-4 w-4" />
                     Remove

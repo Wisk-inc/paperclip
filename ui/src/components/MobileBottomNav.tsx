@@ -11,6 +11,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
+import { haptic } from "../lib/haptics";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 
@@ -101,10 +102,13 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
               <button
                 key={item.label}
                 type="button"
-                onClick={item.onClick}
-                className="flex min-w-0 flex-col items-center justify-center gap-1 text-(length:--text-micro) font-medium text-foreground"
+                onClick={() => {
+                  haptic("tick");
+                  item.onClick();
+                }}
+                className="group flex min-w-0 flex-col items-center justify-center gap-1 text-(length:--text-micro) font-medium text-foreground"
               >
-                <span className="flex h-9 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors duration-150 active:bg-primary/85">
+                <span className="flex h-9 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-(--tp-color-background-color-border-color-box-shadow-opacity-scale) duration-150 group-active:scale-92 group-active:bg-primary/85 motion-reduce:group-active:scale-100">
                   <Icon className="h-5 w-5 stroke-(length:--sw-2_3)" />
                 </span>
                 <span className="sr-only">{item.label}</span>

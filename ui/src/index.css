@@ -273,6 +273,15 @@
   --motion-duration-slow: 360ms;
   --motion-duration-deliberate: 520ms;
 
+  /* App-shell motion (mascot, skeletons, sheets, heroes). Tunable like the
+     tokens below; durations reference the primitives where they can. */
+  --motion-mascot-pose: var(--motion-duration-slow);  /* crossfade between cached mascot poses */
+  --motion-mascot-float: 4800ms;                      /* one idle float cycle */
+  --motion-skeleton-shimmer: 1600ms;                  /* one skeleton highlight sweep */
+  --motion-fab-sheet-enter: var(--motion-duration-slow); /* new-task sheet growing out of the tab-bar button */
+  --motion-fab-sheet-exit: var(--motion-duration-fast);
+  --motion-hero-enter: var(--motion-duration-slow);   /* empty-state hero rising in */
+
   /* State/component-scoped — grouped for the tweak panel (tunable) */
   --motion-marker-enter: var(--motion-duration-base);
   --motion-bubble-enter: var(--motion-duration-fast);
@@ -858,6 +867,8 @@
     --motion-scroll-pill-enter: 0ms;
     --motion-scroll-pill-exit: 0ms;
     --motion-pane-glide: 0ms;
+    --motion-mascot-float: 0ms;
+    --motion-skeleton-shimmer: 0ms;
   }
 }
 
@@ -1351,6 +1362,132 @@
 }
 
 /* Shimmer text effect for active "Working" state — Cursor-style sweep */
+/* ── App-shell motion ──────────────────────────────────────────────────────
+   Depth ladder used across the shell (low → high): page content (0),
+   sticky headers (z-20), phone tab bar and pinned action bars (z-30),
+   drawer scrim (z-40), sheets/dialogs/menus with their scrims (z-50),
+   toasts (--z-120), skip link (--z-200). New surfaces pick a rung here
+   instead of inventing a z-index. */
+
+/* Mascot: every pose stays mounted; only opacity and scale change. */
+.mascot-layer {
+  transition:
+    opacity var(--motion-mascot-pose) var(--motion-ease-standard),
+    transform var(--motion-mascot-pose) var(--motion-ease-out-expo);
+}
+.mascot-layer[data-active="false"] {
+  opacity: 0;
+  transform: scale(0.92);
+}
+.mascot-layer[data-active="true"] {
+  opacity: 1;
+  transform: scale(1);
+}
+/* The stills step back once the live character is drawn over them. */
+.mascot-stills {
+  transition: opacity var(--motion-mascot-pose) var(--motion-ease-standard);
+}
+.mascot-stills[data-hidden="true"] {
+  opacity: 0;
+}
+@keyframes mascot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mascot-float { animation: mascot-float var(--motion-mascot-float) ease-in-out infinite; }
+}
+
+/* Empty-state hero: mascot, copy, and action rise in together. */
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(calc(var(--spacing) * 2)); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-enter { animation: hero-enter var(--motion-hero-enter) var(--motion-ease-out-expo) both; }
+}
+
+/* Skeleton "tombstones": a soft highlight sweeps across the placeholder. */
+@layer components {
+  [data-slot="skeleton"] {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  [data-slot="skeleton"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklch, var(--foreground) 7%, transparent),
+      transparent
+    );
+  }
+}
+@keyframes skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="skeleton"]::after {
+    animation: skeleton-shimmer var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
+  }
+}
+
+/* Scrolling inside a sheet or dialog stops at its edge instead of dragging
+   the page behind it (the scrim already says that page is inactive). */
+@layer base {
+  [data-slot="dialog-content"],
+  [data-slot="sheet-content"],
+  [data-slot="alert-dialog-content"] {
+    overscroll-behavior: contain;
+  }
+}
+
+/* Chat input "perceived thinking": while a message is sending or an agent
+   is answering, a soft sheen sweeps across the input box. It is a
+   background-image layer, so it never changes layout or stacking. */
+@keyframes composer-awaiting {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .paperclip-task-chat-composer[data-awaiting="true"] {
+    background-image: linear-gradient(
+      100deg,
+      transparent 35%,
+      color-mix(in oklch, var(--foreground) 6%, transparent) 50%,
+      transparent 65%
+    );
+    background-size: 250% 100%;
+    background-repeat: no-repeat;
+    animation: composer-awaiting var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
+  }
+}
+
+/* On phones the new-task sheet grows out of the centered tab-bar button
+   (bottom center) instead of dropping in from the top. */
+@keyframes fab-sheet-in {
+  from { opacity: 0; transform: translateY(12%) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fab-sheet-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8%) scale(0.94); }
+}
+@media (max-width: 639px) and (prefers-reduced-motion: no-preference) {
+  .fab-sheet[data-state="open"] {
+    transform-origin: 50% 100%;
+    animation: fab-sheet-in var(--motion-fab-sheet-enter) var(--motion-ease-out-expo) both;
+  }
+  .fab-sheet[data-state="closed"] {
+    transform-origin: 50% 100%;
+    animation: fab-sheet-out var(--motion-fab-sheet-exit) var(--motion-ease-standard) both;
+  }
+}
+
 @keyframes shimmer-text-slide {
   0% { background-position: 100% center; }
   60% { background-position: 0% center; }
@@ -2818,9 +2955,10 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --tp-width-opacity: width,opacity; /* Extracted from ui/src/components/OnboardingWizard.tsx (transition-[width,opacity]). */
   --tp-background-color-right: background-color,right; /* Extracted from ui/src/components/ScrollToBottom.tsx (transition-[background-color,right]). */
   --tp-background-color-border-color-color: background-color,border-color,color; /* Extracted from ui/src/components/SystemNotice.tsx (transition-[background-color,border-color,color]). */
-  --tp-transform-opacity: transform,opacity; /* Extracted from ui/src/components/ToastViewport.tsx (transition-[transform,opacity]). */
+  --tp-transform-opacity: transform,translate,scale,opacity; /* Toasts and send buttons. Tailwind v4 translate and scale utilities set the individual translate/scale properties, so they are listed next to transform. */
   --tp-color-box-shadow: color,box-shadow; /* Extracted from ui/src/components/ui/badge.tsx (transition-[color,box-shadow]). */
-  --tp-color-background-color-border-color-box-shadow-opacity: color,background-color,border-color,box-shadow,opacity; /* Extracted from ui/src/components/ui/button.tsx (transition-[color,background-color,border-color,box-shadow,opacity]). */
+  --tp-color-background-color-border-color-box-shadow-opacity: color,background-color,border-color,box-shadow,opacity;
+  --tp-color-background-color-border-color-box-shadow-opacity-scale: color,background-color,border-color,box-shadow,opacity,scale; /* Buttons: color states plus the pressed-state scale. */ /* Extracted from ui/src/components/ui/button.tsx (transition-[color,background-color,border-color,box-shadow,opacity]). */
   --tp-border-color-background-color: border-color,background-color; /* Extracted from ui/src/components/ui/radio-card.tsx (transition-[border-color,background-color]). */
   --tp-color-background-color-border-color-box-shadow: color,background-color,border-color,box-shadow; /* Extracted from ui/src/components/ui/tabs.tsx (transition-[color,background-color,border-color,box-shadow]). */
   --tp-grid-template-rows-opacity: grid-template-rows,opacity; /* Extracted from ui/src/pages/CompanySkills.tsx (transition-[grid-template-rows,opacity]). */

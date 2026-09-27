@@ -668,7 +668,7 @@ export function Layout() {
           {isMobile && sidebarOpen && (
             <button
               type="button"
-              className="fixed inset-0 z-40 bg-black/50"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
               onClick={() => setSidebarOpen(false)}
               aria-label="Close sidebar"
             />

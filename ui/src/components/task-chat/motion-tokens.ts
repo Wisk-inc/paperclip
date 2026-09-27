@@ -67,6 +67,13 @@ export const MOTION_TOKENS: MotionTokenDef[] = [
   { name: "--motion-scrollbar-idle-delay", group: "States", kind: "time", min: 0, max: 2000, step: 10 },
   { name: "--motion-pane-glide", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-side-panel-tab", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
+  // App shell (mascot, skeletons, sheets, heroes)
+  { name: "--motion-mascot-pose", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
+  { name: "--motion-mascot-float", group: "App shell", kind: "time", min: 0, max: 10000, step: 100 },
+  { name: "--motion-skeleton-shimmer", group: "App shell", kind: "time", min: 0, max: 4000, step: 50 },
+  { name: "--motion-fab-sheet-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
+  { name: "--motion-fab-sheet-exit", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
+  { name: "--motion-hero-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
 ];
 
 /** Common easing presets offered by the tweak panel's easing picker. */

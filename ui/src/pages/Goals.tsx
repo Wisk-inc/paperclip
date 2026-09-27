@@ -7,6 +7,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { GoalTree } from "../components/GoalTree";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Target, Plus } from "lucide-react";
@@ -41,21 +42,23 @@ export function Goals() {
       {goals && goals.length === 0 && (
         <EmptyState
           icon={Target}
-          message="No goals yet."
-          action="Add Goal"
+          title="No goals yet"
+          message="Goals give your agents a direction. Tasks and projects roll up to them."
+          action="Add goal"
           onAction={() => openNewGoal()}
         />
       )}
 
       {goals && goals.length > 0 && (
         <>
-          <div className="flex items-center justify-start">
+          <div className="hidden items-center justify-start md:flex">
             <Button size="sm" variant="outline" onClick={() => openNewGoal()}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               New Goal
             </Button>
           </div>
           <GoalTree goals={goals} goalLink={(goal) => `/goals/${goal.id}`} />
+          <ThumbAction label="New goal" onClick={() => openNewGoal()} />
         </>
       )}
     </div>

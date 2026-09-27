@@ -50,6 +50,8 @@ interface AutomaNativeRaw {
   getIncomingShares(): string;
   clearIncomingShares(): void;
   setDarkTheme?(dark: boolean): void;
+  /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
+  haptic?(kind: string): void;
 }
 
 declare global {
@@ -153,5 +155,12 @@ export const automaNative = {
   },
   setDarkTheme(dark: boolean) {
     rawBridge()?.setDarkTheme?.(dark);
+  },
+  /** Returns false when the app build has no haptic bridge, so callers can fall back. */
+  haptic(kind: string): boolean {
+    const raw = rawBridge();
+    if (!raw?.haptic) return false;
+    raw.haptic(kind);
+    return true;
   },
 };
