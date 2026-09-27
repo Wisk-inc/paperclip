@@ -7,7 +7,7 @@ const SURFACES = [
     description: "Request-scoped usage and billed runs from cost_events.",
     icon: Database,
     points: ["tokens + billed dollars", "provider, biller, model", "subscription and overage aware"],
-    tone: "from-sky-500/12 via-sky-500/6 to-transparent",
+    tone: "from-zinc-500/12 via-zinc-500/6 to-transparent",
   },
   {
     title: "Finance ledger",

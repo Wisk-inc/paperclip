@@ -77,7 +77,7 @@ const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
   critical: { accent: "bg-red-500", dot: "bg-red-500", label: "Critical" },
   high: { accent: "bg-orange-500", dot: "bg-orange-500", label: "High" },
   medium: { accent: "bg-yellow-500", dot: "bg-yellow-500", label: "Medium" },
-  low: { accent: "bg-blue-500", dot: "bg-blue-500", label: "Low" },
+  low: { accent: "bg-zinc-500", dot: "bg-zinc-500", label: "Low" },
 };
 
 export function severityStyle(severity: AttentionSeverity): SeverityStyle {

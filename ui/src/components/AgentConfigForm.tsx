@@ -3905,7 +3905,7 @@ export function ModelDropdown({
               <span className="block w-full text-left truncate font-mono text-xs" title={detectedModel}>
                 {models.find((m) => m.id === detectedModel)?.label ?? detectedModel}
               </span>
-              <Badge variant="outline" className="ml-auto text-(length:--text-nano) px-1.5 bg-blue-500/15 text-blue-400 border-blue-500/20">
+              <Badge variant="outline" className="ml-auto text-(length:--text-nano) px-1.5 bg-zinc-500/15 text-zinc-400 border-zinc-500/20">
                 detected
               </Badge>
             </button>
@@ -3929,7 +3929,7 @@ export function ModelDropdown({
                   <span className="block w-full text-left truncate font-mono text-xs" title={candidate}>
                     {entry?.label ?? candidate}
                   </span>
-                  <Badge variant="outline" className="ml-auto text-(length:--text-nano) px-1.5 bg-sky-500/15 text-sky-400 border-sky-500/20">
+                  <Badge variant="outline" className="ml-auto text-(length:--text-nano) px-1.5 bg-zinc-500/15 text-zinc-400 border-zinc-500/20">
                     config
                   </Badge>
                 </button>

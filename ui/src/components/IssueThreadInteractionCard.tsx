@@ -248,8 +248,8 @@ function statusClasses(status: IssueThreadInteraction["status"]) {
       };
     default:
       return {
-        shell: "border-sky-500/70 bg-transparent",
-        badge: "border-sky-500/70 bg-sky-500/10 text-sky-900 dark:bg-sky-500/15 dark:text-sky-100",
+        shell: "border-zinc-500/70 bg-transparent",
+        badge: "border-zinc-500/70 bg-zinc-500/10 text-zinc-900 dark:bg-zinc-500/15 dark:text-zinc-100",
       };
   }
 }
@@ -311,8 +311,8 @@ function planStatusClasses(
       };
     default:
       return {
-        shell: "border-2 border-violet-500/80 bg-transparent",
-        badge: "border-violet-500/60 bg-violet-500/10 text-violet-900 dark:bg-violet-500/15 dark:text-violet-100",
+        shell: "border-2 border-zinc-500/80 bg-transparent",
+        badge: "border-zinc-500/60 bg-zinc-500/10 text-zinc-900 dark:bg-zinc-500/15 dark:text-zinc-100",
         label: "In review",
         Icon: FileText,
       };
@@ -512,8 +512,8 @@ function toolActionStatusClasses(state: ToolActionCardState): {
       };
     default:
       return {
-        shell: "border-2 border-violet-500/80 bg-transparent",
-        badge: "border-violet-500/60 bg-violet-500/10 text-violet-900 dark:bg-violet-500/15 dark:text-violet-100",
+        shell: "border-2 border-zinc-500/80 bg-transparent",
+        badge: "border-zinc-500/60 bg-zinc-500/10 text-zinc-900 dark:bg-zinc-500/15 dark:text-zinc-100",
         label: "Awaiting approval",
         Icon: ShieldAlert,
       };
@@ -998,8 +998,8 @@ function QuestionOptionButton({
       className={cn(
         "w-full rounded-sm border px-4 py-3 text-left transition-colors outline-none focus-visible:border-ring focus-visible:ring-(length:--rad-3) focus-visible:ring-ring/50",
         selected
-          ? "border-sky-500/80 bg-sky-500/10 text-sky-950 dark:border-sky-400/80 dark:bg-sky-400/15 dark:text-sky-50"
-          : "border-border/70 bg-transparent text-foreground hover:border-sky-500/70 hover:bg-sky-500/10 dark:hover:border-sky-400/70 dark:hover:bg-sky-400/10",
+          ? "border-zinc-500/80 bg-zinc-500/10 text-zinc-950 dark:border-zinc-400/80 dark:bg-zinc-400/15 dark:text-zinc-50"
+          : "border-border/70 bg-transparent text-foreground hover:border-zinc-500/70 hover:bg-zinc-500/10 dark:hover:border-zinc-400/70 dark:hover:bg-zinc-400/10",
       )}
       id={id}
       onClick={onClick}
@@ -1007,7 +1007,7 @@ function QuestionOptionButton({
       <div
         className={cn(
           "text-sm font-medium",
-          selected ? "text-sky-950 dark:text-sky-50" : "text-foreground",
+          selected ? "text-zinc-950 dark:text-zinc-50" : "text-foreground",
         )}
       >
         {label}
@@ -1017,7 +1017,7 @@ function QuestionOptionButton({
           className={cn(
             "mt-1 text-sm leading-6",
             selected
-              ? "text-sky-900/80 dark:text-sky-100/80"
+              ? "text-zinc-900/80 dark:text-zinc-100/80"
               : "text-muted-foreground",
           )}
         >
@@ -1284,7 +1284,7 @@ function AskUserQuestionsCard({
                       className={cn(
                         "text-sm font-medium underline underline-offset-4 transition-colors outline-none focus-visible:ring-(length:--rad-3) focus-visible:ring-ring/50",
                         otherActiveQuestions[question.id]
-                          ? "text-sky-700 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
+                          ? "text-zinc-700 hover:text-zinc-800 dark:text-zinc-300 dark:hover:text-zinc-200"
                           : "text-muted-foreground hover:text-foreground",
                       )}
                       onClick={() =>
@@ -1477,7 +1477,7 @@ function RequestConfirmationTargetChip({
     tone === "default"
       ? "border-border/70 bg-transparent text-foreground"
       : "border-border/60 bg-transparent text-muted-foreground",
-    href && "transition-colors hover:border-sky-500/70 hover:bg-sky-500/10",
+    href && "transition-colors hover:border-zinc-500/70 hover:bg-zinc-500/10",
   );
   const content = (
     <>
@@ -2261,8 +2261,8 @@ function connectionAuthorizationStatusClasses(
   switch (state) {
     case "actionable":
       return {
-        shell: "border-2 border-sky-500/70 bg-transparent",
-        badge: "border-sky-500/60 bg-sky-500/10 text-sky-900 dark:bg-sky-500/15 dark:text-sky-100",
+        shell: "border-2 border-zinc-500/70 bg-transparent",
+        badge: "border-zinc-500/60 bg-zinc-500/10 text-zinc-900 dark:bg-zinc-500/15 dark:text-zinc-100",
         label: "Action required",
         Icon: KeyRound,
       };
@@ -2814,7 +2814,7 @@ function CheckboxOptionRow({
       htmlFor={id}
       className={cn(
         "flex cursor-pointer items-start gap-2.5 border-b border-border/60 px-3 py-2 last:border-b-0 transition-colors",
-        checked ? "bg-sky-500/10" : "hover:bg-sky-500/5",
+        checked ? "bg-zinc-500/10" : "hover:bg-zinc-500/5",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
@@ -3928,7 +3928,7 @@ function ResolvedByAgentChip() {
       <TooltipTrigger asChild>
         <Badge
           variant="outline"
-          className="ml-1 gap-1 border-indigo-500/50 py-0 text-[length:--text-micro] text-indigo-700 dark:text-indigo-200"
+          className="ml-1 gap-1 border-zinc-500/50 py-0 text-[length:--text-micro] text-zinc-700 dark:text-zinc-200"
           data-testid="interaction-resolved-by-agent-chip"
         >
           <Bot className="h-3 w-3" />

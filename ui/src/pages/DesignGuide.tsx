@@ -812,8 +812,8 @@ export function DesignGuide() {
         <SubSection title="Run invocation badges">
           <div className="flex items-center gap-2 flex-wrap">
             {[
-              ["timer", "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"],
-              ["assignment", "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"],
+              ["timer", "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"],
+              ["assignment", "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"],
               ["on_demand", "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300"],
               ["automation", "bg-muted text-muted-foreground"],
             ].map(([label, cls]) => (
@@ -1600,14 +1600,14 @@ export function DesignGuide() {
           <div className="text-yellow-400">[12:00:05] WARN  Rate limit approaching (80%)</div>
           <div className="text-foreground">[12:00:08] INFO  Task PAP-001 completed</div>
           <div className="text-red-400">[12:00:12] ERROR Connection timeout to upstream service</div>
-          <div className="text-blue-300">[12:00:12] SYS   Retrying connection in 5s...</div>
+          <div className="text-zinc-300">[12:00:12] SYS   Retrying connection in 5s...</div>
           <div className="text-foreground">[12:00:17] INFO  Reconnected successfully</div>
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-blue-400 animate-pulse" />
-              <span className="inline-flex h-full w-full rounded-full bg-blue-500" />
+              <span className="absolute inline-flex h-full w-full rounded-full bg-zinc-400 animate-pulse" />
+              <span className="inline-flex h-full w-full rounded-full bg-zinc-500" />
             </span>
-            <span className="text-blue-600 dark:text-blue-400">Live</span>
+            <span className="text-zinc-600 dark:text-zinc-400">Live</span>
           </div>
         </div>
       </Section>

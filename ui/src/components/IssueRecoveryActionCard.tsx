@@ -182,12 +182,12 @@ const STATE_TONE: Record<RecoveryCardCardState, {
   in_progress: {
     label: "RECOVERY IN PROGRESS",
     containerClass:
-      "border-sky-300/70 bg-sky-50/80 text-sky-950 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100",
-    iconWrapClass: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200",
-    iconClass: "text-sky-700 dark:text-sky-300",
-    labelClass: "text-sky-900 dark:text-sky-200",
+      "border-zinc-300/70 bg-zinc-50/80 text-zinc-950 dark:border-zinc-500/40 dark:bg-zinc-500/10 dark:text-zinc-100",
+    iconWrapClass: "bg-zinc-100 text-zinc-800 dark:bg-zinc-500/20 dark:text-zinc-200",
+    iconClass: "text-zinc-700 dark:text-zinc-300",
+    labelClass: "text-zinc-900 dark:text-zinc-200",
     Icon: RefreshCw,
-    divider: "border-sky-300/60 dark:border-sky-500/30",
+    divider: "border-zinc-300/60 dark:border-zinc-500/30",
   },
   observe_only: {
     label: "OBSERVING ACTIVE RUN",
@@ -656,7 +656,7 @@ function RepairWorkspace({
       variant="outline"
       disabled={pending || disabled}
       data-testid="recovery-action-repair-trigger"
-      className="border-sky-400/50 text-sky-700 hover:bg-sky-500/10 dark:border-sky-500/40 dark:text-sky-300"
+      className="border-zinc-400/50 text-zinc-700 hover:bg-zinc-500/10 dark:border-zinc-500/40 dark:text-zinc-300"
     >
       {pending ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -692,7 +692,7 @@ function RepairWorkspace({
         <div className="space-y-1">
           <div
             id="recovery-repair-title"
-            className="flex items-center gap-1.5 text-(length:--text-micro) font-semibold uppercase tracking-(--tracking-eyebrow) text-sky-700 dark:text-sky-300"
+            className="flex items-center gap-1.5 text-(length:--text-micro) font-semibold uppercase tracking-(--tracking-eyebrow) text-zinc-700 dark:text-zinc-300"
           >
             <Wrench className="h-3.5 w-3.5" aria-hidden />
             Repair workspace
@@ -705,7 +705,7 @@ function RepairWorkspace({
         </div>
         <dl
           data-testid="recovery-repair-restated"
-          className="space-y-1.5 rounded-md border border-sky-400/30 bg-sky-500/5 px-2.5 py-2 text-(length:--text-micro)"
+          className="space-y-1.5 rounded-md border border-zinc-400/30 bg-zinc-500/5 px-2.5 py-2 text-(length:--text-micro)"
         >
           <div className="flex items-center justify-between gap-2">
             <dt className="shrink-0 text-muted-foreground">Dirty changes</dt>

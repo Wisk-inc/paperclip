@@ -175,7 +175,7 @@ function DeliveryBadge({ mode }: { mode: "env" | "api" }) {
     return (
       <Badge
         variant="outline"
-        className="h-5 gap-1 px-1.5 text-(length:--text-nano) font-normal border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+        className="h-5 gap-1 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
       >
         <Variable className="size-3" /> Env var
       </Badge>
@@ -184,7 +184,7 @@ function DeliveryBadge({ mode }: { mode: "env" | "api" }) {
   return (
     <Badge
       variant="outline"
-      className="h-5 gap-1 px-1.5 text-(length:--text-nano) font-normal border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+      className="h-5 gap-1 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
     >
       <ServerCog className="size-3" /> API access
     </Badge>

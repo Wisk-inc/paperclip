@@ -134,7 +134,7 @@ function LiveWorkGlyph({ status }: { status: WaitingBlockerStatus }) {
   if (status === "done") {
     return (
       <CheckCircle2
-        className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400"
+        className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400"
         role="img"
         aria-label={label}
       />
@@ -143,13 +143,13 @@ function LiveWorkGlyph({ status }: { status: WaitingBlockerStatus }) {
   if (status === "running") {
     return (
       <span className="flex h-3.5 w-3.5 items-center justify-center" role="img" aria-label={label}>
-        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400" aria-hidden />
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-zinc-400" aria-hidden />
       </span>
     );
   }
   return (
     <Circle
-      className="h-3.5 w-3.5 text-blue-300 dark:text-blue-500/50"
+      className="h-3.5 w-3.5 text-zinc-300 dark:text-zinc-500/50"
       role="img"
       aria-label={label}
     />
@@ -171,14 +171,14 @@ function LiveWorkLink({
     <Link
       to={createIssueDetailPath(issuePathId)}
       className={streamlined
-        ? "flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-blue-800 underline-offset-2 transition-colors hover:bg-accent/50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-blue-200"
-        : "flex min-w-0 items-baseline gap-1 text-blue-800 underline-offset-2 hover:underline dark:text-blue-200"}
+        ? "flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-zinc-800 underline-offset-2 transition-colors hover:bg-accent/50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-zinc-200"
+        : "flex min-w-0 items-baseline gap-1 text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"}
       title={`${blocker.identifier ?? blocker.id.slice(0, 8)} — ${blocker.title}`}
     >
       {streamlined && label ? <span className="shrink-0 font-medium">{label}</span> : null}
       {streamlined ? <LiveWorkGlyph status={status} /> : null}
       <span className="shrink-0 font-mono">{blocker.identifier ?? blocker.id.slice(0, 8)}</span>
-      <span className="truncate text-blue-700/80 dark:text-blue-300/80">{blocker.title}</span>
+      <span className="truncate text-zinc-700/80 dark:text-zinc-300/80">{blocker.title}</span>
     </Link>
   );
 }
@@ -226,11 +226,11 @@ export function TaskChatLiveWorkLinks({
       aria-label="Tasks waiting on live work"
       data-placement={placement}
       data-testid="task-chat-live-work-links"
-      className="flex min-w-0 flex-col gap-1.5 overflow-hidden text-(length:--text-micro) leading-4 text-blue-700 dark:text-blue-300"
+      className="flex min-w-0 flex-col gap-1.5 overflow-hidden text-(length:--text-micro) leading-4 text-zinc-700 dark:text-zinc-300"
     >
       <div className="flex items-center gap-1.5 font-medium">
         <span className="flex h-3.5 w-3.5 items-center justify-center" aria-hidden>
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400" />
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-zinc-400" />
         </span>
         {heading}
       </div>
@@ -243,7 +243,7 @@ export function TaskChatLiveWorkLinks({
           >
             {!streamlined ? (
               <>
-                <span className="w-4 shrink-0 text-right font-mono text-blue-500/80" aria-hidden>
+                <span className="w-4 shrink-0 text-right font-mono text-zinc-500/80" aria-hidden>
                   {index + 1}.
                 </span>
                 <LiveWorkGlyph status={status} />

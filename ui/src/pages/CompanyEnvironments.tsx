@@ -571,9 +571,9 @@ function EnvironmentCustomImageBrowserTerminal({
         // token-extraction: allowlisted — xterm.js terminal theme config; functional third-party option object, not a rendered CSS value.
         background: "#0a0a0a",
         foreground: "#f5f5f5",
-        cursor: "#22d3ee",
+        cursor: "#f5f5f5",
         cursorAccent: "#020617",
-        selectionBackground: "#2563eb55",
+        selectionBackground: "#ffffff40",
       },
     });
     const fitAddon = new FitAddon();

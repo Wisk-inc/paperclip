@@ -3398,7 +3398,7 @@ function StaleDispositionWarningRow({
 // conveyed by color alone — the adjacent title text names the notice.
 const COMPACT_TONE_DOT: Record<SystemNoticeTone, string> = {
   neutral: "bg-muted-foreground/40",
-  info: "bg-sky-500 dark:bg-sky-400",
+  info: "bg-zinc-500 dark:bg-zinc-400",
   success: "bg-emerald-500 dark:bg-emerald-400",
   warning: "bg-amber-500 dark:bg-amber-400",
   danger: "bg-red-500 dark:bg-red-400",

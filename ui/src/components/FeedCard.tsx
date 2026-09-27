@@ -180,7 +180,7 @@ function getIconSpec(
   // Heartbeat — animated when active, static otherwise
   if (action.startsWith("heartbeat.")) {
     if (isActive && action === "heartbeat.invoked") {
-      return { kind: "lucide", Icon: Loader2, color: "text-blue-600 dark:text-blue-400", spin: true };
+      return { kind: "lucide", Icon: Loader2, color: "text-zinc-600 dark:text-zinc-400", spin: true };
     }
     return { kind: "lucide", Icon: Loader2, color: "text-muted-foreground" };
   }
@@ -201,7 +201,7 @@ function getIconSpec(
   // Agent
   switch (action) {
     case "agent.created":
-      return { kind: "lucide", Icon: UserPlus, color: "text-purple-600 dark:text-purple-400" };
+      return { kind: "lucide", Icon: UserPlus, color: "text-zinc-600 dark:text-zinc-400" };
     case "agent.paused":
       return { kind: "lucide", Icon: PauseCircle, color: "text-muted-foreground" };
     case "agent.resumed":
@@ -213,12 +213,12 @@ function getIconSpec(
 
   // Document on issue
   if (action === "issue.document_created" || action === "issue.document_updated") {
-    return { kind: "lucide", Icon: FileText, color: "text-blue-600 dark:text-blue-400" };
+    return { kind: "lucide", Icon: FileText, color: "text-zinc-600 dark:text-zinc-400" };
   }
 
   // Work product / artifact on issue
   if (action.startsWith("issue.work_product_")) {
-    return { kind: "lucide", Icon: Package, color: "text-indigo-600 dark:text-indigo-400" };
+    return { kind: "lucide", Icon: Package, color: "text-zinc-600 dark:text-zinc-400" };
   }
 
   // Comments

@@ -396,13 +396,13 @@ export function FailedRunInboxRow({
                 onClick={onMarkRead}
                 className={cn(
                   "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
-                  "hover:bg-blue-500/20",
+                  "hover:bg-zinc-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
                   "block h-2 w-2 rounded-full transition-opacity duration-300",
-                  "bg-blue-600 dark:bg-blue-400",
+                  "bg-zinc-600 dark:bg-zinc-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>
@@ -545,13 +545,13 @@ function ApprovalInboxRow({
                 onClick={onMarkRead}
                 className={cn(
                   "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
-                  "hover:bg-blue-500/20",
+                  "hover:bg-zinc-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
                   "block h-2 w-2 rounded-full transition-opacity duration-300",
-                  "bg-blue-600 dark:bg-blue-400",
+                  "bg-zinc-600 dark:bg-zinc-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>
@@ -678,13 +678,13 @@ function JoinRequestInboxRow({
                 onClick={onMarkRead}
                 className={cn(
                   "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
-                  "hover:bg-blue-500/20",
+                  "hover:bg-zinc-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
                   "block h-2 w-2 rounded-full transition-opacity duration-300",
-                  "bg-blue-600 dark:bg-blue-400",
+                  "bg-zinc-600 dark:bg-zinc-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>

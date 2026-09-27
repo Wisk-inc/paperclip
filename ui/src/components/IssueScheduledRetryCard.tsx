@@ -79,12 +79,12 @@ export function IssueScheduledRetryCard({
   return (
     <div
       data-testid="issue-scheduled-retry-card"
-      className="mb-3 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-3"
+      className="mb-3 rounded-lg border border-zinc-500/30 bg-zinc-500/5 px-3 py-3"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300">
+            <Badge variant="outline" className="border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300">
               <Clock className="h-3 w-3" aria-hidden="true" />
               {badgeLabel}
             </Badge>

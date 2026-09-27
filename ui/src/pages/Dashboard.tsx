@@ -30,6 +30,7 @@ import { cn, formatCents } from "../lib/utils";
 import { SHOW_TASK_PRIORITY_UI } from "../lib/ui-flags";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
+import { NeedsYouList } from "../components/NeedsYouList";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Card } from "@/components/ui/card";
@@ -373,6 +374,11 @@ export function Dashboard() {
           </button>
         </div>
       )}
+
+      <NeedsYouList
+        companyId={selectedCompanyId!}
+        pendingApprovals={data ? data.pendingApprovals + data.budgets.pendingApprovals : null}
+      />
 
       <ActiveAgentsPanel companyId={selectedCompanyId!} />
 

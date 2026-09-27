@@ -620,7 +620,7 @@ function AdapterPickerList({
                 <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
                   <Badge variant="outline" className={cn(
                     "text-(length:--text-nano) uppercase tracking-wide",
-                    "text-blue-500 border-blue-500/30",
+                    "text-zinc-500 border-zinc-500/30",
                   )}>
                     agent
                   </Badge>
@@ -1765,8 +1765,8 @@ export function CompanyImport() {
                     <Badge variant="outline" className={cn(
                       "text-(length:--text-nano) uppercase tracking-wide",
                       item.kind === "agent"
-                        ? "text-blue-500 border-blue-500/30"
-                        : "text-purple-500 border-purple-500/30",
+                        ? "text-zinc-500 border-zinc-500/30"
+                        : "text-zinc-500 border-zinc-500/30",
                     )}>
                       {item.kind}
                     </Badge>

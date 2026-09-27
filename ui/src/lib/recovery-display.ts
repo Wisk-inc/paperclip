@@ -27,7 +27,7 @@ export const RECOVERY_CHIP_DEFAULT_TONE: Record<
   },
   in_progress: {
     className:
-      "border-sky-500/60 bg-sky-500/15 text-sky-700 dark:text-sky-300",
+      "border-zinc-500/60 bg-zinc-500/15 text-zinc-700 dark:text-zinc-300",
     icon: RefreshCw,
     label: "Recovery in progress",
   },

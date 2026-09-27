@@ -62,12 +62,12 @@ const TONE_TOKENS: Record<SystemNoticeTone, ToneTokens> = {
   },
   info: {
     container:
-      "border-sky-300/70 bg-sky-50/70 dark:border-sky-500/30 dark:bg-sky-500/10",
-    iconWrap: "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200",
+      "border-zinc-300/70 bg-zinc-50/70 dark:border-zinc-500/30 dark:bg-zinc-500/10",
+    iconWrap: "bg-zinc-100 text-zinc-700 dark:bg-zinc-500/20 dark:text-zinc-200",
     icon: Info,
-    iconClass: "text-sky-700 dark:text-sky-300",
-    label: "text-sky-800 dark:text-sky-200",
-    divider: "border-sky-300/50 dark:border-sky-500/30",
+    iconClass: "text-zinc-700 dark:text-zinc-300",
+    label: "text-zinc-800 dark:text-zinc-200",
+    divider: "border-zinc-300/50 dark:border-zinc-500/30",
   },
   success: {
     container:

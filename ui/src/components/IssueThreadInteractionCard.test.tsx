@@ -818,7 +818,7 @@ describe("IssueThreadInteractionCard", () => {
   it("renders a plan confirmation as a distinct state-coloured plan card", () => {
     const pending = renderCard({ interaction: pendingRequestConfirmationInteraction });
     const pendingShell = pending.firstElementChild as HTMLElement;
-    expect(pendingShell.className).toContain("border-violet-500/80");
+    expect(pendingShell.className).toContain("border-zinc-500/80");
     expect(pendingShell.className).not.toContain("border-l-");
     expect(pending.textContent).toContain("Plan");
     expect(pending.textContent).toContain("In review");

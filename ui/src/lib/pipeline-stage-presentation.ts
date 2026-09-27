@@ -8,18 +8,18 @@ const defaultPipelineStageColumnTone = {
 
 export const pipelineStageColumnTones: Record<string, typeof defaultPipelineStageColumnTone> = {
   review: {
-    outer: "border-violet-500/25 bg-violet-50/50 dark:bg-violet-950/15",
-    header: "border-violet-500/15 text-violet-700 dark:text-violet-300",
-    meta: "border-violet-500/15",
-    body: "bg-violet-50/30 dark:bg-violet-950/10",
-    bodyOver: "bg-violet-100/65 dark:bg-violet-950/30",
+    outer: "border-zinc-500/25 bg-zinc-50/50 dark:bg-zinc-950/15",
+    header: "border-zinc-500/15 text-zinc-700 dark:text-zinc-300",
+    meta: "border-zinc-500/15",
+    body: "bg-zinc-50/30 dark:bg-zinc-950/10",
+    bodyOver: "bg-zinc-100/65 dark:bg-zinc-950/30",
   },
   in_review: {
-    outer: "border-violet-500/25 bg-violet-50/50 dark:bg-violet-950/15",
-    header: "border-violet-500/15 text-violet-700 dark:text-violet-300",
-    meta: "border-violet-500/15",
-    body: "bg-violet-50/30 dark:bg-violet-950/10",
-    bodyOver: "bg-violet-100/65 dark:bg-violet-950/30",
+    outer: "border-zinc-500/25 bg-zinc-50/50 dark:bg-zinc-950/15",
+    header: "border-zinc-500/15 text-zinc-700 dark:text-zinc-300",
+    meta: "border-zinc-500/15",
+    body: "bg-zinc-50/30 dark:bg-zinc-950/10",
+    bodyOver: "bg-zinc-100/65 dark:bg-zinc-950/30",
   },
   done: {
     outer: "border-green-500/25 bg-green-50/50 dark:bg-green-950/15",

@@ -2077,7 +2077,7 @@ export function Secrets() {
                                   <TooltipTrigger asChild>
                                     <span
                                       aria-label="Each user provides and owns their own value"
-                                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-violet-500/30 bg-violet-500/5 text-violet-700 dark:text-violet-200"
+                                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-zinc-500/30 bg-zinc-500/5 text-zinc-700 dark:text-zinc-200"
                                     >
                                       <UserRound className="h-3 w-3" />
                                     </span>
@@ -2724,7 +2724,7 @@ export function Secrets() {
             ) : null}
             {secretValueProvider === "user" ? (
               <>
-                <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-2 text-(length:--text-micro) text-violet-800 dark:text-violet-200">
+                <div className="rounded-md border border-zinc-500/30 bg-zinc-500/5 p-2 text-(length:--text-micro) text-zinc-800 dark:text-zinc-200">
                   Every member supplies their own value under My secrets. Agents resolve the responsible
                   user&apos;s value at runtime.
                 </div>
@@ -3036,7 +3036,7 @@ export function Secrets() {
             ) : null}
 
             {vaultForm.provider === "gcp_secret_manager" || vaultForm.provider === "vault" ? (
-              <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-700 dark:text-sky-300">
+              <div className="rounded-md border border-zinc-500/30 bg-zinc-500/5 p-3 text-xs text-zinc-700 dark:text-zinc-300">
                 This provider can save draft routing metadata, but runtime writes and resolution stay disabled until
                 the provider module is implemented and reviewed.
               </div>
@@ -3324,12 +3324,12 @@ function SecretsFiltersPopover({
         <Button
           variant="outline"
           size="icon"
-          className={cn("relative h-8 w-8 shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
+          className={cn("relative h-8 w-8 shrink-0", activeFilterCount > 0 && "text-zinc-600 dark:text-zinc-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
           <Filter className="h-3.5 w-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-(length:--text-nano) font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-600 text-(length:--text-nano) font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -3424,7 +3424,7 @@ function providerConfigStatusTone(status: SecretProviderConfigStatus) {
     case "warning":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
     case "coming_soon":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+      return "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
     case "disabled":
       return "border-muted bg-muted text-muted-foreground";
     default:
@@ -4250,7 +4250,7 @@ function UserSecretDetailsTab({
       <DetailRow label="Usage guidance">
         {definition.usageGuidance ?? <span className="text-muted-foreground">—</span>}
       </DetailRow>
-      <div className="mt-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-2 text-(length:--text-micro) text-violet-800 dark:text-violet-200">
+      <div className="mt-3 rounded-md border border-zinc-500/30 bg-zinc-500/5 p-2 text-(length:--text-micro) text-zinc-800 dark:text-zinc-200">
         No value is stored on this admin row. Each member manages their own value under My secrets.
       </div>
     </dl>
@@ -4530,7 +4530,7 @@ function AgentAccessSection({
                     {envKeys.length > 0 ? (
                       <Badge
                         variant="outline"
-                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       >
                         Env · {envKeys.join(", ")}
                       </Badge>
@@ -4538,7 +4538,7 @@ function AgentAccessSection({
                     {apiAliases.length > 0 ? (
                       <Badge
                         variant="outline"
-                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       >
                         API · {apiAliases.join(", ")}
                       </Badge>
@@ -4722,9 +4722,9 @@ export function SecretUsageTab({ loading, bindings }: { loading: boolean; bindin
                   className={cn(
                     "h-5 px-1.5 text-(length:--text-nano) font-normal",
                     deliveryMode === "api"
-                      ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                      ? "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       : deliveryMode === "env"
-                        ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                        ? "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                         : null,
                   )}
                 >
@@ -4814,7 +4814,7 @@ export function SecretEventsTab({
               {event.secretScope === "user" ? (
                 <Badge
                   variant="outline"
-                  className="border-violet-500/30 bg-violet-500/10 text-(length:--text-nano) text-violet-700 dark:text-violet-300"
+                  className="border-zinc-500/30 bg-zinc-500/10 text-(length:--text-nano) text-zinc-700 dark:text-zinc-300"
                 >
                   User secret
                 </Badge>

@@ -20,7 +20,7 @@ type IconComponent = ComponentType<{ className?: string; "aria-hidden"?: boolean
 
 const VARIANT_STYLES: Record<BlockedReasonVariant, string> = {
   needs_decision:
-    "border-violet-300/70 bg-violet-50 text-violet-800 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300",
+    "border-zinc-300/70 bg-zinc-50 text-zinc-800 dark:border-zinc-500/30 dark:bg-zinc-500/10 dark:text-zinc-300",
   recovery_required:
     "border-cyan-300/70 bg-cyan-50 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300",
   stalled:

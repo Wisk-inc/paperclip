@@ -144,9 +144,9 @@ const issueStatusLabels: Record<IssueStatus, string> = {
 };
 const progressSegmentClasses: Record<IssueStatus, string> = {
   backlog: "bg-muted-foreground/40",
-  todo: "bg-blue-500",
+  todo: "bg-zinc-500",
   in_progress: "bg-yellow-500",
-  in_review: "bg-violet-500",
+  in_review: "bg-zinc-500",
   done: "bg-green-500",
   blocked: "bg-red-500",
   cancelled: "bg-neutral-400",

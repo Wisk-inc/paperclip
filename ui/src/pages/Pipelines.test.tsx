@@ -130,8 +130,8 @@ describe("pipeline stage board presentation", () => {
 
   it("uses type-aware column outlines and backgrounds", () => {
     expect(getPipelineStageColumnTone("working").outer).toContain("border-border");
-    expect(getPipelineStageColumnTone("review").outer).toContain("violet");
-    expect(getPipelineStageColumnTone("in_review").body).toContain("violet");
+    expect(getPipelineStageColumnTone("review").outer).toContain("zinc");
+    expect(getPipelineStageColumnTone("in_review").body).toContain("zinc");
     expect(getPipelineStageColumnTone("done").outer).toContain("green");
     expect(getPipelineStageColumnTone("cancelled").outer).toContain("bg-muted/25");
     expect(getPipelineStageColumnTone("cancelled").outer).toContain("opacity-85");

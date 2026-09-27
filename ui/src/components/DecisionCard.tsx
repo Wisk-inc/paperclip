@@ -187,7 +187,7 @@ function executionRow(
 type CardTone = "pending" | "destructive" | "success" | "partial" | "failed" | "neutral";
 
 const SHELL: Record<CardTone, string> = {
-  pending: "border-sky-500/70",
+  pending: "border-zinc-500/70",
   destructive: "border-2 border-rose-500/80",
   success: "border-emerald-400/70",
   partial: "border-amber-400/70",
@@ -196,7 +196,7 @@ const SHELL: Record<CardTone, string> = {
 };
 
 const BADGE: Record<CardTone, string> = {
-  pending: "border-sky-500/60 bg-sky-500/10 text-sky-900 dark:bg-sky-500/15 dark:text-sky-100",
+  pending: "border-zinc-500/60 bg-zinc-500/10 text-zinc-900 dark:bg-zinc-500/15 dark:text-zinc-100",
   destructive: "border-rose-500/60 bg-rose-500/10 text-rose-800 dark:bg-rose-500/15 dark:text-rose-100",
   success: "border-emerald-500/60 bg-emerald-500/10 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100",
   partial: "border-amber-500/60 bg-amber-500/10 text-amber-900 dark:bg-amber-500/15 dark:text-amber-100",
@@ -209,7 +209,7 @@ function IssueLink({ ref: link }: { ref: DecisionIssueRef | null }) {
   return (
     <a
       href={link.href}
-      className="inline-flex items-center gap-1 rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-xs font-medium text-foreground hover:border-sky-500/70 hover:text-sky-700 dark:hover:text-sky-300"
+      className="inline-flex items-center gap-1 rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-xs font-medium text-foreground hover:border-zinc-500/70 hover:text-zinc-700 dark:hover:text-zinc-300"
     >
       {issueLabel(link, link.id)}
       <ExternalLink className="h-3 w-3" aria-hidden />
@@ -458,7 +458,7 @@ export function DecisionCard({
                     disabled && "cursor-not-allowed opacity-60",
                     destructive
                       ? "border-rose-500/70 bg-rose-500/5 text-foreground hover:border-rose-500 hover:bg-rose-500/10"
-                      : "border-border/70 bg-transparent text-foreground hover:border-sky-500/70 hover:bg-sky-500/10",
+                      : "border-border/70 bg-transparent text-foreground hover:border-zinc-500/70 hover:bg-zinc-500/10",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
