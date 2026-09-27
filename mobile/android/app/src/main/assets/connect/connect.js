@@ -49,6 +49,7 @@
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
+    if (bridge && bridge.haptic) bridge.haptic("tick");
     connect(input.value);
   });
 
@@ -98,4 +99,9 @@
       }
     } catch (e) { /* first run */ }
   }
+
+  // First run: put the cursor in the address field so typing can start at
+  // once. With saved servers, leave the keyboard down: one tap on a recent
+  // server connects.
+  if (recentSection.hidden && !input.value) input.focus();
 })();

@@ -29,6 +29,9 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   the gesture bar, keyboard-aware, portrait and landscape, phones, tablets,
   foldables, and Chromebooks (`resizeableActivity`, no orientation lock).
 - **Launcher shortcuts**: Files, New task, Change server.
+- **Feel**: primary actions sit in the thumb zone, destructive actions have
+  Undo, and taps, sends, limits, and successes use Android's own haptics
+  (they follow the phone's touch-feedback setting; no vibrate permission).
 
 ## Requirements
 

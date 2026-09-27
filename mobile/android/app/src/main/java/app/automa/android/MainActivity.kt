@@ -6,7 +6,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -63,6 +65,8 @@ class MainActivity : ComponentActivity() {
         const val ASSETS_ORIGIN = "https://$ASSETS_HOST"
         const val CONNECT_URL = "$ASSETS_ORIGIN/assets/connect/index.html"
         private const val SHARE_EVENT = "window.dispatchEvent(new Event('automa:incoming-shares'))"
+        /** Gap between the two beats of the success haptic on Android 10 and older. */
+        private const val SUCCESS_BEAT_GAP_MS = 70L
 
         /** Saves `<a download>` blob links (exports) through the bridge; they have no URL a native download could fetch. */
         private const val DOWNLOAD_HOOK = """
@@ -263,6 +267,28 @@ class MainActivity : ComponentActivity() {
         } catch (error: ActivityNotFoundException) {
             pendingFolderCall = null
             bridge.resolve(callId, JSONObject().put("ok", false).put("error", "This device has no folder picker").toString())
+        }
+    }
+
+    /**
+     * Page haptics (see ui/src/lib/haptics.ts). Uses the view's haptic
+     * feedback, so the phone's touch-feedback setting is respected and no
+     * VIBRATE permission is needed.
+     */
+    fun performHaptic(kind: String) {
+        val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        when (kind) {
+            "tick" -> webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            "thud" -> webView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            "warning" -> webView.performHapticFeedback(
+                if (modern) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS,
+            )
+            "success" -> if (modern) {
+                webView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            } else {
+                webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                webView.postDelayed({ webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }, SUCCESS_BEAT_GAP_MS)
+            }
         }
     }
 

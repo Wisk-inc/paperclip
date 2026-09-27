@@ -104,6 +104,13 @@ class AutomaBridge(
         activity.runOnUiThread { activity.applyTheme(dark) }
     }
 
+    /** One of `tick`, `thud`, `success`, `warning`; see ui/src/lib/haptics.ts. */
+    @JavascriptInterface
+    fun haptic(kind: String) {
+        if (!onServerPage() && !onConnectPage()) return
+        activity.runOnUiThread { activity.performHaptic(kind) }
+    }
+
     /** Blob/data downloads created by page scripts (exports, generated files). */
     @JavascriptInterface
     fun saveBase64(filename: String, mimeType: String, base64: String) {
