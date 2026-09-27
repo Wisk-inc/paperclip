@@ -15,3 +15,19 @@ the same sans-serif text stack without relying on host font packages.
 
 Redistribution note: Inter is redistributed under the SIL Open Font License 1.1.
 The bundled WOFF2 files are included unmodified from the upstream v4.1 release.
+
+## Bricolage Grotesque
+
+Automa uses Bricolage Grotesque as its display face (page titles, headline
+numbers, and the wordmark) so headings do not share Inter with body text.
+
+- Upstream project: https://github.com/ateliertriay/bricolage
+- Source file: https://raw.githubusercontent.com/google/fonts/main/ofl/bricolagegrotesque/BricolageGrotesque%5Bopsz%2Cwdth%2Cwght%5D.ttf
+- License: SIL Open Font License 1.1
+- License text: https://github.com/google/fonts/blob/main/ofl/bricolagegrotesque/OFL.txt
+
+Modification note: `BricolageGrotesque-UI.woff2` is a derivative instance
+(width 100, optical size 20, weight axis kept at 400–700) subset to Latin
+characters and converted to WOFF2 with fontTools. The upstream license declares
+no Reserved Font Name; the file is redistributed under the same SIL Open Font
+License 1.1.

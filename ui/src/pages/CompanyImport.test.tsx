@@ -92,7 +92,7 @@ vi.mock("../context/BreadcrumbContext", () => ({
 vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({
     selectedCompanyId: "company-1",
-    selectedCompany: { id: "company-1", name: "Paperclip" },
+    selectedCompany: { id: "company-1", name: "Automa" },
     setSelectedCompanyId: mockSetSelectedCompanyId,
   }),
   useOptionalCompany: () => null,
@@ -1096,7 +1096,7 @@ describe("CompanyImport", () => {
     });
   });
 
-  it("hides Paperclip Runner import configuration while its experimental flag is off", async () => {
+  it("hides Automa Runner import configuration while its experimental flag is off", async () => {
     mockAdaptersApi.list.mockResolvedValue([
       { type: "claude_local", disabled: false },
       { type: "codex_local", disabled: false },
@@ -1110,7 +1110,7 @@ describe("CompanyImport", () => {
     }
   });
 
-  it("offers Paperclip Runner import configuration after its experimental flag is enabled", async () => {
+  it("offers Automa Runner import configuration after its experimental flag is enabled", async () => {
     mockAdaptersApi.list.mockResolvedValue([
       { type: "claude_local", disabled: false },
       { type: "codex_local", disabled: false },

@@ -11,7 +11,9 @@ export function AnimatedPaperclipIcon({ className, ...props }: SVGProps<SVGSVGEl
     >
       <path
         className="paperclip-thinking-icon-path"
-        d="M16 6 l-8.414 8.586 a2.000 2.000 0 0 0 2.828 2.828 l8.414 -8.586 a4.000 4.000 0 1 0 -5.657 -5.657 l-8.379 8.551 a6.000 6.000 0 1 0 8.485 8.485 l8.379 -8.551"
+        d="M4.5 21 L12 3.5 L19.5 21 M14.5 16.5 A2.5 2.5 0 1 1 9.5 16.5 A2.5 2.5 0 1 1 14.5 16.5"
+        // Normalized to the draw animation's dash length (see index.css).
+        pathLength={85.717}
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
@@ -22,7 +24,7 @@ export function AnimatedPaperclipIcon({ className, ...props }: SVGProps<SVGSVGEl
   );
 }
 
-/** Full-page loading state: a large, centered, gray animated paperclip. */
+/** Full-page loading state: a large, centered, gray animated Automa mark. */
 export function PaperclipLoading({ className }: { className?: string }) {
   return (
     <div

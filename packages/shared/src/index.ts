@@ -2600,6 +2600,45 @@ export type {
   EnvironmentSupportStatus,
 } from "./environment-support.js";
 
+export {
+  DEVICE_PLATFORMS,
+  DEVICE_FILE_REQUEST_STATUSES,
+  DEVICE_SHARED_INDEX_MAX_ENTRIES,
+} from "./types/device-files.js";
+export type {
+  DevicePlatform,
+  DeviceFileRequestStatus,
+  DeviceSharedIndexEntry,
+  CompanyDevice,
+  CompanyDeviceWithIndex,
+  DeviceFile,
+  DeviceFileRequest,
+  DeviceFilesOverview,
+  RegisterCompanyDeviceRequest,
+  UpdateCompanyDeviceRequest,
+  ReportDeviceSharedIndexRequest,
+  CreateDeviceFileRequestRequest,
+  DeclineDeviceFileRequestRequest,
+} from "./types/device-files.js";
+export {
+  devicePlatformSchema,
+  deviceFileRequestStatusSchema,
+  deviceSharedPathSchema,
+  deviceClientKeySchema,
+  registerCompanyDeviceSchema,
+  updateCompanyDeviceSchema,
+  deviceSharedIndexEntrySchema,
+  reportDeviceSharedIndexSchema,
+  createDeviceFileRequestSchema,
+  declineDeviceFileRequestSchema,
+  listDeviceFileRequestsQuerySchema,
+  type RegisterCompanyDevice,
+  type UpdateCompanyDevice,
+  type ReportDeviceSharedIndex,
+  type CreateDeviceFileRequest,
+  type DeclineDeviceFileRequest,
+} from "./validators/device-files.js";
+
 export type { AdapterRegistryEntry } from "./types/adapter-registry.js";
 export type {
   FolderKind,

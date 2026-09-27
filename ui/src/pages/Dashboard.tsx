@@ -297,7 +297,7 @@ export function Dashboard() {
       return (
         <EmptyState
           icon={LayoutDashboard}
-          message="Welcome to Paperclip. Set up your first organization and agent to get started."
+          message="Welcome to Automa. Set up your first organization and agent to get started."
           action="Get Started"
           onAction={openOnboarding}
         />
@@ -397,7 +397,7 @@ export function Dashboard() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-1 sm:gap-2">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
             <MetricCard
               icon={Bot}
               value={data.agents.active + data.agents.running + data.agents.paused + data.agents.error}
@@ -483,7 +483,7 @@ export function Dashboard() {
             {/* Recent Activity */}
             {recentActivity.length > 0 && (
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                <h3 className="mb-3 text-sm font-medium text-muted-foreground">
                   Recent Activity
                 </h3>
                 <Card className="@container block py-0 divide-y divide-border overflow-hidden">
@@ -504,7 +504,7 @@ export function Dashboard() {
 
             {/* Recent Tasks */}
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              <h3 className="mb-3 text-sm font-medium text-muted-foreground">
                 Recent Tasks
               </h3>
               {recentIssues.length === 0 ? (

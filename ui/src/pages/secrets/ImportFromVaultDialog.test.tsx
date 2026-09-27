@@ -269,7 +269,7 @@ describe("ImportFromVaultDialog", () => {
     });
   });
 
-  it("blocks import when a review row collides with an existing Paperclip secret", async () => {
+  it("blocks import when a review row collides with an existing Automa secret", async () => {
     const conflictCandidate = makeCandidate({
       externalRef: "arn:aws:secretsmanager:us-east-1:1:secret:prod/openai-XYZ",
       remoteName: "prod/openai",

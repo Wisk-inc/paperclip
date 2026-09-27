@@ -87,6 +87,12 @@ import {
   runRoutineSchema,
   // Folders
   createFolderSchema,
+  registerCompanyDeviceSchema,
+  updateCompanyDeviceSchema,
+  reportDeviceSharedIndexSchema,
+  createDeviceFileRequestSchema,
+  declineDeviceFileRequestSchema,
+  listDeviceFileRequestsQuerySchema,
   ensureMySkillFolderSchema,
   folderKindSchema,
   moveFolderItemSchema,
@@ -1310,6 +1316,13 @@ const BOARD_ONLY_PREFIXES = [
 ];
 
 const BOARD_ONLY_OPERATIONS = new Set([
+  "POST /api/companies/{companyId}/devices",
+  "PATCH /api/devices/{deviceId}",
+  "POST /api/devices/{deviceId}/heartbeat",
+  "PUT /api/devices/{deviceId}/shared-index",
+  "DELETE /api/devices/{deviceId}",
+  "POST /api/device-file-requests/{requestId}/fulfill",
+  "POST /api/device-file-requests/{requestId}/decline",
   "GET /api/companies/{companyId}/ai-connections",
   "POST /api/companies/{companyId}/ai-connections",
   "POST /api/companies/{companyId}/ai-connections/local",
@@ -1541,6 +1554,9 @@ const INSTANCE_ADMIN_OPERATIONS = new Set([
 ]);
 
 const CREATED_OPERATIONS = new Set([
+  "POST /api/companies/{companyId}/devices",
+  "POST /api/companies/{companyId}/device-files",
+  "POST /api/companies/{companyId}/device-file-requests",
   "POST /api/adapters/install",
   "POST /api/chat-endpoints/{endpointId}/setup-secret",
   "POST /api/companies/{companyId}/agent-hires",
@@ -7534,6 +7550,167 @@ registry.registerPath({
     401: r.unauthorized,
     404: r.notFound,
   },
+});
+
+// ─── Device files ────────────────────────────────────────────────────────────
+// Files moving between operator devices (the Automa app, browsers) and agents.
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/devices",
+  tags: ["device-files"],
+  summary: "List devices registered for file sharing",
+  query: z.object({ includeArchived: z.enum(["true", "false"]).optional() }),
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/devices",
+  tags: ["device-files"],
+  summary: "Register (or re-register) this device for file sharing",
+  body: registerCompanyDeviceSchema,
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/device-files/overview",
+  tags: ["device-files"],
+  summary: "Devices, pending file requests, and file count for a company",
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/devices/{deviceId}",
+  tags: ["device-files"],
+  summary: "Get a device, including the listing of its shared folder",
+});
+
+registerCurrentRoute({
+  method: "patch",
+  path: "/api/devices/{deviceId}",
+  tags: ["device-files"],
+  summary: "Rename a device or toggle auto-fulfil",
+  body: updateCompanyDeviceSchema,
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/devices/{deviceId}/heartbeat",
+  tags: ["device-files"],
+  summary: "Mark a device online and list the pending file requests it can answer",
+});
+
+registerCurrentRoute({
+  method: "put",
+  path: "/api/devices/{deviceId}/shared-index",
+  tags: ["device-files"],
+  summary: "Report the listing of the folder a device shares",
+  body: reportDeviceSharedIndexSchema,
+});
+
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/devices/{deviceId}",
+  tags: ["device-files"],
+  summary: "Remove a device from file sharing",
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/device-files",
+  tags: ["device-files"],
+  summary: "List device files",
+  query: z.object({
+    sourceDeviceId: z.string().optional(),
+    targetDeviceId: z.string().optional(),
+    issueId: z.string().optional(),
+  }),
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{companyId}/device-files",
+  tags: ["device-files"],
+  summary: "Upload a device file (multipart field 'file'); agents set targetDeviceId to send it to a device",
+  request: { params: z.object({ companyId: z.string() }) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/device-files/{fileId}",
+  tags: ["device-files"],
+  summary: "Get device file metadata",
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/device-files/{fileId}/content",
+  tags: ["device-files"],
+  summary: "Download device file content",
+  request: {
+    params: z.object({ fileId: z.string() }),
+    query: z.object({ download: z.enum(["1", "true"]).optional() }),
+  },
+  responses: {
+    200: { description: "File content" },
+    401: r.unauthorized,
+    404: r.notFound,
+  },
+});
+
+registerCurrentRoute({
+  method: "delete",
+  path: "/api/device-files/{fileId}",
+  tags: ["device-files"],
+  summary: "Delete a device file",
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/device-file-requests",
+  tags: ["device-files"],
+  summary: "List file requests addressed to devices",
+  query: listDeviceFileRequestsQuerySchema,
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/device-file-requests",
+  tags: ["device-files"],
+  summary: "Ask a device (or any device) for a file",
+  body: createDeviceFileRequestSchema,
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/device-file-requests/{requestId}",
+  tags: ["device-files"],
+  summary: "Get a file request and, once fulfilled, its file",
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/device-file-requests/{requestId}/fulfill",
+  tags: ["device-files"],
+  summary: "Fulfil a file request by uploading the file from a device (multipart field 'file')",
+  request: { params: z.object({ requestId: z.string() }) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/device-file-requests/{requestId}/decline",
+  tags: ["device-files"],
+  summary: "Decline a file request",
+  body: declineDeviceFileRequestSchema,
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/device-file-requests/{requestId}/cancel",
+  tags: ["device-files"],
+  summary: "Cancel a pending file request",
 });
 
 // ─── Company skills ───────────────────────────────────────────────────────────

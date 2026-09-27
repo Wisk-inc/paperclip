@@ -420,7 +420,7 @@ describe("MarkdownBody", () => {
 
   it("renders wiki links with a custom resolver when enabled", () => {
     const html = renderMarkdown(
-      "See [[wiki/entities/paperclip|Paperclip]] and [[wiki/entities/dotta-b]].",
+      "See [[wiki/entities/paperclip|Automa]] and [[wiki/entities/dotta-b]].",
       [],
       {
         enableWikiLinks: true,
@@ -431,7 +431,7 @@ describe("MarkdownBody", () => {
     expect(html).toContain('href="/wiki/page/wiki/entities/paperclip.md"');
     expect(html).toContain('data-paperclip-wiki-link="true"');
     expect(html).toContain('data-paperclip-wiki-target="wiki/entities/paperclip"');
-    expect(html).toContain(">Paperclip</a>");
+    expect(html).toContain(">Automa</a>");
     expect(html).toContain('href="/wiki/page/wiki/entities/dotta-b.md"');
     expect(html).toContain(">wiki/entities/dotta-b</a>");
     expect(html).not.toContain("[[wiki/entities/paperclip");
