@@ -818,7 +818,7 @@ describe("IssueThreadInteractionCard", () => {
   it("renders a plan confirmation as a distinct state-coloured plan card", () => {
     const pending = renderCard({ interaction: pendingRequestConfirmationInteraction });
     const pendingShell = pending.firstElementChild as HTMLElement;
-    expect(pendingShell.className).toContain("border-violet-500/80");
+    expect(pendingShell.className).toContain("border-zinc-500/80");
     expect(pendingShell.className).not.toContain("border-l-");
     expect(pending.textContent).toContain("Plan");
     expect(pending.textContent).toContain("In review");
@@ -849,7 +849,7 @@ describe("IssueThreadInteractionCard", () => {
     expect((resumeFailed.firstElementChild as HTMLElement).className).toContain("border-amber-500/70");
     expect(resumeFailed.textContent).toContain("Approved — agent resume failed");
     expect(resumeFailed.textContent).toContain("Agent resume failed");
-    expect(resumeFailed.textContent).toContain("Paperclip needs attention before the agent can resume this approved work.");
+    expect(resumeFailed.textContent).toContain("Automa needs attention before the agent can resume this approved work.");
     expect(resumeFailed.textContent).toContain("adapter_failed");
 
     act(() => root?.unmount());

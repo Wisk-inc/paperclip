@@ -148,8 +148,8 @@ export function SidebarNavItem({
               icon. The icon markup is untouched so it stays pixel-aligned. */}
           {rail && !alert && hasLive && (
             <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2" aria-hidden="true">
-              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-600 dark:bg-blue-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400 shadow-(--shadow-sidebar-icon-badge)" />
+              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-600 dark:bg-zinc-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-zinc-600 dark:bg-zinc-400 shadow-(--shadow-sidebar-icon-badge)" />
             </span>
           )}
           {rail && !alert && !hasLive && hasBadge && (
@@ -187,10 +187,10 @@ export function SidebarNavItem({
           {hasLive && (
             <>
               <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-600 dark:bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600 dark:bg-blue-400" />
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-600 dark:bg-zinc-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-600 dark:bg-zinc-400" />
               </span>
-              <span className="text-(length:--text-micro) font-medium text-blue-600 dark:text-blue-400">{liveCount} live</span>
+              <span className="text-(length:--text-micro) font-medium text-zinc-600 dark:text-zinc-400">{liveCount} live</span>
             </>
           )}
         </span>

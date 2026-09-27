@@ -16,6 +16,7 @@ import {
   Package,
   Settings,
   FolderOpen,
+  FolderSync,
   Unplug,
   MessagesSquare,
   GanttChartSquare,
@@ -37,6 +38,7 @@ import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
 import { attentionBadgeCount } from "../lib/attention";
 import { useInboxBadge } from "../hooks/useInboxBadge";
+import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { usePublishSharedQueryData, useSharedPollingQuery } from "../hooks/useSharedPolling";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, SIDEBAR_RAIL_HIDDEN_LABEL } from "../lib/utils";
@@ -54,6 +56,7 @@ export function Sidebar() {
   const { collapsed, peeking } = useSidebar();
   const rail = collapsed && !peeking;
   const inboxBadge = useInboxBadge(selectedCompanyId);
+  const filesBadge = useDeviceFilesBadge(selectedCompanyId);
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
     queryFn: () => instanceSettingsApi.getExperimental(),
@@ -198,6 +201,7 @@ export function Sidebar() {
             />
           ) : null}
           <SidebarNavItem to="/artifacts" label="Artifacts" icon={Package} />
+          <SidebarNavItem to="/device-files" label="Files" icon={FolderSync} badge={filesBadge.pendingRequests} badgeLabel="file requests" />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />

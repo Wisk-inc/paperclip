@@ -219,22 +219,22 @@ export function InboxIssueMetaLeading({
         <Badge variant="ghost"
           className={cn(
             "px-1.5 sm:gap-1.5 sm:px-2",
-            "bg-blue-500/10",
+            "bg-zinc-500/10",
           )}
         >
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-blue-400 opacity-75" />
+            <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-zinc-400 opacity-75" />
             <span
               className={cn(
                 "relative inline-flex h-2 w-2 rounded-full",
-                "bg-blue-500",
+                "bg-zinc-500",
               )}
             />
           </span>
           <span
             className={cn(
               "hidden text-(length:--text-micro) font-medium sm:inline",
-              "text-blue-600 dark:text-blue-400",
+              "text-zinc-600 dark:text-zinc-400",
             )}
           >
             Live

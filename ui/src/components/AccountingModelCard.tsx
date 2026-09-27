@@ -7,7 +7,7 @@ const SURFACES = [
     description: "Request-scoped usage and billed runs from cost_events.",
     icon: Database,
     points: ["tokens + billed dollars", "provider, biller, model", "subscription and overage aware"],
-    tone: "from-sky-500/12 via-sky-500/6 to-transparent",
+    tone: "from-zinc-500/12 via-zinc-500/6 to-transparent",
   },
   {
     title: "Finance ledger",
@@ -34,7 +34,7 @@ export function AccountingModelCard() {
           Accounting model
         </CardTitle>
         <CardDescription className="max-w-2xl text-sm leading-6">
-          Paperclip now separates request-level inference usage from account-level finance events.
+          Automa now separates request-level inference usage from account-level finance events.
           That keeps provider reporting honest when the biller is OpenRouter, Cloudflare, Bedrock, or another intermediary.
         </CardDescription>
       </CardHeader>

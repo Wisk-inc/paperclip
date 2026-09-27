@@ -144,9 +144,9 @@ const issueStatusLabels: Record<IssueStatus, string> = {
 };
 const progressSegmentClasses: Record<IssueStatus, string> = {
   backlog: "bg-muted-foreground/40",
-  todo: "bg-blue-500",
+  todo: "bg-zinc-500",
   in_progress: "bg-yellow-500",
-  in_review: "bg-violet-500",
+  in_review: "bg-zinc-500",
   done: "bg-green-500",
   blocked: "bg-red-500",
   cancelled: "bg-neutral-400",
@@ -1730,7 +1730,16 @@ function StreamlinedIssuesList({
         className="paperclip-task-list-toolbar"
         ariaLabel={toolbarPresentation === "collection" ? "Task controls" : undefined}
         context={(
-          <Button size="sm" variant="outline" aria-label={createButtonLabel} onClick={() => openCreateIssueDialog()}>
+          // On phones the plain "New task" lives in the tab bar's center
+          // button (thumb zone), so the top copy is desktop-only there.
+          // Contextual lists (sub-tasks) keep theirs inline.
+          <Button
+            size="sm"
+            variant="outline"
+            className={createIssueLabel ? undefined : "hidden md:inline-flex"}
+            aria-label={createButtonLabel}
+            onClick={() => openCreateIssueDialog()}
+          >
             <Plus className="h-4 w-4 sm:mr-1" />
             <span className="hidden sm:inline">{createButtonLabel}</span>
           </Button>

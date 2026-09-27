@@ -190,9 +190,9 @@ describe("KanbanBoard", () => {
 
   it("gives every column a status-hued tone", () => {
     expect(getKanbanColumnTone("backlog").body).toContain("bg-muted/30");
-    expect(getKanbanColumnTone("todo").body).toContain("amber");
-    expect(getKanbanColumnTone("in_progress").body).toContain("blue");
-    expect(getKanbanColumnTone("in_review").body).toContain("violet");
+    expect(getKanbanColumnTone("todo").body).toContain("zinc");
+    expect(getKanbanColumnTone("in_progress").body).toContain("amber");
+    expect(getKanbanColumnTone("in_review").body).toContain("zinc");
     expect(getKanbanColumnTone("blocked").body).toContain("red");
     expect(getKanbanColumnTone("done").body).toContain("green");
     expect(getKanbanColumnTone("cancelled").body).toContain("bg-muted/25");

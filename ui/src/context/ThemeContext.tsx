@@ -1,3 +1,4 @@
+import { automaNative } from "../lib/automa-native";
 import {
   createContext,
   useCallback,
@@ -17,7 +18,7 @@ interface ThemeContextValue {
 }
 
 const THEME_STORAGE_KEY = "paperclip.theme";
-const DARK_THEME_COLOR = "#18181b";
+const DARK_THEME_COLOR = "#000000";
 const LIGHT_THEME_COLOR = "#ffffff";
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
@@ -46,6 +47,8 @@ function applyTheme(theme: Theme) {
   if (themeColorMeta instanceof HTMLMetaElement) {
     themeColorMeta.setAttribute("content", isDark ? DARK_THEME_COLOR : LIGHT_THEME_COLOR);
   }
+  // Inside the Automa app, the status and navigation bars follow the theme.
+  automaNative.setDarkTheme(isDark);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

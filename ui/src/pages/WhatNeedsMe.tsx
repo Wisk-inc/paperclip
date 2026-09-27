@@ -603,7 +603,7 @@ export function WhatNeedsMe() {
                           return (
                             <Fragment key={item.id}>
                               {header}
-                              <div className={bundleId ? "border-l-2 border-violet-500/40 pl-3" : undefined}>
+                              <div className={bundleId ? "border-l-2 border-zinc-500/40 pl-3" : undefined}>
                                 <AttentionQueueRow
                                   item={item}
                                   companyId={selectedCompanyId}
@@ -778,8 +778,8 @@ export function DecisionBundleHeader({
 }) {
   const noun = count === 1 ? "decision" : "decisions";
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-sm border-l-2 border-violet-500/60 bg-violet-500/5 px-3 py-1.5 text-xs">
-      <span className="font-semibold text-violet-800 dark:text-violet-200">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-sm border-l-2 border-zinc-500/60 bg-zinc-500/5 px-3 py-1.5 text-xs">
+      <span className="font-semibold text-zinc-800 dark:text-zinc-200">
         {agentName ?? "An agent"} proposed {count} {noun}
       </span>
       {originIssue && (originIssue.identifier || originIssue.title) && (

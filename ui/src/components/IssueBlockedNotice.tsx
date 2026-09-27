@@ -94,7 +94,7 @@ function SuccessfulRunRetryNowControl({
     <div className="mt-2 rounded-md border border-amber-300/70 bg-background/80 p-2 dark:border-amber-500/40 dark:bg-background/40">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-xs leading-5 text-amber-900 dark:text-amber-100">
-          Paperclip will ask the assignee to choose the next step {scheduleLabel}. Retry now starts that follow-up immediately.
+          Automa will ask the assignee to choose the next step {scheduleLabel}. Retry now starts that follow-up immediately.
         </div>
         <Button
           type="button"
@@ -153,7 +153,7 @@ function WaitingChipLink({
     <IssueLinkQuicklook
       issuePathId={issuePathId}
       to={createIssueDetailPath(issuePathId)}
-      className="inline-flex max-w-full items-center gap-1 rounded-md border border-blue-300/70 bg-background/80 px-2 py-1 font-mono text-xs text-blue-950 transition-colors hover:border-blue-500 hover:bg-blue-100 hover:underline dark:border-blue-500/40 dark:bg-background/40 dark:text-blue-100 dark:hover:bg-blue-500/15"
+      className="inline-flex max-w-full items-center gap-1 rounded-md border border-zinc-300/70 bg-background/80 px-2 py-1 font-mono text-xs text-zinc-950 transition-colors hover:border-zinc-500 hover:bg-zinc-100 hover:underline dark:border-zinc-500/40 dark:bg-background/40 dark:text-zinc-100 dark:hover:bg-zinc-500/15"
     >
       <StatusGlyph
         status={blocker.status}
@@ -161,11 +161,11 @@ function WaitingChipLink({
         title={`${waitingTaskStatusLabel(blocker.status)} status`}
       />
       <span>{blocker.identifier ?? blocker.id.slice(0, 8)}</span>
-      <span className="max-w-(--sz-18rem) truncate font-sans text-(length:--text-micro) text-blue-800 dark:text-blue-200">
+      <span className="max-w-(--sz-18rem) truncate font-sans text-(length:--text-micro) text-zinc-800 dark:text-zinc-200">
         {blocker.title}
       </span>
       {running ? (
-        <span className="ml-0.5 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-(length:--text-nano) font-medium uppercase tracking-wide text-blue-700 dark:bg-blue-400/20 dark:text-blue-200">
+        <span className="ml-0.5 rounded-full bg-zinc-500/15 px-1.5 py-0.5 text-(length:--text-nano) font-medium uppercase tracking-wide text-zinc-700 dark:bg-zinc-400/20 dark:text-zinc-200">
           running
         </span>
       ) : null}
@@ -175,16 +175,16 @@ function WaitingChipLink({
 
 function WaitingStepGlyph({ status }: { status: WaitingBlockerStatus }) {
   if (status === "done") {
-    return <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" aria-hidden />;
+    return <CheckCircle2 className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" aria-hidden />;
   }
   if (status === "running") {
     return (
       <span className="flex h-3.5 w-3.5 items-center justify-center" aria-hidden>
-        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400" />
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-zinc-400" />
       </span>
     );
   }
-  return <Circle className="h-3.5 w-3.5 text-blue-300 dark:text-blue-500/50" aria-hidden />;
+  return <Circle className="h-3.5 w-3.5 text-zinc-300 dark:text-zinc-500/50" aria-hidden />;
 }
 
 /**
@@ -211,7 +211,7 @@ function SuccessfulRunHandoffInFlightNotice({
     >
       <div className="flex items-start gap-2">
         <span className="mt-1 flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden>
-          <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+          <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
         </span>
         <p className="min-w-0 leading-5">
           A correction run is in progress — the agent is working. This alert returns if the run
@@ -281,11 +281,11 @@ function WaitingOnLiveWorkNotice({
     <div
       data-blocker-attention-state={blockerAttentionState}
       data-testid="issue-blocked-notice-live"
-      className="mb-3 rounded-md border border-blue-300/70 bg-blue-50/90 px-3 py-2.5 text-sm text-blue-950 shadow-sm dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
+      className="mb-3 rounded-md border border-zinc-300/70 bg-zinc-50/90 px-3 py-2.5 text-sm text-zinc-950 shadow-sm dark:border-zinc-500/40 dark:bg-zinc-500/10 dark:text-zinc-100"
     >
       <div className="flex items-start gap-2">
         <span className="mt-1.5 flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden>
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-400" />
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-zinc-400" />
         </span>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="space-y-1">
@@ -298,7 +298,7 @@ function WaitingOnLiveWorkNotice({
           </div>
 
           <div className="space-y-1" data-testid="issue-blocked-notice-progress">
-            <div className="text-xs font-medium text-blue-800 dark:text-blue-200">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
               {doneCount} of {total} done
               {runningCount > 0 ? ` · ${runningCount} running` : null}
             </div>
@@ -308,18 +308,18 @@ function WaitingOnLiveWorkNotice({
               aria-valuemin={0}
               aria-valuenow={doneCount}
               aria-valuemax={total}
-              className="flex h-2 w-full overflow-hidden rounded-full bg-blue-100 dark:bg-blue-500/20"
+              className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-500/20"
             >
               {steps.map(({ blocker, status }) => (
                 <span
                   key={blocker.id}
                   className={cn(
-                    "h-full border-r border-blue-50/80 last:border-r-0 dark:border-blue-950/40",
+                    "h-full border-r border-zinc-50/80 last:border-r-0 dark:border-zinc-950/40",
                     status === "done"
-                      ? "bg-blue-500 dark:bg-blue-400"
+                      ? "bg-zinc-500 dark:bg-zinc-400"
                       : status === "running"
-                        ? "animate-pulse bg-blue-400"
-                        : "bg-blue-200 dark:bg-blue-500/30",
+                        ? "animate-pulse bg-zinc-400"
+                        : "bg-zinc-200 dark:bg-zinc-500/30",
                   )}
                   style={{ width: `${100 / total}%` }}
                   title={`${blocker.identifier ?? blocker.id.slice(0, 8)}: ${status}`}
@@ -337,7 +337,7 @@ function WaitingOnLiveWorkNotice({
                     <WaitingStepGlyph status={status} />
                   </span>
                   <span
-                    className="w-px flex-1 bg-blue-300/50 dark:bg-blue-500/30"
+                    className="w-px flex-1 bg-zinc-300/50 dark:bg-zinc-500/30"
                     aria-hidden
                   />
                 </div>
@@ -349,12 +349,12 @@ function WaitingOnLiveWorkNotice({
             <div className="flex items-stretch gap-2">
               <div className="flex w-3.5 flex-col items-center">
                 <span
-                  className="mt-1.5 h-3 w-3 rounded-full border border-dashed border-blue-400/60 dark:border-blue-400/50"
+                  className="mt-1.5 h-3 w-3 rounded-full border border-dashed border-zinc-400/60 dark:border-zinc-400/50"
                   aria-hidden
                 />
               </div>
               <div className="min-w-0 pb-0.5">
-                <span className="inline-block rounded-md border border-dashed border-blue-300/70 px-2 py-1 text-xs text-blue-800 dark:border-blue-500/40 dark:text-blue-200">
+                <span className="inline-block rounded-md border border-dashed border-zinc-300/70 px-2 py-1 text-xs text-zinc-800 dark:border-zinc-500/40 dark:text-zinc-200">
                   This task — resumes automatically when the chain is done
                 </span>
               </div>
@@ -366,7 +366,7 @@ function WaitingOnLiveWorkNotice({
               data-testid="issue-blocked-notice-now-running"
               className="space-y-1 pt-0.5"
             >
-              <div className="text-xs font-medium text-blue-800 dark:text-blue-200">
+              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
                 Now running
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -609,7 +609,7 @@ export function IssueBlockedNotice({
             <>
               <p className="font-medium leading-5">This task still needs a next step.</p>
               <p className="leading-5">
-                A run finished successfully, but the task is still open. Paperclip needs someone to choose
+                A run finished successfully, but the task is still open. Automa needs someone to choose
                 what happens next.
               </p>
               <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-amber-900 dark:text-amber-100">

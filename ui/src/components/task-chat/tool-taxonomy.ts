@@ -225,7 +225,7 @@ const EXACT_ACTIONS: Record<string, ExactAction> = {
   decide_approval: { action: "update", running: "Deciding an approval", completed: "Decided an approval" },
   comment_on_approval: { action: "post", running: "Commenting on an approval", completed: "Commented on an approval" },
   schedule_wake: { action: "create", running: "Scheduling a wake-up", completed: "Scheduled a wake-up", family: "wait" },
-  generic_api_request: { action: "request", running: "Calling the Paperclip API", completed: "Called the Paperclip API" },
+  generic_api_request: { action: "request", running: "Calling the Automa API", completed: "Called the Automa API" },
 };
 
 const ACTION_PREFIXES: Record<Action, readonly string[]> = {
@@ -350,7 +350,7 @@ function defaultSummaryGroup(action: Action): ToolSummaryGroup {
 }
 
 function paperclipSummaryGroup(action: Action): ToolSummaryGroup {
-  if (action === "read" || action === "list") return group("paperclip_read", "Paperclip read", "Paperclip reads");
+  if (action === "read" || action === "list") return group("paperclip_read", "Automa read", "Automa reads");
   return group("task_operation", "task operation", "task operations");
 }
 
@@ -395,8 +395,10 @@ export function toolActivityPresentation(input: ToolActivityPresentationInput): 
       : actionCopy(action, exact ? undefined : object);
   const semanticFamily = exact?.family ?? actionFamily(action);
   const family = transport === "mcp" ? "mcp" : semanticFamily;
+  // The built-in control-plane MCP server keeps its wire name "paperclip";
+  // people see it as Automa.
   const sourceLabel = namespace
-    ? humanizeToolName(namespace)
+    ? namespace.toLowerCase() === "paperclip" ? "Automa" : humanizeToolName(namespace)
     : transport === "mcp"
       ? "MCP"
       : undefined;

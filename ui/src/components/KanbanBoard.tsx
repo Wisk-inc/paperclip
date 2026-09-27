@@ -72,21 +72,21 @@ export const kanbanColumnTones: Partial<Record<IssueStatus, typeof defaultKanban
     card: "",
   },
   todo: {
+    rail: "border-zinc-500/25 bg-zinc-50/60 dark:bg-zinc-950/20",
+    railOver: "bg-zinc-100/70 ring-1 ring-zinc-500/25 dark:bg-zinc-950/35",
+    header: "text-zinc-700 dark:text-zinc-300",
+    count: "text-zinc-700/65 dark:text-zinc-300/65",
+    body: "bg-zinc-50/45 ring-1 ring-inset ring-zinc-500/15 dark:bg-zinc-950/15",
+    bodyOver: "bg-zinc-100/70 ring-1 ring-inset ring-zinc-500/25 dark:bg-zinc-950/30",
+    card: "",
+  },
+  in_progress: {
     rail: "border-amber-500/25 bg-amber-50/60 dark:bg-amber-950/20",
     railOver: "bg-amber-100/70 ring-1 ring-amber-500/25 dark:bg-amber-950/35",
     header: "text-amber-700 dark:text-amber-300",
     count: "text-amber-700/65 dark:text-amber-300/65",
     body: "bg-amber-50/45 ring-1 ring-inset ring-amber-500/15 dark:bg-amber-950/15",
     bodyOver: "bg-amber-100/70 ring-1 ring-inset ring-amber-500/25 dark:bg-amber-950/30",
-    card: "",
-  },
-  in_progress: {
-    rail: "border-blue-500/25 bg-blue-50/60 dark:bg-blue-950/20",
-    railOver: "bg-blue-100/70 ring-1 ring-blue-500/25 dark:bg-blue-950/35",
-    header: "text-blue-700 dark:text-blue-300",
-    count: "text-blue-700/65 dark:text-blue-300/65",
-    body: "bg-blue-50/45 ring-1 ring-inset ring-blue-500/15 dark:bg-blue-950/15",
-    bodyOver: "bg-blue-100/70 ring-1 ring-inset ring-blue-500/25 dark:bg-blue-950/30",
     card: "",
   },
   blocked: {
@@ -99,12 +99,12 @@ export const kanbanColumnTones: Partial<Record<IssueStatus, typeof defaultKanban
     card: "",
   },
   in_review: {
-    rail: "border-violet-500/25 bg-violet-50/60 dark:bg-violet-950/20",
-    railOver: "bg-violet-100/70 ring-1 ring-violet-500/25 dark:bg-violet-950/35",
-    header: "text-violet-700 dark:text-violet-300",
-    count: "text-violet-700/65 dark:text-violet-300/65",
-    body: "bg-violet-50/45 ring-1 ring-inset ring-violet-500/15 dark:bg-violet-950/15",
-    bodyOver: "bg-violet-100/70 ring-1 ring-inset ring-violet-500/25 dark:bg-violet-950/30",
+    rail: "border-zinc-500/25 bg-zinc-50/60 dark:bg-zinc-950/20",
+    railOver: "bg-zinc-100/70 ring-1 ring-zinc-500/25 dark:bg-zinc-950/35",
+    header: "text-zinc-700 dark:text-zinc-300",
+    count: "text-zinc-700/65 dark:text-zinc-300/65",
+    body: "bg-zinc-50/45 ring-1 ring-inset ring-zinc-500/15 dark:bg-zinc-950/15",
+    bodyOver: "bg-zinc-100/70 ring-1 ring-inset ring-zinc-500/25 dark:bg-zinc-950/30",
     card: "",
   },
   done: {
@@ -343,10 +343,10 @@ function KanbanCard({
             </Badge>
           ) : null}
           {isLive && (
-            <span className="inline-flex shrink-0 items-center gap-1 text-(length:--text-nano) font-medium text-blue-600 dark:text-blue-400">
+            <span className="inline-flex shrink-0 items-center gap-1 text-(length:--text-nano) font-medium text-zinc-600 dark:text-zinc-400">
               <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500" />
               </span>
               {compact ? "Live" : null}
             </span>

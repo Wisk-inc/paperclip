@@ -89,12 +89,12 @@ function AdapterRow({
               </Badge>
             )}
             {adapter.overriddenBuiltin && (
-              <Badge variant="secondary" className="text-blue-600 border-blue-400">
+              <Badge variant="secondary" className="text-zinc-600 border-zinc-400">
                 Overrides built-in
               </Badge>
             )}
             {overriddenBy && (
-              <Badge variant="secondary" className="text-blue-600 border-blue-400">
+              <Badge variant="secondary" className="text-zinc-600 border-zinc-400">
                 Overridden by {overriddenBy}
               </Badge>
             )}

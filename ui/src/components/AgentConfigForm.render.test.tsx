@@ -84,9 +84,9 @@ vi.mock("../lib/clipboard", () => ({
 
 vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({
-    companies: [{ id: "company-1", name: "Paperclip" }],
+    companies: [{ id: "company-1", name: "Automa" }],
     selectedCompanyId: "company-1",
-    selectedCompany: { id: "company-1", name: "Paperclip" },
+    selectedCompany: { id: "company-1", name: "Automa" },
     selectionSource: "bootstrap",
     loading: false,
     error: null,
@@ -1018,7 +1018,7 @@ describe("AgentConfigForm environment selector", () => {
     const result = await renderForm([
       makeEnvironment({
         id: "managed-1",
-        name: "Paperclip Computer",
+        name: "Automa Computer",
         driver: "sandbox",
         config: { provider: "daytona" },
         metadata: { managedByPaperclip: true },
@@ -1028,8 +1028,8 @@ describe("AgentConfigForm environment selector", () => {
 
     const selector = result.container.querySelector("select");
 
-    expect(selector?.textContent).toContain("Default: Paperclip Computer");
-    expect(selector?.textContent).toContain("Paperclip Computer");
+    expect(selector?.textContent).toContain("Default: Automa Computer");
+    expect(selector?.textContent).toContain("Automa Computer");
     expect(selector?.textContent).not.toContain("(sandbox)");
     expect(selector?.textContent).not.toContain("· sandbox");
   });

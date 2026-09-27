@@ -570,8 +570,46 @@ describe("Routines page", () => {
     expect(routines.map((routine) => routine.id)).toEqual(["routine-1", "routine-2"]);
   });
 
-  it("renders the routines sort control before the group control", async () => {
+  it("with no routines, drops the toolbar and centers the create action under the mascot", async () => {
     routinesListMock.mockResolvedValue([]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Routines />
+        </QueryClientProvider>,
+      );
+      await flush();
+    });
+    for (let attempts = 0; attempts < 5 && !container.textContent?.includes("No routines yet"); attempts += 1) {
+      await act(async () => {
+        await flush();
+      });
+    }
+
+    expect(container.textContent).toContain("No routines yet");
+    expect(container.querySelector('button[title="Sort"]')).toBeNull();
+    expect(container.querySelector('[data-slot="mascot"]')).not.toBeNull();
+    const heroAction = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create routine") && !button.className.includes("hidden"),
+    );
+    expect(heroAction).toBeDefined();
+    // No floating thumb action while the hero already offers the same action.
+    expect(container.querySelector('[data-slot="thumb-action"]')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("renders the routines sort control before the group control", async () => {
+    routinesListMock.mockResolvedValue([createRoutine({ id: "routine-1", title: "Morning sync" })]);
     issuesListMock.mockResolvedValue([]);
 
     const root = createRoot(container);

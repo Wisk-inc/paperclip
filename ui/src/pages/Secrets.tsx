@@ -76,6 +76,7 @@ import {
 } from "../lib/secret-delivery";
 import { queryKeys } from "../lib/queryKeys";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -350,11 +351,11 @@ function modeLabel(managedMode: SecretManagedMode) {
 
 function modeDescription(managedMode: SecretManagedMode, canWriteExternalValue = false) {
   if (managedMode === "paperclip_managed") {
-    return "Paperclip owns create and rotation writes for this provider secret.";
+    return "Automa owns create and rotation writes for this provider secret.";
   }
   return canWriteExternalValue
-    ? "Paperclip resolves this provider reference and can write new values to it via Update value."
-    : "Paperclip resolves this provider reference but does not rotate the provider value.";
+    ? "Automa resolves this provider reference and can write new values to it via Update value."
+    : "Automa resolves this provider reference but does not rotate the provider value.";
 }
 
 function statusLabel(status: SecretStatus) {
@@ -1323,7 +1324,7 @@ export function Secrets() {
     onSuccess: (removed) => {
       pushToast({
         title: "Provider vault removed",
-        body: `${removed.displayName} was removed from Paperclip only.`,
+        body: `${removed.displayName} was removed from Automa only.`,
         tone: "info",
       });
       setRemoveVaultConfirm(null);
@@ -1916,7 +1917,7 @@ export function Secrets() {
                 <Folder className="mr-1 h-3.5 w-3.5" /> New folder
               </Button>
             ) : null}
-            <Button onClick={openCreateSecret} size="sm">
+            <Button onClick={openCreateSecret} size="sm" className="hidden md:inline-flex">
               <Plus className="h-3.5 w-3.5 mr-1" /> New secret
             </Button>
           </div>
@@ -2077,7 +2078,7 @@ export function Secrets() {
                                   <TooltipTrigger asChild>
                                     <span
                                       aria-label="Each user provides and owns their own value"
-                                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-violet-500/30 bg-violet-500/5 text-violet-700 dark:text-violet-200"
+                                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-zinc-500/30 bg-zinc-500/5 text-zinc-700 dark:text-zinc-200"
                                     >
                                       <UserRound className="h-3 w-3" />
                                     </span>
@@ -2717,14 +2718,14 @@ export function Secrets() {
                   className="font-mono text-xs"
                 />
                 <p className="text-(length:--text-micro) text-muted-foreground mt-1">
-                  Existing provider secrets are resolve-only in Paperclip. Rotate the value in the provider,
+                  Existing provider secrets are resolve-only in Automa. Rotate the value in the provider,
                   then update this reference only if the path, ARN, or version changes.
                 </p>
               </div>
             ) : null}
             {secretValueProvider === "user" ? (
               <>
-                <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-2 text-(length:--text-micro) text-violet-800 dark:text-violet-200">
+                <div className="rounded-md border border-zinc-500/30 bg-zinc-500/5 p-2 text-(length:--text-micro) text-zinc-800 dark:text-zinc-200">
                   Every member supplies their own value under My secrets. Agents resolve the responsible
                   user&apos;s value at runtime.
                 </div>
@@ -2884,7 +2885,7 @@ export function Secrets() {
                 {createMode === "managed" ? (
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 text-(length:--text-micro) text-emerald-700 dark:text-emerald-300">
                     Paperclip-managed secrets are created in the selected provider and future rotations
-                    write a new provider version through Paperclip.
+                    write a new provider version through Automa.
                     {awsManagedPathPreview ? (
                       <div className="mt-1">
                         AWS managed path:{" "}
@@ -3036,7 +3037,7 @@ export function Secrets() {
             ) : null}
 
             {vaultForm.provider === "gcp_secret_manager" || vaultForm.provider === "vault" ? (
-              <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-700 dark:text-sky-300">
+              <div className="rounded-md border border-zinc-500/30 bg-zinc-500/5 p-3 text-xs text-zinc-700 dark:text-zinc-300">
                 This provider can save draft routing metadata, but runtime writes and resolution stay disabled until
                 the provider module is implemented and reviewed.
               </div>
@@ -3077,8 +3078,8 @@ export function Secrets() {
               {selectedSecret?.managedMode !== "external_reference"
                 ? "Creates a new provider-backed version. Consumers pinned to latest pick up the new value on the next run."
                 : rotateMode === "reference"
-                  ? "Creates a new Paperclip metadata version that points at an existing provider secret. Paperclip does not write a new provider value."
-                  : "Writes a new version of the referenced provider secret. The new value becomes current for every consumer of that secret, in and outside Paperclip."}
+                  ? "Creates a new Automa metadata version that points at an existing provider secret. Automa does not write a new provider value."
+                  : "Writes a new version of the referenced provider secret. The new value becomes current for every consumer of that secret, in and outside Automa."}
             </DialogDescription>
           </DialogHeader>
           {selectedSecret && secretSupportsExternalValueWrite(selectedSecret) ? (
@@ -3128,7 +3129,7 @@ export function Secrets() {
                 className="font-mono text-xs"
               />
               <p className="mt-1 text-(length:--text-micro) text-muted-foreground">
-                Rotate the actual value in the provider before changing this Paperclip reference.
+                Rotate the actual value in the provider before changing this Automa reference.
               </p>
             </div>
           ) : (
@@ -3241,7 +3242,7 @@ export function Secrets() {
           <DialogHeader>
             <DialogTitle>Remove provider vault</DialogTitle>
             <DialogDescription>
-              Removes <strong>{removeVaultConfirm?.displayName}</strong> from Paperclip only.{" "}
+              Removes <strong>{removeVaultConfirm?.displayName}</strong> from Automa only.{" "}
               {removeVaultConfirm?.provider === "aws_secrets_manager"
                 ? "This does not delete the remote AWS Secrets Manager vault, secrets, or any AWS data."
                 : "This does not delete any remote provider data."}{" "}
@@ -3256,11 +3257,12 @@ export function Secrets() {
               disabled={removeVaultMutation.isPending}
             >
               {removeVaultMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-              Remove from Paperclip
+              Remove from Automa
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {activeTab === "secrets" ? <ThumbAction label="New secret" onClick={openCreateSecret} /> : null}
     </div>
     </TooltipProvider>
   );
@@ -3278,7 +3280,7 @@ function SecretsHowToUse() {
           <span className="font-medium text-foreground">Secret</span>, and select the stored secret version.
         </p>
         <p>
-          Paperclip resolves the value server-side when the run starts and injects it as that env var. Project env
+          Automa resolves the value server-side when the run starts and injects it as that env var. Project env
           applies to every task in the project and overrides agent env on matching keys.
         </p>
       </div>
@@ -3324,12 +3326,12 @@ function SecretsFiltersPopover({
         <Button
           variant="outline"
           size="icon"
-          className={cn("relative h-8 w-8 shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
+          className={cn("relative h-8 w-8 shrink-0", activeFilterCount > 0 && "text-zinc-600 dark:text-zinc-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
           <Filter className="h-3.5 w-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-(length:--text-nano) font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-600 text-(length:--text-nano) font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -3424,7 +3426,7 @@ function providerConfigStatusTone(status: SecretProviderConfigStatus) {
     case "warning":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
     case "coming_soon":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+      return "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
     case "disabled":
       return "border-muted bg-muted text-muted-foreground";
     default:
@@ -3971,7 +3973,7 @@ function AwsProviderVaultDiscoveryError({
             <p className="mt-1 leading-relaxed text-destructive/85">
               {isAccessDenied
                 ? details?.actionableMessage ??
-                  "Discovery needs secretsmanager:ListSecrets in the selected region for the Paperclip server runtime/provider credential path."
+                  "Discovery needs secretsmanager:ListSecrets in the selected region for the Automa server runtime/provider credential path."
                 : message}
             </p>
           </div>
@@ -4250,7 +4252,7 @@ function UserSecretDetailsTab({
       <DetailRow label="Usage guidance">
         {definition.usageGuidance ?? <span className="text-muted-foreground">—</span>}
       </DetailRow>
-      <div className="mt-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-2 text-(length:--text-micro) text-violet-800 dark:text-violet-200">
+      <div className="mt-3 rounded-md border border-zinc-500/30 bg-zinc-500/5 p-2 text-(length:--text-micro) text-zinc-800 dark:text-zinc-200">
         No value is stored on this admin row. Each member manages their own value under My secrets.
       </div>
     </dl>
@@ -4530,7 +4532,7 @@ function AgentAccessSection({
                     {envKeys.length > 0 ? (
                       <Badge
                         variant="outline"
-                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       >
                         Env · {envKeys.join(", ")}
                       </Badge>
@@ -4538,7 +4540,7 @@ function AgentAccessSection({
                     {apiAliases.length > 0 ? (
                       <Badge
                         variant="outline"
-                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                        className="h-5 px-1.5 text-(length:--text-nano) font-normal border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       >
                         API · {apiAliases.join(", ")}
                       </Badge>
@@ -4679,7 +4681,7 @@ function SecretDetailsTab({
               providers.find((provider) => provider.id === secret.provider)?.supportsExternalValueWrites,
           ),
         )}{" "}
-        Paperclip never re-displays stored values.
+        Automa never re-displays stored values.
       </div>
     </dl>
   );
@@ -4722,9 +4724,9 @@ export function SecretUsageTab({ loading, bindings }: { loading: boolean; bindin
                   className={cn(
                     "h-5 px-1.5 text-(length:--text-nano) font-normal",
                     deliveryMode === "api"
-                      ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                      ? "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                       : deliveryMode === "env"
-                        ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                        ? "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
                         : null,
                   )}
                 >
@@ -4814,7 +4816,7 @@ export function SecretEventsTab({
               {event.secretScope === "user" ? (
                 <Badge
                   variant="outline"
-                  className="border-violet-500/30 bg-violet-500/10 text-(length:--text-nano) text-violet-700 dark:text-violet-300"
+                  className="border-zinc-500/30 bg-zinc-500/10 text-(length:--text-nano) text-zinc-700 dark:text-zinc-300"
                 >
                   User secret
                 </Badge>

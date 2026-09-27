@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launch theme: black splash with the Automa mark (Android 12+ splash API,
+         backported by core-splashscreen). -->
+    <style name="Theme.Automa.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/automa_black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Automa</item>
+    </style>
+
+    <!-- Display-cutout handling is set in code by enableEdgeToEdge() so it works on every API level. -->
+    <style name="Theme.Automa" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/automa_black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

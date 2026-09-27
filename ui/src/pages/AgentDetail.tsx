@@ -144,9 +144,9 @@ import {
 const runStatusIcons: Record<string, { icon: typeof CheckCircle2; color: string }> = {
   succeeded: { icon: CheckCircle2, color: "text-green-600 dark:text-green-400" },
   failed: { icon: XCircle, color: "text-red-600 dark:text-red-400" },
-  running: { icon: Loader2, color: "text-blue-600 dark:text-blue-400" }, // Gallery feedback r1: running = status blue, not cyan.
+  running: { icon: Loader2, color: "text-zinc-600 dark:text-zinc-400" }, // Gallery feedback r1: running = status blue, not cyan.
   queued: { icon: Clock, color: "text-yellow-600 dark:text-yellow-400" },
-  scheduled_retry: { icon: Clock, color: "text-sky-600 dark:text-sky-400" },
+  scheduled_retry: { icon: Clock, color: "text-zinc-600 dark:text-zinc-400" },
   timed_out: { icon: Timer, color: "text-orange-600 dark:text-orange-400" },
   cancelled: { icon: Slash, color: "text-neutral-500 dark:text-neutral-400" },
 };
@@ -567,7 +567,7 @@ function workspaceOperationStatusTone(status: WorkspaceOperation["status"]) {
     case "failed":
       return "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300";
     case "running":
-      return "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+      return "border-zinc-500/20 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
     case "skipped":
       return "border-yellow-500/20 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300";
     default:
@@ -641,7 +641,7 @@ function WorkspaceOperationLogViewer({
                       chunk.stream === "stderr"
                         ? "text-red-600 dark:text-red-300"
                         : chunk.stream === "system"
-                          ? "text-blue-600 dark:text-blue-300"
+                          ? "text-zinc-600 dark:text-zinc-300"
                           : "text-muted-foreground",
                     )}
                   >
@@ -1307,13 +1307,13 @@ export function AgentDetail() {
             {mobileLiveRun && (
               <Link
                 to={`/agents/${canonicalAgentRef}/runs/${mobileLiveRun.id}`}
-                className="sm:hidden flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
+                className="sm:hidden flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-500/10 hover:bg-zinc-500/20 transition-colors no-underline"
               >
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                  <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500" />
                 </span>
-                <span className="text-(length:--text-micro) font-medium text-blue-600 dark:text-blue-400">Live</span>
+                <span className="text-(length:--text-micro) font-medium text-zinc-600 dark:text-zinc-400">Live</span>
               </Link>
             )}
           </AgentActionButtons>
@@ -1335,7 +1335,7 @@ export function AgentDetail() {
             </Button>
           }
         >
-          Ships with Paperclip and powers <strong>{builtInFeatureLabel}</strong>. Configure it like
+          Ships with Automa and powers <strong>{builtInFeatureLabel}</strong>. Configure it like
           any agent — model, instructions, budget. It can be paused but not deleted; pausing it
           pauses {builtInFeatureLabel}.
         </InlineBanner>
@@ -1643,8 +1643,8 @@ function LatestRunCard({
           <h3 className="flex items-center gap-2 text-sm font-medium transition-colors hover:text-foreground">
             {isLive && (
               <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500" />
               </span>
             )}
             <span>{isLive ? "Live Run" : "Latest Run"}</span>
@@ -1659,7 +1659,7 @@ function LatestRunCard({
         to={rowHref}
         className={cn(
           "block border rounded-lg p-4 space-y-2 w-full no-underline transition-colors hover:bg-muted/50 cursor-pointer",
-          isLive ? "border-blue-500/30 shadow-(--shadow-extract-14)" : "border-border"
+          isLive ? "border-zinc-500/30 shadow-(--shadow-extract-14)" : "border-border"
         )}
       >
         <div className="flex items-center gap-2">
@@ -1678,8 +1678,8 @@ function LatestRunCard({
               <span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}</span>
               <Badge variant="ghost" className={cn(
                 "px-1.5 text-(length:--text-nano)",
-                run.invocationSource === "timer" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                  : run.invocationSource === "assignment" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
+                run.invocationSource === "timer" ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
+                  : run.invocationSource === "assignment" ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
                   : run.invocationSource === "on_demand" ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300"
                   : "bg-muted text-muted-foreground"
               )}>
@@ -2556,7 +2556,7 @@ export function PromptsTab({
       {(bundle?.warnings ?? []).length > 0 && (
         <div className="space-y-2">
           {(bundle?.warnings ?? []).map((warning) => (
-            <div key={warning} className="rounded-md border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-900 dark:text-sky-100">
+            <div key={warning} className="rounded-md border border-zinc-500/25 bg-zinc-500/10 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100">
               {warning}
             </div>
           ))}
@@ -2582,7 +2582,7 @@ export function PromptsTab({
                       <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent side="right" sideOffset={4}>
-                      Managed: Paperclip stores and serves the instructions bundle. External: you provide a path on disk where the instructions live.
+                      Managed: Automa stores and serves the instructions bundle. External: you provide a path on disk where the instructions live.
                     </TooltipContent>
                   </Tooltip>
                 </span>
@@ -2637,7 +2637,7 @@ export function PromptsTab({
                       <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent side="right" sideOffset={4}>
-                      The absolute directory on disk where the instructions bundle lives. In managed mode this is set by Paperclip automatically.
+                      The absolute directory on disk where the instructions bundle lives. In managed mode this is set by Automa automatically.
                     </TooltipContent>
                   </Tooltip>
                 </span>
@@ -3083,8 +3083,8 @@ function RunListItem({ run, isSelected, agentId }: { run: HeartbeatRun; isSelect
         </span>
         <Badge variant="ghost" className={cn(
           "px-1.5 text-(length:--text-nano)",
-          run.invocationSource === "timer" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-            : run.invocationSource === "assignment" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
+          run.invocationSource === "timer" ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
+            : run.invocationSource === "assignment" ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
             : run.invocationSource === "on_demand" ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300"
             : "bg-muted text-muted-foreground"
         )}>
@@ -3591,7 +3591,7 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType, adapterConfig }
                     Login URL:
                     <a
                       href={claudeLoginResult.loginUrl}
-                      className="text-blue-600 underline underline-offset-2 ml-1 break-all dark:text-blue-400"
+                      className="text-zinc-600 underline underline-offset-2 ml-1 break-all dark:text-zinc-400"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -4283,7 +4283,7 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
   const streamColors: Record<string, string> = {
     stdout: "text-foreground",
     stderr: "text-red-600 dark:text-red-300",
-    system: "text-blue-600 dark:text-blue-300",
+    system: "text-zinc-600 dark:text-zinc-300",
   };
 
   return (
@@ -4334,10 +4334,10 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
             </Button>
           )}
           {isLive && (
-            <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+            <span className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
               <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500" />
               </span>
               Live
             </span>
@@ -4546,7 +4546,7 @@ export function KeysTab({ agentId, companyId }: { agentId: string; companyId?: s
           Create API Key
         </h3>
         <p className="text-xs text-muted-foreground">
-          API keys allow this agent to authenticate calls to the Paperclip server.
+          API keys allow this agent to authenticate calls to the Automa server.
         </p>
         <div className="flex items-center gap-2">
           <Input

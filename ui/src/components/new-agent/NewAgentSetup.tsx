@@ -641,7 +641,7 @@ function Setup({
                   ·{" "}
                   {runnerProvider === "codex"
                     ? "Native app server runner"
-                    : "Paperclip Runner"}
+                    : "Automa Runner"}
                 </span>
               )}
             </div>

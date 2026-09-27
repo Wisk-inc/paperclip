@@ -993,7 +993,7 @@ function IssueDetailLoadingState({
               headerSeed.originId ? (
                 <Badge
                   variant="outline"
-                  className="border-violet-500/30 bg-violet-500/10 text-(length:--text-nano) text-violet-600 dark:text-violet-400"
+                  className="border-zinc-500/30 bg-zinc-500/10 text-(length:--text-nano) text-zinc-600 dark:text-zinc-400"
                   title={`Routine execution from routine ${headerSeed.originId}`}
                 >
                   <Repeat className="h-3 w-3" />
@@ -2243,7 +2243,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
         if (code === "queued_comment_already_dispatching") {
           pushToast({
             title: "Message is already being sent",
-            body: "The continuation started before the discard was confirmed, so Paperclip could not unsend it.",
+            body: "The continuation started before the discard was confirmed, so Automa could not unsend it.",
             tone: "error",
             ttlMs: 15_000,
             dedupeKey: `queued-comment-already-dispatching:${issueId}:${commentId}`,
@@ -6954,8 +6954,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
             className={cn("gap-1.5 text-(length:--text-nano)", liveBlueBadge)}
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-zinc-500" />
             </span>
             Live
           </Badge>
@@ -6964,7 +6964,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         {issue.originKind === "routine_execution" && issue.originId && (
           <Link
             to={`/routines/${issue.originId}`}
-            className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 text-(length:--text-nano) font-medium text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors"
+            className="inline-flex items-center gap-1 rounded-full bg-zinc-500/10 border border-zinc-500/30 px-2 py-0.5 text-(length:--text-nano) font-medium text-zinc-600 dark:text-zinc-400 shrink-0 hover:bg-zinc-500/20 transition-colors"
             title={`Routine execution from routine ${issue.originId}`}
           >
             <Repeat className="h-3 w-3" />
@@ -6975,7 +6975,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         {issue.originKind === "task_watchdog" ? (
           <Badge
             variant="outline"
-            className="border-sky-500/40 bg-sky-500/10 text-(length:--text-nano) text-sky-700 dark:text-sky-300"
+            className="border-zinc-500/40 bg-zinc-500/10 text-(length:--text-nano) text-zinc-700 dark:text-zinc-300"
             title="This task is a generated watchdog task. It verifies whether stopped work in the watched task tree is legitimate."
           >
             <ScanEye className="h-3 w-3" />

@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "Paperclip",
-  "short_name": "Paperclip",
-  "description": "AI-powered project management and agent coordination platform",
+  "name": "Automa",
+  "short_name": "Automa",
+  "description": "Run a company of AI agents: tasks, approvals, budgets, and files in one place.",
   "start_url": "/",
   "scope": "/",
   "display": "browser",
   "orientation": "any",
-  "theme_color": "#18181b",
-  "background_color": "#18181b",
+  "theme_color": "#000000",
+  "background_color": "#000000",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
@@ -21,7 +21,7 @@
       "type": "image/png"
     },
     {
-      "src": "/android-chrome-512x512.png",
+      "src": "/android-chrome-maskable-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

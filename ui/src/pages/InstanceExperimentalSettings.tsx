@@ -306,8 +306,21 @@ export function InstanceExperimentalSettings() {
         />
 
         <ExperimentalToggleCard
+          title="Automa Runner"
+          description="Allow new Codex agents to select the experimental Rust Automa Runner, including authenticated runner ingress when a sandbox requires it. Onboarding continues to use legacy adapters. Turning this off hides the choice without affecting existing native runs."
+          checked={enableNativeRunner}
+          onCheckedChange={(checked) =>
+            toggleMutation.mutate({ enableNativeRunner: checked })
+          }
+          disabled={toggleMutation.isPending}
+          settingKey="enableNativeRunner"
+          managed={managedKeys.enableNativeRunner}
+          ariaLabel="Toggle Automa Runner experimental setting"
+        />
+
+        <ExperimentalToggleCard
           title="Beta skills"
-          description="Allow agents to pin beta releases of the Paperclip core skill. Disabling this returns every agent to the default live skill without removing saved pins."
+          description="Allow agents to pin beta releases of the Automa core skill. Disabling this returns every agent to the default live skill without removing saved pins."
           checked={enableBetaSkills}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableBetaSkills: checked })}
           disabled={toggleMutation.isPending}
@@ -445,19 +458,6 @@ export function InstanceExperimentalSettings() {
         />
 
         <ExperimentalToggleCard
-          title="Paperclip Runner"
-          description="Allow new Codex agents to select the experimental Rust Paperclip Runner, including authenticated runner ingress when a sandbox requires it. Onboarding continues to use legacy adapters. Turning this off hides the choice without affecting existing native runs."
-          checked={enableNativeRunner}
-          onCheckedChange={(checked) =>
-            toggleMutation.mutate({ enableNativeRunner: checked })
-          }
-          disabled={toggleMutation.isPending}
-          settingKey="enableNativeRunner"
-          managed={managedKeys.enableNativeRunner}
-          ariaLabel="Toggle Paperclip Runner experimental setting"
-        />
-
-        <ExperimentalToggleCard
           title="Simplified English Interactions"
           description="Instruct agents to write user interactions (plan confirmations, questions, suggested tasks, checkbox prompts) in ASD-STE100 Simplified Technical English, with brief context on what information the decision needs and what happens for each choice."
           checked={enableSimplifiedEnglishInteractions}
@@ -538,10 +538,10 @@ export function InstanceExperimentalSettings() {
         <section className="space-y-3" aria-labelledby="developer-mode-heading">
           <div className="space-y-1">
             <h2 id="developer-mode-heading" className="text-sm font-semibold">
-              Paperclip Developer Mode
+              Automa Developer Mode
             </h2>
             <p className="text-sm text-muted-foreground">
-              Internal tools for developing, testing, and debugging Paperclip.
+              Internal tools for developing, testing, and debugging Automa.
             </p>
           </div>
 
@@ -559,6 +559,19 @@ export function InstanceExperimentalSettings() {
           />
 
           <ExperimentalToggleCard
+            title="Automa Developer Mode"
+            description="Show internal Automa maintainer tools and observability links, including Honeycomb trace queries on run pages."
+            checked={enablePaperclipDeveloperMode}
+            onCheckedChange={(checked) =>
+              toggleMutation.mutate({ enablePaperclipDeveloperMode: checked })
+            }
+            disabled={toggleMutation.isPending}
+            settingKey="enablePaperclipDeveloperMode"
+            managed={managedKeys.enablePaperclipDeveloperMode}
+            ariaLabel="Toggle Automa developer mode experimental setting"
+          />
+
+          <ExperimentalToggleCard
             title="Managed Environment Only"
             description="Hide the local environment and run all agents in the platform-managed environment."
             checked={enableManagedSandboxOnly}
@@ -569,19 +582,6 @@ export function InstanceExperimentalSettings() {
             settingKey="enableManagedSandboxOnly"
             managed={managedKeys.enableManagedSandboxOnly}
             ariaLabel="Toggle managed environment only experimental setting"
-          />
-
-          <ExperimentalToggleCard
-            title="Paperclip Developer Mode"
-            description="Show internal Paperclip maintainer tools and observability links, including Honeycomb trace queries on run pages."
-            checked={enablePaperclipDeveloperMode}
-            onCheckedChange={(checked) =>
-              toggleMutation.mutate({ enablePaperclipDeveloperMode: checked })
-            }
-            disabled={toggleMutation.isPending}
-            settingKey="enablePaperclipDeveloperMode"
-            managed={managedKeys.enablePaperclipDeveloperMode}
-            ariaLabel="Toggle Paperclip developer mode experimental setting"
           />
 
           {showWorktreeRunExecution ? (

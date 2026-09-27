@@ -33,22 +33,22 @@ const TONE_PALETTES: Record<LivenessBannerTone, TonePalette> = {
   },
   permission: {
     section:
-      "border-purple-300 bg-purple-50 text-purple-950 dark:border-purple-900/70 dark:bg-purple-950/30 dark:text-purple-100",
-    icon: "text-purple-700 dark:text-purple-300",
-    pulse: "bg-purple-500",
-    link: "text-purple-900 dark:text-purple-100",
+      "border-zinc-300 bg-zinc-50 text-zinc-950 dark:border-zinc-900/70 dark:bg-zinc-950/30 dark:text-zinc-100",
+    icon: "text-zinc-700 dark:text-zinc-300",
+    pulse: "bg-zinc-500",
+    link: "text-zinc-900 dark:text-zinc-100",
     button:
-      "border-purple-300 bg-transparent hover:bg-purple-100 dark:border-purple-900/70 dark:hover:bg-purple-950/40",
+      "border-zinc-300 bg-transparent hover:bg-zinc-100 dark:border-zinc-900/70 dark:hover:bg-zinc-950/40",
     Icon: Lock,
   },
   retry: {
     section:
-      "border-indigo-300 bg-indigo-50 text-indigo-950 dark:border-indigo-900/70 dark:bg-indigo-950/30 dark:text-indigo-100",
-    icon: "text-indigo-700 dark:text-indigo-300",
-    pulse: "bg-indigo-500",
-    link: "text-indigo-900 dark:text-indigo-100",
+      "border-zinc-300 bg-zinc-50 text-zinc-950 dark:border-zinc-900/70 dark:bg-zinc-950/30 dark:text-zinc-100",
+    icon: "text-zinc-700 dark:text-zinc-300",
+    pulse: "bg-zinc-500",
+    link: "text-zinc-900 dark:text-zinc-100",
     button:
-      "border-indigo-300 bg-transparent hover:bg-indigo-100 dark:border-indigo-900/70 dark:hover:bg-indigo-950/40",
+      "border-zinc-300 bg-transparent hover:bg-zinc-100 dark:border-zinc-900/70 dark:hover:bg-zinc-950/40",
     Icon: RefreshCw,
   },
   attention: {

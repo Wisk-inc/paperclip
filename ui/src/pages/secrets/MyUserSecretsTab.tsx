@@ -54,7 +54,7 @@ export function MyUserSecretsTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-2 rounded-md border border-violet-500/30 bg-violet-500/5 px-4 py-3 text-xs text-violet-800 dark:text-violet-200">
+      <div className="flex items-start gap-2 rounded-md border border-zinc-500/30 bg-zinc-500/5 px-4 py-3 text-xs text-zinc-800 dark:text-zinc-200">
         <UserRound className="h-4 w-4 mt-0.5 shrink-0" />
         <p>
           These are credentials only you provide. Each value is yours alone — used when you are the

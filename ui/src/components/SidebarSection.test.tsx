@@ -183,7 +183,9 @@ describe("SidebarSection", () => {
       .find((element) => element.textContent === "Settings");
 
     expect(settingsLabel).toBeTruthy();
-    expect(settingsLabel?.getAttribute("class")).toContain("uppercase");
+    // Automa labels are sentence case: quiet muted text, no uppercase eyebrow.
+    expect(settingsLabel?.getAttribute("class")).toContain("text-muted-foreground");
+    expect(settingsLabel?.getAttribute("class")).not.toContain("uppercase");
     expect(container.querySelector(".bg-border\\/60")).toBeNull();
   });
 

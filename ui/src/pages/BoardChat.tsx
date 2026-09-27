@@ -803,7 +803,7 @@ export function BoardChat() {
                       <div
                         className={cn(
                           boardChatBubbleShell,
-                          "bg-blue-600 text-white [border-radius:14px_14px_4px_14px]",
+                          "bg-zinc-600 text-white [border-radius:14px_14px_4px_14px]",
                         )}
                       >
                         {comment.body ?? ""}
@@ -858,7 +858,7 @@ export function BoardChat() {
                   <div
                     className={cn(
                       boardChatBubbleShell,
-                      "bg-blue-600 text-white [border-radius:14px_14px_4px_14px]",
+                      "bg-zinc-600 text-white [border-radius:14px_14px_4px_14px]",
                     )}
                   >
                     {optimisticMessage}

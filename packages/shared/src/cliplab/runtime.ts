@@ -2,10 +2,12 @@
 // See PROVENANCE.md and LICENSE.
 import { CharacterRenderer } from './renderer.js'
 import { sampleDefinition, animationDuration, type Definition } from './model.js'
-import { centeredGaze, easeGaze, pointerGaze } from './gaze.js'
+import { centeredGaze, clampGaze, easeGaze, pointerGaze, type Gaze } from './gaze.js'
 export interface CharacterOptions {
   animation?: string; followCursor?: boolean; followRotation?: boolean;
   trackingRegion?: HTMLElement; trackingScope?: 'region' | 'page'; displaySize?: number; onComplete?: () => void; onError?: () => void;
+  /** Where the eyes rest when no pointer is tracked (touch screens, pointer outside). Defaults to straight ahead. */
+  restingGaze?: Gaze;
 }
 
 /** One renderer; no frame callbacks or pointer listeners while hidden. */
@@ -17,19 +19,20 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
   target.appendChild(canvas)
   let animation = options.animation ?? 'idle', elapsed = 0, last = 0, raf = 0
   let visible = false, destroyed = false, playing = true, tracking = false
-  let gaze = centeredGaze(), goal = centeredGaze()
+  const resting = (): Gaze => options.restingGaze ? clampGaze(options.restingGaze) : centeredGaze()
+  let gaze = resting(), goal = resting()
   const region = options.trackingScope === 'page' ? target.ownerDocument.documentElement : options.trackingRegion ?? target
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
   const coarse = window.matchMedia('(pointer: coarse)')
   const canRun = () => !destroyed && visible && !document.hidden && !reduced.matches
   const render = () => renderer.render({ ...definition.character, followCursor: options.followCursor !== false, followRotation: options.followRotation !== false }, sampleDefinition(definition, animation, elapsed), { cursor: gaze, reducedMotion: reduced.matches }, gaze)
   const pointer = (event: PointerEvent) => { if (event.pointerType !== 'touch') goal = pointerGaze(event, target.getBoundingClientRect()) }
-  const leave = () => { goal = centeredGaze() }
+  const leave = () => { goal = resting() }
   function track(enabled: boolean) {
     if (tracking === enabled) return
     tracking = enabled
     if (enabled) { region.addEventListener('pointermove', pointer, { passive: true }); region.addEventListener('pointerleave', leave) }
-    else { region.removeEventListener('pointermove', pointer); region.removeEventListener('pointerleave', leave); goal = centeredGaze() }
+    else { region.removeEventListener('pointermove', pointer); region.removeEventListener('pointerleave', leave); goal = resting() }
   }
   function sync() {
     cancelAnimationFrame(raf); raf = 0

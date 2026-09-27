@@ -123,7 +123,7 @@ const LIVENESS_COPY: Record<RunLivenessState, LivenessCopy> = {
   },
   needs_followup: {
     label: "Needs follow-up",
-    tone: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    tone: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
     description:
       "Run produced useful output but did not prove concrete progress.",
   },
@@ -137,8 +137,8 @@ const PENDING_LIVENESS_COPY: LivenessCopy = {
 
 const RETRY_PENDING_LIVENESS_COPY: LivenessCopy = {
   label: "Retry pending",
-  tone: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-  description: "Paperclip queued an automatic retry that has not started yet.",
+  tone: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+  description: "Automa queued an automatic retry that has not started yet.",
 };
 
 const MISSING_LIVENESS_COPY: LivenessCopy = {
@@ -426,7 +426,7 @@ function watchdogDecisionErrorMessage(error: unknown) {
   }
   return error instanceof Error && error.message.trim().length > 0
     ? error.message
-    : "Paperclip could not record the watchdog decision.";
+    : "Automa could not record the watchdog decision.";
 }
 
 export function IssueRunLedger({
@@ -555,7 +555,7 @@ export function IssueRunLedger({
         body:
           error instanceof Error
             ? error.message
-            : "Paperclip could not start the trace re-run.",
+            : "Automa could not start the trace re-run.",
         tone: "error",
         dedupeKey: `provider-trace-rerun:${issueId}`,
       }),
@@ -760,8 +760,8 @@ export function IssueRunLedgerContent({
           </p>
           <p className="mt-1">
             {latestSilentRun.outputSilence.evaluationIssueIdentifier
-              ? "This signal is informational. Paperclip did not create new delegated recovery work."
-              : "This signal is informational. Paperclip did not create or assign a recovery task."}
+              ? "This signal is informational. Automa did not create new delegated recovery work."
+              : "This signal is informational. Automa did not create or assign a recovery task."}
           </p>
           {onWatchdogDecision && canRecordWatchdogDecisions ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -886,8 +886,8 @@ export function IssueRunLedgerContent({
                     {statusLabel(run.status)}
                   </span>
                   {run.isLive ? (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-(length:--text-micro) text-blue-700 dark:text-blue-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                    <span className="inline-flex items-center gap-1 rounded-md border border-zinc-500/30 bg-zinc-500/10 px-1.5 py-0.5 text-(length:--text-micro) text-zinc-700 dark:text-zinc-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
                       live
                     </span>
                   ) : null}

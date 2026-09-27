@@ -1200,7 +1200,7 @@ function JobStatusDot({ status }: { status: string }) {
       : status === "failed"
         ? "bg-red-500"
         : status === "running"
-          ? "bg-blue-500 animate-pulse"
+          ? "bg-zinc-500 animate-pulse"
           : status === "cancelled"
             ? "bg-gray-400"
             : "bg-amber-500"; // queued, pending
@@ -1222,7 +1222,7 @@ function DeliveryStatusDot({ status }: { status: string }) {
       : status === "failed"
         ? "bg-red-500"
         : status === "received"
-          ? "bg-blue-500"
+          ? "bg-zinc-500"
           : "bg-amber-500"; // pending
   return (
     <span

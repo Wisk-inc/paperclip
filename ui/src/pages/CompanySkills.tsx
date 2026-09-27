@@ -279,7 +279,7 @@ function sourceMeta(sourceBadge: CompanySkillSourceBadge, sourceLabel: string | 
     case "local":
       return { icon: Folder, label: sourceLabel ?? "Folder", managedLabel: "Folder managed" };
     case "paperclip":
-      return { icon: Paperclip, label: sourceLabel ?? "Paperclip", managedLabel: "Paperclip managed" };
+      return { icon: Paperclip, label: sourceLabel ?? "Automa", managedLabel: "Automa managed" };
     default:
       return { icon: Boxes, label: sourceLabel ?? "Catalog", managedLabel: "Catalog managed" };
   }
@@ -389,12 +389,12 @@ function SourceFilterMenu({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={cn("relative shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
+          className={cn("relative shrink-0", activeFilterCount > 0 && "text-zinc-600 dark:text-zinc-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
           <Filter className="h-3.5 w-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-(length:--text-nano) font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-600 text-(length:--text-nano) font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -435,12 +435,12 @@ function CatalogFilterMenu({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={cn("relative shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
+          className={cn("relative shrink-0", activeFilterCount > 0 && "text-zinc-600 dark:text-zinc-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
           <Filter className="h-3.5 w-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-(length:--text-nano) font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-600 text-(length:--text-nano) font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -510,7 +510,7 @@ function CompatChip({ compatibility }: { compatibility: CompanySkillCompatibilit
     unknown: {
       icon: HelpCircle,
       label: "Unknown format",
-      tooltip: "Paperclip could not validate this skill as Agent Skills markdown. Install at your own risk.",
+      tooltip: "Automa could not validate this skill as Agent Skills markdown. Install at your own risk.",
       className: "border-yellow-500/40 bg-yellow-500/10 text-yellow-800 dark:text-yellow-200",
     },
     invalid: {
@@ -730,7 +730,7 @@ export function buildDiscoveryCards(
       catalogRef: entry.id,
       name: entry.name,
       slug: entry.slug,
-      author: entry.packageName ?? "Paperclip",
+      author: entry.packageName ?? "Automa",
       version: discoveryVersionLabel({ packageVersion: entry.packageVersion ?? null, sourceRef: null }, required),
       tagline: null,
       description: entry.description,
@@ -3889,7 +3889,7 @@ function SkillPane({
             {readonlyMetadataValue(detail.metadata, "userModifiedAt") ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="border-violet-500/40 bg-violet-500/10 text-(length:--text-micro) text-violet-200">
+                  <Badge variant="outline" className="border-zinc-500/40 bg-zinc-500/10 text-(length:--text-micro) text-zinc-200">
                     <Pencil className="h-3 w-3" aria-hidden="true" />
                     Locally modified
                   </Badge>
@@ -4470,7 +4470,7 @@ export function CompanySkills() {
       pushToast({
         tone: "success",
         title: skill.forkedFromSkillId ? "Skill fork created" : "Skill created",
-        body: `${skill.name} is now editable in the Paperclip workspace.`,
+        body: `${skill.name} is now editable in the Automa workspace.`,
       });
     },
     onError: (error) => {
@@ -5203,7 +5203,7 @@ export function CompanySkills() {
   const studioTitle = studioForkFromId ? "Fork skill" : "Create a new skill";
   const studioDescription = studioForkFromId
     ? "Review the fork metadata and create an editable organization copy."
-    : "Create an editable organization skill in the Paperclip workspace.";
+    : "Create an editable organization skill in the Automa workspace.";
   return (
     <>
       {policyDenial.denial ? (

@@ -143,17 +143,17 @@ const KIND_HEADLINE: Record<IssueRecoveryActionKind, string> = {
   missing_disposition:
     "This task's run finished, but no next step was chosen. Choose what happens next — try the task again, mark it done, or send it for review.",
   deliberate_wait_without_target:
-    "This task's last run stopped to wait, but there is no reviewer, blocker, monitor, or approval to wait for. Paperclip is repairing the next step; the task stays with its owner.",
+    "This task's last run stopped to wait, but there is no reviewer, blocker, monitor, or approval to wait for. Automa is repairing the next step; the task stays with its owner.",
   stranded_assigned_issue:
-    "Paperclip retried this task's last run, but there is still no queued run, reviewer, blocker, or other next owner. To get it moving, choose what happens next — try the task again, mark it done, or send it for review.",
+    "Automa retried this task's last run, but there is still no queued run, reviewer, blocker, or other next owner. To get it moving, choose what happens next — try the task again, mark it done, or send it for review.",
   workspace_validation:
-    "Paperclip stopped this run because the task's git workspace could not be validated.",
+    "Automa stopped this run because the task's git workspace could not be validated.",
   configuration_validation:
-    "Paperclip stopped before dispatching this run because required secret/env bindings are missing.",
+    "Automa stopped before dispatching this run because required secret/env bindings are missing.",
   active_run_watchdog:
     "The active run has been silent. Recovery is observing without interrupting it.",
   issue_graph_liveness:
-    "Paperclip could not find a clear next step for this open task. Choose whether to continue work, send it for review, mark it done, or record what is blocking it.",
+    "Automa could not find a clear next step for this open task. Choose whether to continue work, send it for review, mark it done, or record what is blocking it.",
 };
 
 /** Shared shell for the retry-timing pill so every timing state reads as the same control. */
@@ -182,12 +182,12 @@ const STATE_TONE: Record<RecoveryCardCardState, {
   in_progress: {
     label: "RECOVERY IN PROGRESS",
     containerClass:
-      "border-sky-300/70 bg-sky-50/80 text-sky-950 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100",
-    iconWrapClass: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200",
-    iconClass: "text-sky-700 dark:text-sky-300",
-    labelClass: "text-sky-900 dark:text-sky-200",
+      "border-zinc-300/70 bg-zinc-50/80 text-zinc-950 dark:border-zinc-500/40 dark:bg-zinc-500/10 dark:text-zinc-100",
+    iconWrapClass: "bg-zinc-100 text-zinc-800 dark:bg-zinc-500/20 dark:text-zinc-200",
+    iconClass: "text-zinc-700 dark:text-zinc-300",
+    labelClass: "text-zinc-900 dark:text-zinc-200",
     Icon: RefreshCw,
-    divider: "border-sky-300/60 dark:border-sky-500/30",
+    divider: "border-zinc-300/60 dark:border-zinc-500/30",
   },
   observe_only: {
     label: "OBSERVING ACTIVE RUN",
@@ -561,7 +561,7 @@ function BreakGlassOverride({
             Break-glass reconciliation
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
-            This overrides Paperclip&apos;s safety check and points the recorded workspace at the live
+            This overrides Automa&apos;s safety check and points the recorded workspace at the live
             branch{" "}
             <span className="font-medium text-foreground/80">without an ancestry proof</span>. Confirm
             the divergence below and record why before continuing.
@@ -656,7 +656,7 @@ function RepairWorkspace({
       variant="outline"
       disabled={pending || disabled}
       data-testid="recovery-action-repair-trigger"
-      className="border-sky-400/50 text-sky-700 hover:bg-sky-500/10 dark:border-sky-500/40 dark:text-sky-300"
+      className="border-zinc-400/50 text-zinc-700 hover:bg-zinc-500/10 dark:border-zinc-500/40 dark:text-zinc-300"
     >
       {pending ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -692,7 +692,7 @@ function RepairWorkspace({
         <div className="space-y-1">
           <div
             id="recovery-repair-title"
-            className="flex items-center gap-1.5 text-(length:--text-micro) font-semibold uppercase tracking-(--tracking-eyebrow) text-sky-700 dark:text-sky-300"
+            className="flex items-center gap-1.5 text-(length:--text-micro) font-semibold uppercase tracking-(--tracking-eyebrow) text-zinc-700 dark:text-zinc-300"
           >
             <Wrench className="h-3.5 w-3.5" aria-hidden />
             Repair workspace
@@ -705,7 +705,7 @@ function RepairWorkspace({
         </div>
         <dl
           data-testid="recovery-repair-restated"
-          className="space-y-1.5 rounded-md border border-sky-400/30 bg-sky-500/5 px-2.5 py-2 text-(length:--text-micro)"
+          className="space-y-1.5 rounded-md border border-zinc-400/30 bg-zinc-500/5 px-2.5 py-2 text-(length:--text-micro)"
         >
           <div className="flex items-center justify-between gap-2">
             <dt className="shrink-0 text-muted-foreground">Dirty changes</dt>
@@ -762,7 +762,7 @@ function readWakePolicySummary(action: IssueRecoveryAction): string | null {
   if (!type) return null;
   if (type === "wake_owner") return "An agent will be asked to choose the next step";
   if (type === "bounded_owner_disposition_repair") {
-    return "Paperclip is retrying the original owner";
+    return "Automa is retrying the original owner";
   }
   if (type === "bounded_recovery_owner") return "A recovery owner is repairing the next step";
   if (type === "board_escalation") return "Board decision required";
@@ -911,7 +911,7 @@ function lineageHeadline(lineage: RecoveryRetryLineage): string {
   if (lineage.lane === "source_owner") {
     return lineage.exhausted
       ? "This task's last run stopped to wait, but nothing was waiting for it. The original owner has used every automatic repair attempt, so the next step needs a decision. The task stays with its owner."
-      : "This task's last run stopped to wait, but nothing was waiting for it. Paperclip is retrying the original owner to record a real next step. The task stays with its owner, and no action is needed yet.";
+      : "This task's last run stopped to wait, but nothing was waiting for it. Automa is retrying the original owner to record a real next step. The task stays with its owner, and no action is needed yet.";
   }
   if (lineage.lane === "recovery_owner") {
     return "The original owner could not record a next step within its retry budget. A recovery owner is now repairing the path only — the task itself still belongs to its original owner.";

@@ -32,6 +32,7 @@ import { NewAgentDialog } from "./NewAgentDialog";
 import { KeyboardShortcutsCheatsheet } from "./KeyboardShortcutsCheatsheet";
 import { ToastViewport } from "./ToastViewport";
 import { MobileBottomNav } from "./MobileBottomNav";
+import { DeviceFilesSync } from "./DeviceFilesSync";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
 import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
@@ -667,7 +668,7 @@ export function Layout() {
           {isMobile && sidebarOpen && (
             <button
               type="button"
-              className="fixed inset-0 z-40 bg-black/50"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
               onClick={() => setSidebarOpen(false)}
               aria-label="Close sidebar"
             />
@@ -776,6 +777,7 @@ export function Layout() {
           </div>
         </div>
         {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
+      <DeviceFilesSync companyId={selectedCompanyId ?? null} />
         <CommandPalette />
         <NewIssueDialog />
         <NewProjectDialog />

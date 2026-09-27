@@ -235,7 +235,7 @@ function runStatusClass(status: string) {
     case "timed_out":
       return "text-orange-700 dark:text-orange-300";
     case "running":
-      return "text-blue-700 dark:text-blue-300";
+      return "text-zinc-700 dark:text-zinc-300";
     case "queued":
     case "pending":
       return "text-amber-700 dark:text-amber-300";

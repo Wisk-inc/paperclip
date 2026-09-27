@@ -12,6 +12,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { MembershipAction } from "../components/MembershipAction";
 import { StarToggle } from "../components/StarToggle";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { formatDate, formatNumber, formatProjectBudget, projectUrl } from "../lib/utils";
 import {
@@ -128,6 +129,7 @@ export function Projects() {
 
   return (
     <div className="space-y-4">
+      {projects.length > 0 ? (
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Popover>
           <PopoverTrigger asChild>
@@ -168,22 +170,25 @@ export function Projects() {
             </div>
           </PopoverContent>
         </Popover>
-        <Button size="sm" variant="outline" onClick={openNewProject}>
+        <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={openNewProject}>
           <Plus className="h-4 w-4 mr-1" />
           Add Project
         </Button>
       </div>
+      ) : null}
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
       {!isLoading && projects.length === 0 && (
         <EmptyState
           icon={Hexagon}
-          message="No projects yet."
-          action="Add Project"
+          title="No projects yet"
+          message="A project groups related tasks, its codebase, and a budget for your agents."
+          action="Add project"
           onAction={openNewProject}
         />
       )}
+
 
       {projects.length > 0 && (
         <div className="space-y-6">
@@ -279,6 +284,7 @@ export function Projects() {
           })}
         </div>
       )}
+      {projects.length > 0 ? <ThumbAction label="Add project" onClick={openNewProject} /> : null}
     </div>
   );
 }

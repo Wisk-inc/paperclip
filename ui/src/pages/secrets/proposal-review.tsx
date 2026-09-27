@@ -142,8 +142,8 @@ export function DeliveryBadge({ configPath }: { configPath: string | null }) {
       variant="outline"
       className={cn(
         "h-5 gap-1 px-1.5 text-(length:--text-nano) font-normal",
-        isEnv && "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-        isApi && "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+        isEnv && "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+        isApi && "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
         !isEnv && !isApi && "border-border bg-muted/40 text-muted-foreground",
       )}
     >

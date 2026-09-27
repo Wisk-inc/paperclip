@@ -11,6 +11,7 @@ import {
 } from "react";
 import { AlertTriangle, Check, Loader2, Paperclip, Send } from "lucide-react";
 import { cn } from "../lib/utils";
+import { haptic } from "@/lib/haptics";
 
 /**
  * Shared chat composer (PAP-95a / PAP-96).
@@ -171,7 +172,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         : !evt.shiftKey && !evt.metaKey && !evt.ctrlKey;
     if (!wantsSubmit) return;
     evt.preventDefault();
-    if (canSend) onSubmit();
+    if (!canSend) return;
+    haptic("tick");
+    onSubmit();
   }
 
   function triggerFilePicker() {
@@ -235,7 +238,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
           : "border-border bg-card",
         // No blue focus ring — neutral border darkening only.
         isAsk &&
-          "border-sky-500/55 bg-sky-50/50 focus-within:border-sky-500/70 dark:border-sky-500/50 dark:bg-sky-500/[0.07]",
+          "border-zinc-500/55 bg-zinc-50/50 focus-within:border-zinc-500/70 dark:border-zinc-500/50 dark:bg-zinc-500/[0.07]",
         isPlanning &&
           "border-amber-500/55 bg-amber-50/50 focus-within:border-amber-500/70 dark:border-amber-500/50 dark:bg-amber-500/[0.07]",
         isDragOver && canAttach && "border-muted-foreground/50 bg-accent/20",
@@ -360,16 +363,20 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
         <button
           type="button"
           onClick={() => {
-            if (canSend) onSubmit();
+            if (!canSend) return;
+            haptic("tick");
+            onSubmit();
           }}
           disabled={!canSend}
           aria-label={sendLabel}
           title={sendLabel}
           className={cn(
-            "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors duration-150 disabled:cursor-not-allowed",
+            "grid h-7 w-7 shrink-0 place-items-center rounded-md transition-(--tp-transform-opacity) duration-(--motion-duration-fast) ease-(--motion-ease-out-expo) disabled:cursor-not-allowed",
             canSend
-              ? "bg-foreground text-background hover:opacity-90"
-              : "bg-accent text-muted-foreground",
+              ? "bg-foreground text-background hover:opacity-90 active:scale-90"
+              : submitting
+                ? "bg-foreground text-background"
+                : "scale-90 bg-accent text-muted-foreground opacity-60",
           )}
         >
           {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

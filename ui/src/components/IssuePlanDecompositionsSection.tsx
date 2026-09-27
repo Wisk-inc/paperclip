@@ -100,7 +100,7 @@ export function IssuePlanDecompositionsSection({
                 </span>
                 {record.status === "completed" && requested > 0 ? (
                   <span
-                    className="inline-flex items-center gap-1 rounded-sm border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-(length:--text-nano) font-medium text-sky-900 dark:text-sky-100"
+                    className="inline-flex items-center gap-1 rounded-sm border border-zinc-500/40 bg-zinc-500/10 px-1.5 py-0.5 text-(length:--text-nano) font-medium text-zinc-900 dark:text-zinc-100"
                     title="Repeat attempts with this fingerprint reuse this record instead of creating new children"
                   >
                     <Repeat className="h-3 w-3" />

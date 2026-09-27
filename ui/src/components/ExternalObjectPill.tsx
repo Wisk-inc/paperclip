@@ -63,7 +63,7 @@ function isMergedExternalObject(object: ExternalObjectPillData, statusLabel: str
 
 function externalObjectPillTone(object: ExternalObjectPillData, statusLabel: string): string {
   if (isMergedExternalObject(object, statusLabel)) {
-    return "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400";
+    return "text-zinc-600 border-zinc-600 dark:text-zinc-400 dark:border-zinc-400";
   }
   return externalObjectStatusIcon[object.statusCategory] ?? externalObjectStatusIconDefault;
 }

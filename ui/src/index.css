@@ -18,10 +18,20 @@
   font-weight: 100 900;
 }
 
+/* Automa display face: page titles, headline numbers, and the wordmark. */
+@font-face {
+  font-family: "Bricolage Grotesque UI";
+  src: url("/fonts/BricolageGrotesque-UI.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400 700;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-sans: "InterVariable", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque UI", "InterVariable", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -72,6 +82,10 @@
 
 :root {
   color-scheme: light;
+  /* Automa theme: strictly monochrome. Black and white carry every action and
+     surface; color is reserved for meaning (status, errors, charts). Cards
+     sit one step off the page with a border rather than a shadow, and radius
+     is a scale (inputs 6px, cards 8px, dialogs 11px), never one value. */
   --radius: 0.5rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -79,36 +93,36 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.145 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.47 0 0);
+  --accent: oklch(0.95 0 0);
+  --accent-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.915 0 0);
+  --input: oklch(0.88 0 0);
+  --ring: oklch(0.55 0 0);
   --scrollbar-thumb: oklch(0.7 0 0);
   --scrollbar-thumb-hover: oklch(0.6 0 0);
   --scrollbar-size: 8px;
   --scrollbar-radius: 999px;
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --chart-1: oklch(0.2 0 0);
+  --chart-2: oklch(0.45 0 0);
+  --chart-3: oklch(0.6 0 0);
+  --chart-4: oklch(0.75 0 0);
+  --chart-5: oklch(0.87 0 0);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary: oklch(0.145 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.88 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.93 0 0);
+  --sidebar-accent-foreground: oklch(0.145 0 0);
+  --sidebar-border: oklch(0.915 0 0);
+  --sidebar-ring: oklch(0.55 0 0);
   --chip-match-title-bg: oklch(0.97 0.02 265);
   --chip-match-title-fg: oklch(0.4 0.13 265);
   --chip-match-title-border: oklch(0.85 0.05 265);
@@ -169,14 +183,16 @@
      status chips and the task status icons. Mode-independent: the `.status-chip`,
      `.status-fill` and inline icon helpers derive the light vs dark
      fill/text/border from these via color-mix, so a single hue covers both
-     modes. Values mirror the PAP-75 brand palette (gray inert, blue liveness,
-     amber queued, violet review, green done, red blocked). */
+     modes. Automa palette (no blue or violet): gray inert/queued, amber
+     in progress, foreground (black or white) for review because review waits
+     on a person, green done and live agents, red blocked. Icon shapes already
+     differ per status, so hue is never the only signal. */
   --status-agent-idle: #a8aeb2;
-  --status-agent-running: #2563eb;
+  --status-agent-running: #16a34a;
   --status-agent-paused: #f59e0b;
   --status-agent-error: #dc2626;
   /* Dashboard agent card: translucent running treatment from the Paper design. */
-  --dashboard-run-accent: oklch(62.3% 0.214 259.815);
+  --dashboard-run-accent: #16a34a;
   --dashboard-run-background: color-mix(in oklab, var(--dashboard-run-accent) 4%, transparent);
   --dashboard-run-border: color-mix(in oklab, var(--dashboard-run-accent) 25%, transparent);
   --dashboard-list-leading-width: calc(var(--spacing) * 6);
@@ -185,9 +201,9 @@
   --dashboard-task-list-columns: var(--dashboard-list-leading-width) minmax(0, 1fr) calc(var(--spacing) * 36) var(--dashboard-list-id-width) var(--dashboard-list-time-width);
   --dashboard-activity-list-columns: var(--dashboard-list-leading-width) minmax(0, 1fr) var(--dashboard-list-id-width) var(--dashboard-list-time-width);
   --status-task-backlog: #a8aeb2;
-  --status-task-todo: #f59e0b;
-  --status-task-in_progress: #2563eb;
-  --status-task-in_review: #7c3aed;
+  --status-task-todo: #8a8f94;
+  --status-task-in_progress: #f59e0b;
+  --status-task-in_review: var(--foreground);
   --status-task-done: #22c55e;
   --status-task-blocked: #dc2626;
   --status-task-cancelled: #a8aeb2;
@@ -197,15 +213,15 @@
      `--status-task-*` chip base hues: a status chip carries its own bg/text
      tint, but a bare glyph sitting next to text on the page needs a stronger
      hue to clear 3:1. Where the chip base already passes (blue liveness, red
-     blocked, light violet review) the icon var simply re-points at it; the
+     blocked, foreground review) the icon var simply re-points at it; the
      gray / amber / green statuses are pinned to the board-approved AA hexes.
      `in_queue` is the BLOCKED shape recoloured to the in_progress blue
      (replaces the bespoke teal "covered" state). Light values here; the
      `.dark` block below overrides the hues that need a mode-specific value. */
   --status-task-icon-backlog: #52585d;   /* gray darkened — 7.21:1 on paper */
-  --status-task-icon-todo: #cc7a00;       /* amber darkened — clears 3:1 */
-  --status-task-icon-in_progress: var(--color-blue-600); /* matches nav dots and live labels */
-  --status-task-icon-in_review: var(--status-task-in_review);     /* #7c3aed (light) */
+  --status-task-icon-todo: #6b7075;       /* neutral gray — clears 3:1 on paper */
+  --status-task-icon-in_progress: #cc7a00; /* amber darkened — clears 3:1 */
+  --status-task-icon-in_review: var(--foreground);
   --status-task-icon-done: #16a34a;       /* green darkened — clears 3:1 */
   --status-task-icon-blocked: var(--status-task-blocked);         /* #dc2626 both modes */
   --status-task-icon-cancelled: #52585d;
@@ -256,6 +272,15 @@
   --motion-duration-base: 240ms;
   --motion-duration-slow: 360ms;
   --motion-duration-deliberate: 520ms;
+
+  /* App-shell motion (mascot, skeletons, sheets, heroes). Tunable like the
+     tokens below; durations reference the primitives where they can. */
+  --motion-mascot-pose: var(--motion-duration-slow);  /* crossfade between cached mascot poses */
+  --motion-mascot-float: 4800ms;                      /* one idle float cycle */
+  --motion-skeleton-shimmer: 1600ms;                  /* one skeleton highlight sweep */
+  --motion-fab-sheet-enter: var(--motion-duration-slow); /* new-task sheet growing out of the tab-bar button */
+  --motion-fab-sheet-exit: var(--motion-duration-fast);
+  --motion-hero-enter: var(--motion-duration-slow);   /* empty-state hero rising in */
 
   /* State/component-scoped — grouped for the tweak panel (tunable) */
   --motion-marker-enter: var(--motion-duration-base);
@@ -364,44 +389,46 @@
 }
 
 .dark {
-  --background: oklch(0.205 0 0);
+  /* Automa dark theme: a true-black page (OLED friendly), near-black cards
+     lifted one step, and white primary actions with black labels. */
+  --background: oklch(0 0 0);
   --foreground: oklch(0.985 0 0);
   --side-panel-bg: var(--background);
   --side-panel-fg: oklch(0.985 0 0);
   --streamlined-task-detail-bg: var(--background);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.175 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.2 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --bubble-agent: oklch(0.185 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.145 0 0);
+  --bubble-agent: oklch(0.175 0 0);
+  --secondary: oklch(0.24 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.25 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.637 0.237 25.331); /* Gallery feedback round 1: user preferred master's original dark destructive red over the preset's softer 0.704 0.191 22.216. */
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --scrollbar-thumb: oklch(0.4 0 0);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.7 0 0);
+  --scrollbar-thumb: oklch(0.38 0 0);
   --scrollbar-thumb-hover: oklch(0.5 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --chart-1: oklch(0.95 0 0);
+  --chart-2: oklch(0.78 0 0);
+  --chart-3: oklch(0.6 0 0);
+  --chart-4: oklch(0.45 0 0);
+  --chart-5: oklch(0.32 0 0);
+  --sidebar: oklch(0.1 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.32 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.145 0 0);
+  --sidebar-accent: oklch(0.24 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.7 0 0);
   --chip-match-title-bg: oklch(0.27 0.04 265 / 0.5);
   --chip-match-title-fg: oklch(0.78 0.10 265);
   --chip-match-title-border: oklch(0.4 0.06 265);
@@ -418,9 +445,9 @@
      contrast comparable to the neighboring gray, purple, and green icons.
      Blocked retains its base red; in_queue follows the progress icon blue. */
   --status-task-icon-backlog: #9a958a;
-  --status-task-icon-todo: #fbbf24;
-  --status-task-icon-in_progress: var(--color-blue-400); /* matches nav dots and live labels */
-  --status-task-icon-in_review: #9474f0;  /* deeper than violet-400, reads purple */
+  --status-task-icon-todo: #b4b9bd;
+  --status-task-icon-in_progress: #fbbf24;
+  --status-task-icon-in_review: var(--foreground);
   --status-task-icon-done: #34d06f;
   --status-task-icon-cancelled: #9a958a;
 }
@@ -840,6 +867,8 @@
     --motion-scroll-pill-enter: 0ms;
     --motion-scroll-pill-exit: 0ms;
     --motion-pane-glide: 0ms;
+    --motion-mascot-float: 0ms;
+    --motion-skeleton-shimmer: 0ms;
   }
 }
 
@@ -1333,6 +1362,132 @@
 }
 
 /* Shimmer text effect for active "Working" state — Cursor-style sweep */
+/* ── App-shell motion ──────────────────────────────────────────────────────
+   Depth ladder used across the shell (low → high): page content (0),
+   sticky headers (z-20), phone tab bar and pinned action bars (z-30),
+   drawer scrim (z-40), sheets/dialogs/menus with their scrims (z-50),
+   toasts (--z-120), skip link (--z-200). New surfaces pick a rung here
+   instead of inventing a z-index. */
+
+/* Mascot: every pose stays mounted; only opacity and scale change. */
+.mascot-layer {
+  transition:
+    opacity var(--motion-mascot-pose) var(--motion-ease-standard),
+    transform var(--motion-mascot-pose) var(--motion-ease-out-expo);
+}
+.mascot-layer[data-active="false"] {
+  opacity: 0;
+  transform: scale(0.92);
+}
+.mascot-layer[data-active="true"] {
+  opacity: 1;
+  transform: scale(1);
+}
+/* The stills step back once the live character is drawn over them. */
+.mascot-stills {
+  transition: opacity var(--motion-mascot-pose) var(--motion-ease-standard);
+}
+.mascot-stills[data-hidden="true"] {
+  opacity: 0;
+}
+@keyframes mascot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mascot-float { animation: mascot-float var(--motion-mascot-float) ease-in-out infinite; }
+}
+
+/* Empty-state hero: mascot, copy, and action rise in together. */
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(calc(var(--spacing) * 2)); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-enter { animation: hero-enter var(--motion-hero-enter) var(--motion-ease-out-expo) both; }
+}
+
+/* Skeleton "tombstones": a soft highlight sweeps across the placeholder. */
+@layer components {
+  [data-slot="skeleton"] {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  [data-slot="skeleton"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklch, var(--foreground) 7%, transparent),
+      transparent
+    );
+  }
+}
+@keyframes skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="skeleton"]::after {
+    animation: skeleton-shimmer var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
+  }
+}
+
+/* Scrolling inside a sheet or dialog stops at its edge instead of dragging
+   the page behind it (the scrim already says that page is inactive). */
+@layer base {
+  [data-slot="dialog-content"],
+  [data-slot="sheet-content"],
+  [data-slot="alert-dialog-content"] {
+    overscroll-behavior: contain;
+  }
+}
+
+/* Chat input "perceived thinking": while a message is sending or an agent
+   is answering, a soft sheen sweeps across the input box. It is a
+   background-image layer, so it never changes layout or stacking. */
+@keyframes composer-awaiting {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .paperclip-task-chat-composer[data-awaiting="true"] {
+    background-image: linear-gradient(
+      100deg,
+      transparent 35%,
+      color-mix(in oklch, var(--foreground) 6%, transparent) 50%,
+      transparent 65%
+    );
+    background-size: 250% 100%;
+    background-repeat: no-repeat;
+    animation: composer-awaiting var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
+  }
+}
+
+/* On phones the new-task sheet grows out of the centered tab-bar button
+   (bottom center) instead of dropping in from the top. */
+@keyframes fab-sheet-in {
+  from { opacity: 0; transform: translateY(12%) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fab-sheet-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8%) scale(0.94); }
+}
+@media (max-width: 639px) and (prefers-reduced-motion: no-preference) {
+  .fab-sheet[data-state="open"] {
+    transform-origin: 50% 100%;
+    animation: fab-sheet-in var(--motion-fab-sheet-enter) var(--motion-ease-out-expo) both;
+  }
+  .fab-sheet[data-state="closed"] {
+    transform-origin: 50% 100%;
+    animation: fab-sheet-out var(--motion-fab-sheet-exit) var(--motion-ease-standard) both;
+  }
+}
+
 @keyframes shimmer-text-slide {
   0% { background-position: 100% center; }
   60% { background-position: 0% center; }
@@ -1524,14 +1679,14 @@
 }
 
 /* Blue online-glow variant (PAP-125) — the Option 4 wizard's review step.
-   Same breathing ring as the green pulse, recoloured to brand blue (#2563eb). */
+   Same breathing ring as the green pulse, recoloured to the live-agent green (#16a34a). */
 @keyframes agent-cap-online-pulse-blue {
   0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, #2563eb 0%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, #16a34a 0%, transparent);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 6px color-mix(in oklab, #2563eb 22%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in oklab, #16a34a 22%, transparent);
     transform: scale(1.03);
   }
 }
@@ -2402,8 +2557,8 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --hex-10b981: #10b981; /* ActivityCharts.tsx — >=0.8 success-rate bar tint; also the run-activity 'succeeded' segment. */
   --hex-737373: #737373; /* ActivityCharts.tsx — run activity 'other' segment tint. */
   --project-none: #64748b; /* Semantic rename of --hex-64748b (DECISION-SHEET.md A3, value unchanged). 'No project assigned' muted-slate fallback (TOKEN-AUDIT.md 1.3) across Routines/MarkdownEditor/RoutineRunVariablesDialog/RoutineList/IssueColumns/editable-sections; also ActivityCharts.tsx status 'backlog'. */
-  --project-seed: #6366f1; /* Semantic rename of --hex-6366f1 (DECISION-SHEET.md A3, value unchanged). Project-color-fallback indigo seed default (ProjectDetail/PipelineSettings/IssueProperties/NewIssueDialog) — new-project-color-picker-seed family per TOKEN-AUDIT.md 1.3. */
-  --liveness-blue: #2563eb; /* DECISION-SHEET.md A6: IssueChatThread.tsx human-message 'liveness blue' bubble (PAP-95 rev 5). Same value as --status-task-in_progress by coincidence, decoupled on purpose so a future status-hue change doesn't drag the chat bubble along. */
+  --project-seed: #71717a; /* Semantic rename of --hex-6366f1 (DECISION-SHEET.md A3, value unchanged). Project-color-fallback indigo seed default (ProjectDetail/PipelineSettings/IssueProperties/NewIssueDialog) — new-project-color-picker-seed family per TOKEN-AUDIT.md 1.3. */
+  --liveness-blue: oklch(0.28 0 0); /* DECISION-SHEET.md A6: the human-message bubble in IssueChatThread/TaskChatBubble. Automa theme: a neutral charcoal (not blue) that keeps white label text at AAA contrast in both themes. The token name stays for compatibility. */
   --app-logo-tile-1: #ff4f00;
   --app-logo-tile-2: #24292f;
   --app-logo-tile-3: #4a154b;
@@ -2800,9 +2955,10 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --tp-width-opacity: width,opacity; /* Extracted from ui/src/components/OnboardingWizard.tsx (transition-[width,opacity]). */
   --tp-background-color-right: background-color,right; /* Extracted from ui/src/components/ScrollToBottom.tsx (transition-[background-color,right]). */
   --tp-background-color-border-color-color: background-color,border-color,color; /* Extracted from ui/src/components/SystemNotice.tsx (transition-[background-color,border-color,color]). */
-  --tp-transform-opacity: transform,opacity; /* Extracted from ui/src/components/ToastViewport.tsx (transition-[transform,opacity]). */
+  --tp-transform-opacity: transform,translate,scale,opacity; /* Toasts and send buttons. Tailwind v4 translate and scale utilities set the individual translate/scale properties, so they are listed next to transform. */
   --tp-color-box-shadow: color,box-shadow; /* Extracted from ui/src/components/ui/badge.tsx (transition-[color,box-shadow]). */
-  --tp-color-background-color-border-color-box-shadow-opacity: color,background-color,border-color,box-shadow,opacity; /* Extracted from ui/src/components/ui/button.tsx (transition-[color,background-color,border-color,box-shadow,opacity]). */
+  --tp-color-background-color-border-color-box-shadow-opacity: color,background-color,border-color,box-shadow,opacity;
+  --tp-color-background-color-border-color-box-shadow-opacity-scale: color,background-color,border-color,box-shadow,opacity,scale; /* Buttons: color states plus the pressed-state scale. */ /* Extracted from ui/src/components/ui/button.tsx (transition-[color,background-color,border-color,box-shadow,opacity]). */
   --tp-border-color-background-color: border-color,background-color; /* Extracted from ui/src/components/ui/radio-card.tsx (transition-[border-color,background-color]). */
   --tp-color-background-color-border-color-box-shadow: color,background-color,border-color,box-shadow; /* Extracted from ui/src/components/ui/tabs.tsx (transition-[color,background-color,border-color,box-shadow]). */
   --tp-grid-template-rows-opacity: grid-template-rows,opacity; /* Extracted from ui/src/pages/CompanySkills.tsx (transition-[grid-template-rows,opacity]). */

@@ -440,6 +440,12 @@ export const queryKeys = {
       status: "open" | "resolved" | "all" = "all",
     ) => ["routines", "document-annotations", routineId, key, status] as const,
   },
+  deviceFiles: {
+    overview: (companyId: string) => ["device-files", companyId, "overview"] as const,
+    files: (companyId: string) => ["device-files", companyId, "files"] as const,
+    requests: (companyId: string) => ["device-files", companyId, "requests"] as const,
+    device: (deviceId: string) => ["device-files", "device", deviceId] as const,
+  },
   folders: {
     list: (companyId: string, kind: string) =>
       ["folders", companyId, kind] as const,

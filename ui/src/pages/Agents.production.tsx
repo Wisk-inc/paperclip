@@ -19,6 +19,7 @@ import { StarToggle } from "../components/StarToggle";
 import { EntityRow } from "../components/EntityRow";
 import { BuiltInLifecycleChip } from "../components/BuiltInAgentBadges";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
@@ -69,8 +70,8 @@ interface EnvironmentDescriptor {
 
 const localEnvironmentDescriptor: EnvironmentDescriptor = {
   label: "Local",
-  detail: "Paperclip host",
-  title: "Local - Paperclip host",
+  detail: "Automa host",
+  title: "Local - Automa host",
 };
 
 const loadingEnvironmentDescriptor: EnvironmentDescriptor = {
@@ -131,11 +132,11 @@ function describeEnvironment(
   capabilities?: EnvironmentCapabilities | null,
 ): EnvironmentDescriptor {
   const detail = isPlatformManagedEnvironment(environment)
-    ? "Managed by Paperclip"
+    ? "Managed by Automa"
     : environment.driver === "sandbox"
       ? `${getSandboxProviderLabel(environment, capabilities)} sandbox provider`
       : environment.driver === "local"
-        ? "Paperclip host"
+        ? "Automa host"
         : formatEnvironmentDriver(environment.driver);
 
   return {
@@ -519,7 +520,7 @@ export function Agents() {
               </button>
             </div>
           )}
-          <Button size="sm" variant="outline" onClick={openNewAgent}>
+          <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={openNewAgent}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             New Agent
           </Button>
@@ -600,6 +601,7 @@ export function Agents() {
           />
         </Suspense>
       )}
+      {agents && agents.length > 0 ? <ThumbAction label="New agent" onClick={openNewAgent} /> : null}
     </div>
   );
 }
@@ -843,14 +845,14 @@ function LiveRunIndicator({
   return (
     <Link
       to={`/agents/${agentRef}/runs/${runId}`}
-      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
+      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-500/10 hover:bg-zinc-500/20 transition-colors no-underline"
       onClick={(e) => e.stopPropagation()}
     >
       <span className="relative flex h-2 w-2">
-        <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+        <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500" />
       </span>
-      <span className="text-(length:--text-micro) font-medium text-blue-600 dark:text-blue-400">
+      <span className="text-(length:--text-micro) font-medium text-zinc-600 dark:text-zinc-400">
         Live{liveCount > 1 ? ` (${liveCount})` : ""}
       </span>
     </Link>

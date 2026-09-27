@@ -344,10 +344,10 @@ describe("IssueRow", () => {
 
     expect(markReadButton).not.toBeNull();
     expect(markReadButton?.className).toContain("hover:bg-muted/80");
-    expect(markReadButton?.className).not.toContain("hover:bg-blue-500/20");
+    expect(markReadButton?.className).not.toContain("hover:bg-zinc-500/20");
     expect(unreadDot).not.toBeNull();
     expect(unreadDot?.className).toContain("bg-muted-foreground/70");
-    expect(unreadDot?.className).not.toContain("bg-blue-600");
+    expect(unreadDot?.className).not.toContain("bg-zinc-600");
     expect(statusGlyph).not.toBeNull();
     expect(statusGlyph?.getAttribute("class")).toContain("!text-muted-foreground");
     expect(statusGlyph?.getAttribute("class")).toContain("!border-muted-foreground");

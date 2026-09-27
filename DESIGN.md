@@ -56,6 +56,36 @@ paused.” and “Resume this task to send a message.” with a “Resume task�
 Subtrees use “Subtree is paused.” and “Resume subtree.” The takeover cannot be
 dismissed, retains drafts, and hides message inputs until the pause is released.
 
+## Phone layout: thumb zone, mascot, and undo
+
+- **One primary action, in the thumb zone.** On phones a page's create
+  action is never a small button in the header. List pages render
+  `ThumbAction` (a large centered button just above the tab bar) and hide the
+  header button below `md` (`hidden md:inline-flex`). Desktop keeps the header
+  button. When the list is empty, the empty state carries the action instead
+  (never both), and toolbars with nothing to sort or group step aside so the
+  hero sits in the middle of the screen.
+- **Empty states are heroes.** `EmptyState` stacks mascot → title → one line
+  of why → one full-width action, centered, with one gap value. Its `tone`
+  picks the mascot pose: `create` excited, `empty`/`error` confused,
+  `success` cheering (with the success haptic). The mascot rests its eyes on
+  the action below it.
+- **Mascot.** One mascot everywhere (`components/mascot`): the shared
+  character art in the Automa palette, in an explicit 64/96/128 box. Poses
+  are cached and crossfaded (never remounted); the live character plays over
+  the stills when motion is allowed. Change art only in `mascot-art.tsx`.
+- **Undo over confirm.** Destructive list actions (delete, remove, decline,
+  discard draft) happen at once with an Undo toast (`useUndoableAction`); the
+  server call runs when the Undo window closes. Keep confirm dialogs for
+  actions that cannot be deferred.
+- **Haptics** (`lib/haptics.ts`): `tick` on send and primary taps, `thud`
+  when a field hits its length limit (app-wide), `success` when something
+  finished, `warning` when it failed. Inside the Android app these use the
+  system haptics and follow the phone's touch-feedback setting.
+- **Depth ladder.** Content, sticky headers (z-20), tab bar and thumb
+  actions (z-30), drawer scrim (z-40), sheets/dialogs/menus with blurred
+  scrims (z-50), toasts (`--z-120`). Pick a rung; do not invent a z-index.
+
 ## Enforcement (what "compliant" means for the extraction run)
 
 - **Zero visual change is proven, not promised:** Storybook visual snapshots are baselined before any refactor, and all snapshots match baseline after it. A change that alters rendered output must be intentional and human-approved.

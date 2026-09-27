@@ -24,10 +24,10 @@ const STANDARD_CLASSES = {
 };
 
 const ASK_CLASSES = {
-  chip: "border-sky-500/60 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:border-sky-500/50 dark:bg-sky-500/15 dark:text-sky-200 dark:hover:bg-sky-500/25",
-  container: "border-sky-500/60 bg-sky-50/60 supports-[backdrop-filter]:bg-sky-50/40 dark:border-sky-500/50 dark:bg-sky-500/[0.07] dark:supports-[backdrop-filter]:bg-sky-500/[0.07]",
-  menuItem: "text-sky-700 dark:text-sky-300",
-  badge: "border-sky-500/40 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200",
+  chip: "border-zinc-500/60 bg-zinc-500/15 text-zinc-800 hover:bg-zinc-500/25 dark:border-zinc-500/50 dark:bg-zinc-500/15 dark:text-zinc-200 dark:hover:bg-zinc-500/25",
+  container: "border-zinc-500/60 bg-zinc-50/60 supports-[backdrop-filter]:bg-zinc-50/40 dark:border-zinc-500/50 dark:bg-zinc-500/[0.07] dark:supports-[backdrop-filter]:bg-zinc-500/[0.07]",
+  menuItem: "text-zinc-700 dark:text-zinc-300",
+  badge: "border-zinc-500/40 bg-zinc-50 text-zinc-700 dark:border-zinc-500/40 dark:bg-zinc-500/10 dark:text-zinc-200",
 };
 
 const PLANNING_CLASSES = {

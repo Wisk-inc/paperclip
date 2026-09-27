@@ -117,15 +117,15 @@ export const PAPERCLIP_RUNNER_PERMISSION_CAPABILITIES = {
       },
       {
         value: "approve-paperclip",
-        label: "Automatic Paperclip actions",
+        label: "Automatic Automa actions",
         description:
-          "Automatically run assigned Paperclip planning and task tools, including reassignment. Company permissions and approval requirements still apply. Other operations require permission.",
+          "Automatically run assigned Automa planning and task tools, including reassignment. Company permissions and approval requirements still apply. Other operations require permission.",
       },
       {
         value: "approve-reads",
-        label: "Allow Paperclip reads",
+        label: "Allow Automa reads",
         description:
-          "Automatically allow assigned Paperclip read tools. Other operations stop with an approval-required message because this runner has no interactive approval handler.",
+          "Automatically allow assigned Automa read tools. Other operations stop with an approval-required message because this runner has no interactive approval handler.",
       },
       {
         value: "deny-all",

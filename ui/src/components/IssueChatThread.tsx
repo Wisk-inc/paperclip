@@ -2912,7 +2912,7 @@ function IssueChatFeedbackButtons({
           <DialogHeader>
             <DialogTitle>Save your feedback sharing preference</DialogTitle>
             <DialogDescription>
-              Choose whether voted AI outputs can be shared with Paperclip Labs.
+              Choose whether voted AI outputs can be shared with Automa Labs.
               This answer becomes the default for future thumbs up and thumbs
               down votes.
             </DialogDescription>
@@ -3398,7 +3398,7 @@ function StaleDispositionWarningRow({
 // conveyed by color alone — the adjacent title text names the notice.
 const COMPACT_TONE_DOT: Record<SystemNoticeTone, string> = {
   neutral: "bg-muted-foreground/40",
-  info: "bg-sky-500 dark:bg-sky-400",
+  info: "bg-zinc-500 dark:bg-zinc-400",
   success: "bg-emerald-500 dark:bg-emerald-400",
   warning: "bg-amber-500 dark:bg-amber-400",
   danger: "bg-red-500 dark:bg-red-400",
@@ -3532,14 +3532,14 @@ function SystemNoticeCommentContent({
       ? (agentMap?.get(runAgentId)?.name ?? null)
       : null;
     if (authorType === "system") {
-      const label = runAgentName ?? "Paperclip";
+      const label = runAgentName ?? "Automa";
       if (runAgentId && runId)
         return { label, href: `/agents/${runAgentId}/runs/${runId}` };
       return { label };
     }
     if (runAgentId && runId) {
       return {
-        label: authorName ?? runAgentName ?? "Paperclip",
+        label: authorName ?? runAgentName ?? "Automa",
         href: `/agents/${runAgentId}/runs/${runId}`,
       };
     }

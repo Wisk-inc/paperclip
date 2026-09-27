@@ -28,7 +28,7 @@ vi.mock("@/api/tools", () => ({
 }));
 
 vi.mock("@/context/CompanyContext", () => ({
-  useCompany: () => ({ selectedCompanyId: "company-1", selectedCompany: { id: "company-1", name: "Paperclip" } }),
+  useCompany: () => ({ selectedCompanyId: "company-1", selectedCompany: { id: "company-1", name: "Automa" } }),
 }));
 
 vi.mock("@/lib/router", () => ({

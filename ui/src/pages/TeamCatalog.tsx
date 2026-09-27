@@ -1478,7 +1478,7 @@ export function StepTargetManager({
   return (
     <div className="space-y-4">
       <div
-        className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-sm text-blue-700 dark:text-blue-300"
+        className="rounded-md border border-zinc-500/30 bg-zinc-500/10 px-3 py-2.5 text-sm text-zinc-700 dark:text-zinc-300"
         id="target-manager-help"
       >
         This team&apos;s root agents need a manager in your organization. Pick the agent who will become
@@ -1655,7 +1655,7 @@ const SKILL_ACTION_META: Record<
   { label: string; tone: string }
 > = {
   already_in_package: { label: "Bundled in package", tone: "text-emerald-600 dark:text-emerald-300 border-emerald-500/30" },
-  catalog_install_required: { label: "Will install from catalog", tone: "text-blue-600 dark:text-blue-300 border-blue-500/30" },
+  catalog_install_required: { label: "Will install from catalog", tone: "text-zinc-600 dark:text-zinc-300 border-zinc-500/30" },
   external_import_required: { label: "Will import from source", tone: "text-amber-600 dark:text-amber-300 border-amber-500/30" },
   blocked: { label: "Blocked", tone: "text-rose-600 dark:text-rose-300 border-rose-500/30" },
 };
@@ -1672,7 +1672,7 @@ export function StepSkillPlan({
   // per-skill plan override, design §7 graceful degradation).
   return (
     <div className="space-y-4">
-      <div role="alert" className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-sm text-blue-700 dark:text-blue-300">
+      <div role="alert" className="rounded-md border border-zinc-500/30 bg-zinc-500/10 px-3 py-2.5 text-sm text-zinc-700 dark:text-zinc-300">
         Before agents are imported, the catalog resolves the skills they depend on. This is the
         resolution plan.
       </div>

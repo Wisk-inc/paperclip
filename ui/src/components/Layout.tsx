@@ -23,6 +23,7 @@ import { ToastViewport } from "./ToastViewport";
 import { AnnouncementWell } from "./AnnouncementWell";
 import { PluginAppShellOverlays } from "./PluginAppShellOverlays";
 import { MobileBottomNav } from "./MobileBottomNav";
+import { DeviceFilesSync } from "./DeviceFilesSync";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
 import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
@@ -641,7 +642,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
         {isMobile && sidebarOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-black/50"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
             onClick={() => setSidebarOpen(false)}
             aria-label="Close sidebar"
           />
@@ -781,6 +782,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
         </div>
       </div>
       {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
+      <DeviceFilesSync companyId={selectedCompanyId ?? null} />
       <CommandPalette />
       <NewIssueDialog />
       <NewProjectDialog />

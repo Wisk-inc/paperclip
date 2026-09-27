@@ -620,7 +620,7 @@ function AdapterPickerList({
                 <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
                   <Badge variant="outline" className={cn(
                     "text-(length:--text-nano) uppercase tracking-wide",
-                    "text-blue-500 border-blue-500/30",
+                    "text-zinc-500 border-zinc-500/30",
                   )}>
                     agent
                   </Badge>
@@ -1042,7 +1042,7 @@ export function CompanyImport() {
   );
 
   const localZipHelpText =
-    "Upload a .zip exported directly from Paperclip. Re-zipped archives created by Finder, Explorer, or other zip tools may not import correctly.";
+    "Upload a .zip exported directly from Automa. Re-zipped archives created by Finder, Explorer, or other zip tools may not import correctly.";
 
   useEffect(() => {
     setBreadcrumbs([
@@ -1765,8 +1765,8 @@ export function CompanyImport() {
                     <Badge variant="outline" className={cn(
                       "text-(length:--text-nano) uppercase tracking-wide",
                       item.kind === "agent"
-                        ? "text-blue-500 border-blue-500/30"
-                        : "text-purple-500 border-purple-500/30",
+                        ? "text-zinc-500 border-zinc-500/30"
+                        : "text-zinc-500 border-zinc-500/30",
                     )}>
                       {item.kind}
                     </Badge>
@@ -1847,7 +1847,7 @@ export function CompanyImport() {
         <div>
           <h2 className="text-base font-semibold">Import source</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Choose a GitHub repo or upload a local Paperclip zip package.
+            Choose a GitHub repo or upload a local Automa zip package.
           </p>
         </div>
 

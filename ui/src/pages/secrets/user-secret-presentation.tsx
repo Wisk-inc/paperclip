@@ -8,9 +8,9 @@ import { Badge } from "@/components/ui/badge";
  * (company secrets use neutral/emerald tones). This keeps the two Secrets tabs
  * unmistakable at a glance, per the Phase 2 UX direction.
  */
-export const USER_SECRET_ACCENT_TEXT = "text-violet-700 dark:text-violet-300";
-export const USER_SECRET_ACCENT_BORDER = "border-violet-500/30";
-export const USER_SECRET_ACCENT_BG = "bg-violet-500/10";
+export const USER_SECRET_ACCENT_TEXT = "text-zinc-700 dark:text-zinc-300";
+export const USER_SECRET_ACCENT_BORDER = "border-zinc-500/30";
+export const USER_SECRET_ACCENT_BG = "bg-zinc-500/10";
 
 /** Small pill used to mark user-scoped rows and headers. */
 export function UserSecretChip({ className, label = "User secret" }: { className?: string; label?: string }) {

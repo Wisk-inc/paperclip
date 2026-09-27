@@ -75,6 +75,8 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "../lib/utils";
+import { haptic } from "../lib/haptics";
+import { UNDO_WINDOW_MS } from "../hooks/useUndoableAction";
 import { extractProviderIdWithFallback } from "../lib/model-utils";
 import { issueStatusText, issueStatusTextDefault, priorityColor, priorityColorDefault } from "../lib/status-colors";
 import { SHOW_TASK_PRIORITY_UI } from "../lib/ui-flags";
@@ -404,6 +406,8 @@ const IssueTitleTextarea = memo(function IssueTitleTextarea({
       className="w-full text-lg font-semibold bg-transparent outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50"
       placeholder="Task title"
       rows={1}
+      enterKeyHint="next"
+      autoCapitalize="sentences"
       value={draftValue}
       onChange={(e) => {
         const nextValue = e.target.value;
@@ -481,7 +485,7 @@ const IssueDescriptionEditor = memo(function IssueDescriptionEditor({
 
 export function NewIssueDialog() {
   const { visible: workspaceIsolationControlsVisible } = useWorkspaceIsolationControls();
-  const { newIssueOpen, newIssueDefaults, closeNewIssue } = useDialog();
+  const { newIssueOpen, newIssueDefaults, openNewIssue, closeNewIssue } = useDialog();
   const visualViewportLayout = useVisualViewportLayout(newIssueOpen);
   const dialogBodyRef = useRef<HTMLDivElement>(null);
   const { companies, selectedCompanyId, selectedCompany } = useCompany();
@@ -665,6 +669,7 @@ export function NewIssueDialog() {
       return { issue, companyId, failures };
     },
     onSuccess: ({ issue, companyId, failures }) => {
+      haptic(failures.length > 0 ? "warning" : "success");
       if (streamlinedUiEnabled) recordRecentTask(issue, currentUserId);
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(companyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.listMineByMe(companyId) });
@@ -688,6 +693,7 @@ export function NewIssueDialog() {
       reset();
       closeNewIssue();
     },
+    onError: () => haptic("warning"),
   });
 
   const uploadDescriptionImage = useMutation({
@@ -721,33 +727,9 @@ export function NewIssueDialog() {
     setDraftHasText(nextTitle.trim().length > 0 || nextDescription.trim().length > 0);
   }, []);
 
-  const queueDraftSave = useCallback((overrides: { title?: string; description?: string } = {}) => {
-    if (!newIssueOpen) return;
-    const nextTitle = overrides.title ?? titleRef.current;
-    const nextDescription = overrides.description ?? descriptionRef.current;
-    scheduleSave({
-      title: nextTitle,
-      description: nextDescription,
-      status,
-      priority,
-      assigneeValue,
-      reviewerValue,
-      approverValue,
-      watchdogAgentId,
-      watchdogInstructions,
-      projectId,
-      projectWorkspaceId,
-      assigneeModelLane,
-      assigneeModelOverride,
-      assigneeThinkingEffort,
-      assigneeChrome,
-      executionWorkspaceMode,
-      selectedExecutionWorkspaceId,
-      workMode,
-    });
-  }, [
-    newIssueOpen,
-    scheduleSave,
+  const snapshotDraft = useCallback((overrides: { title?: string; description?: string } = {}): IssueDraft => ({
+    title: overrides.title ?? titleRef.current,
+    description: overrides.description ?? descriptionRef.current,
     status,
     priority,
     assigneeValue,
@@ -757,6 +739,24 @@ export function NewIssueDialog() {
     watchdogInstructions,
     projectId,
     projectWorkspaceId,
+    assigneeModelLane,
+    assigneeModelOverride,
+    assigneeThinkingEffort,
+    assigneeChrome,
+    executionWorkspaceMode,
+    selectedExecutionWorkspaceId,
+    workMode,
+  }), [
+    status,
+    priority,
+    assigneeValue,
+    reviewerValue,
+    approverValue,
+    watchdogAgentId,
+    watchdogInstructions,
+    projectId,
+    projectWorkspaceId,
+    assigneeModelLane,
     assigneeModelOverride,
     assigneeThinkingEffort,
     assigneeChrome,
@@ -764,6 +764,11 @@ export function NewIssueDialog() {
     selectedExecutionWorkspaceId,
     workMode,
   ]);
+
+  const queueDraftSave = useCallback((overrides: { title?: string; description?: string } = {}) => {
+    if (!newIssueOpen) return;
+    scheduleSave(snapshotDraft(overrides));
+  }, [newIssueOpen, scheduleSave, snapshotDraft]);
 
   const handleTitleChange = useCallback((nextTitle: string) => {
     titleRef.current = nextTitle;
@@ -870,7 +875,7 @@ export function NewIssueDialog() {
       executionWorkspaceDefaultProjectId.current = hasExplicitProjectWorkspaceId || newIssueDefaults.executionWorkspaceId || defaultProject
         ? defaultProjectId || null
         : null;
-    } else if (draft && draft.title.trim()) {
+    } else if (draft && (draft.title.trim() || draft.description.trim())) {
       const nextWorkMode = isIssueWorkMode(draft.workMode) ? draft.workMode : "standard";
       const restoredProjectId = newIssueDefaults.projectId ?? draft.projectId;
       const restoredProject = orderedProjects.find((project) => project.id === restoredProjectId);
@@ -1035,9 +1040,27 @@ export function NewIssueDialog() {
   }
 
   function discardDraft() {
+    const discarded = draftHasText ? snapshotDraft() : savedDraft;
+    const hadStagedFiles = stagedFiles.length > 0;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
     clearDraft();
     reset();
     closeNewIssue();
+    if (!discarded || !(discarded.title.trim() || discarded.description.trim())) return;
+    haptic("tick");
+    pushToast({
+      title: "Draft discarded",
+      body: hadStagedFiles ? "Undo brings back the text and settings. Attach the files again." : undefined,
+      tone: "info",
+      ttlMs: UNDO_WINDOW_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          saveDraft(discarded);
+          openNewIssue();
+        },
+      },
+    });
   }
 
   function handleSubmit() {
@@ -1383,7 +1406,7 @@ export function NewIssueDialog() {
         aria-describedby={undefined}
         style={dialogViewportStyle}
         className={cn(
-          "flex h-(--new-issue-dialog-height) max-h-(--new-issue-dialog-height) flex-col gap-0 overflow-hidden p-0 sm:h-auto",
+          "fab-sheet flex h-(--new-issue-dialog-height) max-h-(--new-issue-dialog-height) flex-col gap-0 overflow-hidden p-0 sm:h-auto",
           expanded
             ? "sm:max-w-2xl sm:h-(--new-issue-dialog-height)"
             : "sm:max-w-lg"
