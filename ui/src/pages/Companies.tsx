@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { ThumbAction } from "../components/ThumbAction";
 import {
   Pencil,
   Check,
@@ -111,7 +112,7 @@ export function Companies() {
     <div className="space-y-6">
       <div className="flex items-center justify-end">
         {isCloud ? null : (
-          <Button size="sm" onClick={() => openOnboarding()}>
+          <Button size="sm" className="hidden md:inline-flex" onClick={() => openOnboarding()}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             New Organization
           </Button>
@@ -322,6 +323,7 @@ export function Companies() {
           );
         })}
       </div>
+      {isCloud ? null : <ThumbAction label="New organization" onClick={() => openOnboarding()} />}
     </div>
   );
 }

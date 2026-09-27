@@ -76,6 +76,7 @@ import {
 } from "../lib/secret-delivery";
 import { queryKeys } from "../lib/queryKeys";
 import { EmptyState } from "../components/EmptyState";
+import { ThumbAction } from "../components/ThumbAction";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1916,7 +1917,7 @@ export function Secrets() {
                 <Folder className="mr-1 h-3.5 w-3.5" /> New folder
               </Button>
             ) : null}
-            <Button onClick={openCreateSecret} size="sm">
+            <Button onClick={openCreateSecret} size="sm" className="hidden md:inline-flex">
               <Plus className="h-3.5 w-3.5 mr-1" /> New secret
             </Button>
           </div>
@@ -3261,6 +3262,7 @@ export function Secrets() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {activeTab === "secrets" ? <ThumbAction label="New secret" onClick={openCreateSecret} /> : null}
     </div>
     </TooltipProvider>
   );

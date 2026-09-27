@@ -58,7 +58,7 @@ export function EmptyState({
     if (resolvedTone === "success") haptic("success");
   }, [resolvedTone]);
   return (
-    <div className="hero-enter flex flex-col items-center justify-center gap-6 px-4 py-16 text-center">
+    <div className="hero-enter flex flex-col items-center justify-center gap-6 px-4 py-10 text-center md:py-16">
       <div className="relative">
         <Mascot pose={TONE_POSE[resolvedTone]} size="lg" gaze={hasAction ? "down" : "ahead"} />
         <span className="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full border border-border bg-background">

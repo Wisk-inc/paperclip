@@ -32,11 +32,11 @@ export function ThumbAction({ label, onClick, icon: Icon = Plus, disabled = fals
             haptic("tick");
             onClick();
           }}
-          className="pointer-events-auto h-12 min-w-48 rounded-full px-6 text-base shadow-lg"
+          className="pointer-events-auto h-12 min-w-48 max-w-full rounded-full px-6 text-base shadow-lg"
           data-slot="thumb-action"
         >
           <Icon className="size-5" />
-          {label}
+          <span className="truncate">{label}</span>
         </Button>
       </div>
     </>
