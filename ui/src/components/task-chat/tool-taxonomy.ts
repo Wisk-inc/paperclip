@@ -395,8 +395,10 @@ export function toolActivityPresentation(input: ToolActivityPresentationInput): 
       : actionCopy(action, exact ? undefined : object);
   const semanticFamily = exact?.family ?? actionFamily(action);
   const family = transport === "mcp" ? "mcp" : semanticFamily;
+  // The built-in control-plane MCP server keeps its wire name "paperclip";
+  // people see it as Automa.
   const sourceLabel = namespace
-    ? humanizeToolName(namespace)
+    ? namespace.toLowerCase() === "paperclip" ? "Automa" : humanizeToolName(namespace)
     : transport === "mcp"
       ? "MCP"
       : undefined;

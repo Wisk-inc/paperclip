@@ -349,7 +349,7 @@ describe("PasteConfigTab — activation handoff (PAP-11092)", () => {
               prefix: null,
               required: true,
             }],
-            warnings: ["Header Authorization will be stored as a Automa secret before activation."],
+            warnings: ["Header Authorization will be stored as an Automa secret before activation."],
           },
         ],
       },

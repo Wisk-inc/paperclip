@@ -258,7 +258,7 @@ function InlineAuthPreview({
         </h3>
         <p className="mt-1 text-sm text-zinc-400">
           {mode === "sign_up"
-            ? "Start with a Automa account. After that, you'll come right back here to accept the invite for Acme Robotics."
+            ? "Start with an Automa account. After that, you'll come right back here to accept the invite for Acme Robotics."
             : "Use the Automa account that already matches this invite. If you do not have one yet, switch back to create account."}
         </p>
       </div>

@@ -1054,7 +1054,7 @@ describe("CompanyEnvironments — test provider button", () => {
     expect(xtermMocks.terminalInstances[0].options.customGlyphs).toBe(true);
     expect(xtermMocks.terminalInstances[0].options.letterSpacing).toBe(0);
     expect(xtermMocks.terminalInstances[0].options.theme).toMatchObject({
-      cursor: "#22d3ee",
+      cursor: "#f5f5f5",
       cursorAccent: "#020617",
     });
     expect(String(xtermMocks.terminalInstances[0].options.fontFamily)).toContain("Nerd Font");

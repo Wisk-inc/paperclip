@@ -213,7 +213,7 @@ describe("createZipArchive", () => {
     expect(readUint16(archive, endOffset + 10)).toBe(2);
   });
 
-  it("reads a Automa zip archive back into rootPath and file contents", async () => {
+  it("reads an Automa zip archive back into rootPath and file contents", async () => {
     const archive = createZipArchive(
       {
         "COMPANY.md": "# Company\n",

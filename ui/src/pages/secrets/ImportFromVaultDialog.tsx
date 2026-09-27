@@ -284,10 +284,10 @@ function validateDraftRow(
 
   for (const existingSecret of existing) {
     if (existingSecret.name.trim().toLowerCase() === lowerName) {
-      return "A Automa secret already uses this name.";
+      return "An Automa secret already uses this name.";
     }
     if (existingSecret.key.trim().toLowerCase() === lowerKey) {
-      return "A Automa secret already uses this key.";
+      return "An Automa secret already uses this key.";
     }
   }
 

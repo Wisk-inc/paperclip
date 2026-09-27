@@ -849,7 +849,7 @@ describe("IssueChatThread", () => {
 
     expect(onWorkModeChange).not.toHaveBeenCalled();
     expect(composer?.getAttribute("data-pending-work-mode")).toBe("ask");
-    expect(composer?.className).toContain("sky");
+    expect(composer?.className).toContain("zinc");
     expect(chip?.textContent).toContain("Ask mode");
 
     act(() => {

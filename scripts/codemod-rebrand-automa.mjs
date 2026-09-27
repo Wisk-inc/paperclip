@@ -41,7 +41,8 @@ if (roots.length === 0) roots.push("ui/src");
 const WORD = /(?<![A-Za-z0-9_$\-.<\/@])Paperclip(?![A-Za-z0-9_$\-])(?! Cloud)(?!\.(?:ing|dev|ai)\b)/g;
 
 function rewriteText(text) {
-  return text.replace(WORD, NEW_NAME);
+  // "a Paperclip secret" becomes "an Automa secret".
+  return text.replace(WORD, NEW_NAME).replace(/\b([Aa]) Automa\b/g, "$1n Automa");
 }
 
 function* walkFiles(dir) {

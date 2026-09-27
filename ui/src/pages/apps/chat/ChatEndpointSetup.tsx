@@ -820,7 +820,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   agent_view:
-    agent_description: "Work with a Automa agent in a task-backed conversation."
+    agent_description: "Work with an Automa agent in a task-backed conversation."
   bot_user:
     display_name: ${JSON.stringify(slackBotName)}
   slash_commands:
@@ -1905,7 +1905,7 @@ function TryStep({
   const instructions =
     provider === "imessage-photon" ? [
       photonAllocation === "shared" ? "In your Photon project, enroll your sender in Users and find its assigned number in Get started. Send a fresh message to that number from Apple Messages." : `Open Apple Messages and send a fresh message to ${botUsername ?? botLabel ?? "the dedicated number"}.`,
-      "Link the discovered sender to a Automa person in Access, then send a fresh request.",
+      "Link the discovered sender to an Automa person in Access, then send a fresh request.",
       "Wait for the agent’s actual reply. Setup completes after that reply is delivered.",
       ...(photonAllocation === "shared" ? ["This Pro-compatible channel supports DMs only. Group messages cannot start work."] : ["For a group: add the number in Messages, send a message, enable the discovered group in Settings, then send a fresh request."]),
     ] : provider === "discord"

@@ -31,7 +31,7 @@ Then verify with: curl -fsS <base-url>/api/health`;
     ? `\nIf your runtime exposes a callback or gateway URL, test Paperclip-to-agent reachability with: ${resolutionTestUrl}?url=<urlencoded-agent-url>.`
     : "";
 
-  return `You're invited to join a Automa company as an agent.
+  return `You're invited to join an Automa company as an agent.
 
 First, respond to your user that you understand the request and are going to onboard into Automa. Then work through the steps below.
 
@@ -50,7 +50,7 @@ Join flow:
 5. Set \`adapterType\` to the Automa adapter that matches your runtime when one exists.
 6. Put runtime-specific settings in \`agentDefaultsPayload\`.
 7. Wait for board approval before claiming the API key.
-8. Claim the Automa API key once through the standard claim endpoint, store it securely, and use it for future Automa API calls. Store the parsed \`token\` field from the raw HTTP JSON response before printing or summarizing it; do not copy token values from chat, transcript, or tool-output previews. A token value containing literal \`...\` or \`[redacted]\` is a masked display preview, not a valid key. Do not rotate or invent a Automa key manually.
+8. Claim the Automa API key once through the standard claim endpoint, store it securely, and use it for future Automa API calls. Store the parsed \`token\` field from the raw HTTP JSON response before printing or summarizing it; do not copy token values from chat, transcript, or tool-output previews. A token value containing literal \`...\` or \`[redacted]\` is a masked display preview, not a valid key. Do not rotate or invent an Automa key manually.
 
 OpenClaw Gateway note:
 If you are an OpenClaw Gateway agent, use \`adapterType: "openclaw_gateway"\`, set \`agentDefaultsPayload.url\` to your \`ws://\` or \`wss://\` gateway URL, and include \`agentDefaultsPayload.headers["x-openclaw-token"]\` with your gateway token. Do not use \`/v1/responses\` or \`/hooks/*\` in that join flow.
@@ -63,7 +63,7 @@ If you are a Hermes Gateway agent, use \`adapterType: "hermes_gateway"\`.
 - If you only have the default Hermes dashboard or chat URL, \`http://127.0.0.1:9119\` and \`http://127.0.0.1:9119/chat\` are accepted and map to \`/api\` automatically.
 - Watch out: \`/chat\` and the dashboard root are browser UI routes. Automa tests \`/api/health\` and starts runs with \`/api/v1/runs\` after mapping them to the API base.
 - Three distinct uses to keep apart: \`hermes_local\` runs Hermes on the Automa host; \`hermes_gateway\` calls an already-running Hermes API server via \`apiBaseUrl\`; Hermes-originated Automa API calls use the claimed \`PAPERCLIP_API_KEY\` and \`PAPERCLIP_API_URL\`, not \`agentDefaultsPayload.apiBaseUrl\`.
-- When claiming the Automa API key from Hermes, write the raw response \`token\` directly to private storage and verify it with a Automa API call. Hermes/tool displays may redact or truncate secrets, so never persist a displayed preview that contains \`...\` as the actual key.
+- When claiming the Automa API key from Hermes, write the raw response \`token\` directly to private storage and verify it with an Automa API call. Hermes/tool displays may redact or truncate secrets, so never persist a displayed preview that contains \`...\` as the actual key.
 
 After you have connected to Automa, review and follow the full onboarding instructions in onboarding.txt.
 `;

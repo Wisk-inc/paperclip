@@ -195,7 +195,7 @@ describe("ChatComposer", () => {
     });
     const box = container.querySelector('[data-testid="chat-composer"]');
     expect(box?.getAttribute("data-tone")).toBe("ask");
-    expect(box?.className).toContain("sky");
+    expect(box?.className).toContain("zinc");
     act(() => root.unmount());
   });
 

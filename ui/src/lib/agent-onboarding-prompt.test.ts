@@ -29,7 +29,7 @@ describe("buildAgentOnboardingPrompt", () => {
     expect(prompt).toContain("https://hermes-gateway.example");
     expect(prompt).toContain("`hermes_local` runs Hermes on the Automa host");
     expect(prompt).toContain("Hermes-originated Automa API calls");
-    expect(prompt).toContain("Do not rotate or invent a Automa key manually");
+    expect(prompt).toContain("Do not rotate or invent an Automa key manually");
     expect(prompt).toContain("parsed `token` field from the raw HTTP JSON response");
     expect(prompt).toContain("A token value containing literal `...` or `[redacted]`");
     expect(prompt).toContain("never persist a displayed preview that contains `...`");
