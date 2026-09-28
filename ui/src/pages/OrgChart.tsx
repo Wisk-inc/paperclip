@@ -6,7 +6,7 @@ import { agentsApi, type OrgNode } from "../api/agents";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { agentUrl } from "../lib/utils";
+import { agentUrl, cn } from "../lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
@@ -203,9 +203,11 @@ export interface OrgChartProps {
   agents?: Agent[];
   /** Hides page-level actions and breadcrumb ownership. */
   embedded?: boolean;
+  /** Extra classes on the chart root (for example, hiding it on phones where the org tree shows instead). */
+  className?: string;
 }
 
-export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, embedded = false }: OrgChartProps = {}) {
+export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, embedded = false, className }: OrgChartProps = {}) {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const navigate = useNavigate();
@@ -478,9 +480,12 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   return (
     <div
-      className={embedded
-        ? "flex min-h-(--sz-420px) flex-1 flex-col md:min-h-0"
-        : "flex h-(--sz-calc-38) min-h-(--sz-420px) flex-col md:h-full md:min-h-0"}
+      className={cn(
+        embedded
+          ? "flex min-h-(--sz-420px) flex-1 flex-col md:min-h-0"
+          : "flex h-(--sz-calc-38) min-h-(--sz-420px) flex-col md:h-full md:min-h-0",
+        className,
+      )}
     >
       {!embedded && (showImport || showExport) ? (
         <div className="mb-2 flex shrink-0 flex-wrap items-center justify-start gap-2">
@@ -643,7 +648,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                       {node.name}
                     </span>
                     <span className="text-(length:--text-micro) text-muted-foreground leading-tight mt-0.5">
-                      {agent?.title ?? roleLabel(node.role)}
+                      {agent?.title && agent.title !== roleLabel(node.role) ? `${roleLabel(node.role)} · ${agent.title}` : roleLabel(node.role)}
                     </span>
                     {agent && (
                       <span className="text-(length:--text-nano) text-muted-foreground/60 font-mono leading-tight mt-1">

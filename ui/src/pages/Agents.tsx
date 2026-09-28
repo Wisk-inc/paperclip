@@ -25,6 +25,7 @@ import { StatStrip } from "../components/StatStrip";
 import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { OrgChart } from "./OrgChart";
+import { OrgTree } from "../components/OrgTree";
 import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
@@ -601,7 +602,10 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
 
       {/* Org chart view */}
       {effectiveView === "org" && filteredOrg.length > 0 && (
-        <OrgChart embedded orgTree={filteredOrg} agents={agents ?? []} />
+        <>
+          <OrgTree className="md:hidden" orgTree={filteredOrg} agents={agents ?? []} />
+          <OrgChart embedded className="max-md:hidden" orgTree={filteredOrg} agents={agents ?? []} />
+        </>
       )}
 
       {effectiveView === "org" && orgTree && orgTree.length > 0 && filteredOrg.length === 0 && (

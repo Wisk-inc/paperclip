@@ -270,7 +270,7 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="plugins/:pluginId" element={<PluginPage />} />
       <Route
         path="org"
-        element={streamlinedUiEnabled ? <Navigate to="/agents/all" replace /> : <ProductionSurface><ProductionOrgChart /></ProductionSurface>}
+        element={streamlinedUiEnabled ? <Agents initialView="org" /> : <ProductionSurface><ProductionOrgChart /></ProductionSurface>}
       />
       <Route path="agents" element={<Navigate to="/agents/all" replace />} />
       {AGENT_FILTER_TABS.map((tab) => (

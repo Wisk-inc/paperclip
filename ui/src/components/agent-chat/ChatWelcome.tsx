@@ -10,7 +10,6 @@ import { queryKeys } from "@/lib/queryKeys";
 import { Link } from "@/lib/router";
 import { cn, relativeTime } from "@/lib/utils";
 import { agentStatusLabel, EditAgentButton } from "./AgentChatHeader";
-import { AgentModelButton } from "./AgentModelButton";
 import { connectKeyHref } from "./ByokKeysCard";
 import { ROLE_PROMPTS, roleIcon } from "./role-icons";
 
@@ -82,10 +81,7 @@ export function ChatWelcome({ agent }: { agent: Agent }) {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <AgentModelButton agent={agent} />
-        <EditAgentButton agent={agent} variant="pill" />
-      </div>
+      <EditAgentButton agent={agent} variant="pill" />
 
       {prompts.length > 0 ? (
         <section aria-label="Try asking" className="w-full text-left">
@@ -115,7 +111,7 @@ export function ChatWelcome({ agent }: { agent: Agent }) {
           <span className="font-medium text-foreground">Send photos and files.</span> Tap + under the message box to attach photos, screenshots, PDFs, or any file.
         </Tip>
         <Tip icon={Sparkles}>
-          <span className="font-medium text-foreground">Switch models anytime.</span> Tap the model above: Claude, GPT, Gemini, DeepSeek, Llama, Qwen, and more.
+          <span className="font-medium text-foreground">Switch models anytime.</span> Tap the model at the top: Claude, GPT, Gemini, DeepSeek, Llama, Qwen, and more.
         </Tip>
         <Tip icon={MessageCircleQuestion}>
           <span className="font-medium text-foreground">Ask, plan, or hand off.</span> Pick a mode under the message box: Ask just answers, Plan proposes a plan for you to approve, Auto lets {agent.name} start the work.

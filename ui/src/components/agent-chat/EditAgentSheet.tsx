@@ -73,6 +73,10 @@ export function EditAgentSheet({ agent, open, onOpenChange }: {
     return all.filter((item) => item.id !== agent.id && !blocked.has(item.id));
   }, [agents.data, agent.id]);
 
+  const directReports = useMemo(
+    () => (agents.data ?? []).filter((item) => item.reportsTo === agent.id && item.status !== "terminated"),
+    [agents.data, agent.id],
+  );
   const trimmedName = name.trim();
   const changed =
     trimmedName !== agent.name ||
@@ -227,6 +231,25 @@ export function EditAgentSheet({ agent, open, onOpenChange }: {
                 ))}
               </div>
             </fieldset>
+
+            <div className="rounded-lg border border-border bg-card p-3" data-slot="agent-team">
+              <p className="text-sm font-medium text-foreground">{agent.name}&apos;s team</p>
+              {directReports.length ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {directReports.map((report) => (
+                    <span key={report.id} className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border pr-2.5 pl-0.5 text-xs text-foreground">
+                      <AgentAvatar agent={report} size={24} />
+                      {report.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">Nobody reports to {agent.name} yet. Open another agent and pick {agent.name} as their manager.</p>
+              )}
+              <Link to="/org" onClick={() => onOpenChange(false)} className="mt-2 inline-flex text-xs font-medium text-primary">
+                See the whole org chart
+              </Link>
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
