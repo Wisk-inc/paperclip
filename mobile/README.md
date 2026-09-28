@@ -36,6 +36,11 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 
 ## Requirements
 
+> **Wireless debugging is not the server address.** The address shown under
+> Developer options → Wireless debugging belongs to the phone itself (it is
+> for `adb`). Automa's address comes from the computer running Automa and
+> usually ends in `:3100`. The connect screen explains this if you enter it.
+
 - An Automa server the phone can reach. Start it with network access:
   `npx paperclipai onboard --bind lan` (same Wi-Fi) or `--bind tailnet`
   (Tailscale), then connect the app to the address it prints. If the server
@@ -61,7 +66,7 @@ pnpm install
 pnpm mobile:bundle-ui        # builds the board UI and copies it into the app (assets/ui)
 cd mobile/android
 echo "sdk.dir=$ANDROID_HOME" > local.properties
-./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk (id: app.automa.android.debug)
+./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk (id: com.corxlabs.automa)
 ./gradlew lintDebug          # Android Lint (0 errors expected)
 ```
 
@@ -87,9 +92,10 @@ or copy the APK to the phone and open it (allow "install unknown apps").
    keyAlias=automa-upload
    keyPassword=...
    ```
-3. Set your own `automa.applicationId` in `gradle.properties` (for example
-   `com.yourcompany.automa`). It must be unique on Google Play and can never
-   change after the first upload. Bump `automa.versionCode` for every upload.
+3. The package name is `com.corxlabs.automa` (`automa.applicationId` in
+   `gradle.properties`). It can never change after the first Play upload, and
+   it must match the Android app registered in Firebase. Bump
+   `automa.versionCode` for every upload.
 4. Build:
    ```sh
    ./gradlew bundleRelease     # app/build/outputs/bundle/release/app-release.aab  → upload to Play Console
@@ -98,6 +104,38 @@ or copy the APK to the phone and open it (allow "install unknown apps").
 
 Release builds are shrunk with R8; `proguard-rules.pro` keeps the
 JavaScript bridge methods.
+
+## Firebase: "Continue with Google" and push notifications
+
+The app signs people up with Google through Firebase Auth, and your server
+can send them push notifications (an agent needs a file, an approval is
+waiting) through Firebase Cloud Messaging. Both switch on when the pieces
+below are in place; without them the app still works and skips sign-in.
+
+**In the Firebase console (project `automa-agent`):**
+
+1. Project settings → *Your apps* → *Add app* → Android, package name
+   `com.corxlabs.automa`. Add the SHA-1 fingerprint of the key that signs the
+   app (`keytool -list -v -keystore automa-upload.jks -alias automa-upload`).
+   After you enable Play App Signing, also add the *App signing key* SHA-1 from
+   Play Console → Setup → App integrity.
+2. Authentication → *Get started* → Sign-in method → **Google** → Enable.
+3. Download `google-services.json` from Project settings and put it at
+   `mobile/android/app/google-services.json`, then rebuild. The build turns
+   Firebase on when that file exists.
+
+**On your Automa server** (environment variables; never put the service
+account in the app or in git):
+
+| Variable | Purpose |
+|---|---|
+| `AUTOMA_FIREBASE_PROJECT_ID=automa-agent` | Accept "Continue with Google" from the app (signs the person in to the board, creating the account on first sign-up unless sign-up is off). Needs `authenticated` deployment mode. |
+| `AUTOMA_FIREBASE_SERVICE_ACCOUNT_FILE=/secure/path/service-account.json` | Send push notifications. The file is the service-account key from Firebase → Project settings → Service accounts; keep it readable only by the server user. `AUTOMA_FIREBASE_SERVICE_ACCOUNT_JSON` takes the JSON inline instead. |
+
+What the phone does: after Google sign-in it asks once for notification
+permission (Android 13+), registers its push token with the server as part of
+the device record (the token never leaves the server; the API only says
+`pushEnabled`), and opens the right screen when a notification is tapped.
 
 ## Play Store checklist
 
@@ -108,13 +146,13 @@ JavaScript bridge methods.
 | 64-bit / 16 KB pages | No native code, so both are satisfied |
 | Edge-to-edge (required for API 35+) | Insets applied in `MainActivity` |
 | Large screens / foldables | Resizable, no orientation lock, config changes handled |
-| Permissions | `INTERNET`, `ACCESS_NETWORK_STATE` only; files use the system pickers (no storage permission) |
+| Permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`; files use the system pickers (no storage permission) |
 | Store icon 512×512 | `store/app-icon-512.png` |
 | Feature graphic 1024×500 | `store/feature-graphic-1024x500.png` |
 | Phone screenshots (1080×1920) | `store/screenshots/phone/` |
 | Tablet screenshots | `store/screenshots/tablet/` |
 | Listing text | `store/listing.md` |
-| Privacy policy | Draft in `store/PRIVACY.md`; host it at a public URL |
+| Privacy policy and terms | `store/PRIVACY.md` and `store/TERMS.md` (also built into the app under `assets/connect/legal/`); host both at public URLs |
 | Data safety form | Answers in `store/listing.md` |
 
 Before you submit:
@@ -144,6 +182,8 @@ Before you submit:
 | `Downloads.kt` | Saves downloads to `Downloads/Automa` with the session cookie |
 | `ServerConfig.kt` | Server address, recent servers, install identity, health check |
 | `BundledUi.kt` | Serves the bundled board UI (`assets/ui`) on the server's origin; `/api` still goes to the server |
+| `GoogleSignIn.kt` | "Continue with Google": Credential Manager + Firebase Auth |
+| `Push.kt` | Firebase Cloud Messaging service, notification channel, tap-to-open |
 | `assets/connect/` | The bundled first-run connect screen |
 
 How the bundled UI loads: pages keep your server's address, so sign-in

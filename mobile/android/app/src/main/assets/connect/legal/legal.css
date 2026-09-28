@@ -1,0 +1,8 @@
+.doc { display: flex; flex-direction: column; gap: 16px; padding-bottom: 32px; }
+.doc .back { align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+.doc h1 { margin: 0; font: 600 26px/1.2 "Bricolage Grotesque UI", system-ui, sans-serif; }
+.doc .updated { margin: 0; color: var(--muted); font-size: 13px; }
+.doc h2 { margin: 12px 0 0; font-size: 17px; font-weight: 600; }
+.doc p, .doc li { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+.doc ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.doc strong { color: var(--fg); }

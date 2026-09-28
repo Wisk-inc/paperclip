@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -59,12 +60,15 @@ import java.util.concurrent.Executors
  */
 class MainActivity : ComponentActivity() {
     companion object {
-        const val ACTION_OPEN_PATH = "app.automa.android.OPEN_PATH"
-        const val ACTION_CHANGE_SERVER = "app.automa.android.CHANGE_SERVER"
+        const val ACTION_OPEN_PATH = "com.corxlabs.automa.OPEN_PATH"
+        const val ACTION_CHANGE_SERVER = "com.corxlabs.automa.CHANGE_SERVER"
         const val ASSETS_HOST = "appassets.androidplatform.net"
         const val ASSETS_ORIGIN = "https://$ASSETS_HOST"
         const val CONNECT_URL = "$ASSETS_ORIGIN/assets/connect/index.html"
         private const val SHARE_EVENT = "window.dispatchEvent(new Event('automa:incoming-shares'))"
+        private const val TERMUX_PACKAGE = "com.termux"
+        private const val TERMUX_DOWNLOAD_URL = "https://f-droid.org/packages/com.termux/"
+
         /** Gap between the two beats of the success haptic on Android 10 and older. */
         private const val SUCCESS_BEAT_GAP_MS = 70L
 
@@ -103,12 +107,17 @@ class MainActivity : ComponentActivity() {
     private lateinit var incoming: IncomingShares
     private lateinit var bridge: AutomaBridge
     private lateinit var bundledUi: BundledUi
+    private lateinit var googleSignIn: GoogleSignIn
     private lateinit var assetLoader: WebViewAssetLoader
     private val executor: ExecutorService = Executors.newFixedThreadPool(2)
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingFolderCall: String? = null
     private var downloadHookInstalled = false
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) Push.refreshToken(this)
+    }
 
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = fileCallback ?: return@registerForActivityResult
@@ -167,7 +176,8 @@ class MainActivity : ComponentActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
-        bridge = AutomaBridge(this, config, sharedFolder, incoming, executor)
+        googleSignIn = GoogleSignIn(this)
+        bridge = AutomaBridge(this, config, sharedFolder, incoming, executor, googleSignIn)
         bundledUi = BundledUi(this)
         installWebView()
         installServiceWorkerInterception()
@@ -237,17 +247,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
             intent?.action == ACTION_OPEN_PATH -> openPath(intent.data?.schemeSpecificPart ?: "/")
+            // A push notification tapped while the app was in the background.
+            intent?.getStringExtra(Push.PATH_KEY) != null -> openPath(intent.getStringExtra(Push.PATH_KEY) ?: "/")
             else -> loadServer()
         }
     }
 
     fun loadServer() {
         val url = config.serverUrl
-        if (url == null) showConnect(null) else webView.loadUrl(url)
+        if (url == null || googleSignIn.needsSignIn) showConnect(null) else webView.loadUrl(url)
     }
 
     private fun openPath(path: String) {
         val server = config.serverUrl ?: return showConnect(null)
+        if (googleSignIn.needsSignIn) return showConnect(null)
         val safePath = if (path.startsWith("/") && !path.startsWith("//")) path else "/"
         webView.loadUrl(server + safePath)
     }
@@ -292,6 +305,36 @@ class MainActivity : ComponentActivity() {
                 webView.postDelayed({ webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }, SUCCESS_BEAT_GAP_MS)
             }
         }
+    }
+
+    fun isTermuxInstalled(): Boolean = runCatching {
+        packageManager.getPackageInfo(TERMUX_PACKAGE, 0)
+        true
+    }.getOrDefault(false)
+
+    fun openTermux() {
+        val launch = packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE)
+        if (launch != null) {
+            startActivity(launch)
+        } else {
+            openExternal(Uri.parse(TERMUX_DOWNLOAD_URL))
+        }
+    }
+
+    fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(android.content.ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Automa setup", text))
+        // Android 13+ shows its own "copied" confirmation.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Android 13+: ask once, after sign-in, so agents can reach this person. */
+    fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     fun applyTheme(dark: Boolean) {
@@ -348,6 +391,10 @@ class MainActivity : ComponentActivity() {
             textZoom = (resources.configuration.fontScale * 100).toInt().coerceIn(85, 200)
             userAgentString = "$userAgentString AutomaAndroid/${BuildConfig.VERSION_NAME}"
         }
+        // Native feel: no web scrollbars and no stretch/glow past the ends.
+        view.isVerticalScrollBarEnabled = false
+        view.isHorizontalScrollBarEnabled = false
+        view.overScrollMode = View.OVER_SCROLL_NEVER
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
             // Automa ships its own black theme; never let WebView recolor it.
             WebSettingsCompat.setAlgorithmicDarkeningAllowed(view.settings, false)

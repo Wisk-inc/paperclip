@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.content.Context
 import android.webkit.WebResourceRequest

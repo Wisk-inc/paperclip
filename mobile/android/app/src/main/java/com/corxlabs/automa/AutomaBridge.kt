@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.net.Uri
 import android.os.Build
@@ -27,6 +27,7 @@ class AutomaBridge(
     private val sharedFolder: SharedFolder,
     private val incoming: IncomingShares,
     private val executor: ExecutorService,
+    private val googleSignIn: GoogleSignIn,
 ) {
     /** Per-process secret in native file URLs, so only this page's scripts can build them. */
     private val token = UUID.randomUUID().toString().replace("-", "")
@@ -123,6 +124,62 @@ class AutomaBridge(
         activity.runOnUiThread { activity.showConnect(null) }
     }
 
+    // ─── Account and push (connect screen and Automa server pages) ─────────
+
+    @JavascriptInterface
+    fun getAuthState(): String = if (onConnectPage() || onServerPage()) googleSignIn.stateJson() else "null"
+
+    @JavascriptInterface
+    fun signInWithGoogle(callId: String) {
+        if (!onConnectPage() && !onServerPage()) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread {
+            googleSignIn.signIn { result ->
+                result
+                    .onSuccess {
+                        activity.requestNotificationPermission()
+                        resolve(callId, JSONObject(googleSignIn.stateJson()).put("ok", true).toString())
+                    }
+                    .onFailure { resolve(callId, error(it.message ?: "Google sign-in failed")) }
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun signOut() {
+        if (onConnectPage() || onServerPage()) activity.runOnUiThread { googleSignIn.signOut() }
+    }
+
+    /**
+     * A Firebase ID token for the server's "Continue with Google" sign-in,
+     * signing in with Google first when needed. Server pages only.
+     */
+    @JavascriptInterface
+    fun firebaseIdToken(callId: String) {
+        if (!onServerPage()) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread {
+            val deliver = {
+                googleSignIn.idToken { token ->
+                    resolve(
+                        callId,
+                        if (token == null) error("Not signed in")
+                        else JSONObject().put("ok", true).put("idToken", token).toString(),
+                    )
+                }
+            }
+            if (googleSignIn.currentUser != null) {
+                deliver()
+            } else {
+                googleSignIn.signIn { result ->
+                    result.onSuccess { deliver() }.onFailure { resolve(callId, error(it.message ?: "Google sign-in failed")) }
+                }
+            }
+        }
+    }
+
+    /** This phone's push token, registered with the server as part of the device record. */
+    @JavascriptInterface
+    fun pushToken(): String = if (onServerPage()) Push.token(activity) ?: "" else ""
+
     // ─── Connect screen (bundled page only) ────────────────────────────────
 
     @JavascriptInterface
@@ -141,24 +198,40 @@ class AutomaBridge(
         val url = ServerConfig.normalize(input)
             ?: return resolve(callId, error("Enter an address like 192.168.1.20:3100 or https://automa.example.com"))
         executor.execute {
-            val health = ServerConfig.checkHealth(url)
+            val (reachedUrl, health) = ServerConfig.probe(input, url)
             if (!health.ok) {
-                resolve(callId, error(health.error ?: "Could not connect"))
+                resolve(callId, error(ServerConfig.explain(reachedUrl, health)))
                 return@execute
             }
             resolve(
                 callId,
                 JSONObject()
                     .put("ok", true)
-                    .put("url", url)
-                    .put("insecure", url.startsWith("http://") && !ServerConfig.looksPrivate(Uri.parse(url).host ?: ""))
+                    .put("url", reachedUrl)
+                    .put("insecure", reachedUrl.startsWith("http://") && !ServerConfig.looksPrivate(Uri.parse(reachedUrl).host ?: ""))
                     .toString(),
             )
             activity.runOnUiThread {
-                config.remember(url)
+                config.remember(reachedUrl)
                 activity.loadServer()
             }
         }
+    }
+
+    /** Whether Termux (to run Automa on this phone) is installed. Connect screen only. */
+    @JavascriptInterface
+    fun isTermuxInstalled(): Boolean = onConnectPage() && activity.isTermuxInstalled()
+
+    /** Opens Termux, or its download page when it is not installed. Connect screen only. */
+    @JavascriptInterface
+    fun openTermux() {
+        if (onConnectPage()) activity.runOnUiThread { activity.openTermux() }
+    }
+
+    /** Copies text (setup commands) to the clipboard. Connect screen only. */
+    @JavascriptInterface
+    fun copyText(text: String) {
+        if (onConnectPage() && text.length <= 4096) activity.runOnUiThread { activity.copyToClipboard(text) }
     }
 
     @JavascriptInterface

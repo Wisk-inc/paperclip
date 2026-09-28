@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.content.ContentValues
 import android.content.Context

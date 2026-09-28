@@ -39,20 +39,26 @@ AI agents, task management, approvals, automation, file sharing
 Support email: (your support address)
 Website: (your website)
 Privacy policy URL: (public URL of PRIVACY.md)
+Terms of service URL: (public URL of TERMS.md)
 
-## Data safety answers (verify against your server setup before submitting)
+## Data safety answers (verify against your setup before submitting)
 
-- Data collected by the app developer: **None**. The app sends data only to
-  the Automa server the user configures; the developer does not receive it.
-- If Google asks you to declare data transmitted to the user's own server,
-  declare: Files and docs (user-selected files, optional, for app
-  functionality), App activity (in-app actions, for app functionality),
-  Personal info → name/email (only if the server uses sign-in).
-- Data is encrypted in transit: **Yes when the server uses HTTPS**. If you
-  allow plain HTTP servers on private networks, answer accordingly.
-- Users can request deletion: data lives on the user's own server; deleting
-  files or devices on the Files page removes them.
-- No advertising, no analytics SDKs, no third-party sharing from the app.
+- Data collected by the developer:
+  - **Personal info → Name, Email address, User IDs**: collected for account
+    management (Google sign-in through Firebase Authentication). Required to
+    use the app when sign-in is enabled.
+  - **Device or other IDs**: Firebase Cloud Messaging push token, for app
+    functionality (notifications). Optional (only if notifications are allowed).
+- Data transmitted to the user's own Automa server: Files and docs
+  (user-selected files, optional), App activity (in-app actions), and the
+  identity above for signing in to that server.
+- Data is encrypted in transit: **Yes** for Firebase; for the user's server
+  **yes when it uses HTTPS** (plain HTTP is allowed on private networks, so
+  answer accordingly).
+- Users can request deletion: yes (account deletion by request to your
+  support email; server data is deleted on the Files page or by the server
+  owner).
+- No advertising, no analytics SDKs, no selling of data.
 
 ## Content rating
 Answer the questionnaire as a utility/business app with no user-generated

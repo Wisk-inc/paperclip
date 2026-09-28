@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.content.Context
 import android.net.Uri
@@ -104,34 +104,113 @@ class ServerConfig(context: Context) {
         }
 
         /**
-         * GET /api/health on a background thread. Returns null on success or a
-         * sentence the connect screen can show.
+         * GET /api/health on a background thread and classify the outcome, so
+         * the connect screen can say what went wrong in plain words.
          */
         fun checkHealth(serverUrl: String): HealthResult {
             return try {
                 val connection = URL("$serverUrl/api/health").openConnection() as HttpURLConnection
                 connection.connectTimeout = 8000
                 connection.readTimeout = 8000
+                connection.instanceFollowRedirects = true
                 connection.setRequestProperty("Accept", "application/json")
                 val code = connection.responseCode
                 val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() } ?: ""
                 connection.disconnect()
-                if (code !in 200..299) return HealthResult(false, "The server answered with HTTP $code. Is this an Automa server?")
+                if (code !in 200..299) return HealthResult(HealthKind.NOT_AUTOMA, "HTTP $code")
                 val json = runCatching { JSONObject(body) }.getOrNull()
-                    ?: return HealthResult(false, "That address answered, but not like an Automa server.")
-                if (json.optString("status") != "ok") return HealthResult(false, "The Automa server is starting or unhealthy. Try again in a moment.")
-                HealthResult(true, null, json.optString("deploymentMode"), json.optString("version"))
+                    ?: return HealthResult(HealthKind.NOT_AUTOMA, "not JSON")
+                if (!json.has("status")) return HealthResult(HealthKind.NOT_AUTOMA, "no status")
+                if (json.optString("status") != "ok") return HealthResult(HealthKind.UNHEALTHY, json.optString("status"))
+                HealthResult(HealthKind.OK, null, json.optString("deploymentMode"), json.optString("version"))
             } catch (error: java.net.UnknownHostException) {
-                HealthResult(false, "Could not find that address. Check the spelling and that this phone is on the same network or tailnet.")
+                HealthResult(HealthKind.NOT_FOUND, error.message)
             } catch (error: java.net.ConnectException) {
-                HealthResult(false, "Nothing answered there. Make sure Automa is running and listening on your network (not only on localhost).")
+                HealthResult(HealthKind.REFUSED, error.message)
             } catch (error: java.net.SocketTimeoutException) {
-                HealthResult(false, "The server took too long to answer. Check your network or VPN.")
+                HealthResult(HealthKind.TIMEOUT, error.message)
             } catch (error: javax.net.ssl.SSLException) {
-                HealthResult(false, "The secure connection failed. Use a valid HTTPS certificate or connect over your private network.")
+                HealthResult(HealthKind.TLS, error.message)
+            } catch (error: java.io.IOException) {
+                // "Connection reset", "unexpected end of stream", broken pipe:
+                // something listens there, but it does not speak HTTP to us.
+                HealthResult(HealthKind.RESET, error.message)
             } catch (error: Exception) {
-                HealthResult(false, error.message ?: "Could not connect")
+                HealthResult(HealthKind.RESET, error.message)
+            }
+        }
+
+        /**
+         * Tries the address as typed and, when no scheme was typed, the other
+         * scheme too (a plain-HTTP server reached over https, or the reverse,
+         * fails with a reset or a TLS error). Returns the URL that worked, or
+         * the most useful failure.
+         */
+        fun probe(input: String, normalized: String): Pair<String, HealthResult> {
+            val first = checkHealth(normalized)
+            if (first.ok) return normalized to first
+            // The address is this phone itself (often copied from Wireless
+            // debugging). A server running on this phone (Termux) usually
+            // listens on the loopback address, so try that before giving up.
+            val uri = Uri.parse(normalized)
+            val host = uri.host ?: ""
+            if (isThisPhone(host)) {
+                val ports = listOfNotNull(uri.port.takeIf { it != -1 && it !in 30000..49999 }, DEFAULT_PORT).distinct()
+                for (port in ports) {
+                    val local = "http://127.0.0.1:$port"
+                    val result = checkHealth(local)
+                    if (result.ok) return local to result
+                }
+            }
+            if (input.contains("://")) return normalized to first
+            if (first.kind != HealthKind.RESET && first.kind != HealthKind.TLS && first.kind != HealthKind.NOT_AUTOMA) {
+                return normalized to first
+            }
+            val alternate = if (normalized.startsWith("https://")) "http://" + normalized.removePrefix("https://")
+            else "https://" + normalized.removePrefix("http://")
+            val second = checkHealth(alternate)
+            return if (second.ok) alternate to second else normalized to first
+        }
+
+        /** Automa's default port. */
+        const val DEFAULT_PORT = 3100
+
+        /** True when [host] is one of this phone's own network addresses. */
+        fun isThisPhone(host: String): Boolean = runCatching {
+            val target = InetAddress.getByName(host)
+            if (target.isLoopbackAddress) return@runCatching false
+            java.net.NetworkInterface.getNetworkInterfaces().toList().any { nif ->
+                nif.inetAddresses.toList().any { it == target }
+            }
+        }.getOrDefault(false)
+
+        /** A sentence for the connect screen, specific to what failed and where. */
+        fun explain(url: String, result: HealthResult): String {
+            val uri = Uri.parse(url)
+            val host = uri.host ?: ""
+            val port = if (uri.port == -1) null else uri.port
+            if (isThisPhone(host)) {
+                return "$host is this phone (it is what Wireless debugging shows), and Automa is not running on it yet. " +
+                    "To use this phone as the server, follow \"Run Automa on this phone\" below. " +
+                    "To use your computer instead, start Automa there with \"npx paperclipai onboard --bind lan\" and enter the address it prints."
+            }
+            if (isLoopback(url)) {
+                return "Automa is not running on this phone yet. Start it in Termux (see \"Run Automa on this phone\" below), then connect again."
+            }
+            val debugPortHint = if (port != null && port != 3100 && port in 30000..49999) {
+                " Port $port looks like an Android Wireless debugging port, not Automa (Automa uses 3100 by default)."
+            } else ""
+            return when (result.kind) {
+                HealthKind.NOT_FOUND -> "Could not find $host. Check the spelling and that this phone is on the same Wi-Fi or tailnet."
+                HealthKind.REFUSED -> "Nothing is listening at $host${port?.let { ":$it" } ?: ""}. Start Automa with \"npx paperclipai onboard --bind lan\" so other devices can reach it, and check the port." + debugPortHint
+                HealthKind.TIMEOUT -> "$host did not answer in time. Check that this phone is on the same network, and that a firewall on the computer allows port ${port ?: 3100}."
+                HealthKind.RESET -> "Something at $host${port?.let { ":$it" } ?: ""} closed the connection. It is not an Automa server." +
+                    debugPortHint + " Enter the address Automa prints when it starts, usually ending in :3100."
+                HealthKind.TLS -> "The secure (HTTPS) connection to $host failed. For a server on your home network, enter the address without https://."
+                HealthKind.NOT_AUTOMA -> "$host answered, but it is not an Automa server." + debugPortHint
+                HealthKind.UNHEALTHY -> "Automa at $host is still starting. Try again in a moment."
+                HealthKind.OK -> ""
             }
         }
 
@@ -141,10 +220,14 @@ class ServerConfig(context: Context) {
         }
     }
 
+    enum class HealthKind { OK, NOT_FOUND, REFUSED, TIMEOUT, RESET, TLS, NOT_AUTOMA, UNHEALTHY }
+
     data class HealthResult(
-        val ok: Boolean,
-        val error: String?,
+        val kind: HealthKind,
+        val detail: String?,
         val deploymentMode: String? = null,
         val version: String? = null,
-    )
+    ) {
+        val ok: Boolean get() = kind == HealthKind.OK
+    }
 }

@@ -1,4 +1,4 @@
-package app.automa.android
+package com.corxlabs.automa
 
 import android.app.Application
 import android.content.Intent
@@ -11,6 +11,8 @@ class AutomaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         publishShortcuts()
+        Push.createChannel(this)
+        Push.refreshToken(this)
     }
 
     /** Long-press launcher shortcuts; built in code so they follow the package name. */

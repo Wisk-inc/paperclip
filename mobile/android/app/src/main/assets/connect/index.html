@@ -16,37 +16,135 @@
     </svg>
   </header>
 
-  <section class="intro">
-    <h1>Connect to your Automa server</h1>
-    <p>Automa runs on your computer or a server you control. This app is your remote for it: tasks, approvals, agents, and files.</p>
-  </section>
-
-  <form id="connect-form" class="form" novalidate>
-    <label for="server" class="label">Server address</label>
-    <input id="server" name="server" type="url" inputmode="url" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="192.168.1.20:3100" required>
-    <p id="error" class="error" role="alert" hidden></p>
-    <button id="connect" type="submit" class="primary">Connect</button>
-    <div class="chips" aria-label="Suggestions">
-      <button type="button" class="chip" data-fill="127.0.0.1:3100">This phone (Termux)</button>
-      <button type="button" class="chip" data-fill="https://">HTTPS address</button>
+  <!-- Step 1: account. Shown when this build has Firebase configured. -->
+  <section id="signin" class="signin" hidden>
+    <div class="signin-top">
+      <div class="hero" aria-hidden="true">
+        <img class="hero-main" src="img/hero-main.png" alt="" width="112" height="112">
+        <img class="hero-side" src="img/hero-side.png" alt="" width="80" height="80">
+      </div>
+      <div class="intro">
+        <h1>Your AI company, in your pocket</h1>
+        <p>Check on your agents, approve their work, and move files between your phone and your agents.</p>
+      </div>
+      <ul class="perks" aria-label="What you can do">
+        <li><img src="img/needs-you.png" alt="" width="48" height="48"><div><strong>What needs you, first</strong><span>Approvals, questions, and file requests on top.</span></div></li>
+        <li><img src="img/tasks.png" alt="" width="48" height="48"><div><strong>Start work in one tap</strong><span>The New button sits right under your thumb.</span></div></li>
+        <li><img src="img/agents.png" alt="" width="48" height="48"><div><strong>Watch your agents work</strong><span>See who is working on what, live.</span></div></li>
+        <li><img src="img/files.png" alt="" width="48" height="48"><div><strong>Files, when agents ask</strong><span>Send from a folder you share, or pick one.</span></div></li>
+      </ul>
     </div>
-  </form>
-
-  <section id="recent-section" class="recent" hidden>
-    <h2 class="label">Recent</h2>
-    <ul id="recent" class="list"></ul>
+    <div class="signin-bottom">
+      <button id="google" type="button" class="google">
+        <svg class="g" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
+          <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+          <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+          <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+        </svg>
+        <span id="google-label">Continue with Google</span>
+      </button>
+      <p id="signin-error" class="error" role="alert" hidden></p>
+      <p class="legal">By continuing, you agree to Automa's <a href="legal/terms.html">Terms of Service</a> and <a href="legal/privacy.html">Privacy Policy</a>.</p>
+    </div>
   </section>
 
-  <details class="help">
-    <summary>Where do I find the address?</summary>
-    <ol>
-      <li>On the computer running Automa, start it with network access: <code>npx paperclipai onboard --bind lan</code> (same Wi-Fi) or <code>--bind tailnet</code> (Tailscale). You will sign in with the account it creates.</li>
-      <li>Enter the address it prints, such as <code>192.168.1.20:3100</code> or your Tailscale name.</li>
-      <li>If the server rejects this phone's address, allow it with <code>npx paperclipai allowed-hostname &lt;address&gt;</code>. For access from anywhere, put Automa behind HTTPS.</li>
-    </ol>
-  </details>
+  <!-- Step 2: server. -->
+  <section id="server-step" class="server-step">
+    <div id="account" class="account" hidden>
+      <img id="account-photo" class="avatar" alt="" referrerpolicy="no-referrer">
+      <div class="who"><strong id="account-name"></strong><span id="account-email"></span></div>
+      <button id="signout" type="button" class="link">Sign out</button>
+    </div>
 
-  <footer class="footer"><span id="version"></span></footer>
+    <div class="connect-hero">
+      <!-- Every pose is loaded once and cross-faded, so the mascot never blinks. -->
+      <div class="mascot" id="mascot" aria-hidden="true">
+        <img data-pose="listening" class="on" src="img/connect-listening.png" alt="" width="96" height="96">
+        <img data-pose="thinking" src="img/connect-thinking.png" alt="" width="96" height="96">
+        <img data-pose="success" src="img/connect-success.png" alt="" width="96" height="96">
+        <img data-pose="confused" src="img/connect-confused.png" alt="" width="96" height="96">
+      </div>
+      <div class="intro">
+        <h1>Connect to your Automa server</h1>
+        <p>Your agents run on a computer, a server, or this phone. Enter where Automa is running.</p>
+      </div>
+    </div>
+
+    <form id="connect-form" class="form" novalidate>
+      <label for="server" class="label">Server address</label>
+      <input id="server" name="server" type="url" inputmode="url" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="192.168.1.20:3100" required>
+      <p id="error" class="error" role="alert" hidden></p>
+      <button id="connect" type="submit" class="primary">Connect</button>
+      <div class="chips" aria-label="Suggestions">
+        <button type="button" class="chip" id="chip-this-phone">This phone</button>
+        <button type="button" class="chip" data-fill="https://">HTTPS address</button>
+      </div>
+    </form>
+
+    <section id="recent-section" class="recent" hidden>
+      <h2 class="label">Recent</h2>
+      <ul id="recent" class="list"></ul>
+    </section>
+
+    <details class="this-phone" id="this-phone">
+      <summary>
+        <img src="img/phone.png" alt="" width="48" height="48">
+        <span class="this-phone-title"><strong>Run Automa on this phone</strong><span>No computer needed. Uses the free Termux app.</span></span>
+        <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <ul class="setup">
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>
+          <div>
+            <strong>Get Termux</strong>
+            <span id="termux-status">A free Linux terminal for Android, from F-Droid.</span>
+            <button type="button" id="termux" class="secondary">Get Termux</button>
+          </div>
+        </li>
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/><rect x="2" y="3" width="20" height="18" rx="3"/></svg>
+          <div>
+            <strong>Paste this in Termux</strong>
+            <span>Installs Automa and its database. First time only; it takes a few minutes, then answer Automa's setup questions.</span>
+            <pre id="setup-cmd">pkg update -y &amp;&amp; pkg install -y nodejs-lts postgresql
+mkdir -p $PREFIX/var/lib/postgresql &amp;&amp; initdb $PREFIX/var/lib/postgresql
+pg_ctl -D $PREFIX/var/lib/postgresql -l $PREFIX/var/lib/postgresql/server.log start
+createdb automa
+echo 'export DATABASE_URL=postgres://127.0.0.1:5432/automa' &gt;&gt; ~/.bashrc
+export DATABASE_URL=postgres://127.0.0.1:5432/automa
+npx paperclipai onboard</pre>
+            <button type="button" id="copy-setup" class="secondary">Copy commands</button>
+          </div>
+        </li>
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+          <div>
+            <strong>Connect</strong>
+            <span>Keep Termux open while you use Automa. Next time, start it in Termux with <code>pg_ctl -D $PREFIX/var/lib/postgresql start &amp;&amp; npx paperclipai run</code>.</span>
+            <button type="button" id="connect-local" class="primary">Connect to this phone</button>
+          </div>
+        </li>
+      </ul>
+      <p class="fine">Your agents run on this phone too, so the agent tools you use (for example Claude Code) must be installed in Termux, and the phone should stay on charge. A computer is faster for heavy work.</p>
+    </details>
+
+    <div class="note">
+      <strong>The Wireless debugging address is this phone.</strong>
+      It only works as Automa's address when Automa runs on this phone (above). Automa on a computer prints its own address, usually ending in <code>:3100</code>.
+    </div>
+
+    <details class="help">
+      <summary>Where do I find the address?</summary>
+      <ol>
+        <li>On your computer, start Automa so other devices can reach it: <code>npx paperclipai onboard --bind lan</code> (same Wi-Fi) or <code>--bind tailnet</code> (Tailscale).</li>
+        <li>Enter the address it prints, such as <code>192.168.1.20:3100</code> or your Tailscale name. The phone and the computer must be on the same Wi-Fi or tailnet.</li>
+        <li>If the server rejects this phone's address, allow it with <code>npx paperclipai allowed-hostname &lt;address&gt;</code>. For access from anywhere, put Automa behind HTTPS.</li>
+      </ol>
+    </details>
+  </section>
+
+  <footer class="footer"><span id="version"></span><span class="footer-links"><a href="legal/terms.html">Terms</a><a href="legal/privacy.html">Privacy</a></span></footer>
 </main>
 <script src="connect.js"></script>
 </body>

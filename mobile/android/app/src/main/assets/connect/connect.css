@@ -19,8 +19,11 @@
 }
 
 * { box-sizing: border-box; }
+::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 html, body {
+  overscroll-behavior: none;
+  scrollbar-width: none;
   margin: 0;
   min-height: 100%;
   background: var(--bg);
@@ -37,11 +40,12 @@ html, body {
   width: 100%;
   max-width: 480px;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0 auto;
   padding: 32px 20px 24px;
 }
 
-.brand { padding-top: 8vh; }
+.brand { padding-top: 4vh; }
 .lockup { display: block; height: 32px; width: auto; fill: var(--fg); }
 
 .intro h1 {
@@ -107,6 +111,132 @@ input:focus-visible { border-color: var(--fg); }
 
 .footer { margin-top: auto; color: var(--muted); font-size: 12px; }
 
+.signin, .server-step { display: flex; flex-direction: column; gap: 24px; }
+.signin[hidden], .server-step[hidden] { display: none; }
+
+/* Sign-up fills the screen: story on top, the one action in the thumb zone. */
+.signin { flex: 1; justify-content: space-between; }
+.signin-top { display: flex; flex-direction: column; gap: 20px; }
+.signin-bottom {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 -20px;
+  padding: 16px 20px 8px;
+  background: linear-gradient(to top, var(--bg) 75%, transparent);
+}
+
+/* Short phones: tighter story, so the button is on screen without scrolling. */
+@media (max-height: 740px) {
+  .signin-top { gap: 14px; }
+  .hero { height: 80px; }
+  .hero-main { width: 80px; height: 80px; }
+  .hero-side { width: 56px; height: 56px; margin-left: -14px; }
+  .intro h1 { font-size: 24px; }
+  .perks li { padding: 8px 12px; }
+  .perks img { width: 40px; height: 40px; }
+  .perks span { display: none; }
+}
+
+.hero { display: flex; align-items: flex-end; height: 112px; }
+.hero-main { width: 112px; height: 112px; }
+.hero-side { width: 80px; height: 80px; margin-left: -20px; }
+
+.perks {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+}
+.perks li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.perks li:first-child { border-top: 0; }
+.perks img { width: 48px; height: 48px; flex: none; }
+.perks div { display: flex; flex-direction: column; min-width: 0; }
+.perks strong { font-size: 15px; font-weight: 600; }
+.perks span { font-size: 13px; color: var(--muted); }
+
+.google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 56px;
+  border: 0;
+  border-radius: 28px;
+  background: #fff;
+  color: #1f1f1f;
+  font: 500 16px/1 "Roboto", system-ui, sans-serif;
+  transition: transform 120ms ease-out, opacity 120ms ease-out;
+}
+.google:active { transform: scale(0.98); }
+.google[disabled] { opacity: 0.6; }
+.google .g { width: 20px; height: 20px; }
+
+.legal { margin: 0; color: var(--muted); font-size: 12px; text-align: center; line-height: 1.5; }
+.legal a, .footer-links a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.footer { display: flex; justify-content: space-between; gap: 12px; }
+.footer[hidden] { display: none; }
+.footer-links { display: flex; gap: 12px; }
+
+.account {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+}
+.account[hidden] { display: none; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--border); object-fit: cover; }
+.who { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: 13px; color: var(--muted); }
+.who strong { color: var(--fg); font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link { min-height: 44px; padding: 0 8px; border: 0; background: none; color: var(--fg); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+
+.note {
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card); color: var(--muted); font-size: 13px;
+}
+.note strong { display: block; color: var(--fg); font-size: 14px; margin-bottom: 2px; }
+.note code { color: var(--fg); }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Connect step: the mascot reacts while connecting (listening → thinking → cheering or confused). */
+.connect-hero { display: flex; flex-direction: column; gap: 16px; }
+.mascot { position: relative; width: 96px; height: 96px; }
+.mascot img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; transform: scale(0.94);
+  transition: opacity 240ms ease-out, transform 240ms ease-out;
+}
+.mascot img.on { opacity: 1; transform: none; }
+
+.this-phone { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.this-phone summary {
+  display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 12px;
+  list-style: none; cursor: pointer;
+}
+.this-phone summary::-webkit-details-marker { display: none; }
+.this-phone summary img { width: 48px; height: 48px; flex: none; }
+.this-phone-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.this-phone-title strong { font-size: 15px; font-weight: 600; }
+.this-phone-title span { font-size: 13px; color: var(--muted); }
+.chevron { width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 200ms ease-out; }
+.this-phone[open] .chevron { transform: rotate(180deg); }
+.setup { list-style: none; margin: 0; padding: 4px 12px 0; display: flex; flex-direction: column; gap: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.setup li { display: flex; gap: 12px; }
+.setup .icon { width: 24px; height: 24px; flex: none; margin-top: 2px; fill: none; stroke: var(--fg); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.setup li > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.setup strong { font-size: 15px; font-weight: 600; }
+.setup span { font-size: 13px; color: var(--muted); }
+.setup code { color: var(--fg); font-size: 12px; }
+.setup pre {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--fg); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+}
+.setup .primary, .setup .secondary { height: 44px; font-size: 15px; }
+.secondary {
+  height: 44px; border: 1px solid var(--input); border-radius: var(--radius); background: transparent;
+  color: var(--fg); font-size: 15px; font-weight: 500;
+}
+.this-phone .fine { margin: 12px; color: var(--muted); font-size: 12px; }

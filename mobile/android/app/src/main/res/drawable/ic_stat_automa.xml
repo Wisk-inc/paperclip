@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the Automa mark as a white silhouette (Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M7 0H25A7 7 0 0 1 32 7V25A7 7 0 0 1 25 32H7A7 7 0 0 1 0 25V7A7 7 0 0 1 7 0Z M7.6 25.46 13.87 7.54H18.13L24.4 25.46H20.59L16 12.13 11.41 25.46Z M18.35 21.43A2.35 2.35 0 1 1 13.65 21.43A2.35 2.35 0 1 1 18.35 21.43Z" />
+</vector>
