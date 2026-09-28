@@ -2,6 +2,14 @@ import { Worker } from "node:worker_threads";
 import type { AgentAvatarRequest } from "./agent-avatars.js";
 
 type Job = { request: AgentAvatarRequest; resolve: (png: Buffer) => void; reject: (error: Error) => void };
+/** A warm worker renders well inside this. */
+export const AVATAR_RENDER_TIMEOUT_MS = 15_000;
+/**
+ * A new worker's first render also loads the image library. Where sharp has no
+ * native build (Android/Termux) it loads its WebAssembly build, which compiles
+ * on first use and can take several seconds on a phone.
+ */
+export const AVATAR_COLD_RENDER_TIMEOUT_MS = 60_000;
 /** Lazy, bounded workers isolate geometry/rasterization from the API event loop. */
 export function createAgentAvatarPool(concurrency = 2, maxQueue = 64) {
   const queue: Job[] = [];
@@ -30,12 +38,16 @@ export function createAgentAvatarPool(concurrency = 2, maxQueue = 64) {
     while (!closed && active < concurrency && queue.length) {
       const job = queue.shift()!;
       let worker: Worker;
-      try { worker = idle.pop() ?? spawn(); }
+      const warm = idle.pop();
+      try { worker = warm ?? spawn(); }
       catch (error) { job.reject(error instanceof Error ? error : new Error(String(error))); continue; }
       clearTimeout(timers.get(worker)); timers.delete(worker);
       worker.ref(); active++;
       let finished = false;
-      const timeout = setTimeout(() => finish(new Error("Avatar rendering timed out")), 15_000);
+      const timeout = setTimeout(
+        () => finish(new Error("Avatar rendering timed out")),
+        warm ? AVATAR_RENDER_TIMEOUT_MS : AVATAR_COLD_RENDER_TIMEOUT_MS,
+      );
       const onError = (error: Error) => finish(error);
       const onExit = () => finish(new Error("Avatar worker exited"));
       const onMessage = (result: { png?: Uint8Array; error?: string }) => {

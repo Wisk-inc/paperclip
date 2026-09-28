@@ -4,6 +4,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
 import { usePanel } from "../context/PanelContext";
+import { InboxBell } from "./InboxBell";
 import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
@@ -74,10 +75,13 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
   );
 
   const globalToolbarSlots = (
-    <GlobalToolbar
-      context={globalToolbarSlotContext}
-      pageToolbar={isMobile ? null : breadcrumbToolbar}
-    />
+    <>
+      <GlobalToolbar
+        context={globalToolbarSlotContext}
+        pageToolbar={isMobile ? null : breadcrumbToolbar}
+      />
+      {isMobile ? <InboxBell /> : null}
+    </>
   );
 
   if (isMobile && mobileToolbar) {
@@ -209,6 +213,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
             </h1>
           )}
         </div>
+        {breadcrumbs[0].trailing ? <span className="flex shrink-0 items-center">{breadcrumbs[0].trailing}</span> : null}
         {globalToolbarSlots}
       </div>
     );

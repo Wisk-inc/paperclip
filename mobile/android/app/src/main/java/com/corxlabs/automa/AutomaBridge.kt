@@ -228,6 +228,28 @@ class AutomaBridge(
         if (onConnectPage()) activity.runOnUiThread { activity.openTermux() }
     }
 
+    /** Whether this build carries the server that Termux installs ("Run Automa on this phone"). */
+    @JavascriptInterface
+    fun hasServerBundle(): Boolean = onConnectPage() && activity.hasServerBundle()
+
+    /**
+     * Hands the bundled server to Termux, which saves it as
+     * ~/downloads/automa-server.tar.xz. Replies {ok} or {ok:false, error}. Connect screen only.
+     */
+    @JavascriptInterface
+    fun sendServerToTermux(callId: String) {
+        if (!onConnectPage()) return resolve(callId, error("Not available on this page"))
+        activity.sendServerToTermux { result ->
+            resolve(
+                callId,
+                result.fold(
+                    onSuccess = { JSONObject().put("ok", true).toString() },
+                    onFailure = { error(it.message ?: "Could not send the setup to Termux") },
+                ),
+            )
+        }
+    }
+
     /** Copies text (setup commands) to the clipboard. Connect screen only. */
     @JavascriptInterface
     fun copyText(text: String) {

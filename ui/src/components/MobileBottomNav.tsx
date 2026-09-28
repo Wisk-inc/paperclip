@@ -5,14 +5,13 @@ import {
   CircleCheck,
   Plus,
   FolderSync,
-  Inbox,
+  MessagesSquare,
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
 import { haptic } from "../lib/haptics";
-import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 
 interface MobileBottomNavProps {
@@ -50,22 +49,22 @@ function BadgeCount({ count, label }: { count: number; label: string }) {
 
 /**
  * The phone's primary navigation, placed in the thumb zone. Destinations are
- * the jobs people do on a phone: check what changed (Home), follow work
- * (Tasks), start work (New), move files to and from agents (Files), and
- * answer what needs them (Inbox). Every cell is a full-height tap target;
+ * the jobs people do on a phone: check what changed (Home), talk to an agent
+ * (Chats), start work (New), follow work (Tasks), and move files to and from
+ * agents (Files). The inbox lives in the header as a bell. Every cell is a full-height tap target;
  * the active one reads by weight and a filled indicator, not by color.
  */
 export function MobileBottomNav({ visible }: MobileBottomNavProps) {
   const { selectedCompanyId } = useCompany();
   const { openNewIssue } = useDialogActions();
-  const inboxBadge = useInboxBadge(selectedCompanyId);
   const filesBadge = useDeviceFilesBadge(selectedCompanyId);
 
   const items = useMemo<MobileNavItem[]>(
     () => [
       { type: "link", to: "/dashboard", label: "Home", icon: House },
-      { type: "link", to: "/issues", label: "Tasks", icon: CircleCheck },
+      { type: "link", to: "/chats", label: "Chats", icon: MessagesSquare },
       { type: "action", label: "New task", icon: Plus, onClick: () => openNewIssue() },
+      { type: "link", to: "/issues", label: "Tasks", icon: CircleCheck },
       {
         type: "link",
         to: "/device-files",
@@ -74,16 +73,8 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
         badge: filesBadge.pendingRequests,
         badgeLabel: "file requests waiting",
       },
-      {
-        type: "link",
-        to: "/inbox",
-        label: "Inbox",
-        icon: Inbox,
-        badge: inboxBadge.inbox,
-        badgeLabel: "unread",
-      },
     ],
-    [openNewIssue, inboxBadge.inbox, filesBadge.pendingRequests],
+    [openNewIssue, filesBadge.pendingRequests],
   );
 
   return (

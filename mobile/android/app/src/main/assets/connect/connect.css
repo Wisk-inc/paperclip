@@ -177,6 +177,13 @@ input:focus-visible { border-color: var(--fg); }
 .footer { display: flex; justify-content: space-between; gap: 12px; }
 .footer[hidden] { display: none; }
 .footer-links { display: flex; gap: 12px; }
+/* Support: the Discord logo opens the Automa support server (Discord app or browser). */
+.footer-links .discord-link { display: inline-flex; align-items: center; gap: 6px; }
+.discord-help {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; margin-top: -12px; color: var(--muted); font-size: 13px; text-decoration: none;
+}
+.discord-help img, .discord-link img { flex: none; }
 
 .account {
   display: flex; align-items: center; gap: 12px;

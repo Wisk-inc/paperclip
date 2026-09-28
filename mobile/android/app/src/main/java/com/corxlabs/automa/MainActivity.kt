@@ -2,12 +2,14 @@ package com.corxlabs.automa
 
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
@@ -30,6 +32,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -41,6 +44,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -66,6 +70,9 @@ class MainActivity : ComponentActivity() {
         const val ASSETS_ORIGIN = "https://$ASSETS_HOST"
         const val CONNECT_URL = "$ASSETS_ORIGIN/assets/connect/index.html"
         private const val SHARE_EVENT = "window.dispatchEvent(new Event('automa:incoming-shares'))"
+        private const val CAMERA_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
+        private const val SERVER_BUNDLE_NAME = "automa-server.tar.xz"
+        private const val SERVER_BUNDLE_ASSET = "server/$SERVER_BUNDLE_NAME"
         private const val TERMUX_PACKAGE = "com.termux"
         private const val TERMUX_DOWNLOAD_URL = "https://f-droid.org/packages/com.termux/"
 
@@ -122,16 +129,22 @@ class MainActivity : ComponentActivity() {
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = fileCallback ?: return@registerForActivityResult
         fileCallback = null
+        val photo = cameraPhoto
+        cameraPhoto = null
         val data = result.data
-        val uris: Array<Uri>? = if (result.resultCode != RESULT_OK || data == null) {
-            null
-        } else {
-            val clip = data.clipData
-            if (clip != null && clip.itemCount > 0) Array(clip.itemCount) { clip.getItemAt(it).uri }
-            else data.data?.let { arrayOf(it) }
+        val clip = data?.clipData
+        val uris: Array<Uri>? = when {
+            result.resultCode != RESULT_OK -> null
+            // The camera app wrote the picture into the file we handed it.
+            photo != null && photo.first.length() > 0 -> arrayOf(photo.second)
+            clip != null && clip.itemCount > 0 -> Array(clip.itemCount) { clip.getItemAt(it).uri }
+            else -> data?.data?.let { arrayOf(it) }
         }
         callback.onReceiveValue(uris)
     }
+
+    /** The file and content URI a "Take photo" pick writes into, while the camera is open. */
+    private var cameraPhoto: Pair<File, Uri>? = null
 
     private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val callId = pendingFolderCall ?: return@registerForActivityResult
@@ -321,6 +334,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun hasServerBundle(): Boolean = runCatching { assets.open(SERVER_BUNDLE_ASSET).close(); true }.getOrDefault(false)
+
+    /**
+     * Copies the server bundle out of the APK and shares it to Termux. Termux's
+     * file receiver asks where to keep it; "Open directory" saves it as
+     * ~/downloads/automa-server.tar.xz and opens a terminal there.
+     */
+    fun sendServerToTermux(done: (Result<Unit>) -> Unit) {
+        if (!isTermuxInstalled()) {
+            done(Result.failure(IllegalStateException("Install Termux first.")))
+            return
+        }
+        executor.execute {
+            val shared = runCatching {
+                val dir = File(cacheDir, "server").apply { mkdirs() }
+                val file = File(dir, SERVER_BUNDLE_NAME)
+                assets.open(SERVER_BUNDLE_ASSET).use { input -> file.outputStream().use { input.copyTo(it) } }
+                FileProvider.getUriForFile(this, "$packageName.files", file)
+            }
+            runOnUiThread {
+                val result = shared.mapCatching { uri ->
+                    val send = Intent(Intent.ACTION_SEND)
+                        .setType("application/x-xz")
+                        .setPackage(TERMUX_PACKAGE)
+                        .putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    send.clipData = ClipData.newRawUri(SERVER_BUNDLE_NAME, uri)
+                    startActivity(send)
+                }
+                done(result)
+            }
+        }
+    }
+
     fun copyToClipboard(text: String) {
         val clipboard = getSystemService(android.content.ClipboardManager::class.java) ?: return
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Automa setup", text))
@@ -468,11 +515,14 @@ class MainActivity : ComponentActivity() {
                     ?: Intent(Intent.ACTION_GET_CONTENT).setType("*/*")
                 pick.addCategory(Intent.CATEGORY_OPENABLE)
                 if (fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE) pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                val chooser = Intent.createChooser(pick, getString(R.string.choose_file))
+                cameraCaptureIntent(fileChooserParams)?.let { chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(it)) }
                 return try {
-                    fileChooser.launch(Intent.createChooser(pick, getString(R.string.choose_file)))
+                    fileChooser.launch(chooser)
                     true
                 } catch (error: ActivityNotFoundException) {
                     fileCallback = null
+                    cameraPhoto = null
                     false
                 }
             }
@@ -503,6 +553,33 @@ class MainActivity : ComponentActivity() {
             }
         }
         return view
+    }
+
+    /**
+     * A "Take photo" entry for the attach picker when the page accepts images.
+     * The camera app writes into a file in this app's cache through the
+     * FileProvider, so Automa itself never needs the camera permission.
+     */
+    private fun cameraCaptureIntent(params: WebChromeClient.FileChooserParams): Intent? {
+        val types = params.acceptTypes.orEmpty().map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        val acceptsImages = types.isEmpty() || types.any {
+            it == "*/*" || it.startsWith("image/") || it in setOf(".jpg", ".jpeg", ".png", ".heic", ".webp")
+        }
+        if (!acceptsImages) return null
+        val capture = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        if (capture.resolveActivity(packageManager) == null) return null
+        return runCatching {
+            val dir = File(cacheDir, "camera").apply { mkdirs() }
+            // Photos from earlier chats were uploaded long ago; keep the cache small.
+            val stale = System.currentTimeMillis() - CAMERA_CACHE_MAX_AGE_MS
+            dir.listFiles()?.filter { it.lastModified() < stale }?.forEach { it.delete() }
+            val file = File(dir, "photo-${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+            cameraPhoto = file to uri
+            capture.putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .also { it.clipData = ClipData.newRawUri("photo", uri) }
+        }.getOrNull()
     }
 
     private fun installDownloadHook(view: WebView, origin: String) {

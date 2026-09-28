@@ -5,6 +5,7 @@ import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { cn } from "../lib/utils";
 import { automaNative } from "../lib/automa-native";
 import { Mascot } from "./mascot/Mascot";
+import { DiscordSupportLink } from "./DiscordSupportLink";
 
 function greetingFor(hour: number): string {
   if (hour < 5) return "Working late";
@@ -87,6 +88,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
           );
         })}
       </ul>
+      <DiscordSupportLink variant="card" />
     </section>
   );
 }

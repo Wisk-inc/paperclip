@@ -84,6 +84,27 @@
   termuxButton.addEventListener("click", function () {
     if (bridge && bridge.openTermux) bridge.openTermux();
   });
+  var sendButton = document.getElementById("send-server");
+  var sendStatus = document.getElementById("send-status");
+  if (!(bridge && bridge.hasServerBundle && bridge.hasServerBundle())) {
+    sendButton.disabled = true;
+    sendStatus.textContent = "This build of Automa does not include the phone server.";
+  }
+  sendButton.addEventListener("click", function () {
+    if (!bridge || !bridge.sendServerToTermux) return;
+    counter += 1;
+    var callId = "send-server-" + counter;
+    sendButton.disabled = true;
+    sendButton.textContent = "Sending…";
+    pending[callId] = function (reply) {
+      sendButton.disabled = false;
+      sendButton.textContent = "Send again";
+      sendStatus.textContent = reply && reply.ok
+        ? "Sent. In Termux, tap Open directory, then paste the command below."
+        : (reply && reply.error) || "Could not send it to Termux.";
+    };
+    bridge.sendServerToTermux(callId);
+  });
   var copyButton = document.getElementById("copy-setup");
   copyButton.addEventListener("click", function () {
     var text = document.getElementById("setup-cmd").textContent;
@@ -91,7 +112,7 @@
     else if (navigator.clipboard) navigator.clipboard.writeText(text);
     if (bridge && bridge.haptic) bridge.haptic("tick");
     copyButton.textContent = "Copied";
-    setTimeout(function () { copyButton.textContent = "Copy commands"; }, 2000);
+    setTimeout(function () { copyButton.textContent = "Copy command"; }, 2000);
   });
   document.getElementById("connect-local").addEventListener("click", function () {
     input.value = "127.0.0.1:3100";

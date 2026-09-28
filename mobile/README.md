@@ -49,13 +49,44 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   the server behind HTTPS.
 - Android 8.0 (API 26) or newer.
 
-### Running the server on the phone itself (advanced, untested)
+### Running the server on the phone itself ("Run Automa on this phone")
 
-The server is a Node.js 24 app with Postgres, so it can run inside Termux on
-the same phone and the app can connect to `127.0.0.1:3100`. This path is not
-covered by our tests: install Node.js and PostgreSQL from Termux, set
-`DATABASE_URL` to the Termux Postgres, and start Automa. Local CLI agents
-(Claude Code, Codex, …) must also be installable in Termux.
+The APK carries this repository's server (`assets/server/automa-server.tar.xz`,
+built by `pnpm mobile:bundle-server`), so a phone can host Automa in the free
+Termux app with no computer:
+
+1. Install Termux from F-Droid.
+2. In the Automa app, open **Run Automa on this phone** and tap **Send to
+   Termux**. Termux asks what to do with `automa-server.tar.xz`; tap **Open
+   directory** (it is saved as `~/downloads/automa-server.tar.xz`).
+3. Paste the copied command in Termux:
+   `pkg update -y && tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR && bash $TMPDIR/automa-server/install.sh`
+   It installs Node.js and PostgreSQL from Termux packages, creates a local
+   `automa` database, installs the server packages with npm, adds an `automa`
+   command, and starts Automa on `127.0.0.1:3100`.
+4. Back in the app, tap **Connect to this phone**. Next time, start it in
+   Termux with `automa run`.
+
+What `install.sh` does beyond npm: sharp (image processing) has no native
+Android build, so `add-sharp-wasm.mjs` adds sharp's official WebAssembly build.
+esbuild fetches its native Android arm64 binary during install.
+
+**How this was tested:** the exact steps above ran in the official Termux
+userland (`termux/termux-docker`, aarch64, under qemu) from a fresh
+container: `pkg` installs, `initdb`/`createdb`, `npm install` of the 18
+packages (382 dependencies), `automa onboard --yes`, 284 migrations, then the
+board UI, Chats, agent chat and the model switcher in a phone-sized browser,
+the Device Files API, and avatar rendering through sharp's WebAssembly build.
+Two things differ from a real phone and were adapted only in the test harness:
+the container has no Android shared memory (ashmem), so a small preload
+library routed PostgreSQL's four shared-memory calls to Linux System V IPC;
+and the sandbox's TLS proxy certificate was added to Node's trust store. The
+Android intent that hands the file to Termux, and speed on real hardware,
+have not been tested on a physical phone.
+
+Agents run on the phone too, so their runtimes (Claude Code, Codex, OpenCode
+for OpenRouter models, …) must also be installed in Termux; that part is not
+covered by the test above. A computer is faster for heavy agent work.
 
 ## Build
 
@@ -64,14 +95,17 @@ Requirements: JDK 17+ and the Android SDK (platform 36, build-tools 36).
 ```sh
 pnpm install
 pnpm mobile:bundle-ui        # builds the board UI and copies it into the app (assets/ui)
+pnpm mobile:bundle-server    # packs this repo's server for "Run Automa on this phone" (assets/server)
 cd mobile/android
 echo "sdk.dir=$ANDROID_HOME" > local.properties
 ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk (id: com.corxlabs.automa)
 ./gradlew lintDebug          # Android Lint (0 errors expected)
 ```
 
-Run `pnpm mobile:bundle-ui` again whenever the UI changes. Release builds
-refuse to build without the bundled UI; a debug build without it shows the
+Run `pnpm mobile:bundle-ui` again whenever the UI changes, and
+`pnpm mobile:bundle-server` whenever the server changes (it packs the server
+that "Run Automa on this phone" installs into `assets/server/`). Release builds
+refuse to build without the bundled UI and server; a debug build without it shows the
 server's own UI instead.
 
 Install on a phone with USB debugging: `adb install -r app/build/outputs/apk/debug/app-debug.apk`,

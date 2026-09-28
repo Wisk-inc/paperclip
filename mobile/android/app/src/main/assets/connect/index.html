@@ -46,6 +46,7 @@
       </button>
       <p id="signin-error" class="error" role="alert" hidden></p>
       <p class="legal">By continuing, you agree to Automa's <a href="legal/terms.html">Terms of Service</a> and <a href="legal/privacy.html">Privacy Policy</a>.</p>
+      <a class="discord-help" href="https://discord.gg/NfnSrFK7YM"><img src="img/discord.svg" alt="" width="18" height="18">Need help? Join the Automa Discord</a>
     </div>
   </section>
 
@@ -103,25 +104,27 @@
           </div>
         </li>
         <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14"/></svg>
+          <div>
+            <strong>Send Automa to Termux</strong>
+            <span id="send-status">Termux asks what to do with <b>automa-server.tar.xz</b>. Tap <b>Open directory</b>.</span>
+            <button type="button" id="send-server" class="secondary">Send to Termux</button>
+          </div>
+        </li>
+        <li>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/><rect x="2" y="3" width="20" height="18" rx="3"/></svg>
           <div>
             <strong>Paste this in Termux</strong>
-            <span>Installs Automa and its database. First time only; it takes a few minutes, then answer Automa's setup questions.</span>
-            <pre id="setup-cmd">pkg update -y &amp;&amp; pkg install -y nodejs-lts postgresql
-mkdir -p $PREFIX/var/lib/postgresql &amp;&amp; initdb $PREFIX/var/lib/postgresql
-pg_ctl -D $PREFIX/var/lib/postgresql -l $PREFIX/var/lib/postgresql/server.log start
-createdb automa
-echo 'export DATABASE_URL=postgres://127.0.0.1:5432/automa' &gt;&gt; ~/.bashrc
-export DATABASE_URL=postgres://127.0.0.1:5432/automa
-npx paperclipai onboard</pre>
-            <button type="button" id="copy-setup" class="secondary">Copy commands</button>
+            <span>Installs Node.js, a database and Automa, then starts it. About 5 minutes the first time.</span>
+            <pre id="setup-cmd">pkg update -y &amp;&amp; tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR &amp;&amp; bash $TMPDIR/automa-server/install.sh</pre>
+            <button type="button" id="copy-setup" class="secondary">Copy command</button>
           </div>
         </li>
         <li>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
           <div>
             <strong>Connect</strong>
-            <span>Keep Termux open while you use Automa. Next time, start it in Termux with <code>pg_ctl -D $PREFIX/var/lib/postgresql start &amp;&amp; npx paperclipai run</code>.</span>
+            <span>When Termux says Automa is running, come back here. Keep Termux open while you use Automa; next time, start it in Termux with <code>automa run</code>.</span>
             <button type="button" id="connect-local" class="primary">Connect to this phone</button>
           </div>
         </li>
@@ -144,7 +147,7 @@ npx paperclipai onboard</pre>
     </details>
   </section>
 
-  <footer class="footer"><span id="version"></span><span class="footer-links"><a href="legal/terms.html">Terms</a><a href="legal/privacy.html">Privacy</a></span></footer>
+  <footer class="footer"><span id="version"></span><span class="footer-links"><a class="discord-link" href="https://discord.gg/NfnSrFK7YM" aria-label="Get help on Discord" title="Get help on Discord"><img src="img/discord.svg" alt="" width="16" height="16">Discord</a><a href="legal/terms.html">Terms</a><a href="legal/privacy.html">Privacy</a></span></footer>
 </main>
 <script src="connect.js"></script>
 </body>

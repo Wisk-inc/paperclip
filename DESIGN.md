@@ -82,6 +82,15 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   when a field hits its length limit (app-wide), `success` when something
   finished, `warning` when it failed. Inside the Android app these use the
   system haptics and follow the phone's touch-feedback setting.
+- **Tab bar.** Five thumb-sized destinations: Home, Chats, New (center),
+  Tasks, Files. The inbox lives in the phone header as a bell with its unread
+  count, so the bar never grows a sixth cell.
+- **Model names and logos.** Show an AI model by its maker's logo and a clean
+  name (`ModelLogo`, `lib/model-brand.ts`): "Claude Sonnet 4.5", "DeepSeek V4
+  Pro", never a raw id in the primary line. Logos live in
+  `public/brands/models/` (see its README for sources).
+- **Support.** The Discord logo (`DiscordSupportLink`) opens the Automa support
+  server from the sidebar footer and the phone Home screen.
 - **Depth ladder.** Content, sticky headers (z-20), tab bar and thumb
   actions (z-30), drawer scrim (z-40), sheets/dialogs/menus with blurred
   scrims (z-50), toasts (`--z-120`). Pick a rung; do not invent a z-index.

@@ -2853,9 +2853,13 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                         {threadHeaderWithBlockers}
                       </div>
                     ) : null}
-                    <div className="px-3 py-10 text-center text-sm text-muted-foreground">
-                      {emptyMessage}
-                    </div>
+                    {typeof emptyMessage === "string" ? (
+                      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                        {emptyMessage}
+                      </div>
+                    ) : (
+                      emptyMessage
+                    )}
                     {bottomBlockerLinks ? (
                       <div
                         className={cn(

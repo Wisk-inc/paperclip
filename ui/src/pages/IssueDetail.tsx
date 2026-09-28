@@ -1,5 +1,7 @@
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
+import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
 import { agentChatDraft } from "@/lib/agent-chat-draft";
@@ -1257,6 +1259,8 @@ type IssueDetailChatTabProps = {
   suggestedAssigneeValue: string;
   mentions: MentionOption[];
   conversationMode?: boolean;
+  /** The agent a chat talks to; its welcome view fills an empty chat. */
+  conversationAgent?: Agent;
   composerPause?: TaskComposerPause | null;
   composerDisabledReason: string | null;
   composerHint: string | null;
@@ -1384,6 +1388,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   suggestedAssigneeValue,
   mentions,
   conversationMode,
+  conversationAgent,
   composerPause,
   composerDisabledReason,
   composerHint,
@@ -2314,6 +2319,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           <EmailThreadProvider companyId={companyId} issueId={issueId}>
           <ThreadComponent
             key={conversationMode ? draftKey : issueId}
+            {...(conversationAgent ? { emptyMessage: <ChatWelcome agent={conversationAgent} /> } : {})}
             {...(!classicTaskInterfaceEnabled ? { creationActivity: resolvedActivity } : {})}
             onOpenSkill={onOpenSkill}
             initialHistoryPending={!!issueId && (
@@ -5380,10 +5386,15 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     if (conversationAgent) {
       setBreadcrumbs([{
         label: conversationAgent.name,
-        leading: <Avatar className="size-6 shrink-0"><AvatarFallback>{deriveInitials(conversationAgent.name)}</AvatarFallback></Avatar>,
+        leading: <AgentAvatar agent={conversationAgent} size={24} />,
         leadingKey: `agent:${conversationAgent.id}`,
-        trailing: <Button variant="ghost" size="icon-xs" asChild aria-label={`Configure ${conversationAgent.name}`}><Link to={agentDetailHref(conversationAgent.id, "runtime")}><ChatSettings /></Link></Button>,
-        trailingKey: `configure:${conversationAgent.id}`,
+        trailing: (
+          <span className="ml-2 flex items-center gap-1">
+            <AgentModelButton agent={conversationAgent} />
+            <Button variant="ghost" size="icon-xs" asChild aria-label={`Configure ${conversationAgent.name}`}><Link to={agentDetailHref(conversationAgent.id, "runtime")}><ChatSettings /></Link></Button>
+          </span>
+        ),
+        trailingKey: `configure:${conversationAgent.id}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }
@@ -7879,6 +7890,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   suggestedAssigneeValue={suggestedAssigneeValue}
                   mentions={mentionOptions}
                   conversationMode={!!issue.conversationAgentId}
+                  conversationAgent={issue.conversationAgentId ? conversationAgent : undefined}
                   composerPause={activePauseHold ? {
                     scope: activePauseHold.isRoot && childIssues.length === 0 ? "leaf" : "subtree",
                     pending: executeTreeControl.isPending && executeTreeControl.variables?.mode === "resume",

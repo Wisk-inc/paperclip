@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Photos taken from the chat attach picker, before the WebView uploads them. -->
+    <cache-path name="camera" path="camera/" />
+    <!-- The server bundle shared to Termux ("Run Automa on this phone"). -->
+    <cache-path name="server" path="server/" />
+</paths>

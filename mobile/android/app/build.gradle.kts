@@ -103,10 +103,16 @@ dependencies {
 // skip it and then show the server's own UI.
 val checkBundledUi by tasks.registering {
     val index = layout.projectDirectory.file("src/main/assets/ui/index.html").asFile
+    val server = layout.projectDirectory.file("src/main/assets/server/automa-server.tar.xz").asFile
     doLast {
         if (!index.exists()) {
             throw GradleException(
                 "The board UI is not bundled. From the repository root run `pnpm mobile:bundle-ui`, then build again.",
+            )
+        }
+        if (!server.exists()) {
+            throw GradleException(
+                "The phone server is not bundled. From the repository root run `pnpm mobile:bundle-server`, then build again.",
             )
         }
     }

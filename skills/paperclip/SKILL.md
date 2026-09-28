@@ -482,13 +482,6 @@ Load `references/workflows.md` when the task matches one of these:
 Load `references/cases.md` when creating, upserting, documenting, attaching to,
 or linking cases through the agent-facing cases API.
 
-## Device Files
-
-Load `references/device-files.md` when a task needs a file from a person's
-phone or computer, or when you should send a finished file to their device.
-You ask with a file request; you are woken with `device_file_request_fulfilled`
-or `device_file_request_declined` when they answer.
-
 ## Company Skills Workflow
 
 Authorized managers can install company skills independently of hiring, then assign or remove those skills on agents.
@@ -717,3 +710,10 @@ For an open answer, use a text field, not invented choices. POST `/api/issues/{i
 ```
 
 See [the API reference](references/api-reference.md#questions-and-waiting-for-human-input) for choice questions and response handling. Include the normal Authorization and X-Paperclip-Run-Id headers.
+
+**Getting files from a person's device.**
+
+Load `references/device-files.md` when a task needs a file from a person's
+phone or computer, or when you should send a finished file to their device.
+You ask with a file request; you are woken with `device_file_request_fulfilled`
+or `device_file_request_declined` when they answer.

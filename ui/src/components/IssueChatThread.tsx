@@ -632,7 +632,8 @@ interface IssueChatThreadProps {
   showJumpToLatest?: boolean;
   autoScrollToLatestOnInitialLoad?: boolean;
   autoScrollToHashOnInitialLoad?: boolean;
-  emptyMessage?: string;
+  /** Text, or a whole welcome view, for a thread with no messages yet. */
+  emptyMessage?: ReactNode;
   footer?: ReactNode;
   /**
    * Issue header content (title row, badges, plugin toolbars) rendered INSIDE
@@ -727,7 +728,7 @@ interface IssueChatThreadProps {
 type IssueChatErrorBoundaryProps = {
   resetKey: string;
   messages: readonly ThreadMessage[];
-  emptyMessage: string;
+  emptyMessage: ReactNode;
   variant: "full" | "embedded";
   externalReferences?: MarkdownExternalReferenceMap;
   children: ReactNode;
@@ -878,7 +879,7 @@ function IssueChatFallbackThread({
   externalReferences,
 }: {
   messages: readonly ThreadMessage[];
-  emptyMessage: string;
+  emptyMessage: ReactNode;
   variant: "full" | "embedded";
   externalReferences?: MarkdownExternalReferenceMap;
 }) {

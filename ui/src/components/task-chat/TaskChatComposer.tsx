@@ -1421,6 +1421,7 @@ export function TaskChatComposer({
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   className="hidden"
                   onChange={handleFileInputChange}
                 />

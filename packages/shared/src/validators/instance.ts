@@ -57,7 +57,7 @@ export const instanceExperimentalSettingsSchema = z.object({
   enableMemoryConnectors: z.boolean().default(false),
   enablePipelines: z.boolean().default(false),
   enableCases: z.boolean().default(false),
-  enableAgentChat: z.boolean().default(false),
+  enableAgentChat: z.boolean().default(true),
   enableConferenceRoomChat: z.boolean().default(false),
   enableClassicTaskInterface: z.boolean().default(false),
   enableIssuePlanDecompositions: z.boolean().default(false),

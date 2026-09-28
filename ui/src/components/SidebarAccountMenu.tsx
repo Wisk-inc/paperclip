@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, SIDEBAR_RAIL_HIDDEN_LABEL } from "../lib/utils";
 import { ThemeToggle } from "./ThemeToggle";
 import { SidebarServerInfo } from "./SidebarServerInfo";
+import { DiscordSupportLink } from "./DiscordSupportLink";
 
 const PROFILE_SETTINGS_PATH = "/company/settings/instance/profile";
 const DOCS_URL = "https://docs.paperclip.ing/";
@@ -232,6 +233,7 @@ export function SidebarAccountMenu({
             </div>
           </PopoverContent>
         </Popover>
+        {!rail ? <DiscordSupportLink /> : null}
         {!rail && !isCloud ? (
           <Tooltip>
             <TooltipTrigger asChild>

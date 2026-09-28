@@ -27,6 +27,11 @@ vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({ selectedCompanyId: "company-1", selectedCompany: { issuePrefix: "TES" } }),
 }));
 
+// The phone header's inbox bell polls the inbox; its own behavior is covered elsewhere.
+vi.mock("./InboxBell", () => ({
+  InboxBell: () => <a data-slot="inbox-bell" href="/inbox" aria-label="Inbox" />,
+}));
+
 vi.mock("../context/PanelContext", () => ({
   usePanel: () => ({ panelVisible: true, togglePanelVisible: vi.fn() }),
 }));

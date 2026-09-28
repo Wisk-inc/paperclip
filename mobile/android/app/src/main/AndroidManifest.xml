@@ -14,6 +14,11 @@
     <!-- "Run Automa on this phone": check whether Termux is installed and open it. -->
     <queries>
         <package android:name="com.termux" />
+        <!-- "Take photo" in the chat attach picker: find the camera app. The
+             camera app takes the picture, so Automa needs no camera permission. -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
     </queries>
 
     <!-- Works on phones, tablets, foldables, and Chromebooks; nothing here needs
@@ -77,5 +82,15 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/notification_channel_id" />
+        <!-- Hands the camera app a file to write a chat photo into (app cache only). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
