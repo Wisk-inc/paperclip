@@ -15,6 +15,7 @@ import {
 } from "@paperclipai/db";
 import type { StorageService } from "../storage/types.js";
 import { describeEmbeddedPostgres, useEmbeddedPostgres } from "./helpers/route-test-harness.js";
+import { deviceFileService } from "../services/device-files.js";
 
 const mockHeartbeat = vi.hoisted(() => ({ wakeup: vi.fn(async () => ({ id: "run-woken" })) }));
 
@@ -276,5 +277,36 @@ describeEmbeddedPostgres("device file routes", () => {
     await s.app(s.agent(s.otherAgentId)).delete(`/api/device-files/${sent.body.id}`).expect(403);
     await agent.delete(`/api/device-files/${sent.body.id}`).expect(200);
     expect(s.storage.objects.size).toBe(0);
+  });
+
+  it("keeps a device's push token on the server, reports only pushEnabled, and forgets it on removal", async () => {
+    const s = await seed();
+    const board = s.app(s.board);
+    const agent = s.app(s.agent(s.agentId));
+    const svc = deviceFileService(ctx.db);
+
+    const device = await board
+      .post(`/api/companies/${s.companyId}/devices`)
+      .send({ name: "Pixel 8", platform: "android", clientKey: "android-push-key-1", pushToken: "fcm-token-abc" })
+      .expect(201);
+    expect(device.body.pushEnabled).toBe(true);
+    expect(JSON.stringify(device.body)).not.toContain("fcm-token-abc");
+
+    const listed = await agent.get(`/api/companies/${s.companyId}/devices`).expect(200);
+    expect(listed.body[0].pushEnabled).toBe(true);
+    expect(JSON.stringify(listed.body)).not.toContain("fcm-token-abc");
+
+    await expect(svc.listPushTargets(s.companyId, null)).resolves.toEqual([{ deviceId: device.body.id, token: "fcm-token-abc" }]);
+    await expect(svc.listPushTargets(s.otherCompanyId, null)).resolves.toEqual([]);
+
+    await board.patch(`/api/devices/${device.body.id}`).send({ pushToken: "fcm-token-rotated" }).expect(200);
+    await expect(svc.listPushTargets(s.companyId, device.body.id)).resolves.toEqual([{ deviceId: device.body.id, token: "fcm-token-rotated" }]);
+
+    await svc.clearPushTokens(["fcm-token-rotated"]);
+    await expect(svc.listPushTargets(s.companyId, null)).resolves.toEqual([]);
+
+    await board.patch(`/api/devices/${device.body.id}`).send({ pushToken: "fcm-token-again" }).expect(200);
+    await board.delete(`/api/devices/${device.body.id}`).expect(200);
+    await expect(svc.listPushTargets(s.companyId, null)).resolves.toEqual([]);
   });
 });

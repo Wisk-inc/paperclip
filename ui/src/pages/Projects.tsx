@@ -186,6 +186,11 @@ export function Projects() {
           message="A project groups related tasks, its codebase, and a budget for your agents."
           action="Add project"
           onAction={openNewProject}
+          steps={[
+            "Name the project and link its codebase or workspace.",
+            "Add tasks, or let agents break the work into tasks.",
+            "Follow progress and spend in one place.",
+          ]}
         />
       )}
 

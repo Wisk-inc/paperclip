@@ -3,6 +3,15 @@ import { Link } from "@/lib/router";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { cn } from "../lib/utils";
+import { automaNative } from "../lib/automa-native";
+import { Mascot } from "./mascot/Mascot";
+
+function greetingFor(hour: number): string {
+  if (hour < 5) return "Working late";
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 interface NeedsYouListProps {
   companyId: string;
@@ -26,9 +35,25 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
     { to: "/agents/all", label: "Agents", hint: "Who is working on what", count: null, icon: Users },
   ];
 
+  const waiting = inbox.inbox + (pendingApprovals ?? 0) + files.pendingRequests;
+  const firstName = automaNative.account()?.user?.name?.split(" ")[0] ?? null;
+  const greeting = `${greetingFor(new Date().getHours())}${firstName ? `, ${firstName}` : ""}`;
+
   return (
-    <section aria-labelledby="needs-you-heading" className="md:hidden">
-      <h2 id="needs-you-heading" className="mb-2 text-sm font-medium text-muted-foreground">
+    <section aria-labelledby="needs-you-heading" className="flex flex-col gap-4 md:hidden">
+      {/* Greeting: the mascot cheers when nothing is waiting and perks up when something is. */}
+      <div className="flex items-center gap-4 rounded-lg border border-border bg-card p-4">
+        <Mascot pose={waiting > 0 ? "excited" : "cheering"} size="sm" />
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="font-display text-lg font-semibold leading-tight tracking-tight">{greeting}</p>
+          <p className="text-sm text-muted-foreground">
+            {waiting > 0
+              ? `${waiting} ${waiting === 1 ? "thing needs" : "things need"} you. Start at the top.`
+              : "You're all caught up. Your agents are on it."}
+          </p>
+        </div>
+      </div>
+      <h2 id="needs-you-heading" className="-mb-2 text-sm font-medium text-muted-foreground">
         Needs you
       </h2>
       <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">

@@ -8,6 +8,8 @@ export interface LocalDeviceIdentity {
   clientKey: string;
   name: string;
   platform: DevicePlatform;
+  /** Present inside the Automa app once Firebase Cloud Messaging handed out a token. */
+  pushToken?: string;
 }
 
 function readStorage(key: string): string | null {
@@ -65,7 +67,15 @@ export function describeBrowser(userAgent: string): { name: string; platform: De
 /** Who this install is, preferring the Automa app's own identity. */
 export function localDeviceIdentity(): LocalDeviceIdentity {
   const native = automaNative.info();
-  if (native) return { clientKey: native.clientKey, name: native.deviceName, platform: "android" };
+  if (native) {
+    const pushToken = automaNative.pushToken();
+    return {
+      clientKey: native.clientKey,
+      name: native.deviceName,
+      platform: "android",
+      ...(pushToken ? { pushToken } : {}),
+    };
+  }
   let clientKey = readStorage(CLIENT_KEY_STORAGE_KEY);
   if (!clientKey) {
     clientKey = randomKey();
@@ -73,6 +83,17 @@ export function localDeviceIdentity(): LocalDeviceIdentity {
   }
   const described = describeBrowser(typeof navigator === "undefined" ? "" : navigator.userAgent);
   return { clientKey, ...described };
+}
+
+const pushTokenStorageKey = (deviceId: string) => `automa.device.${deviceId}.pushToken`;
+
+/** The push token last sent to the server for this device, to resend only when it rotates. */
+export function sentPushToken(deviceId: string): string | null {
+  return readStorage(pushTokenStorageKey(deviceId));
+}
+
+export function rememberSentPushToken(deviceId: string, token: string | null) {
+  writeStorage(pushTokenStorageKey(deviceId), token);
 }
 
 export function storedDeviceId(companyId: string): string | null {

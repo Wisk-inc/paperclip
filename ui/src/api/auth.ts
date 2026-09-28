@@ -177,6 +177,11 @@ export const authApi = {
     await authPost("/sign-up/email", input);
   },
 
+  /** "Continue with Google" from the Automa Android app (a Firebase ID token). */
+  signInWithFirebase: async (idToken: string) => {
+    await authPost("/firebase/sign-in", { idToken });
+  },
+
   getProfile: async (): Promise<CurrentUserProfile> => {
     const res = await fetch("/api/auth/profile", {
       credentials: "include",

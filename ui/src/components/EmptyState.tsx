@@ -34,6 +34,8 @@ interface EmptyStateProps {
   hideActionIcon?: boolean;
   /** Defaults to `create` when there is an action and `empty` otherwise. */
   tone?: EmptyStateTone;
+  /** A short "How it works" guide under the action (two to four steps). */
+  steps?: string[];
 }
 
 /**
@@ -50,6 +52,7 @@ export function EmptyState({
   onAction,
   hideActionIcon = false,
   tone,
+  steps,
 }: EmptyStateProps) {
   const hasAction = Boolean(action && onAction);
   const resolvedTone: EmptyStateTone = tone ?? (hasAction ? "create" : "empty");
@@ -91,6 +94,21 @@ export function EmptyState({
           {action}
         </Button>
       )}
+      {steps && steps.length > 0 ? (
+        <div className="flex w-full max-w-md flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left">
+          <p className="text-xs font-medium text-muted-foreground">How it works</p>
+          <ol className="flex flex-col gap-3">
+            {steps.map((step, index) => (
+              <li key={step} className="flex items-start gap-3 text-sm text-foreground">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
+                  {index + 1}
+                </span>
+                <span className="pt-0.5">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </div>
   );
 }

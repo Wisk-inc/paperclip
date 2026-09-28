@@ -1289,6 +1289,11 @@ export function Routines() {
               message="A routine starts a task on a schedule, like a weekly report or a daily inbox sweep."
               action="Create routine"
               onAction={openCreateRoutine}
+              steps={[
+                "Describe the work, like \u201cSummarize yesterday\u2019s sales\u201d.",
+                "Pick when it runs: every morning, weekly, or on your own schedule.",
+                "Each run becomes a task an agent picks up, with results you can review.",
+              ]}
             />
           ) : sortedRoutines.length === 0 ? (
             <EmptyState

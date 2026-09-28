@@ -4,8 +4,14 @@ import type { CompanyDevice } from "@paperclipai/shared";
 import { ApiError } from "../api/client";
 import { deviceFilesApi } from "../api/deviceFiles";
 import { queryKeys } from "../lib/queryKeys";
-import { isAutomaApp } from "../lib/automa-native";
-import { localDeviceIdentity, storeDeviceId, storedDeviceId } from "../lib/device-identity";
+import { automaNative, isAutomaApp } from "../lib/automa-native";
+import {
+  localDeviceIdentity,
+  rememberSentPushToken,
+  sentPushToken,
+  storeDeviceId,
+  storedDeviceId,
+} from "../lib/device-identity";
 
 /**
  * The current phone or browser as a registered company device.
@@ -33,6 +39,7 @@ export function useThisDevice(companyId: string | null | undefined) {
     },
     onSuccess: (registered) => {
       if (!companyId) return;
+      rememberSentPushToken(registered.id, automaNative.pushToken());
       storeDeviceId(companyId, registered.id);
       setDeviceId(registered.id);
       setDevice(registered);
@@ -54,8 +61,16 @@ export function useThisDevice(companyId: string | null | undefined) {
     let cancelled = false;
     deviceFilesApi
       .heartbeat(deviceId)
-      .then((result) => {
-        if (!cancelled) setDevice(result.device);
+      .then(async (result) => {
+        if (cancelled) return;
+        setDevice(result.device);
+        // Firebase rotates push tokens now and then; send the new one.
+        const token = automaNative.pushToken();
+        if (token && token !== sentPushToken(deviceId)) {
+          const updated = await deviceFilesApi.updateDevice(deviceId, { pushToken: token });
+          rememberSentPushToken(deviceId, token);
+          if (!cancelled) setDevice(updated);
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;

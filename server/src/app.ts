@@ -109,6 +109,7 @@ import { llmRoutes } from "./routes/llms.js";
 import { authRoutes } from "./routes/auth.js";
 import { assetRoutes } from "./routes/assets.js";
 import { deviceFileRoutes } from "./routes/device-files.js";
+import { startPushNotifier } from "./services/push-notifier.js";
 import { accessRoutes } from "./routes/access.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import {
@@ -748,6 +749,8 @@ export async function createApp(
   );
   api.use(assetRoutes(db, opts.storageService));
   api.use(deviceFileRoutes(db, opts.storageService, { pluginWorkerManager: workerManager }));
+  // Phone notifications (file requests, approvals) when a Firebase service account is configured.
+  startPushNotifier(db);
   api.use(projectToolRoutes(db));
   api.use(projectRoutes(db));
   api.use(caseRoutes(db, opts.storageService));

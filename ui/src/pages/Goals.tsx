@@ -46,6 +46,11 @@ export function Goals() {
           message="Goals give your agents a direction. Tasks and projects roll up to them."
           action="Add goal"
           onAction={() => openNewGoal()}
+          steps={[
+            "Write the outcome you want, like \u201cLaunch the beta by March\u201d.",
+            "Link the projects and tasks that move it forward.",
+            "Agents keep their work pointed at it.",
+          ]}
         />
       )}
 

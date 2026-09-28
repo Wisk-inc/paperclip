@@ -41,6 +41,7 @@ import {
   removeHotRestartIntent,
   writeHotRestartIntent,
 } from "../services/hot-restart.js";
+import { resolveFirebaseProjectId } from "../auth/firebase-sign-in-plugin.js";
 
 function shouldExposeFullHealthDetails(
   actorType: "none" | "board" | "agent" | null | undefined,
@@ -422,6 +423,8 @@ export function healthRoutes(
       bootstrapInviteActive,
       features: {
         companyDeletionEnabled: opts.companyDeletionEnabled,
+        // "Continue with Google" from the Android app is accepted (Firebase project configured).
+        firebaseSignIn: opts.deploymentMode === "authenticated" && resolveFirebaseProjectId() !== null,
       },
       serverInfo,
       startupRecovery,

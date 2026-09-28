@@ -32,16 +32,21 @@ export const deviceClientKeySchema = z
   .max(128)
   .regex(/^[A-Za-z0-9._:-]+$/, "Device client keys use letters, numbers, and . _ : -");
 
+/** A Firebase Cloud Messaging registration token; null turns push off for the device. */
+export const devicePushTokenSchema = z.string().trim().min(1).max(4096).nullable();
+
 export const registerCompanyDeviceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   platform: devicePlatformSchema,
   clientKey: deviceClientKeySchema,
+  pushToken: devicePushTokenSchema.optional(),
 });
 
 export const updateCompanyDeviceSchema = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     autoFulfill: z.boolean().optional(),
+    pushToken: devicePushTokenSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one device field is required",

@@ -82,3 +82,8 @@ test-results/
 
 # Retained local lifecycle behavior measurements
 .lifecycle-baseline/
+
+# Firebase service-account keys are server secrets (push notifications).
+# Keep them outside the repository; these patterns stop accidental commits.
+*service-account*.json
+*firebase-adminsdk*.json

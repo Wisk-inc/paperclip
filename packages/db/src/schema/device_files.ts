@@ -38,6 +38,9 @@ export const companyDevices = pgTable(
     sharedIndex: jsonb("shared_index").$type<DeviceSharedIndexEntry[]>().notNull().default([]),
     sharedIndexUpdatedAt: timestamp("shared_index_updated_at", { withTimezone: true }),
     autoFulfill: boolean("auto_fulfill").notNull().default(false),
+    // Firebase Cloud Messaging token of the Automa Android app on this device.
+    // Server-only: never returned by the API (devices expose `pushEnabled`).
+    pushToken: text("push_token"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

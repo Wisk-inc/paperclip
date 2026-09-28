@@ -976,6 +976,11 @@ function PipelinesIndex() {
           message="A pipeline moves work through stages, from upstream tasks to the teams downstream."
           action="New pipeline"
           onAction={() => setNewPipelineOpen(true)}
+          steps={[
+            "Set up the stages work moves through.",
+            "Connect upstream work so it flows in on its own.",
+            "See what is waiting at each stage.",
+          ]}
         />
       ) : (
         <>

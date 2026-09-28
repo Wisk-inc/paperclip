@@ -18,6 +18,13 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" crossorigin="use-credentials" />
     <script>
+      // Inside the Automa Android app, drop browser chrome (scrollbars, overscroll
+      // bounce) before first paint. See the "Android app shell" block in index.css.
+      if (/\bAutomaAndroid\//.test(navigator.userAgent)) {
+        document.documentElement.dataset.shell = "android";
+      }
+    </script>
+    <script>
       (() => {
         const key = "paperclip.theme";
         const darkThemeColor = "#000000";

@@ -1362,6 +1362,45 @@
 }
 
 /* Shimmer text effect for active "Working" state — Cursor-style sweep */
+/* ── Android app shell ─────────────────────────────────────────────────────
+   Touch screens scroll without visible scrollbars, like native apps. Inside
+   the Automa Android app (html[data-shell="android"], set in index.html) the
+   page also never bounces or stretches past its ends, and text selection
+   highlights stay off chrome such as the tab bar. !important is deliberate:
+   these rules must beat every component-level scrollbar style. */
+@media (pointer: coarse) {
+  * {
+    scrollbar-width: none !important;
+  }
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+:root[data-shell="android"] * {
+  scrollbar-width: none !important;
+}
+:root[data-shell="android"] *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+:root[data-shell="android"],
+:root[data-shell="android"] body,
+:root[data-shell="android"] * {
+  overscroll-behavior: none;
+}
+:root[data-shell="android"] body {
+  -webkit-tap-highlight-color: transparent;
+}
+:root[data-shell="android"] nav,
+:root[data-shell="android"] button,
+:root[data-shell="android"] [role="tab"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ── App-shell motion ──────────────────────────────────────────────────────
    Depth ladder used across the shell (low → high): page content (0),
    sticky headers (z-20), phone tab bar and pinned action bars (z-30),

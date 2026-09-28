@@ -32,6 +32,16 @@ All rows are company-scoped and cascade with the company.
 - Downloads of non-inline types are served as attachments with
   `Content-Security-Policy: sandbox`.
 
+## Push notifications
+
+When the server has a Firebase service account
+(`AUTOMA_FIREBASE_SERVICE_ACCOUNT_FILE`), new file requests notify the target
+device (or every device for an any-device request), and new approvals notify
+every device of the company. Devices register their Firebase Cloud Messaging
+token as `pushToken` on register/update; the API returns only `pushEnabled`.
+Tokens Firebase reports as unregistered are cleared, and removing a device
+clears its token. See `mobile/README.md` for setup.
+
 ## Agent wake-ups
 
 Fulfilling or declining a request made by an agent wakes that agent with

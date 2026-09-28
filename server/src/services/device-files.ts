@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { companyDevices, deviceFileRequests, deviceFiles } from "@paperclipai/db";
 import type {
@@ -30,6 +30,7 @@ const deviceSummaryColumns = {
   sharedIndexCount: sql<number>`jsonb_array_length(${companyDevices.sharedIndex})`.mapWith(Number),
   sharedIndexUpdatedAt: companyDevices.sharedIndexUpdatedAt,
   autoFulfill: companyDevices.autoFulfill,
+  pushEnabled: sql<boolean>`${companyDevices.pushToken} is not null`.mapWith(Boolean),
   lastSeenAt: companyDevices.lastSeenAt,
   archivedAt: companyDevices.archivedAt,
   createdAt: companyDevices.createdAt,
@@ -53,6 +54,7 @@ export function toCompanyDevice(row: DeviceRow): CompanyDeviceWithIndex {
     sharedIndexCount: sharedIndex.length,
     sharedIndexUpdatedAt: row.sharedIndexUpdatedAt,
     autoFulfill: row.autoFulfill,
+    pushEnabled: row.pushToken !== null,
     lastSeenAt: row.lastSeenAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -158,7 +160,7 @@ export function deviceFileService(db: Db) {
      */
     registerDevice: async (
       companyId: string,
-      input: { name: string; platform: DevicePlatform; clientKey: string },
+      input: { name: string; platform: DevicePlatform; clientKey: string; pushToken?: string | null },
       registeredByUserId: string | null,
     ): Promise<{ device: CompanyDeviceWithIndex; created: boolean }> => {
       const now = new Date();
@@ -173,6 +175,7 @@ export function deviceFileService(db: Db) {
           .set({
             name: input.name,
             platform: input.platform,
+            ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
             archivedAt: null,
             lastSeenAt: now,
             updatedAt: now,
@@ -189,11 +192,19 @@ export function deviceFileService(db: Db) {
           platform: input.platform,
           clientKey: input.clientKey,
           registeredByUserId,
+          pushToken: input.pushToken ?? null,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
           target: [companyDevices.companyId, companyDevices.clientKey],
-          set: { name: input.name, platform: input.platform, archivedAt: null, lastSeenAt: now, updatedAt: now },
+          set: {
+            name: input.name,
+            platform: input.platform,
+            ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
+            archivedAt: null,
+            lastSeenAt: now,
+            updatedAt: now,
+          },
         })
         .returning();
       return { device: toCompanyDevice(created!), created: true };
@@ -201,18 +212,44 @@ export function deviceFileService(db: Db) {
 
     updateDevice: async (
       deviceId: string,
-      patch: { name?: string; autoFulfill?: boolean },
+      patch: { name?: string; autoFulfill?: boolean; pushToken?: string | null },
     ): Promise<CompanyDeviceWithIndex | null> => {
       const [updated] = await db
         .update(companyDevices)
         .set({
           ...(patch.name !== undefined ? { name: patch.name } : {}),
           ...(patch.autoFulfill !== undefined ? { autoFulfill: patch.autoFulfill } : {}),
+          ...(patch.pushToken !== undefined ? { pushToken: patch.pushToken } : {}),
           updatedAt: new Date(),
         })
         .where(eq(companyDevices.id, deviceId))
         .returning();
       return updated ? toCompanyDevice(updated) : null;
+    },
+
+    /**
+     * Push targets for a company: one device, or every active device when
+     * `deviceId` is null (a request any device can answer).
+     */
+    listPushTargets: async (companyId: string, deviceId: string | null): Promise<{ deviceId: string; token: string }[]> => {
+      const rows = await db
+        .select({ deviceId: companyDevices.id, token: companyDevices.pushToken })
+        .from(companyDevices)
+        .where(
+          and(
+            eq(companyDevices.companyId, companyId),
+            isNull(companyDevices.archivedAt),
+            isNotNull(companyDevices.pushToken),
+            ...(deviceId ? [eq(companyDevices.id, deviceId)] : []),
+          ),
+        );
+      return rows.flatMap((row) => (row.token ? [{ deviceId: row.deviceId, token: row.token }] : []));
+    },
+
+    /** Forget push tokens that Firebase reported as no longer registered. */
+    clearPushTokens: async (tokens: string[]) => {
+      if (tokens.length === 0) return;
+      await db.update(companyDevices).set({ pushToken: null }).where(inArray(companyDevices.pushToken, tokens));
     },
 
     touchDevice: async (deviceId: string) => {
@@ -255,6 +292,7 @@ export function deviceFileService(db: Db) {
           autoFulfill: false,
           sharedFolderName: null,
           sharedIndex: [],
+          pushToken: null,
           updatedAt: now,
         })
         .where(eq(companyDevices.id, deviceId))

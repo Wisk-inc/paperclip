@@ -41,6 +41,8 @@ export interface CompanyDevice {
   sharedIndexCount: number;
   sharedIndexUpdatedAt: Date | null;
   autoFulfill: boolean;
+  /** True when the device registered a push token (the token itself stays on the server). */
+  pushEnabled: boolean;
   lastSeenAt: Date | null;
   archivedAt: Date | null;
   createdAt: Date;
@@ -103,11 +105,14 @@ export interface RegisterCompanyDeviceRequest {
   name: string;
   platform: DevicePlatform;
   clientKey: string;
+  /** Firebase Cloud Messaging token (Automa Android app); null turns push off. */
+  pushToken?: string | null;
 }
 
 export interface UpdateCompanyDeviceRequest {
   name?: string;
   autoFulfill?: boolean;
+  pushToken?: string | null;
 }
 
 export interface ReportDeviceSharedIndexRequest {

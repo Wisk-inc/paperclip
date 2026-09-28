@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "@/lib/router";
 import { authApi } from "../api/auth";
+import { healthApi } from "../api/health";
+import { automaNative, isAutomaApp } from "../lib/automa-native";
+import { haptic } from "../lib/haptics";
 import { queryKeys } from "../lib/queryKeys";
 import { getRememberedInvitePath } from "../lib/invite-memory";
 import { Button } from "@/components/ui/button";
@@ -39,6 +42,45 @@ export function AuthPage() {
     }
   }, [session, navigate, nextPath]);
 
+  const finishSignIn = async () => {
+    setError(null);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.health });
+    // Reset rather than invalidate: the `["companies"]` entry is shared app-wide and
+    // is not account-scoped, so invalidating leaves the previous account's list
+    // readable (and any fetch for that session in flight) until the refetch lands.
+    // Sign-in can change accounts, so drop the list outright.
+    await queryClient.resetQueries({ queryKey: queryKeys.companies.all });
+    navigate(nextPath, { replace: true });
+  };
+
+  // "Continue with Google" is offered inside the Automa Android app when this
+  // server accepts the app's Firebase sign-in.
+  const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), retry: false });
+  const appAccount = isAutomaApp() ? automaNative.account() : null;
+  const googleAvailable = Boolean(health?.features?.firebaseSignIn && appAccount?.enabled);
+  const google = useMutation({
+    mutationFn: async () => {
+      const idToken = await automaNative.firebaseIdToken();
+      await authApi.signInWithFirebase(idToken);
+    },
+    onSuccess: async () => {
+      haptic("success");
+      await finishSignIn();
+    },
+    onError: (err) => {
+      haptic("warning");
+      setError(err instanceof Error ? err.message : "Google sign-in failed");
+    },
+  });
+  // Already signed in to the app with Google: sign in to this server too, once.
+  const autoGoogleTried = useRef(false);
+  useEffect(() => {
+    if (!googleAvailable || !appAccount?.user || session || isSessionLoading || autoGoogleTried.current) return;
+    autoGoogleTried.current = true;
+    google.mutate();
+  }, [googleAvailable, appAccount?.user, session, isSessionLoading, google]);
+
   const mutation = useMutation({
     mutationFn: async () => {
       if (mode === "sign_in") {
@@ -51,17 +93,7 @@ export function AuthPage() {
         password,
       });
     },
-    onSuccess: async () => {
-      setError(null);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.health });
-      // Reset rather than invalidate: the `["companies"]` entry is shared app-wide and
-      // is not account-scoped, so invalidating leaves the previous account's list
-      // readable (and any fetch for that session in flight) until the refetch lands.
-      // Sign-in can change accounts, so drop the list outright.
-      await queryClient.resetQueries({ queryKey: queryKeys.companies.all });
-      navigate(nextPath, { replace: true });
-    },
+    onSuccess: finishSignIn,
     onError: (err) => {
       setError(err instanceof Error ? err.message : "Authentication failed");
     },
@@ -100,6 +132,29 @@ export function AuthPage() {
               ? "Use your email and password to access this instance."
               : "Create an account for this instance. Email confirmation is not required in v1."}
           </p>
+
+          {googleAvailable ? (
+            <div className="mt-6 flex flex-col gap-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 w-full gap-3 rounded-full text-base"
+                disabled={google.isPending}
+                onClick={() => {
+                  haptic("tick");
+                  google.mutate();
+                }}
+              >
+                <img src="/brands/google-g.svg" alt="" className="size-5" />
+                {google.isPending ? "Signing in…" : "Continue with Google"}
+              </Button>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                or use email
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            </div>
+          ) : null}
 
           <form
             className="mt-6 space-y-4"

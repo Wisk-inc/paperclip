@@ -526,7 +526,12 @@ function RequestsView({
       <EmptyState
         icon={FolderOpen}
         title="No file requests yet"
-        message="When an agent needs a file from your phone or computer, it asks here. You pick the file, or it arrives automatically from a folder you share."
+        message="When an agent needs a file from your phone or computer, it asks here."
+        steps={[
+          "Share a folder on this phone, or skip it and pick files yourself.",
+          "An agent asks for a file; the request shows up here and on your lock screen.",
+          "Send it with one tap, or turn on auto-send for the shared folder.",
+        ]}
       />
     );
   }

@@ -1,0 +1,1 @@
+ALTER TABLE "company_devices" ADD COLUMN "push_token" text;

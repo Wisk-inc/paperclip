@@ -34,6 +34,8 @@ export type HealthStatus = {
   bootstrapInviteActive?: boolean;
   features?: {
     companyDeletionEnabled?: boolean;
+    /** The server accepts "Continue with Google" from the Automa Android app. */
+    firebaseSignIn?: boolean;
   };
   serverInfo?: ServerInfoSnapshot;
   devServer?: DevServerHealthStatus;

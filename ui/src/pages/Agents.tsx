@@ -21,6 +21,7 @@ import { StarToggle } from "../components/StarToggle";
 import { EntityRow } from "../components/EntityRow";
 import { BuiltInLifecycleChip } from "../components/BuiltInAgentBadges";
 import { EmptyState } from "../components/EmptyState";
+import { StatStrip } from "../components/StatStrip";
 import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { OrgChart } from "./OrgChart";
@@ -193,6 +194,23 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, builtInAgentIds: Set<st
 }
 
 export type AgentsView = "list" | "org";
+
+const AGENT_STATUS_WORDS: Record<string, string> = {
+  running: "Working",
+  active: "Ready",
+  idle: "Idle",
+  paused: "Paused",
+  error: "Error",
+  pending_approval: "Awaiting approval",
+  terminated: "Stopped",
+};
+
+/** "Idle · active 2h ago": status and recency on one line under the name (narrow rows). */
+function agentActivityLine(agent: { status: string; lastHeartbeatAt?: Date | string | null }, live: boolean): string {
+  const status = live ? "Working now" : AGENT_STATUS_WORDS[agent.status] ?? agent.status;
+  if (live) return status;
+  return agent.lastHeartbeatAt ? `${status} · active ${relativeTime(agent.lastHeartbeatAt)}` : `${status} · not started yet`;
+}
 
 export function Agents({ initialView = "list" }: { initialView?: AgentsView } = {}) {
   const agentChat = useAgentChatEnabled();
@@ -404,11 +422,18 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         ) : (
           <AgentAvatar agent={agent} size={32} />
         )}
-        secondaryRow={builtInCluster && (
-          <div className="@5xl:hidden flex flex-wrap items-center gap-1.5">
-            {builtInCluster}
-          </div>
-        )}
+        secondaryRow={
+          <>
+            {builtInCluster && (
+              <div className="@5xl:hidden flex flex-wrap items-center gap-1.5">
+                {builtInCluster}
+              </div>
+            )}
+            <p className="@5xl:hidden truncate text-xs text-muted-foreground">
+              {agentActivityLine(agent, liveRunByAgent.has(agent.id))}
+            </p>
+          </>
+        }
         meta={
           <div className="flex items-center gap-3">
             {builtInCluster && (
@@ -526,6 +551,21 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         </div>
       </div>
 
+      {agents && agents.length > 0 ? (
+        <StatStrip
+          tiles={[
+            { label: "Agents", value: agents.length },
+            { label: "Working", value: liveRunByAgent.size, tone: liveRunByAgent.size > 0 ? "working" : "default" },
+            { label: "Paused", value: agents.filter((a) => a.status === "paused" || Boolean(a.pausedAt)).length },
+            {
+              label: "Need you",
+              value: agents.filter((a) => a.status === "error" || a.status === "pending_approval").length,
+              tone: agents.some((a) => a.status === "error" || a.status === "pending_approval") ? "attention" : "default",
+            },
+          ]}
+        />
+      ) : null}
+
       {filtered.length > 0 && (
         <p className="text-xs text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""}</p>
       )}
@@ -538,6 +578,11 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
           message="Create your first agent to get started."
           action="New Agent"
           onAction={openNewAgent}
+          steps={[
+            "Hire an agent and give it a role, like CTO or Researcher.",
+            "Assign it tasks, or let it pick up work from your projects.",
+            "Watch it work live and approve what matters.",
+          ]}
         />
       )}
 

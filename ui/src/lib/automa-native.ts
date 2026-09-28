@@ -52,6 +52,19 @@ interface AutomaNativeRaw {
   setDarkTheme?(dark: boolean): void;
   /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
   haptic?(kind: string): void;
+  /** `{ enabled, user }` for the app's Firebase "Continue with Google" account. */
+  getAuthState?(): string;
+  /** Resolves `{ ok, idToken }` with a Firebase ID token, signing in with Google first when needed. */
+  firebaseIdToken?(callId: string): void;
+  /** This phone's Firebase Cloud Messaging token, or "" when push is not set up. */
+  pushToken?(): string;
+}
+
+export interface AutomaAppAccount {
+  uid: string;
+  name: string | null;
+  email: string | null;
+  photoUrl: string | null;
 }
 
 declare global {
@@ -155,6 +168,24 @@ export const automaNative = {
   },
   setDarkTheme(dark: boolean) {
     rawBridge()?.setDarkTheme?.(dark);
+  },
+  /** The app's Google account (Firebase), when this build has Firebase set up. */
+  account(): { enabled: boolean; user: AutomaAppAccount | null } | null {
+    const raw = rawBridge();
+    if (!raw?.getAuthState) return null;
+    return parseJson<{ enabled: boolean; user: AutomaAppAccount | null }>(raw.getAuthState());
+  },
+  /** A Firebase ID token for the server's "Continue with Google" sign-in. */
+  firebaseIdToken(): Promise<string> {
+    return callAsync<{ idToken: string }>((raw, callId) => {
+      if (!raw.firebaseIdToken) throw new Error("This version of the Automa app cannot sign in with Google");
+      raw.firebaseIdToken(callId);
+    }).then((reply) => reply.idToken);
+  },
+  /** This phone's push token, or null outside the app or before Firebase hands one out. */
+  pushToken(): string | null {
+    const token = rawBridge()?.pushToken?.() ?? "";
+    return token.length > 0 ? token : null;
   },
   /** Returns false when the app build has no haptic bridge, so callers can fall back. */
   haptic(kind: string): boolean {

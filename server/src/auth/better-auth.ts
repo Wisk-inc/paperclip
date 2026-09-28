@@ -16,6 +16,7 @@ import {
   workspaceLoginHandoffPlugin,
   type WorkspaceHandoffExpectedIdentity,
 } from "./workspace-login-handoff-plugin.js";
+import { firebaseSignInPlugin, resolveFirebaseProjectId } from "./firebase-sign-in-plugin.js";
 import {
   normalizeWorkspaceHandoffOrigin,
   resolveWorkspaceHandoffLocalCompanyId,
@@ -281,28 +282,38 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
       override: process.env.PAPERCLIP_AUTH_RATE_LIMIT_ENABLED,
     }),
     advanced: buildBetterAuthAdvancedOptions({ disableSecureCookies }),
-    // Registered only for a managed workspace instance: the plugin is what makes
-    // `Open workspace` password-independent, and a control-plane instance that
-    // was never handed a workspace key must not expose the exchange at all.
-    ...(resolveWorkspaceHandoffIdentity(config)
-      ? {
-          plugins: [
-            workspaceLoginHandoffPlugin({
-              db,
-              // Re-resolved per exchange so a hot restart cannot keep validating
-              // against an origin the control plane has since republished.
-              resolveExpectedIdentity: () =>
-                resolveWorkspaceHandoffIdentity(config) ?? {
-                  key: null,
-                  instanceId: null,
-                  executionWorkspaceId: null,
-                  companyId: null,
-                  origin: null,
-                },
-            }),
-          ],
-        }
-      : {}),
+    ...(() => {
+      const plugins = [];
+      // Registered only for a managed workspace instance: the plugin is what makes
+      // `Open workspace` password-independent, and a control-plane instance that
+      // was never handed a workspace key must not expose the exchange at all.
+      if (resolveWorkspaceHandoffIdentity(config)) {
+        plugins.push(
+          workspaceLoginHandoffPlugin({
+            db,
+            // Re-resolved per exchange so a hot restart cannot keep validating
+            // against an origin the control plane has since republished.
+            resolveExpectedIdentity: () =>
+              resolveWorkspaceHandoffIdentity(config) ?? {
+                key: null,
+                instanceId: null,
+                executionWorkspaceId: null,
+                companyId: null,
+                origin: null,
+              },
+          }),
+        );
+      }
+      // "Continue with Google" from the Automa Android app (Firebase Auth ID
+      // tokens), only when the operator named their Firebase project.
+      const firebaseProjectId = resolveFirebaseProjectId();
+      if (firebaseProjectId) {
+        plugins.push(
+          firebaseSignInPlugin({ projectId: firebaseProjectId, disableSignUp: config.authDisableSignUp }) as never,
+        );
+      }
+      return plugins.length > 0 ? { plugins } : {};
+    })(),
   };
 
   if (!baseUrl) {

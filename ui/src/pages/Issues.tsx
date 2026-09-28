@@ -13,6 +13,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { IssuesList } from "../components/IssuesList";
+import { StatStrip } from "../components/StatStrip";
 import { CircleDot } from "lucide-react";
 import type { Issue } from "@paperclipai/shared";
 import { useStreamlinedUiEnabled } from "../hooks/useStreamlinedUiEnabled";
@@ -208,7 +209,23 @@ export function Issues() {
     );
   }
 
+  const statusCounts = issues.reduce<Record<string, number>>((counts, issue) => {
+    counts[issue.status] = (counts[issue.status] ?? 0) + 1;
+    return counts;
+  }, {});
+
   return (
+    <div className="flex flex-col gap-3">
+    {issues.length > 0 ? (
+      <StatStrip
+        tiles={[
+          { label: "To do", value: (statusCounts.todo ?? 0) + (statusCounts.backlog ?? 0) },
+          { label: "Working", value: statusCounts.in_progress ?? 0, tone: (statusCounts.in_progress ?? 0) > 0 ? "working" : "default" },
+          { label: "Review", value: statusCounts.in_review ?? 0, tone: (statusCounts.in_review ?? 0) > 0 ? "attention" : "default" },
+          { label: "Done", value: statusCounts.done ?? 0 },
+        ]}
+      />
+    ) : null}
     <IssuesList
       issues={issues ?? []}
       isLoading={isLoading}
@@ -231,5 +248,6 @@ export function Issues() {
       onUpdateIssue={(id, data) => updateIssue.mutate({ id, data })}
       searchFilters={participantAgentId || workspaceIdFilter ? { participantAgentId, workspaceId: workspaceIdFilter } : undefined}
     />
+    </div>
   );
 }
