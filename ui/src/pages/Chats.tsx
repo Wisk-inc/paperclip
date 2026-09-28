@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ImagePlus, KeyRound, MessagesSquare, Search, Sparkles } from "lucide-react";
-import type { AiProvider, Agent } from "@paperclipai/shared";
+import { AGENT_ROLE_LABELS, type AgentRole, type AiProvider, type Agent } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { authApi } from "@/api/auth";
-import { AgentAvatar } from "@/components/AgentAvatar";
 import { ByokKeysCard } from "@/components/agent-chat/ByokKeysCard";
+import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
+import { roleIcon } from "@/components/agent-chat/role-icons";
 import { EmptyState } from "@/components/EmptyState";
 import { Mascot } from "@/components/mascot/Mascot";
 import { ModelLogo } from "@/components/ModelLogo";
@@ -23,7 +24,7 @@ import { modelDisplayName } from "@/lib/model-brand";
 import { queryKeys } from "@/lib/queryKeys";
 import { useRecentAgentChats } from "@/lib/recent-agent-chats";
 import { Link } from "@/lib/router";
-import { agentRouteRef, cn } from "@/lib/utils";
+import { agentRouteRef, cn, relativeTime } from "@/lib/utils";
 
 const STATUS_WORDS: Record<string, string> = {
   running: "Working now",
@@ -47,36 +48,39 @@ function agentModel(agent: Agent): string {
 function ChatRow({ agent }: { agent: Agent }) {
   const model = agentModel(agent);
   const live = agent.status === "running";
+  const roleLabel = AGENT_ROLE_LABELS[agent.role as AgentRole] ?? agent.role;
+  const RoleIcon = roleIcon(agent.role);
   return (
-    <li>
+    <li className="flex items-center transition-colors hover:bg-accent/60">
       <Link
         to={`/chats/${agentRouteRef(agent)}`}
         onClick={() => haptic("tick")}
         data-slot="chat-row"
-        className="flex min-h-16 items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/60 active:bg-accent"
+        className="flex min-h-16 min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 active:bg-accent"
       >
-        <span className="relative shrink-0">
-          <AgentAvatar agent={agent} size={40} pose={live ? "working" : "rest"} />
-          {live ? (
-            <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-card bg-emerald-500" aria-hidden="true" />
-          ) : null}
-        </span>
+        <AgentStatusAvatar agent={agent} size={40} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{agent.name}</span>
-            {agent.title ? <span className="truncate text-xs text-muted-foreground">{agent.title}</span> : null}
+            <span className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
+              <RoleIcon className="size-3 shrink-0 self-center" aria-hidden="true" />
+              <span className="truncate">{agent.title || roleLabel}</span>
+            </span>
           </span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {model ? <ModelLogo modelId={model} adapterType={agent.adapterType} size="xs" tile={false} /> : null}
             <span className="truncate font-medium text-foreground/80">{model ? modelDisplayName(model) : getAdapterLabel(agent.adapterType)}</span>
             <span aria-hidden="true">·</span>
             <span className={cn("shrink-0", live && "text-emerald-600 dark:text-emerald-400")}>
-              {STATUS_WORDS[agent.status] ?? agent.status}
+              {live ? STATUS_WORDS.running : agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : STATUS_WORDS[agent.status] ?? agent.status}
             </span>
           </span>
         </span>
-        <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </Link>
+      <span className="flex shrink-0 items-center gap-0.5 pr-2 pl-1">
+        <EditAgentButton agent={agent} />
+        <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+      </span>
     </li>
   );
 }

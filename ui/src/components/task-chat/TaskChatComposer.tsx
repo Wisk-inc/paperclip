@@ -58,6 +58,7 @@ import {
   MarkdownEditor,
   type MarkdownEditorRef,
 } from "@/components/MarkdownEditor";
+import { COMPOSER_INSERT_EVENT } from "@/lib/composer-insert";
 import {
   nextWorkMode,
   workModeMetaFor,
@@ -473,6 +474,18 @@ export function TaskChatComposer({
   pendingAssigneeRef.current = pendingAssignee;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<MarkdownEditorRef>(null);
+  // Conversation starters (the chat welcome's suggestions) type into this box.
+  useEffect(() => {
+    if (disabled) return;
+    const onInsert = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text;
+      if (!text) return;
+      editorRef.current?.insertMarkdown(text);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    };
+    window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    return () => window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
+  }, [disabled]);
   const bodyRef = useRef(body);
   bodyRef.current = body;
   const pendingDraftRef = useRef<{

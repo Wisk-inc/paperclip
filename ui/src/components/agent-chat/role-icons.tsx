@@ -1,0 +1,82 @@
+import {
+  BarChart3,
+  Bug,
+  CalendarCheck,
+  ClipboardList,
+  Code2,
+  Cpu,
+  Crown,
+  Handshake,
+  Headphones,
+  Megaphone,
+  Microscope,
+  Palette,
+  PenLine,
+  PiggyBank,
+  Scale,
+  Server,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  User,
+  UserPlus,
+  type LucideIcon,
+} from "lucide-react";
+import type { AgentRole } from "@paperclipai/shared";
+
+/** One icon per role, for role pickers and agent cards. */
+export const ROLE_ICONS: Record<AgentRole, LucideIcon> = {
+  ceo: Crown,
+  cto: Cpu,
+  cmo: TrendingUp,
+  cfo: PiggyBank,
+  coo: Settings2,
+  security: ShieldCheck,
+  engineer: Code2,
+  designer: Palette,
+  pm: ClipboardList,
+  qa: Bug,
+  devops: Server,
+  researcher: Microscope,
+  analyst: BarChart3,
+  marketer: Megaphone,
+  sales: Handshake,
+  support: Headphones,
+  writer: PenLine,
+  recruiter: UserPlus,
+  legal: Scale,
+  ops: CalendarCheck,
+  assistant: Sparkles,
+  general: User,
+};
+
+export function roleIcon(role: string | null | undefined): LucideIcon {
+  return (role && ROLE_ICONS[role as AgentRole]) || User;
+}
+
+/** Conversation starters per role; tapping one puts it in the message box. */
+export const ROLE_PROMPTS: Partial<Record<AgentRole, string[]>> = {
+  ceo: ["Plan this week's priorities", "Who should we hire next?", "Summarize what the team shipped"],
+  cto: ["Review our architecture", "What tech debt should we fix first?", "Plan the next release"],
+  cmo: ["Draft a launch plan", "Ideas to grow signups", "Write this week's newsletter"],
+  cfo: ["How much did agents cost this month?", "Build a simple budget", "Where can we cut costs?"],
+  coo: ["Map our weekly processes", "What is blocked right now?", "Write a team checklist"],
+  security: ["Audit our secrets and access", "Check dependencies for risks", "Write a security policy"],
+  engineer: ["Fix the failing tests", "Add a dark mode toggle", "Review my last change"],
+  designer: ["Sketch a new onboarding flow", "Improve the settings screen", "Make a style guide"],
+  pm: ["Turn this idea into a plan", "Write a product spec", "What should we build next?"],
+  qa: ["Test the sign-up flow", "Write test cases for checkout", "Find bugs in the last release"],
+  devops: ["Set up deploy previews", "Why is the build slow?", "Add uptime monitoring"],
+  researcher: ["Research our top competitors", "Summarize this topic for me", "Find sources on…"],
+  analyst: ["Chart signups by week", "What changed in our metrics?", "Build a KPI dashboard"],
+  marketer: ["Write three launch tweets", "Draft a landing page", "Plan a content calendar"],
+  sales: ["Find 20 leads for us", "Write a cold email", "Follow up with last week's leads"],
+  support: ["Draft replies to open tickets", "Write an FAQ", "Summarize customer complaints"],
+  writer: ["Write a blog post about…", "Edit this for clarity", "Draft our About page"],
+  recruiter: ["Write a job post", "Plan interview questions", "Source candidates for…"],
+  legal: ["Draft terms of service", "Review this contract", "Write a privacy policy"],
+  ops: ["Organize my schedule", "Plan the team offsite", "Track our vendors"],
+  assistant: ["Plan my day", "Summarize my inbox", "Remind me what's due"],
+  general: ["What can you help with?", "Plan my week", "Summarize what's happening"],
+};

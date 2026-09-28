@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, SIDEBAR_RAIL_HIDDEN_LABEL } from "../lib/utils";
 import { ThemeToggle } from "./ThemeToggle";
 import { SidebarServerInfo } from "./SidebarServerInfo";
+import { useAccountProfile } from "../hooks/useAccountProfile";
 import { DiscordSupportLink } from "./DiscordSupportLink";
 
 const PROFILE_SETTINGS_PATH = "/company/settings/instance/profile";
@@ -128,9 +129,10 @@ export function SidebarAccountMenu({
 
   const signOutMutation = useSignOut({ onSignedOut: closeNavigationChrome });
 
-  const displayName = session?.user.name?.trim() || "Board";
+  const profile = useAccountProfile();
+  const displayName = profile.name;
   const secondaryLabel =
-    session?.user.email?.trim() || (deploymentMode === "authenticated" ? "Signed in" : "Local workspace board");
+    profile.email || (deploymentMode === "authenticated" ? "Signed in" : "Local workspace board");
   const initials = deriveInitials(displayName);
   const profileHref = `/u/${deriveUserSlug(session?.user.name, session?.user.email, session?.user.id)}`;
 
@@ -157,7 +159,7 @@ export function SidebarAccountMenu({
               aria-label="Open account menu"
             >
               <Avatar size="sm">
-                {session?.user.image ? <AvatarImage src={session.user.image} alt={displayName} /> : null}
+                {profile.image ? <AvatarImage src={profile.image} alt={displayName} referrerPolicy="no-referrer" /> : null}
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <span className={cn("min-w-0 flex-1 truncate", rail && SIDEBAR_RAIL_HIDDEN_LABEL)}>{displayName}</span>
@@ -171,7 +173,7 @@ export function SidebarAccountMenu({
           >
             <div className="flex h-(--profile-popover-header-height) shrink-0 items-center gap-2.5 px-3.5">
               <Avatar className="size-9">
-                {session?.user.image ? <AvatarImage src={session.user.image} alt={displayName} /> : null}
+                {profile.image ? <AvatarImage src={profile.image} alt={displayName} referrerPolicy="no-referrer" /> : null}
                 <AvatarFallback className="text-xs text-foreground">{initials}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">

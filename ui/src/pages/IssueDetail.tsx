@@ -1,12 +1,11 @@
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
+import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
 import { agentChatDraft } from "@/lib/agent-chat-draft";
-import { Settings as ChatSettings } from "lucide-react";
-import { agentDetailHref } from "./agent-detail-navigation";
 import { deriveInitials } from "@/components/Identity";
 import { ExecutionBlockerNotice } from "../components/ExecutionBlockerNotice";
 import type { TaskComposerPause } from "../components/task-chat/TaskChatPausedTakeover";
@@ -5386,15 +5385,15 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     if (conversationAgent) {
       setBreadcrumbs([{
         label: conversationAgent.name,
-        leading: <AgentAvatar agent={conversationAgent} size={24} />,
-        leadingKey: `agent:${conversationAgent.id}`,
+        leading: <AgentStatusAvatar agent={conversationAgent} size={24} />,
+        leadingKey: `agent:${conversationAgent.id}:${conversationAgent.status}`,
         trailing: (
           <span className="ml-2 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />
-            <Button variant="ghost" size="icon-xs" asChild aria-label={`Configure ${conversationAgent.name}`}><Link to={agentDetailHref(conversationAgent.id, "runtime")}><ChatSettings /></Link></Button>
+            <EditAgentButton agent={conversationAgent} />
           </span>
         ),
-        trailingKey: `configure:${conversationAgent.id}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
+        trailingKey: `configure:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }

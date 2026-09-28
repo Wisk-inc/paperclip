@@ -3,8 +3,10 @@ import { Link } from "@/lib/router";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { cn } from "../lib/utils";
-import { automaNative } from "../lib/automa-native";
 import { Mascot } from "./mascot/Mascot";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { deriveInitials } from "./Identity";
+import { useAccountProfile } from "../hooks/useAccountProfile";
 import { DiscordSupportLink } from "./DiscordSupportLink";
 
 function greetingFor(hour: number): string {
@@ -37,7 +39,8 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
   ];
 
   const waiting = inbox.inbox + (pendingApprovals ?? 0) + files.pendingRequests;
-  const firstName = automaNative.account()?.user?.name?.split(" ")[0] ?? null;
+  const profile = useAccountProfile();
+  const firstName = profile.firstName;
   const greeting = `${greetingFor(new Date().getHours())}${firstName ? `, ${firstName}` : ""}`;
 
   return (
@@ -45,7 +48,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
       {/* Greeting: the mascot cheers when nothing is waiting and perks up when something is. */}
       <div className="flex items-center gap-4 rounded-lg border border-border bg-card p-4">
         <Mascot pose={waiting > 0 ? "excited" : "cheering"} size="sm" />
-        <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="font-display text-lg font-semibold leading-tight tracking-tight">{greeting}</p>
           <p className="text-sm text-muted-foreground">
             {waiting > 0
@@ -53,6 +56,14 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
               : "You're all caught up. Your agents are on it."}
           </p>
         </div>
+        {profile.source !== "local" ? (
+          <Link to="/company/settings/instance/profile" aria-label={`Signed in as ${profile.name}`} className="shrink-0 self-start" data-slot="account-photo">
+            <Avatar className="size-9 ring-2 ring-border">
+              {profile.image ? <AvatarImage src={profile.image} alt="" referrerPolicy="no-referrer" /> : null}
+              <AvatarFallback className="text-xs">{deriveInitials(profile.name)}</AvatarFallback>
+            </Avatar>
+          </Link>
+        ) : null}
       </div>
       <h2 id="needs-you-heading" className="-mb-2 text-sm font-medium text-muted-foreground">
         Needs you

@@ -39,6 +39,8 @@ export type FirebaseSignInAdapter = {
     source: { method: string; oauth?: { providerId: string; profile?: Record<string, unknown> } },
   ) => Promise<User>;
   linkAccount: (account: { userId: string; providerId: string; accountId: string }) => Promise<unknown>;
+  /** Keeps the Google profile photo current on accounts that already exist. */
+  updateUser?: (userId: string, data: { image?: string | null; name?: string }) => Promise<unknown>;
 };
 
 type FirebaseSignInEndpointContext = {
@@ -90,6 +92,10 @@ export async function resolveFirebaseUser(input: {
     );
     created = true;
   }
+  if (!created && claims.picture && user.image !== claims.picture && adapter.updateUser) {
+    await adapter.updateUser(user.id, { image: claims.picture });
+    user = { ...user, image: claims.picture };
+  }
   const alreadyLinked = (existing?.accounts ?? []).some(
     (account) => account.providerId === FIREBASE_ACCOUNT_PROVIDER_ID && account.accountId === claims.uid,
   );
@@ -136,7 +142,7 @@ export function firebaseSignInPlugin(deps: {
 
           const session = await adapter.createSession(user.id);
           await setSessionCookie(ctx as never, { session, user });
-          return ctx.json({ user: { id: user.id, email: user.email, name: user.name } });
+          return ctx.json({ user: { id: user.id, email: user.email, name: user.name, image: user.image ?? null } });
         },
       ),
     },
