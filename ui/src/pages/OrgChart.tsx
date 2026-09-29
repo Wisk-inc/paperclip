@@ -1,7 +1,7 @@
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Link, useNavigate } from "@/lib/router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentsApi, type OrgNode } from "../api/agents";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -11,10 +11,13 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { Download, Maximize2, Minus, Network, Plus, Upload } from "lucide-react";
+import { ArrowUpToLine, Download, Maximize2, Minus, Network, Plus, RotateCcw, Upload } from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
 import { useCloudInstance } from "@/hooks/useCloudInstance";
 import { useHiddenSettings } from "@/hooks/useHiddenSettings";
+import { useToastActions } from "@/context/ToastContext";
+import { haptic } from "@/lib/haptics";
+import { canReportTo, cardAt, useOrgChartPositions, type ChartPoint } from "@/lib/org-chart-editing";
 
 // Layout constants
 const CARD_W = 200;
@@ -22,6 +25,37 @@ const CARD_H = 100;
 const GAP_X = 32;
 const GAP_Y = 80;
 const PADDING = 60;
+/** Touch: hold this long to pick a card up (a quick swipe still pans). */
+const LONG_PRESS_MS = 350;
+/** Mouse: move this far to start dragging a card. */
+const MOUSE_DRAG_THRESHOLD = 4;
+/** Touch: moving farther than this before the long press lands means "pan". */
+const TOUCH_SLOP = 8;
+/** The strip at the top of the chart that makes a dropped agent report to nobody. */
+const TOP_ZONE_PX = 56;
+
+interface CardDrag {
+  id: string;
+  x: number;
+  y: number;
+  /** A manager the card may report to, under the pointer. */
+  target: string | null;
+  /** A card under the pointer it may not report to (it is in its own team). */
+  blocked: string | null;
+  /** Over the "top of the org" strip. */
+  top: boolean;
+}
+
+interface CardPress {
+  id: string;
+  pointerId: number;
+  pointerType: string;
+  element: HTMLElement;
+  client: ChartPoint;
+  origin: ChartPoint;
+  timer: number | null;
+  active: boolean;
+}
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2;
 const FIT_PADDING = 40;
@@ -248,16 +282,33 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
   const allNodes = useMemo(() => flattenLayout(layout), [layout]);
   const edges = useMemo(() => collectEdges(layout), [layout]);
 
+  // Cards you placed by hand, and the one you are dragging now.
+  const { positions, place, reset: resetPositions } = useOrgChartPositions(selectedCompanyId);
+  const [cardDrag, setCardDrag] = useState<CardDrag | null>(null);
+  const cardDragRef = useRef<CardDrag | null>(null);
+  const cardPress = useRef<CardPress | null>(null);
+  const updateCardDrag = useCallback((next: CardDrag | null) => {
+    cardDragRef.current = next;
+    setCardDrag(next);
+  }, []);
+  const positionOf = useCallback(
+    (node: LayoutNode): ChartPoint =>
+      cardDrag?.id === node.id ? { x: cardDrag.x, y: cardDrag.y } : positions[node.id] ?? { x: node.x, y: node.y },
+    [cardDrag, positions],
+  );
+  const placedCount = allNodes.filter((node) => positions[node.id]).length;
+
   // Compute SVG bounds
   const bounds = useMemo(() => {
     if (allNodes.length === 0) return { width: 800, height: 600 };
     let maxX = 0, maxY = 0;
     for (const n of allNodes) {
-      maxX = Math.max(maxX, n.x + CARD_W);
-      maxY = Math.max(maxY, n.y + CARD_H);
+      const at = positions[n.id] ?? n;
+      maxX = Math.max(maxX, at.x + CARD_W);
+      maxY = Math.max(maxY, at.y + CARD_H);
     }
     return { width: maxX + PADDING, height: maxY + PADDING };
-  }, [allNodes]);
+  }, [allNodes, positions]);
 
   // Pan & zoom state
   const containerRef = useRef<HTMLDivElement>(null);
@@ -366,6 +417,134 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     setPan(fitted.pan);
   }, [bounds]);
 
+  const queryClient = useQueryClient();
+  const { pushToast } = useToastActions();
+  const setManager = useMutation({
+    mutationFn: ({ agentId, reportsTo }: { agentId: string; reportsTo: string | null; previous: string | null; undo?: boolean }) =>
+      agentsApi.update(agentId, { reportsTo }, selectedCompanyId ?? undefined),
+    onSuccess: async (_updated, { agentId, reportsTo, previous, undo }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.org(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) }),
+      ]);
+      if (undo) return;
+      haptic("success");
+      const name = agentMap.get(agentId)?.name ?? "The agent";
+      const manager = reportsTo ? agentMap.get(reportsTo)?.name ?? "their new manager" : null;
+      pushToast({
+        title: manager ? `${name} now reports to ${manager}` : `${name} is now at the top of the org`,
+        tone: "success",
+        action: { label: "Undo", onClick: () => setManager.mutate({ agentId, reportsTo: previous, previous: reportsTo, undo: true }) },
+      });
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn’t change the reporting line", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
+
+  const suppressCardClick = useCallback(() => {
+    suppressNextCardClick.current = true;
+    if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current);
+    suppressClickTimerRef.current = window.setTimeout(() => {
+      suppressNextCardClick.current = false;
+      suppressClickTimerRef.current = null;
+    }, 400);
+  }, []);
+
+  const pickUp = useCallback((press: CardPress) => {
+    press.active = true;
+    haptic("thud");
+    try {
+      press.element.setPointerCapture(press.pointerId);
+    } catch {
+      // The pointer already ended; the drag ends with it.
+    }
+    updateCardDrag({ id: press.id, x: press.origin.x, y: press.origin.y, target: null, blocked: null, top: false });
+  }, [updateCardDrag]);
+
+  const handleCardPointerDown = useCallback((e: React.PointerEvent<HTMLElement>, node: LayoutNode) => {
+    if (e.button !== 0) return;
+    const press: CardPress = {
+      id: node.id,
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      element: e.currentTarget,
+      client: { x: e.clientX, y: e.clientY },
+      origin: positions[node.id] ?? { x: node.x, y: node.y },
+      timer: null,
+      active: false,
+    };
+    cardPress.current = press;
+    if (e.pointerType !== "mouse") {
+      press.timer = window.setTimeout(() => {
+        if (cardPress.current === press) pickUp(press);
+      }, LONG_PRESS_MS);
+    }
+  }, [pickUp, positions]);
+
+  const handleCardPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    const press = cardPress.current;
+    const container = containerRef.current;
+    if (!press || press.pointerId !== e.pointerId || !container) return;
+    const dx = e.clientX - press.client.x;
+    const dy = e.clientY - press.client.y;
+    if (!press.active) {
+      if (press.pointerType === "mouse" && Math.hypot(dx, dy) > MOUSE_DRAG_THRESHOLD) {
+        pickUp(press);
+      } else {
+        if (press.pointerType !== "mouse" && Math.hypot(dx, dy) > TOUCH_SLOP) {
+          if (press.timer !== null) window.clearTimeout(press.timer);
+          cardPress.current = null;
+        }
+        return;
+      }
+    }
+    e.stopPropagation();
+    const rect = container.getBoundingClientRect();
+    const pointer = { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom };
+    const top = e.clientY - rect.top < TOP_ZONE_PX;
+    const cards = allNodes.map((node) => ({ id: node.id, ...(positions[node.id] ?? { x: node.x, y: node.y }) }));
+    const over = top ? null : cardAt(cards, pointer, { width: CARD_W, height: CARD_H }, press.id);
+    const allowed = over !== null && canReportTo(orgTree ?? [], press.id, over);
+    updateCardDrag({
+      id: press.id,
+      x: press.origin.x + dx / zoom,
+      y: press.origin.y + dy / zoom,
+      target: allowed ? over : null,
+      blocked: over !== null && !allowed ? over : null,
+      top,
+    });
+  }, [allNodes, orgTree, pan, pickUp, positions, updateCardDrag, zoom]);
+
+  const endCardPress = useCallback((e: React.PointerEvent<HTMLElement>, cancelled: boolean) => {
+    const press = cardPress.current;
+    if (!press || press.pointerId !== e.pointerId) return;
+    if (press.timer !== null) window.clearTimeout(press.timer);
+    cardPress.current = null;
+    if (!press.active) return;
+    suppressCardClick();
+    const drag = cardDragRef.current;
+    updateCardDrag(null);
+    if (!drag || cancelled) return;
+    const previous = agentMap.get(drag.id)?.reportsTo ?? null;
+    if (drag.target) {
+      if (drag.target !== previous) setManager.mutate({ agentId: drag.id, reportsTo: drag.target, previous });
+      place(drag.id, null);
+    } else if (drag.top) {
+      if (previous) setManager.mutate({ agentId: drag.id, reportsTo: null, previous });
+      place(drag.id, null);
+    } else if (drag.blocked) {
+      haptic("warning");
+      const name = agentMap.get(drag.id)?.name ?? "That agent";
+      const other = agentMap.get(drag.blocked)?.name ?? "them";
+      pushToast({ title: `${name} can’t report to ${other}`, body: `${other} is in ${name}’s own team.`, tone: "warn" });
+    } else {
+      place(drag.id, { x: Math.max(0, drag.x), y: Math.max(0, drag.y) });
+    }
+  }, [agentMap, place, pushToast, setManager, suppressCardClick, updateCardDrag]);
+
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     if (e.touches.length >= 2 && containerRef.current) {
       const [first, second] = [e.touches[0]!, e.touches[1]!];
@@ -396,7 +575,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     const container = containerRef.current;
-    if (!container || !touchGesture.current.mode) return;
+    if (!container || !touchGesture.current.mode || cardPress.current?.active) return;
 
     if (e.touches.length >= 2) {
       const [first, second] = [e.touches[0]!, e.touches[1]!];
@@ -568,7 +747,37 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
           >
             <Maximize2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
           </button>
+          {placedCount > 0 ? (
+            <button
+              className="flex size-9 items-center justify-center rounded border border-border bg-background text-sm transition-colors hover:bg-accent sm:size-7"
+              onClick={() => {
+                haptic("tick");
+                resetPositions();
+              }}
+              title="Reset layout"
+              aria-label="Reset the cards you moved"
+            >
+              <RotateCcw className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+            </button>
+          ) : null}
         </div>
+
+        {cardDrag ? (
+          <div
+            data-testid="org-chart-top-zone"
+            className={cn(
+              "pointer-events-none absolute top-3 right-14 left-3 z-20 flex min-h-10 items-center justify-center gap-2 rounded-lg border-2 border-dashed px-2 py-1 text-center text-xs font-medium transition-colors",
+              cardDrag.top ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background/80 text-muted-foreground",
+            )}
+          >
+            <ArrowUpToLine className="size-4" aria-hidden="true" />
+            Drop here: reports to nobody (top of the org)
+          </div>
+        ) : (
+          <p className="pointer-events-none absolute bottom-2 left-3 z-10 max-w-xs rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
+            Drag a card onto someone to make them its manager, or to empty space to move it. On touch, hold a card first.
+          </p>
+        )}
 
         {/* SVG layer for edges */}
         <svg
@@ -580,10 +789,12 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
         >
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
             {edges.map(({ parent, child }) => {
-              const x1 = parent.x + CARD_W / 2;
-              const y1 = parent.y + CARD_H;
-              const x2 = child.x + CARD_W / 2;
-              const y2 = child.y;
+              const from = positionOf(parent);
+              const to = positionOf(child);
+              const x1 = from.x + CARD_W / 2;
+              const y1 = from.y + CARD_H;
+              const x2 = to.x + CARD_W / 2;
+              const y2 = to.y;
               const midY = (y1 + y2) / 2;
 
               return (
@@ -593,9 +804,31 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                   fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.5}
+                  opacity={cardDrag?.id === child.id && (cardDrag.target || cardDrag.top) ? 0.25 : 1}
                 />
               );
             })}
+            {cardDrag?.target
+              ? (() => {
+                  const manager = allNodes.find((node) => node.id === cardDrag.target);
+                  if (!manager) return null;
+                  const from = positionOf(manager);
+                  const x1 = from.x + CARD_W / 2;
+                  const y1 = from.y + CARD_H;
+                  const x2 = cardDrag.x + CARD_W / 2;
+                  const y2 = cardDrag.y;
+                  return (
+                    <path
+                      data-testid="org-chart-preview-edge"
+                      d={`M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`}
+                      fill="none"
+                      stroke="var(--primary)"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                    />
+                  );
+                })()
+              : null}
           </g>
         </svg>
 
@@ -611,18 +844,36 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
           {allNodes.map((node) => {
             const agent = agentMap.get(node.id);
             const dotColor = statusDotColor[node.status] ?? defaultDotColor;
+            const at = positionOf(node);
+            const dragged = cardDrag?.id === node.id;
+            const dropTarget = cardDrag?.target === node.id;
+            const blockedTarget = cardDrag?.blocked === node.id;
+            const targetName = cardDrag?.target ? agentMap.get(cardDrag.target)?.name : null;
 
             return (
               <Card
                 key={node.id}
                 data-org-card
-                className="block absolute py-0 hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 cursor-pointer select-none"
+                data-org-card-id={node.id}
+                data-dragging={dragged ? "true" : undefined}
+                data-drop-target={dropTarget ? "true" : undefined}
+                className={cn(
+                  "block absolute py-0 hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 cursor-pointer select-none touch-none",
+                  dragged && "z-30 cursor-grabbing shadow-lg ring-2 ring-primary",
+                  dropTarget && "ring-2 ring-emerald-500 bg-emerald-500/10",
+                  blockedTarget && "ring-2 ring-destructive",
+                )}
                 style={{
-                  left: node.x,
-                  top: node.y,
+                  left: at.x,
+                  top: at.y,
                   width: CARD_W,
                   minHeight: CARD_H,
                 }}
+                onPointerDown={(event) => handleCardPointerDown(event, node)}
+                onPointerMove={handleCardPointerMove}
+                onPointerUp={(event) => endCardPress(event, false)}
+                onPointerCancel={(event) => endCardPress(event, true)}
+                onContextMenu={(event) => event.preventDefault()}
                 onClick={() => navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
                 onClickCapture={(e) => {
                   if (!suppressNextCardClick.current) return;
@@ -662,6 +913,11 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                     )}
                   </div>
                 </div>
+                {dragged && (targetName || cardDrag?.top) ? (
+                  <span className="absolute -top-3 left-3 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground shadow-sm">
+                    {targetName ? `Reports to ${targetName}` : "Top of the org"}
+                  </span>
+                ) : null}
               </Card>
             );
           })}

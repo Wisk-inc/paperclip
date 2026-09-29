@@ -14,10 +14,14 @@ export interface AccountProfile {
   source: "google" | "session" | "local";
 }
 
+const LOCAL_BOARD_ID = "local-board";
+const DEFAULT_LOCAL_NAME = "Board";
+
 /**
- * Who is using Automa, for greetings and the account menu. In the Android app
- * the Google account signed in on the phone wins (its name, email and photo);
- * otherwise the server's signed-in account; otherwise the local board.
+ * Who is using Automa, for greetings and the account menu. A name or photo you
+ * set in Automa wins; otherwise, in the Android app, the Google account signed
+ * in on the phone (its name, email and photo); otherwise the server's account;
+ * otherwise the local board.
  */
 export function useAccountProfile(): AccountProfile {
   const session = useQuery({
@@ -28,14 +32,17 @@ export function useAccountProfile(): AccountProfile {
   const google = automaNative.account()?.user ?? null;
   const user = session.data?.user;
   return useMemo(() => {
-    const sessionName = user?.name?.trim() && user.id !== "local-board" ? user.name.trim() : null;
-    const name = google?.name?.trim() || sessionName || "Board";
+    const trimmed = user?.name?.trim() ?? "";
+    // The local board starts as "Board"; anything else was set on purpose.
+    const sessionName = trimmed && !(user?.id === LOCAL_BOARD_ID && trimmed === DEFAULT_LOCAL_NAME) ? trimmed : null;
+    const name = sessionName || google?.name?.trim() || DEFAULT_LOCAL_NAME;
     const source: AccountProfile["source"] = google ? "google" : sessionName ? "session" : "local";
+    const localEmail = user?.id === LOCAL_BOARD_ID ? null : user?.email?.trim() || null;
     return {
       name,
-      firstName: source === "local" ? null : name.split(/\s+/)[0] ?? null,
-      email: google?.email ?? user?.email?.trim() ?? null,
-      image: google?.photoUrl ?? user?.image ?? null,
+      firstName: sessionName || google?.name?.trim() ? name.split(/\s+/)[0] ?? null : null,
+      email: google?.email ?? localEmail,
+      image: user?.image || google?.photoUrl || null,
       source,
     };
   }, [google?.name, google?.email, google?.photoUrl, user?.id, user?.name, user?.email, user?.image]);

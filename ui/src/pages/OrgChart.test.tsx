@@ -10,6 +10,8 @@ import { OrgChart } from "./OrgChart";
 const navigateMock = vi.fn();
 const orgMock = vi.fn();
 const listMock = vi.fn();
+const updateMock = vi.fn();
+const pushToastMock = vi.fn();
 
 vi.mock("@/lib/router", () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
@@ -28,7 +30,12 @@ vi.mock("../api/agents", () => ({
   agentsApi: {
     org: () => orgMock(),
     list: () => listMock(),
+    update: (...args: unknown[]) => updateMock(...args),
   },
+}));
+
+vi.mock("@/context/ToastContext", () => ({
+  useToastActions: () => ({ pushToast: pushToastMock }),
 }));
 
 vi.mock("../components/AgentIconPicker", () => ({
@@ -191,6 +198,7 @@ describe("OrgChart mobile gestures", () => {
     }
     container.remove();
     document.body.innerHTML = "";
+    window.localStorage.clear();
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
@@ -294,5 +302,76 @@ describe("OrgChart mobile gestures", () => {
 
     expect(container.textContent).not.toContain("Import organization");
     expect(container.textContent).toContain("Export organization");
+  });
+
+  function cardCenter(layer: HTMLDivElement, id: string) {
+    const card = layer.querySelector(`[data-org-card-id="${id}"]`) as HTMLElement;
+    const match = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(layer.style.transform);
+    const [panX, panY, zoom] = match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 1];
+    return {
+      card,
+      x: panX + (Number.parseFloat(card.style.left) + 100) * zoom,
+      y: panY + (Number.parseFloat(card.style.top) + 50) * zoom,
+    };
+  }
+
+  function pointer(target: Element, type: string, x: number, y: number) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    target.dispatchEvent(event);
+  }
+
+  async function drag(from: { card: HTMLElement; x: number; y: number }, to: { x: number; y: number }) {
+    await act(async () => {
+      pointer(from.card, "pointerdown", from.x, from.y);
+      pointer(from.card, "pointermove", from.x + 10, from.y + 10);
+      pointer(from.card, "pointermove", to.x, to.y);
+      pointer(from.card, "pointerup", to.x, to.y);
+    });
+    await flushReact();
+  }
+
+  it("connects an agent to a new manager when its card is dropped on theirs", async () => {
+    const withDesigner = [...orgTree, { id: "agent-3", name: "Designer", role: "designer", status: "active", reports: [] }];
+    orgMock.mockResolvedValue(withDesigner);
+    listMock.mockResolvedValue([...agents, { ...agents[0], id: "agent-3", name: "Designer", role: "designer", reportsTo: null }]);
+    updateMock.mockResolvedValue({});
+    const { layer } = await renderOrgChart();
+
+    await drag(cardCenter(layer, "agent-3"), cardCenter(layer, "agent-1"));
+
+    expect(updateMock).toHaveBeenCalledWith("agent-3", { reportsTo: "agent-1" }, "company-1");
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reporting line that would loop", async () => {
+    const { layer } = await renderOrgChart();
+
+    await drag(cardCenter(layer, "agent-1"), cardCenter(layer, "agent-2"));
+
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(pushToastMock).toHaveBeenCalledWith(expect.objectContaining({ title: "CEO can’t report to Engineer", tone: "warn" }));
+  });
+
+  it("moves an agent to the top of the org from the top strip", async () => {
+    updateMock.mockResolvedValue({});
+    const { layer } = await renderOrgChart();
+
+    await drag(cardCenter(layer, "agent-2"), { x: 180, y: 20 });
+
+    expect(updateMock).toHaveBeenCalledWith("agent-2", { reportsTo: null }, "company-1");
+  });
+
+  it("keeps a card where it is dropped on empty space", async () => {
+    const { layer } = await renderOrgChart();
+    const engineer = cardCenter(layer, "agent-2");
+    const before = Number.parseFloat(engineer.card.style.left);
+
+    await drag(engineer, { x: engineer.x + 60, y: engineer.y + 80 });
+
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(Number.parseFloat((layer.querySelector('[data-org-card-id="agent-2"]') as HTMLElement).style.left)).toBeGreaterThan(before);
+    expect(window.localStorage.getItem("automa.orgChartPositions:company-1")).toContain("agent-2");
   });
 });

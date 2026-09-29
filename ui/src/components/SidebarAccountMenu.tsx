@@ -24,6 +24,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { SidebarServerInfo } from "./SidebarServerInfo";
 import { useAccountProfile } from "../hooks/useAccountProfile";
 import { DiscordSupportLink } from "./DiscordSupportLink";
+import { AccountSheet } from "./account/AccountSheet";
 
 const PROFILE_SETTINGS_PATH = "/company/settings/instance/profile";
 const DOCS_URL = "https://docs.paperclip.ing/";
@@ -117,6 +118,9 @@ export function SidebarAccountMenu({
 }: SidebarAccountMenuProps) {
   const isCloud = Boolean(useCloudInstance());
   const [internalOpen, setInternalOpen] = useState(false);
+  const [accountSheetOpen, setAccountSheetOpen] = useState(false);
+  // Mounted on first open, then kept so it can animate closed.
+  const [accountSheetMounted, setAccountSheetMounted] = useState(false);
   const { isMobile, setSidebarOpen, collapsed, peeking } = useSidebar();
   const rail = collapsed && !peeking && !forceExpanded;
   const open = controlledOpen ?? internalOpen;
@@ -188,6 +192,15 @@ export function SidebarAccountMenu({
 
             <div className="flex flex-1 flex-col gap-0.5 border-t border-border px-2.5 pb-2.5 pt-2">
               <MenuAction
+                label="Profile & organization"
+                icon={UserRoundPen}
+                onClick={() => {
+                  closeNavigationChrome();
+                  setAccountSheetMounted(true);
+                  setAccountSheetOpen(true);
+                }}
+              />
+              <MenuAction
                 label="Settings"
                 icon={Settings}
                 href="/company/settings"
@@ -253,6 +266,7 @@ export function SidebarAccountMenu({
           </Tooltip>
         ) : null}
       </div>
+      {accountSheetMounted ? <AccountSheet open={accountSheetOpen} onOpenChange={setAccountSheetOpen} /> : null}
     </div>
   );
 }

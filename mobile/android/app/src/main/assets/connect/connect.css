@@ -218,12 +218,12 @@ input:focus-visible { border-color: var(--fg); }
 .mascot img.on { opacity: 1; transform: none; }
 
 .this-phone { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
-.this-phone summary {
+.this-phone > summary {
   display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 12px;
   list-style: none; cursor: pointer;
 }
-.this-phone summary::-webkit-details-marker { display: none; }
-.this-phone summary img { width: 48px; height: 48px; flex: none; }
+.this-phone > summary::-webkit-details-marker { display: none; }
+.this-phone > summary img { width: 48px; height: 48px; flex: none; }
 .this-phone .summary-icon { width: 48px; height: 48px; flex: none; padding: 8px; box-sizing: border-box; border-radius: 12px; background: var(--border); fill: none; stroke: var(--fg); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 #adb { margin-top: 12px; }
 .sub { margin: 12px; border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--muted); }

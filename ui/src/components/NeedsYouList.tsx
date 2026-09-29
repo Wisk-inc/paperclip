@@ -4,10 +4,9 @@ import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { cn } from "../lib/utils";
 import { Mascot } from "./mascot/Mascot";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { deriveInitials } from "./Identity";
 import { useAccountProfile } from "../hooks/useAccountProfile";
 import { DiscordSupportLink } from "./DiscordSupportLink";
+import { AccountButton } from "./account/AccountSheet";
 
 function greetingFor(hour: number): string {
   if (hour < 5) return "Working late";
@@ -56,14 +55,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
               : "You're all caught up. Your agents are on it."}
           </p>
         </div>
-        {profile.source !== "local" ? (
-          <Link to="/company/settings/instance/profile" aria-label={`Signed in as ${profile.name}`} className="shrink-0 self-start" data-slot="account-photo">
-            <Avatar className="size-9 ring-2 ring-border">
-              {profile.image ? <AvatarImage src={profile.image} alt="" referrerPolicy="no-referrer" /> : null}
-              <AvatarFallback className="text-xs">{deriveInitials(profile.name)}</AvatarFallback>
-            </Avatar>
-          </Link>
-        ) : null}
+        <AccountButton size="md" className="self-start" />
       </div>
       <h2 id="needs-you-heading" className="-mb-2 text-sm font-medium text-muted-foreground">
         Needs you

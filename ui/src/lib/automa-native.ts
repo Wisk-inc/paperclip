@@ -58,6 +58,10 @@ interface AutomaNativeRaw {
   firebaseIdToken?(callId: string): void;
   /** This phone's Firebase Cloud Messaging token, or "" when push is not set up. */
   pushToken?(): string;
+  /** Signs the app's Google account out on this phone. */
+  signOut?(): void;
+  /** Shows the connect screen (sign in again, or pick another server). */
+  openConnectScreen?(): void;
 }
 
 export interface AutomaAppAccount {
@@ -186,6 +190,20 @@ export const automaNative = {
   pushToken(): string | null {
     const token = rawBridge()?.pushToken?.() ?? "";
     return token.length > 0 ? token : null;
+  },
+  /** Signs the phone's Google account out of the app; the connect screen then asks to sign in again. */
+  signOutOfGoogle(): boolean {
+    const raw = rawBridge();
+    if (!raw?.signOut) return false;
+    raw.signOut();
+    return true;
+  },
+  /** Leaves this server for the app's connect screen. False outside the app. */
+  openConnectScreen(): boolean {
+    const raw = rawBridge();
+    if (!raw?.openConnectScreen) return false;
+    raw.openConnectScreen();
+    return true;
   },
   /** Returns false when the app build has no haptic bridge, so callers can fall back. */
   haptic(kind: string): boolean {

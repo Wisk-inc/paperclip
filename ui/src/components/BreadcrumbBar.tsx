@@ -5,6 +5,7 @@ import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
 import { usePanel } from "../context/PanelContext";
 import { InboxBell } from "./InboxBell";
+import { AccountButton } from "./account/AccountSheet";
 import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
@@ -81,6 +82,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
         pageToolbar={isMobile ? null : breadcrumbToolbar}
       />
       {isMobile ? <InboxBell /> : null}
+      {isMobile ? <AccountButton className="ml-1" /> : null}
     </>
   );
 

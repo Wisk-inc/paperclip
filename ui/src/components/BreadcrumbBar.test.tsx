@@ -28,6 +28,10 @@ vi.mock("../context/CompanyContext", () => ({
 }));
 
 // The phone header's inbox bell polls the inbox; its own behavior is covered elsewhere.
+vi.mock("./account/AccountSheet", () => ({
+  AccountButton: () => null,
+}));
+
 vi.mock("./InboxBell", () => ({
   InboxBell: () => <a data-slot="inbox-bell" href="/inbox" aria-label="Inbox" />,
 }));

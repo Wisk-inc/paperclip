@@ -71,6 +71,7 @@ export const MOTION_TOKENS: MotionTokenDef[] = [
   { name: "--motion-mascot-pose", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-mascot-float", group: "App shell", kind: "time", min: 0, max: 10000, step: 100 },
   { name: "--motion-skeleton-shimmer", group: "App shell", kind: "time", min: 0, max: 4000, step: 50 },
+  { name: "--motion-skeleton-glow", group: "App shell", kind: "time", min: 0, max: 6000, step: 100 },
   { name: "--motion-fab-sheet-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-fab-sheet-exit", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-hero-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },

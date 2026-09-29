@@ -1,6 +1,6 @@
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useAgentChatEnabled } from "../hooks/useAgentChatEnabled";
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { Link, useNavigate, useLocation } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { agentsApi, type OrgNode } from "../api/agents";
@@ -27,10 +27,11 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { OrgChart } from "./OrgChart";
 import { OrgTree } from "../components/OrgTree";
 import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
+import { haptic } from "@/lib/haptics";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Bot, Plus, List, Network } from "lucide-react";
+import { AlertTriangle, Bot, Plus, List, ListTree, Network } from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent, type Environment, type EnvironmentCapabilities } from "@paperclipai/shared";
 import {
   isStarred,
@@ -225,6 +226,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const requestedTab: FilterTab = isFilterTab(pathSegment) ? pathSegment : "all";
   const [view, setView] = useState<AgentsView>(() => streamlinedUiEnabled ? initialView : "org");
+  const [orgLayout, setOrgLayout] = useOrgLayout();
   const forceListView = !streamlinedUiEnabled && isMobile;
   const effectiveView: AgentsView = forceListView ? "list" : view;
 
@@ -603,8 +605,12 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
       {/* Org chart view */}
       {effectiveView === "org" && filteredOrg.length > 0 && (
         <>
-          <OrgTree className="md:hidden" orgTree={filteredOrg} agents={agents ?? []} />
-          <OrgChart embedded className="max-md:hidden" orgTree={filteredOrg} agents={agents ?? []} />
+          <OrgViewToggle value={orgLayout} onChange={setOrgLayout} />
+          {orgLayout === "tree" ? (
+            <OrgTree orgTree={filteredOrg} agents={agents ?? []} />
+          ) : (
+            <OrgChart embedded orgTree={filteredOrg} agents={agents ?? []} />
+          )}
         </>
       )}
 
@@ -632,6 +638,61 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         </Suspense>
       )}
       {agents && agents.length > 0 ? <ThumbAction label="New agent" onClick={openNewAgent} /> : null}
+    </div>
+  );
+}
+
+type OrgLayout = "tree" | "chart";
+const ORG_LAYOUT_KEY = "automa.orgLayout";
+
+/** Tree (readable on a phone) or chart (drag to move and connect); remembered on this device. */
+function useOrgLayout(): [OrgLayout, (next: OrgLayout) => void] {
+  const [layout, setLayout] = useState<OrgLayout>(() => {
+    try {
+      const saved = window.localStorage.getItem(ORG_LAYOUT_KEY);
+      if (saved === "tree" || saved === "chart") return saved;
+    } catch {
+      // No storage: fall back to the screen size.
+    }
+    return typeof window !== "undefined" && window.matchMedia?.("(max-width: 767px)").matches ? "tree" : "chart";
+  });
+  const update = useCallback((next: OrgLayout) => {
+    setLayout(next);
+    try {
+      window.localStorage.setItem(ORG_LAYOUT_KEY, next);
+    } catch {
+      // Remembered for this visit only.
+    }
+  }, []);
+  return [layout, update];
+}
+
+function OrgViewToggle({ value, onChange }: { value: OrgLayout; onChange: (next: OrgLayout) => void }) {
+  const options: Array<{ id: OrgLayout; label: string; icon: typeof Network }> = [
+    { id: "tree", label: "Tree", icon: ListTree },
+    { id: "chart", label: "Chart", icon: Network },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Organization view" className="mb-3 grid w-full grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:w-64" data-testid="org-view-toggle">
+      {options.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          role="radio"
+          aria-checked={value === id}
+          onClick={() => {
+            haptic("tick");
+            onChange(id);
+          }}
+          className={cn(
+            "inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
+            value === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Icon className="size-4" aria-hidden="true" />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

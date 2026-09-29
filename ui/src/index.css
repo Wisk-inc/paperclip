@@ -278,6 +278,7 @@
   --motion-mascot-pose: var(--motion-duration-slow);  /* crossfade between cached mascot poses */
   --motion-mascot-float: 4800ms;                      /* one idle float cycle */
   --motion-skeleton-shimmer: 1600ms;                  /* one skeleton highlight sweep */
+  --motion-skeleton-glow: 2400ms;                     /* one skeleton halo breath */
   --motion-fab-sheet-enter: var(--motion-duration-slow); /* new-task sheet growing out of the tab-bar button */
   --motion-fab-sheet-exit: var(--motion-duration-fast);
   --motion-hero-enter: var(--motion-duration-slow);   /* empty-state hero rising in */
@@ -869,6 +870,7 @@
     --motion-pane-glide: 0ms;
     --motion-mascot-float: 0ms;
     --motion-skeleton-shimmer: 0ms;
+    --motion-skeleton-glow: 0ms;
   }
 }
 
@@ -1446,7 +1448,20 @@
   .hero-enter { animation: hero-enter var(--motion-hero-enter) var(--motion-ease-out-expo) both; }
 }
 
-/* Skeleton "tombstones": a soft highlight sweeps across the placeholder. */
+/* Skeleton "tombstones" glow while they wait: a luminous band sweeps across
+   each placeholder and a soft halo breathes around it. */
+:root {
+  /* A faint indigo, so the glow reads as light rather than grey. */
+  --skeleton-glow-core: oklch(0.72 0.14 275 / 0.3);
+  --skeleton-glow-edge: oklch(0.72 0.14 275 / 0.1);
+  --skeleton-halo: oklch(0.66 0.16 275 / 0.3);
+  --skeleton-halo-size: 16px;
+}
+.dark {
+  --skeleton-glow-core: oklch(0.8 0.12 275 / 0.28);
+  --skeleton-glow-edge: oklch(0.8 0.12 275 / 0.09);
+  --skeleton-halo: oklch(0.7 0.16 275 / 0.38);
+}
 @layer components {
   [data-slot="skeleton"] {
     position: relative;
@@ -1459,17 +1474,26 @@
     inset: 0;
     transform: translateX(-100%);
     background: linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in oklch, var(--foreground) 7%, transparent),
-      transparent
+      100deg,
+      transparent 15%,
+      var(--skeleton-glow-edge) 38%,
+      var(--skeleton-glow-core) 50%,
+      var(--skeleton-glow-edge) 62%,
+      transparent 85%
     );
   }
 }
 @keyframes skeleton-shimmer {
   to { transform: translateX(100%); }
 }
+@keyframes skeleton-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 var(--skeleton-halo-size) 0 var(--skeleton-halo); }
+}
 @media (prefers-reduced-motion: no-preference) {
+  [data-slot="skeleton"] {
+    animation: skeleton-glow var(--motion-skeleton-glow) var(--motion-ease-standard) infinite;
+  }
   [data-slot="skeleton"]::after {
     animation: skeleton-shimmer var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
   }

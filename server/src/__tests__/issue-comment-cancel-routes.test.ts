@@ -484,4 +484,53 @@ describe.sequential("issue comment cancel routes", () => {
     expect(mockIssueService.removeComment).not.toHaveBeenCalled();
     expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
   });
+
+  describe("in a 1:1 agent chat", () => {
+    const chatAgentId = "33333333-3333-4333-8333-333333333333";
+    const chatIssue = () => ({ ...makeIssue(), conversationAgentId: chatAgentId, conversationUserId: "local-board" });
+    const agentReply = (authorAgentId: string) =>
+      makeComment({
+        authorAgentId,
+        authorUserId: null,
+        createdAt: new Date("2026-04-11T14:58:00.000Z"),
+        updatedAt: new Date("2026-04-11T14:58:00.000Z"),
+      });
+
+    it("lets the person who owns the chat delete the chat agent's replies", async () => {
+      mockIssueService.getById.mockResolvedValue(chatIssue());
+      mockIssueService.getComment.mockResolvedValue(agentReply(chatAgentId));
+
+      const res = await request(await installActor(createApp()))
+        .delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/comment-1");
+
+      expect(res.status, describeResponse(res)).toBe(200);
+      expect(mockIssueService.tombstoneComment).toHaveBeenCalledWith(
+        "comment-1",
+        expect.objectContaining({ actorType: "user", userId: "local-board" }),
+        expect.objectContaining({ afterTombstone: expect.any(Function) }),
+      );
+    });
+
+    it("does not let them delete another agent's comment in that chat", async () => {
+      mockIssueService.getById.mockResolvedValue(chatIssue());
+      mockIssueService.getComment.mockResolvedValue(agentReply("44444444-4444-4444-8444-444444444444"));
+
+      const res = await request(await installActor(createApp()))
+        .delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/comment-1");
+
+      expect(res.status).toBe(403);
+      expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
+    });
+
+    it("does not let someone else delete replies in a chat they do not own", async () => {
+      mockIssueService.getById.mockResolvedValue({ ...chatIssue(), conversationUserId: "someone-else" });
+      mockIssueService.getComment.mockResolvedValue(agentReply(chatAgentId));
+
+      const res = await request(await installActor(createApp()))
+        .delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/comment-1");
+
+      expect(res.status).toBe(403);
+      expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
+    });
+  });
 });
