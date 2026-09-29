@@ -91,6 +91,18 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   `public/brands/models/` (see its README for sources).
 - **Support.** The Discord logo (`DiscordSupportLink`) opens the Automa support
   server from the sidebar footer and the phone Home screen.
+- **You and your organization, from your photo.** The phone header, Home,
+  and the account menu open `AccountSheet`: name and photo, sign out, the
+  organization's logo and name, its structure, artifacts and settings, and
+  the organization switcher. Photos are tap-to-change (a camera badge on the
+  avatar or logo), never a separate upload form.
+- **Loading glows.** Skeletons (`[data-slot="skeleton"]`) sweep a faint
+  indigo band and breathe a soft halo (`--skeleton-glow-*`,
+  `--motion-skeleton-glow`); both stop under reduced motion.
+- **Org chart editing.** Drag a card onto another to set its manager, onto the
+  top strip to report to nobody, or onto empty space to place it; on touch,
+  hold first so a swipe still pans. Loops are refused with a warning, and a
+  changed reporting line comes with Undo.
 - **Depth ladder.** Content, sticky headers (z-20), tab bar and thumb
   actions (z-30), drawer scrim (z-40), sheets/dialogs/menus with blurred
   scrims (z-50), toasts (`--z-120`). Pick a rung; do not invent a z-index.
