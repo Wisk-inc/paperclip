@@ -84,9 +84,71 @@ and the sandbox's TLS proxy certificate was added to Node's trust store. The
 Android intent that hands the file to Termux, and speed on real hardware,
 have not been tested on a physical phone.
 
+**Found on a real phone, then fixed:** Android's SELinux policy refuses hard
+links (`link()`) inside app storage, where Termux keeps its home, so the first
+start failed with `EACCES: permission denied, link … decision-signing.key`.
+The container above allows hard links, which is why the test missed it. Every
+place the server published a file or lock with a hard link now falls back to
+an exclusive create (`server/src/lib/exclusive-publish.ts`), and
+`os.networkInterfaces()`, which Android 11+ also refuses, no longer throws.
+This was verified by running the server under a seccomp filter that fails
+`link`/`linkat` with EACCES exactly as the phone does: before the fix, the
+same error; after it, a clean boot and an agent run.
+
+Updating: send the bundle from a newer app and paste the same command. The
+installer sees the installed version and updates in place, reusing npm's
+download cache. The first install downloads about 380 packages and took 46
+minutes on one phone's connection; the installer holds a Termux wake lock so
+Android does not pause it.
+
 Agents run on the phone too, so their runtimes (Claude Code, Codex, OpenCode
 for OpenRouter models, …) must also be installed in Termux; that part is not
 covered by the test above. A computer is faster for heavy agent work.
+
+**Letting agents control the phone (optional).** Agents in Termux get the
+phone's shell (`adb shell`: `input`, `screencap`, `pm`, `settings`) through
+the phone's own Wireless debugging. Turn on **Developer options → Wireless
+debugging**, tap **Pair device with pairing code**, and in Termux run
+`automa adb pair PAIRING-PORT CODE`, then `automa adb connect PORT`
+(`automa adb` installs `android-tools` the first time).
+
+### Linking a computer over ADB (USB or Wireless debugging)
+
+Instead of a Wi-Fi address, the app can reach Automa on your computer through
+ADB: `adb reverse tcp:3100 tcp:3100` makes the computer's Automa answer on the
+phone at `127.0.0.1:3100`. It works over a USB cable or Wireless debugging and
+needs no firewall rule, LAN binding, or HTTPS.
+
+1. Start Automa on the computer (`pnpm install`, then `pnpm dev`).
+2. On the phone, turn on **USB debugging** or **Wireless debugging** in
+   Developer options (the app's **Link a computer with ADB** section opens it).
+3. Run the helper from the source folder:
+   - USB: `node mobile/adb/automa-adb.mjs`
+   - Wireless, first time: `node mobile/adb/automa-adb.mjs --pair PHONE-IP:PAIRING-PORT --code CODE`
+     (it finds the connect port over mDNS)
+   - Wireless, already paired: `node mobile/adb/automa-adb.mjs --connect PHONE-IP:PORT`
+   It links the phone, opens Automa already connected (the app accepts a
+   server address from an intent only when it is loopback), and keeps the link
+   up, relinking when the phone sleeps or reconnects. `--apk FILE` installs or
+   updates the app in place, and `--remove-old` uninstalls Automa 1.0.
+4. Or by hand: `adb reverse tcp:3100 tcp:3100`, then **Connect over ADB** in
+   the app.
+
+While linked, agents on the computer can run commands on the phone with
+`adb -s SERIAL shell …`. The helper was tested against a fake `adb` that
+plays a wirelessly paired phone (pair, mDNS lookup, connect, install,
+reverse, launch, and relinking after a drop); it has not yet run against a
+physical phone.
+
+### One app, updated in place
+
+Automa's application id is `com.corxlabs.automa`, and every release is
+signed with the same upload key, so a newer APK installs over the old one and
+keeps your sign-in and settings. Automa 1.0 was built as `app.automa.android`,
+so it stays on the phone as a separate app; newer versions offer once to open
+its App info page so you can uninstall it (or use the helper's
+`--remove-old`). Keep the upload keystore safe: an APK signed with a different
+key cannot update the installed app.
 
 ## Build
 

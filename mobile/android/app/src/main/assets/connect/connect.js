@@ -121,6 +121,34 @@
   });
   document.getElementById("chip-this-phone").addEventListener("click", openThisPhone);
 
+  // Link a computer with ADB (USB or Wireless debugging): adb reverse makes
+  // the computer's Automa answer on this phone's 127.0.0.1.
+  var adbSection = document.getElementById("adb");
+  document.getElementById("chip-adb").addEventListener("click", function () {
+    adbSection.open = true;
+    adbSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.querySelectorAll(".dev-options").forEach(function (devButton) {
+    devButton.addEventListener("click", function () {
+      if (bridge && bridge.haptic) bridge.haptic("tick");
+      if (bridge && bridge.openDeveloperOptions) bridge.openDeveloperOptions();
+    });
+  });
+  var copyAdb = document.getElementById("copy-adb");
+  copyAdb.addEventListener("click", function () {
+    var text = document.getElementById("adb-cmd").textContent;
+    if (bridge && bridge.copyText) bridge.copyText(text);
+    else if (navigator.clipboard) navigator.clipboard.writeText(text);
+    if (bridge && bridge.haptic) bridge.haptic("tick");
+    copyAdb.textContent = "Copied";
+    setTimeout(function () { copyAdb.textContent = "Copy command"; }, 2000);
+  });
+  document.getElementById("connect-adb").addEventListener("click", function () {
+    input.value = "127.0.0.1:3100";
+    if (bridge && bridge.haptic) bridge.haptic("tick");
+    connect(input.value);
+  });
+
   document.querySelectorAll("[data-fill]").forEach(function (chip) {
     chip.addEventListener("click", function () {
       input.value = chip.getAttribute("data-fill");
@@ -223,6 +251,9 @@
         if (state.serverUrl) input.value = state.serverUrl;
         renderRecent(state.recent || []);
         document.getElementById("version").textContent = "Automa for Android " + state.appVersion;
+        if (state.phoneAddress) {
+          document.querySelectorAll(".phone-ip").forEach(function (el) { el.textContent = state.phoneAddress; });
+        }
       }
     } catch (e) { /* first run */ }
   }

@@ -173,6 +173,18 @@ class ServerConfig(context: Context) {
             return if (second.ok) alternate to second else normalized to first
         }
 
+        /**
+         * This phone's Wi-Fi (or Ethernet) IPv4 address, for pairing Wireless
+         * debugging from a computer. Null when there is no such network.
+         */
+        fun localNetworkAddress(): String? = runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces().toList()
+                .filter { it.isUp && !it.isLoopback && (it.name.startsWith("wlan") || it.name.startsWith("eth")) }
+                .flatMap { it.inetAddresses.toList() }
+                .firstOrNull { it is java.net.Inet4Address && !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                ?.hostAddress
+        }.getOrNull()
+
         /** Automa's default port. */
         const val DEFAULT_PORT = 3100
 
@@ -196,7 +208,8 @@ class ServerConfig(context: Context) {
                     "To use your computer instead, start Automa there with \"npx paperclipai onboard --bind lan\" and enter the address it prints."
             }
             if (isLoopback(url)) {
-                return "Automa is not running on this phone yet. Start it in Termux (see \"Run Automa on this phone\" below), then connect again."
+                return "Nothing answers on this phone at ${host}${port?.let { ":$it" } ?: ""}. Start Automa in Termux (see \"Run Automa on this phone\"), " +
+                    "or link your computer over ADB: run \"adb reverse tcp:${port ?: DEFAULT_PORT} tcp:${port ?: DEFAULT_PORT}\" there (USB or Wireless debugging), then connect again."
             }
             val debugPortHint = if (port != null && port != 3100 && port in 30000..49999) {
                 " Port $port looks like an Android Wireless debugging port, not Automa (Automa uses 3100 by default)."

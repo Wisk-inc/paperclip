@@ -4,7 +4,10 @@ import type {
 } from "@paperclipai/shared";
 import { useCopyAction } from "@/lib/use-copy-action";
 import { IssueChatFeedbackButtons } from "@/components/AgentBubbleActionRow";
-import { Check, Copy, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Copy, Trash2, X } from "lucide-react";
+import { haptic } from "@/lib/haptics";
+import { cn } from "@/lib/utils";
 
 /** Feedback-vote wiring for an agent bubble, resolved per comment by the host. */
 export interface TaskChatBubbleFeedback {
@@ -28,12 +31,22 @@ export interface TaskChatBubbleFeedback {
 export function TaskChatBubbleActions({
   copyText,
   feedback,
+  onDelete,
 }: {
   copyText: string;
   feedback?: TaskChatBubbleFeedback | null;
+  /** Deletes the message; the first tap arms it, the second deletes. */
+  onDelete?: () => Promise<void> | void;
 }) {
   const { copied, failed, copy } = useCopyAction(2000);
   const label = failed ? "Couldn’t copy message" : "Copy message";
+  const [armed, setArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [armed]);
 
   return (
     <div className="flex items-center gap-0.5" data-testid="task-chat-bubble-actions">
@@ -54,6 +67,35 @@ export function TaskChatBubbleActions({
           <Copy className="h-3.5 w-3.5" />
         )}
       </button>
+      {onDelete ? (
+        <button
+          type="button"
+          data-testid="task-chat-delete-message"
+          disabled={deleting}
+          className={cn(
+            "inline-flex h-7 items-center justify-center gap-1 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            armed && "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive",
+          )}
+          title={armed ? "Tap again to delete" : "Delete message"}
+          aria-label={armed ? "Confirm delete message" : "Delete message"}
+          onClick={() => {
+            if (!armed) {
+              haptic("tick");
+              setArmed(true);
+              return;
+            }
+            haptic("warning");
+            setDeleting(true);
+            void Promise.resolve(onDelete()).finally(() => {
+              setDeleting(false);
+              setArmed(false);
+            });
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {armed ? <span className="text-(length:--text-micro) font-medium">Delete?</span> : null}
+        </button>
+      ) : null}
       {feedback ? (
         <IssueChatFeedbackButtons
           activeVote={feedback.activeVote}

@@ -14,6 +14,8 @@
     <!-- "Run Automa on this phone": check whether Termux is installed and open it. -->
     <queries>
         <package android:name="com.termux" />
+        <!-- Automa 1.0's old application id: offer once to remove that copy. -->
+        <package android:name="app.automa.android" />
         <!-- "Take photo" in the chat attach picker: find the camera app. The
              camera app takes the picture, so Automa needs no camera permission. -->
         <intent>

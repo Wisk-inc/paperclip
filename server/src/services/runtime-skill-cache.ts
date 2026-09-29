@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { publishExclusive } from "../lib/exclusive-publish.js";
 import type { CompanySkill } from "@paperclipai/shared";
 
 const FORMAT = 1;
@@ -117,12 +118,13 @@ async function matches(spec: CacheSpec, entry = spec.entry): Promise<boolean> {
 async function publishLocked<T>(root: string, fingerprint: string, action: () => Promise<T>): Promise<T> {
   const lock = path.join(root, `${fingerprint}.lock`);
   const owner = path.join(root, `.owner-${randomUUID()}`);
-  await fs.writeFile(owner, JSON.stringify({ pid: process.pid, host: os.hostname() }), { flag: "wx" });
+  const ownerContent = JSON.stringify({ pid: process.pid, host: os.hostname() });
+  await fs.writeFile(owner, ownerContent, { flag: "wx" });
   let acquired = false;
   try {
     const deadline = Date.now() + 60_000;
     while (!acquired) {
-      try { await fs.link(owner, lock); acquired = true; }
+      try { await publishExclusive(owner, lock, ownerContent); acquired = true; }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         const lockContent = await readRegularFile(lock).catch((readError: NodeJS.ErrnoException) => {

@@ -66,6 +66,16 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_OPEN_PATH = "com.corxlabs.automa.OPEN_PATH"
         const val ACTION_CHANGE_SERVER = "com.corxlabs.automa.CHANGE_SERVER"
+        /**
+         * A server address on this phone's loopback, from the ADB helper
+         * (`adb shell am start ... --es com.corxlabs.automa.CONNECT http://127.0.0.1:3100`
+         * after `adb reverse`). Anything that is not loopback is ignored, so
+         * no other app can point Automa at a server of its choosing.
+         */
+        const val EXTRA_CONNECT = "com.corxlabs.automa.CONNECT"
+        /** Automa 1.0 shipped under this id; it installs beside, not over, this app. */
+        private const val OLD_APP_PACKAGE = "app.automa.android"
+        private const val PREF_OLD_APP_OFFERED = "oldAppRemovalOffered"
         const val ASSETS_HOST = "appassets.androidplatform.net"
         const val ASSETS_ORIGIN = "https://$ASSETS_HOST"
         const val CONNECT_URL = "$ASSETS_ORIGIN/assets/connect/index.html"
@@ -205,6 +215,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        offerOldAppRemoval()
+
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             route(intent)
         } else if (incoming.isShareIntent(intent)) {
@@ -259,10 +271,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            intent?.getStringExtra(EXTRA_CONNECT) != null -> connectLoopback(intent.getStringExtra(EXTRA_CONNECT) ?: "")
             intent?.action == ACTION_OPEN_PATH -> openPath(intent.data?.schemeSpecificPart ?: "/")
             // A push notification tapped while the app was in the background.
             intent?.getStringExtra(Push.PATH_KEY) != null -> openPath(intent.getStringExtra(Push.PATH_KEY) ?: "/")
             else -> loadServer()
+        }
+    }
+
+    /** Connects to a loopback address handed over by the ADB helper (see [EXTRA_CONNECT]). */
+    private fun connectLoopback(input: String) {
+        val url = ServerConfig.normalize(input)
+        if (url == null || !ServerConfig.isLoopback(url)) return loadServer()
+        executor.execute {
+            val (reachedUrl, health) = ServerConfig.probe(input, url)
+            runOnUiThread {
+                if (health.ok) {
+                    config.remember(reachedUrl)
+                    loadServer()
+                } else {
+                    showConnect(ServerConfig.explain(reachedUrl, health))
+                }
+            }
         }
     }
 
@@ -324,6 +354,44 @@ class MainActivity : ComponentActivity() {
         packageManager.getPackageInfo(TERMUX_PACKAGE, 0)
         true
     }.getOrDefault(false)
+
+    /**
+     * Automa 1.0 used a different application id, so it stayed on the phone as
+     * a second app. Offer once to open its App info page, where Uninstall is.
+     */
+    private fun offerOldAppRemoval() {
+        val prefs = getSharedPreferences("automa", MODE_PRIVATE)
+        if (prefs.getBoolean(PREF_OLD_APP_OFFERED, false)) return
+        val installed = runCatching { packageManager.getPackageInfo(OLD_APP_PACKAGE, 0); true }.getOrDefault(false)
+        if (!installed) return
+        prefs.edit().putBoolean(PREF_OLD_APP_OFFERED, true).apply()
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.old_app_title)
+            .setMessage(R.string.old_app_message)
+            .setPositiveButton(R.string.old_app_remove) { _, _ ->
+                runCatching {
+                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$OLD_APP_PACKAGE")))
+                }
+            }
+            .setNegativeButton(R.string.old_app_keep, null)
+            .show()
+    }
+
+    /** Developer options, where Wireless debugging (and its pairing code) lives. */
+    fun openDeveloperOptions() {
+        val intents = listOf(
+            Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+            Intent(android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS),
+        )
+        for (candidate in intents) {
+            try {
+                startActivity(candidate)
+                return
+            } catch (error: ActivityNotFoundException) {
+                continue
+            }
+        }
+    }
 
     fun openTermux() {
         val launch = packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE)

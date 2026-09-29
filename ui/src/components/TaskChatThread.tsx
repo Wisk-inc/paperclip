@@ -525,6 +525,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     feedbackDataSharingPreference = "prompt",
     feedbackTermsUrl = null,
     onVote,
+    onDeleteComment,
     draftKey,
     onInterruptQueued,
     onCancelQueued,
@@ -2513,10 +2514,21 @@ export function TaskChatThread(props: TaskChatThreadProps) {
   // buttons render only when the host wired a vote handler.
   const renderMessageActions = useCallback(
     (item: TaskChatMessageItem) => {
-      if (item.author !== "agent" || item.optimistic) return null;
+      if (item.optimistic) return null;
+      // Your own messages can be copied and deleted; in your own agent chat,
+      // the agent's replies can be deleted too (the server checks ownership).
+      const onDelete =
+        onDeleteComment && (item.author === "human" || (item.author === "agent" && conversationMode))
+          ? () => onDeleteComment(item.id)
+          : undefined;
+      if (item.author === "human") {
+        return <TaskChatBubbleActions copyText={item.text} onDelete={onDelete} />;
+      }
+      if (item.author !== "agent") return null;
       return (
         <TaskChatBubbleActions
           copyText={item.text}
+          onDelete={onDelete}
           feedback={
             onVote
               ? {
@@ -2532,6 +2544,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     },
     [
       onVote,
+      onDeleteComment,
+      conversationMode,
       feedbackVoteByTargetId,
       feedbackDataSharingPreference,
       feedbackTermsUrl,

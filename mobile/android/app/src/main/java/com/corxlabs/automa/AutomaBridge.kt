@@ -56,6 +56,7 @@ class AutomaBridge(
             .put("deviceName", deviceName())
             .put("platform", "android")
             .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("phoneAddress", ServerConfig.localNetworkAddress() ?: JSONObject.NULL)
             .put("sdkInt", Build.VERSION.SDK_INT)
             .toString()
     }
@@ -189,6 +190,7 @@ class AutomaBridge(
             .put("serverUrl", config.serverUrl ?: JSONObject.NULL)
             .put("recent", JSONArray(config.recentServers))
             .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("phoneAddress", ServerConfig.localNetworkAddress() ?: JSONObject.NULL)
             .toString()
     }
 
@@ -216,6 +218,12 @@ class AutomaBridge(
                 activity.loadServer()
             }
         }
+    }
+
+    /** Opens Developer options, for USB or Wireless debugging (ADB). Connect screen only. */
+    @JavascriptInterface
+    fun openDeveloperOptions() {
+        if (onConnectPage()) activity.runOnUiThread { activity.openDeveloperOptions() }
     }
 
     /** Whether Termux (to run Automa on this phone) is installed. Connect screen only. */

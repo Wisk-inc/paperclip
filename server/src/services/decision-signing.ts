@@ -1,7 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, linkSync, lstatSync, mkdirSync, readFileSync, type Stats, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, type Stats, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveDefaultSecretsKeyFilePath } from "../home-paths.js";
+import { publishExclusiveSync } from "../lib/exclusive-publish.js";
 
 const VERSION = "decision-spec-v1";
 const MIN_SECRET_LENGTH = 32;
@@ -102,9 +103,10 @@ function loadOrCreateGeneratedSecret(): string {
     enforceKeyFilePermissions(temporaryPath);
 
     try {
-      // Publish only a complete key. A hard link is atomic and never replaces
-      // a key another server process created first.
-      linkSync(temporaryPath, keyPath);
+      // Publish only a complete key, never replacing a key another server
+      // process created first (a hard link, or an exclusive create where the
+      // filesystem refuses hard links, as Android app storage does).
+      publishExclusiveSync(temporaryPath, keyPath, generated, 0o600);
       enforceKeyFilePermissions(keyPath);
       return generated;
     } catch (error) {

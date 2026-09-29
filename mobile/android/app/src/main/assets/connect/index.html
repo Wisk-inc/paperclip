@@ -79,6 +79,7 @@
       <button id="connect" type="submit" class="primary">Connect</button>
       <div class="chips" aria-label="Suggestions">
         <button type="button" class="chip" id="chip-this-phone">This phone</button>
+        <button type="button" class="chip" id="chip-adb">Computer over ADB</button>
         <button type="button" class="chip" data-fill="https://">HTTPS address</button>
       </div>
     </form>
@@ -115,7 +116,7 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/><rect x="2" y="3" width="20" height="18" rx="3"/></svg>
           <div>
             <strong>Paste this in Termux</strong>
-            <span>Installs Node.js, a database and Automa, then starts it. About 5 minutes the first time.</span>
+            <span>Installs Node.js, a database and Automa, then starts it. The first time takes 10 to 45 minutes depending on your connection; updates are much faster. To update later, send the new version from a newer app and paste the same command.</span>
             <pre id="setup-cmd">pkg update -y &amp;&amp; tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR &amp;&amp; bash $TMPDIR/automa-server/install.sh</pre>
             <button type="button" id="copy-setup" class="secondary">Copy command</button>
           </div>
@@ -129,12 +130,69 @@
           </div>
         </li>
       </ul>
+      <details class="sub" id="termux-adb">
+        <summary>Optional: let agents control this phone (Wireless debugging)</summary>
+        <p>Agents already have a terminal in Termux. With Wireless debugging they also get this phone's shell: tap and type (<code>input</code>), take screenshots (<code>screencap</code>), list apps (<code>pm</code>), and change settings.</p>
+        <ol>
+          <li>Open <b>Developer options → Wireless debugging</b>, turn it on, and tap <b>Pair device with pairing code</b>. Use split screen so Termux stays visible.</li>
+          <li>In Termux: <code>automa adb pair PAIRING-PORT CODE</code></li>
+          <li>Then: <code>automa adb connect PORT</code> (the port on the Wireless debugging screen). Agents can now run <code>adb shell …</code>.</li>
+        </ol>
+        <button type="button" class="secondary dev-options">Open Developer options</button>
+      </details>
       <p class="fine">Your agents run on this phone too, so the agent tools you use (for example Claude Code) must be installed in Termux, and the phone should stay on charge. A computer is faster for heavy work.</p>
+    </details>
+
+    <details class="this-phone" id="adb">
+      <summary>
+        <svg class="summary-icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="4" width="20" height="36" rx="4"/><path d="M21 34h6M24 40v5M17 44h14"/><path d="M30 15c2 2 2 6 0 8M34 12c4 4 4 10 0 14"/></svg>
+        <span class="this-phone-title"><strong>Link a computer with ADB</strong><span>USB cable or Wireless debugging. No Wi-Fi address needed.</span></span>
+        <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <ul class="setup">
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          <div>
+            <strong>Start Automa on your computer</strong>
+            <span>In the Automa source folder: <code>pnpm install</code>, then <code>pnpm dev</code>. It listens on port 3100.</span>
+          </div>
+        </li>
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg>
+          <div>
+            <strong>Turn on debugging</strong>
+            <span>In <b>Developer options</b>, turn on <b>USB debugging</b> (cable) or <b>Wireless debugging</b> (no cable, same Wi-Fi). No Developer options? Tap <b>Build number</b> in About phone 7 times.</span>
+            <button type="button" class="secondary dev-options">Open Developer options</button>
+          </div>
+        </li>
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+          <div>
+            <strong>Link the phone</strong>
+            <span><b>Cable:</b> plug it in and allow the prompt. <b>Wireless:</b> tap <b>Pair device with pairing code</b>, then on the computer:</span>
+            <pre id="adb-pair">adb pair <span class="phone-ip">PHONE-IP</span>:PAIRING-PORT CODE
+adb connect <span class="phone-ip">PHONE-IP</span>:PORT</pre>
+            <span>Then, for cable or wireless:</span>
+            <pre id="adb-cmd">adb reverse tcp:3100 tcp:3100</pre>
+            <button type="button" id="copy-adb" class="secondary">Copy command</button>
+            <span>Or run <code>node mobile/adb/automa-adb.mjs</code> in the source folder (add <code>--pair PHONE-IP:PORT --code CODE</code> for wireless). It links the phone, keeps the link alive, installs app updates over this app, and opens Automa connected.</span>
+          </div>
+        </li>
+        <li>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m0 0-5-5m5 5-5 5"/></svg>
+          <div>
+            <strong>Connect</strong>
+            <span>Your computer now answers on this phone at <code>127.0.0.1:3100</code>.</span>
+            <button type="button" id="connect-adb" class="primary">Connect over ADB</button>
+          </div>
+        </li>
+      </ul>
+      <p class="fine">Wireless debugging switches off when the phone restarts or changes Wi-Fi; link it again. While linked, agents on your computer can run commands on this phone with <code>adb shell</code>.</p>
     </details>
 
     <div class="note">
       <strong>The Wireless debugging address is this phone.</strong>
-      It only works as Automa's address when Automa runs on this phone (above). Automa on a computer prints its own address, usually ending in <code>:3100</code>.
+      Don't type it above. Use it to link your computer in <b>Link a computer with ADB</b>, or as the server only when Automa runs on this phone. Automa on a computer prints its own address, usually ending in <code>:3100</code>.
     </div>
 
     <details class="help">

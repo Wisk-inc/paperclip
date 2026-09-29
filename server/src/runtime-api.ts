@@ -80,10 +80,19 @@ export function choosePrimaryRuntimeApiUrl(input: {
   return formatOrigin("http:", "localhost", input.port);
 }
 
+/** Android 11+ refuses the netlink query behind this (uv_interface_addresses, EACCES); treat it as no interfaces. */
+function readNetworkInterfaces(): NodeJS.Dict<os.NetworkInterfaceInfo[]> {
+  try {
+    return os.networkInterfaces();
+  } catch {
+    return {};
+  }
+}
+
 export function collectReachableInterfaceHosts(input: {
   networkInterfacesMap?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 } = {}): string[] {
-  const interfaces = input.networkInterfacesMap ?? os.networkInterfaces();
+  const interfaces = input.networkInterfacesMap ?? readNetworkInterfaces();
   const rankedHosts: Array<{ host: string; rank: number; index: number }> = [];
   const seen = new Set<string>();
   let index = 0;

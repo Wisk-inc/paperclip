@@ -1,7 +1,8 @@
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
-import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
+import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
+import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
@@ -5390,10 +5391,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         trailing: (
           <span className="ml-2 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />
-            <EditAgentButton agent={conversationAgent} />
+            <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
           </span>
         ),
-        trailingKey: `configure:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
+        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }
@@ -5410,6 +5411,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     ]);
   }, [
     conversationAgent,
+    issue?.id,
+    navigate,
     breadcrumbTitle,
     breadcrumbIdentifier,
     hasLiveRuns,

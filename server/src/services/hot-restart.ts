@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { publishExclusive } from "../lib/exclusive-publish.js";
 import {
   resolvePaperclipHomeDir,
   resolvePaperclipInstanceId,
@@ -107,9 +108,10 @@ async function writeJsonFileAtomic(filePath: string, value: unknown) {
 async function writeJsonFileExclusiveAtomic(filePath: string, value: unknown) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  await fs.writeFile(tempPath, content, "utf8");
   try {
-    await fs.link(tempPath, filePath);
+    await publishExclusive(tempPath, filePath, content);
   } finally {
     await fs.unlink(tempPath).catch(() => undefined);
   }

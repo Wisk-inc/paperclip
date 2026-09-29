@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ImagePlus, KeyRound, MessagesSquare, Search, Sparkles } from "lucide-react";
+import { ImagePlus, KeyRound, MessagesSquare, Pin, Search, Sparkles } from "lucide-react";
 import { AGENT_ROLE_LABELS, type AgentRole, type AiProvider, type Agent } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { authApi } from "@/api/auth";
 import { ByokKeysCard } from "@/components/agent-chat/ByokKeysCard";
-import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
+import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
+import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { roleIcon } from "@/components/agent-chat/role-icons";
 import { EmptyState } from "@/components/EmptyState";
 import { Mascot } from "@/components/mascot/Mascot";
@@ -19,6 +20,8 @@ import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useDialogActions } from "@/context/DialogContext";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
+import { useResourceMemberships } from "@/hooks/useResourceMemberships";
+import { applyChatOrder, useChatOrder } from "@/lib/chat-order";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
 import { queryKeys } from "@/lib/queryKeys";
@@ -45,7 +48,14 @@ function agentModel(agent: Agent): string {
   return typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
 }
 
-function ChatRow({ agent }: { agent: Agent }) {
+interface ChatRowProps {
+  agent: Agent;
+  pinned?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}
+
+function ChatRow({ agent, pinned, onMoveUp, onMoveDown }: ChatRowProps) {
   const model = agentModel(agent);
   const live = agent.status === "running";
   const roleLabel = AGENT_ROLE_LABELS[agent.role as AgentRole] ?? agent.role;
@@ -62,6 +72,7 @@ function ChatRow({ agent }: { agent: Agent }) {
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{agent.name}</span>
+            {pinned ? <Pin className="size-3 shrink-0 self-center fill-current text-primary" aria-label="Pinned" /> : null}
             <span className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
               <RoleIcon className="size-3 shrink-0 self-center" aria-hidden="true" />
               <span className="truncate">{agent.title || roleLabel}</span>
@@ -77,9 +88,8 @@ function ChatRow({ agent }: { agent: Agent }) {
           </span>
         </span>
       </Link>
-      <span className="flex shrink-0 items-center gap-0.5 pr-2 pl-1">
-        <EditAgentButton agent={agent} />
-        <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+      <span className="flex shrink-0 items-center pr-2 pl-1">
+        <ChatOptionsMenu agent={agent} onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
       </span>
     </li>
   );
@@ -127,19 +137,43 @@ export function Chats() {
     () => (agents.data ?? []).filter((agent) => agent.status !== "terminated"),
     [agents.data],
   );
-  const recent = useMemo(
-    () => recentIds.flatMap((id) => chatAgents.filter((agent) => agent.id === id)).slice(0, 3),
-    [recentIds, chatAgents],
-  );
-  const everyone = useMemo(() => {
+  const memberships = useResourceMemberships(selectedCompanyId);
+  const pinnedIds = memberships.data?.starredAgentIds;
+  const { order, move } = useChatOrder(selectedCompanyId ?? "", userId);
+  // Your order first (Move up / Move down), then the chats you opened most
+  // recently, then everyone else by name.
+  const ordered = useMemo(() => {
+    const recentRank = new Map(recentIds.map((id, index) => [id, index]));
+    const base = [...chatAgents].sort((a, b) => {
+      const ra = recentRank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const rb = recentRank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      return ra - rb || a.name.localeCompare(b.name);
+    });
+    return applyChatOrder(base, order);
+  }, [chatAgents, recentIds, order]);
+  const pinned = useMemo(() => ordered.filter((agent) => pinnedIds?.includes(agent.id)), [ordered, pinnedIds]);
+  const others = useMemo(() => ordered.filter((agent) => !pinnedIds?.includes(agent.id)), [ordered, pinnedIds]);
+  const matches = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return [...chatAgents]
-      .filter((agent) => {
-        const haystack = `${agent.name} ${agent.title ?? ""} ${modelDisplayName(agentModel(agent))} ${getAdapterLabel(agent.adapterType)}`.toLowerCase();
-        return words.every((word) => haystack.includes(word));
-      })
-      .sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || a.name.localeCompare(b.name));
-  }, [chatAgents, query]);
+    return ordered.filter((agent) => {
+      const haystack = `${agent.name} ${agent.title ?? ""} ${modelDisplayName(agentModel(agent))} ${getAdapterLabel(agent.adapterType)}`.toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    });
+  }, [ordered, query]);
+  const moveWithin = (list: Agent[], agent: Agent, direction: -1 | 1) => {
+    haptic("tick");
+    move(list.map((item) => item.id), agent.id, direction);
+  };
+  const rows = (list: Agent[], section: "pinned" | "all") =>
+    list.map((agent, index) => (
+      <ChatRow
+        key={agent.id}
+        agent={agent}
+        pinned={section === "pinned"}
+        onMoveUp={index > 0 ? () => moveWithin(list, agent, -1) : undefined}
+        onMoveDown={index < list.length - 1 ? () => moveWithin(list, agent, 1) : undefined}
+      />
+    ));
 
   if (!selectedCompanyId || agents.isPending || !loaded) return <PageSkeleton variant="list" />;
   if (agents.error) return <p className="text-sm text-destructive">{agents.error.message}</p>;
@@ -191,20 +225,22 @@ export function Chats() {
         ))}
       </ul>
 
-      {recent.length > 0 && !query ? (
-        <section aria-labelledby="recent-chats-heading" className="flex flex-col gap-2">
-          <h2 id="recent-chats-heading" className="text-sm font-medium text-muted-foreground">Recent</h2>
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-            {recent.map((agent) => <ChatRow key={agent.id} agent={agent} />)}
-          </ul>
+      {pinned.length > 0 && !query ? (
+        <section aria-labelledby="pinned-chats-heading" className="flex flex-col gap-2">
+          <h2 id="pinned-chats-heading" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <Pin className="size-3.5" aria-hidden="true" />
+            Pinned
+          </h2>
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">{rows(pinned, "pinned")}</ul>
         </section>
       ) : null}
 
       <section aria-labelledby="all-chats-heading" className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h2 id="all-chats-heading" className="text-sm font-medium text-muted-foreground">
-            All agents <span className="tabular-nums">· {chatAgents.length}</span>
+            {pinned.length > 0 && !query ? "Chats" : "All agents"} <span className="tabular-nums">· {query ? matches.length : others.length}</span>
           </h2>
+          {!query ? <span className="text-xs text-muted-foreground">Tap ⋯ to pin, move, or delete</span> : null}
         </div>
         {chatAgents.length > 5 ? (
           <div className="relative">
@@ -212,10 +248,14 @@ export function Chats() {
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search agents or models" aria-label="Search agents" className="h-10 pl-9" />
           </div>
         ) : null}
-        {everyone.length > 0 ? (
+        {query && matches.length > 0 ? (
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-            {everyone.map((agent) => <ChatRow key={agent.id} agent={agent} />)}
+            {matches.map((agent) => <ChatRow key={agent.id} agent={agent} pinned={pinnedIds?.includes(agent.id)} />)}
           </ul>
+        ) : !query && others.length > 0 ? (
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">{rows(others, "all")}</ul>
+        ) : !query ? (
+          <p className="rounded-lg border border-border bg-card px-3 py-6 text-center text-sm text-muted-foreground">Every chat is pinned.</p>
         ) : (
           <p className="rounded-lg border border-border bg-card px-3 py-6 text-center text-sm text-muted-foreground">No agents match “{query}”.</p>
         )}

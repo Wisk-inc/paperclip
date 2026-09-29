@@ -164,7 +164,15 @@ export async function withInstallStoreLock<T>(
     try {
       fs.writeFileSync(temporaryPath, `${token}\n`, { mode: 0o600, flag: "wx" });
       try {
-        fs.linkSync(temporaryPath, paths.lockPath);
+        try {
+          fs.linkSync(temporaryPath, paths.lockPath);
+        } catch (error) {
+          // Android app storage (Termux) refuses hard links; an exclusive
+          // create still never takes a lock another install holds.
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== "EACCES" && code !== "EPERM" && code !== "ENOSYS" && code !== "ENOTSUP" && code !== "EXDEV") throw error;
+          fs.writeFileSync(paths.lockPath, `${token}\n`, { mode: 0o600, flag: "wx" });
+        }
         return;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;

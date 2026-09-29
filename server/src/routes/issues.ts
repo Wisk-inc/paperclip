@@ -16954,6 +16954,13 @@ export function issueRoutes(
       actor.actorType === "agent"
         ? comment.authorAgentId === actor.agentId
         : comment.authorUserId === actor.actorId;
+    // In a person's own 1:1 agent chat, that person may also delete the
+    // agent's replies (their conversation, their history).
+    const actorOwnsConversation =
+      actor.actorType === "user" &&
+      Boolean(issue.conversationAgentId) &&
+      issue.conversationUserId === actor.actorId &&
+      comment.authorAgentId === issue.conversationAgentId;
     const deleteMode = req.query.mode === "cancel" ? "cancel" : "delete";
 
     const authoritativeQueueWake = issue.assigneeAgentId
@@ -17057,7 +17064,7 @@ export function issueRoutes(
       return;
     }
 
-    if (!actorOwnsComment) {
+    if (!actorOwnsComment && !actorOwnsConversation) {
       res
         .status(403)
         .json({ error: "Only the comment author can delete comments" });
