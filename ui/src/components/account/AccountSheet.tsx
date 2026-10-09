@@ -123,6 +123,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const user = session.data?.user ?? null;
   const localBoard = !user || user.id === "local-board";
   const inApp = isAutomaApp();
+  const appVersion = inApp ? automaNative.info()?.appVersion ?? null : null;
   const googleSignedIn = profile.source === "google";
 
   const [name, setName] = useState(profile.name);
@@ -399,6 +400,17 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               <ActionRow icon={LogOut} label="Sign out" hint={profile.email ?? undefined} tone="danger" onClick={() => void signOut()} />
             ) : null}
           </section>
+
+          <footer className="flex flex-col items-center gap-1 pt-1 text-center text-xs text-muted-foreground" data-slot="account-about">
+            <span>
+              Automa{appVersion ? ` ${appVersion}` : ""} by Corx Labs · Made in Jamaica 🇯🇲
+            </span>
+            <span className="flex gap-3">
+              <a href="/legal/terms.html" className="underline underline-offset-2 hover:text-foreground">Terms</a>
+              <a href="/legal/privacy.html" className="underline underline-offset-2 hover:text-foreground">Privacy</a>
+              <a href="https://discord.gg/NfnSrFK7YM" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">Support</a>
+            </span>
+          </footer>
         </div>
       </SheetContent>
     </Sheet>

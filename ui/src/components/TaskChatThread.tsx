@@ -2805,13 +2805,14 @@ export function TaskChatThread(props: TaskChatThreadProps) {
           mode={streamlinedUiEnabled ? "streamlined" : "production"}
         >
           <div
-            className={cn("flex flex-col", !isMobile && "min-h-0 flex-1")}
+            className={cn("flex flex-col", !isMobile && "min-h-0 flex-1", isMobile && conversationMode && "tc-thread-fill")}
             data-testid="task-chat-thread"
           >
             <div
               className={cn(
                 "relative flex flex-col",
                 !isMobile && "min-h-0 flex-1",
+                isMobile && conversationMode && "flex-1",
               )}
               aria-busy={!historyRevealed}
             >

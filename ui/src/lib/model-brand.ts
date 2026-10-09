@@ -255,3 +255,19 @@ export function modelDisplayName(modelId: string | null | undefined, label?: str
   }
   return words.join(" ");
 }
+
+/**
+ * The newest Claude and GPT models (OpenRouter ids), shown first in the model
+ * picker. Only ids the live catalog actually lists are shown, so this never
+ * offers a model that does not exist.
+ */
+export const NEWEST_MODEL_IDS: readonly string[] = [
+  "anthropic/claude-fable-5.1",
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-haiku-5.5",
+  "openai/gpt-6.1-sol",
+  "openai/gpt-6.1-sol-pro",
+  "openai/gpt-6-astra",
+  "openai/gpt-6-luna",
+];

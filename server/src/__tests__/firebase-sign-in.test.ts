@@ -133,6 +133,28 @@ describe("resolveFirebaseUser", () => {
     );
   });
 
+  it("uses the Google photo as the default picture, and never replaces one the person chose", async () => {
+    const googlePhoto = "https://lh3.googleusercontent.com/a/ada-photo=s96-c";
+    const withPhoto = { ...identity, picture: googlePhoto };
+
+    const empty = adapter(null);
+    await resolveFirebaseUser({ claims: withPhoto, adapter: empty, disableSignUp: false });
+    expect(empty.createUser).toHaveBeenCalledWith(expect.objectContaining({ image: googlePhoto }), expect.anything());
+
+    const noPhoto = { ...adapter({ user: { ...(user as object), image: null }, accounts: [] }), updateUser: vi.fn(async () => ({})) };
+    await resolveFirebaseUser({ claims: withPhoto, adapter: noPhoto, disableSignUp: false });
+    expect(noPhoto.updateUser).toHaveBeenCalledWith("user-1", { image: googlePhoto });
+
+    const oldGoogle = { ...adapter({ user: { ...(user as object), image: "https://lh3.googleusercontent.com/a/old=s96-c" }, accounts: [] }), updateUser: vi.fn(async () => ({})) };
+    await resolveFirebaseUser({ claims: withPhoto, adapter: oldGoogle, disableSignUp: false });
+    expect(oldGoogle.updateUser).toHaveBeenCalledWith("user-1", { image: googlePhoto });
+
+    const chosen = { ...adapter({ user: { ...(user as object), image: "/api/assets/asset-1/content" }, accounts: [] }), updateUser: vi.fn(async () => ({})) };
+    const result = await resolveFirebaseUser({ claims: withPhoto, adapter: chosen, disableSignUp: false });
+    expect(chosen.updateUser).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, user: { image: "/api/assets/asset-1/content" } });
+  });
+
   it("refuses new users when sign-up is off, and unverified emails always", async () => {
     await expect(resolveFirebaseUser({ claims: identity, adapter: adapter(null), disableSignUp: true })).resolves.toMatchObject({ ok: false });
     const unverified = adapter({ user, accounts: [] });

@@ -123,6 +123,24 @@ describe("ModelPickerSheet", () => {
     expect(row("claude-sonnet-4-5-20250929")?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("shows the newest Claude and GPT models first, only when the catalog has them", async () => {
+    mockAgentsApi.adapterModels.mockImplementation((_company: string, type: string, options?: { provider?: string }) =>
+      Promise.resolve(type === "opencode_local" && options?.provider === "openrouter"
+        ? [
+            ...OPENROUTER_MODELS,
+            { id: "openrouter/anthropic/claude-opus-5.5", label: "Anthropic: Claude Opus 5.5" },
+            { id: "openrouter/openai/gpt-6.1-sol", label: "OpenAI: GPT-6.1 Sol" },
+          ]
+        : CLAUDE_MODELS));
+    await render(<ModelPickerSheet agent={agent()} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="newest-models"]')).not.toBeNull());
+    const newest = document.querySelector('[data-testid="newest-models"]')!;
+    expect(newest.textContent).toContain("Claude Opus 5.5");
+    expect(newest.textContent).toContain("GPT-6.1 Sol");
+    // Listed in the catalog only, never invented: Fable 5.1 is not in this catalog.
+    expect(newest.textContent).not.toContain("Fable");
+  });
+
   it("switches the model within the agent's own runtime", async () => {
     const onOpenChange = vi.fn();
     await render(<ModelPickerSheet agent={agent()} open onOpenChange={onOpenChange} />);

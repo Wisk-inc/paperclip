@@ -53,6 +53,7 @@ export function isValidOpenCodeModelId(value: unknown): value is string {
 
 export const models: Array<{ id: string; label: string }> = [
   { id: DEFAULT_OPENCODE_LOCAL_MODEL, label: DEFAULT_OPENCODE_LOCAL_MODEL },
+  { id: "openai/gpt-6.1-sol", label: "openai/gpt-6.1-sol" },
   { id: "openai/gpt-6-astra", label: "openai/gpt-6-astra" },
   { id: "openai/gpt-6-sol", label: "openai/gpt-6-sol" },
   { id: "openai/gpt-6-luna", label: "openai/gpt-6-luna" },
@@ -60,6 +61,8 @@ export const models: Array<{ id: string; label: string }> = [
   { id: "openai/gpt-5.6-terra", label: "openai/gpt-5.6-terra" },
   { id: "openai/gpt-5.6-luna", label: "openai/gpt-5.6-luna" },
   { id: "anthropic/claude-opus-5-5", label: "anthropic/claude-opus-5-5" },
+  { id: "anthropic/claude-sonnet-5-5", label: "anthropic/claude-sonnet-5-5" },
+  { id: "anthropic/claude-haiku-5-5", label: "anthropic/claude-haiku-5-5" },
   { id: "anthropic/claude-opus-5", label: "anthropic/claude-opus-5" },
   { id: "anthropic/claude-fable-5-1", label: "anthropic/claude-fable-5-1" },
   { id: "anthropic/claude-sonnet-5", label: "anthropic/claude-sonnet-5" },

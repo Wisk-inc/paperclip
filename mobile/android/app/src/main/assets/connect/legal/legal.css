@@ -6,3 +6,4 @@
 .doc p, .doc li { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
 .doc ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .doc strong { color: var(--fg); }
+.made-in { margin-top: 24px; color: var(--muted); font-size: 13px; }

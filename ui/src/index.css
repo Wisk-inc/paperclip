@@ -1448,6 +1448,16 @@
   .hero-enter { animation: hero-enter var(--motion-hero-enter) var(--motion-ease-out-expo) both; }
 }
 
+/* A 1:1 agent chat on a phone fills the screen: the messages grow and the
+   composer docks at the bottom even when the conversation is short. Computed
+   where it is used so it follows --tc-composer-bottom (the tab bar showing or
+   hiding) as set on <main>. */
+@layer components {
+  .tc-thread-fill {
+    min-height: calc(100dvh - var(--sz-safe-top) - var(--sz-60px) - var(--spacing) * 4 - var(--tc-composer-bottom));
+  }
+}
+
 /* Skeleton "tombstones" glow while they wait: a luminous band sweeps across
    each placeholder and a soft halo breathes around it. */
 :root {

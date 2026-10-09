@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, KeyRound, Loader2, Search } from "lucide-react";
+import { Check, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
 import { aiConnectionBindingSchema, type Agent, type AiProvider } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
-import { MODEL_PROVIDERS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
+import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
@@ -171,6 +171,10 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
     () => toEntries(catalog.data, "openrouter", "opencode_local").sort(byRecency),
     [catalog.data],
   );
+  const newest = useMemo(
+    () => NEWEST_MODEL_IDS.flatMap((id) => catalogEntries.filter((entry) => entry.id.replace(/^openrouter\//, "") === id)),
+    [catalogEntries],
+  );
   const groups = useMemo(() => {
     const byProvider = new Map<ModelProvider, ModelEntry[]>();
     for (const entry of catalogEntries) {
@@ -304,6 +308,25 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
           ) : null}
           {!runsOnOpenRouter && runtimeModels.isPending && open ? (
             <p className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading {getAdapterLabel(agent.adapterType)} models…</p>
+          ) : null}
+
+          {!searching && filter === "all" && newest.length > 0 ? (
+            <section aria-label="Newest Claude and GPT models" className="pb-2" data-testid="newest-models">
+              <h3 className="flex items-center gap-1.5 px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Sparkles className="size-3.5" aria-hidden="true" />
+                Newest Claude &amp; GPT
+              </h3>
+              {newest.map((entry) => (
+                <ModelRow
+                  key={`newest-${entry.id}`}
+                  entry={entry}
+                  current={entry.id === currentModel}
+                  locked={!hasOpenRouterKey && !runsOnOpenRouter}
+                  busy={busyId === entry.id}
+                  onSelect={choose}
+                />
+              ))}
+            </section>
           ) : null}
 
           <section aria-label="Models with your OpenRouter key" className="pt-1">

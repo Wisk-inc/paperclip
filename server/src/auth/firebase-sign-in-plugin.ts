@@ -58,6 +58,16 @@ type FirebaseSignInEndpointContext = {
  * the Firebase account. Existing users are matched by their Google-verified
  * email; new users are created only when sign-up is allowed.
  */
+/** Google account photos are served from googleusercontent.com. */
+export function isGooglePhoto(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "googleusercontent.com" || host.endsWith(".googleusercontent.com");
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveFirebaseUser(input: {
   claims: FirebaseIdTokenClaims;
   adapter: FirebaseSignInAdapter;
@@ -92,7 +102,10 @@ export async function resolveFirebaseUser(input: {
     );
     created = true;
   }
-  if (!created && claims.picture && user.image !== claims.picture && adapter.updateUser) {
+  // The Google photo is the default: fill it in when there is none, and keep
+  // it current while it is still a Google photo. A photo the person chose in
+  // Automa is theirs and is never replaced.
+  if (!created && claims.picture && user.image !== claims.picture && adapter.updateUser && (!user.image || isGooglePhoto(user.image))) {
     await adapter.updateUser(user.id, { image: claims.picture });
     user = { ...user, image: claims.picture };
   }

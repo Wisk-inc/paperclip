@@ -25,8 +25,9 @@ export const type = "claude_local";
 
 export function claudeLocalReasoningEffortsForModel(model: string): readonly string[] {
   const id = model.trim().replace(/\[1m\]$/, "").replace(/^(?:(?:us|eu|apac|global)\.)?anthropic\./, "");
+  if (/^claude-haiku-5-5$/.test(id)) return ["low", "medium", "high", "xhigh", "max"];
   if (/^claude-haiku-/.test(id)) return [];
-  if (/^claude-(?:opus-5(?:-5)?|opus-4-[78]|sonnet-5|fable-5(?:-1)?)$/.test(id)) {
+  if (/^claude-(?:opus-5(?:-5)?|opus-4-[78]|sonnet-5(?:-5)?|fable-5(?:-1)?)$/.test(id)) {
     return ["low", "medium", "high", "xhigh", "max"];
   }
   if (/^claude-(?:opus|sonnet)-4-6(?:-v1)?$/.test(id)) return ["low", "medium", "high", "max"];
@@ -43,6 +44,8 @@ export const models = [
   { id: "claude-fable-5", label: "Claude Fable 5" },
   { id: "claude-mythos-5", label: "Claude Mythos 5" },
   { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   { id: "claude-opus-5", label: "Claude Opus 5" },
   { id: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },

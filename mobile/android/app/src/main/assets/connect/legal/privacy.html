@@ -12,15 +12,24 @@
 <main class="screen doc">
   <a class="back" href="../index.html">← Back</a>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: September 28, 2026</p>
+  <p class="updated">Last updated: October 9, 2026</p>
 
-  <p>This policy explains what the Automa app for Android, published by Corx Labs, does with your data.</p>
+  <p>This policy explains what Automa (the Automa app for Android and the Automa board it opens, including Studio) does with your data. Automa is made and published by Corx Labs, a Jamaican business ("we", "us").</p>
 
   <h2>Your Automa server</h2>
   <p>The app connects to an Automa server that you operate or were given access to. Everything you see and create in the app (tasks, comments, approvals, agent activity, and files) is stored on that server. We do not operate your server and do not receive that data.</p>
 
   <h2>Your account</h2>
   <p>When you choose "Continue with Google", your Google name, email address, profile photo link, and a user ID are stored in our Firebase Authentication project (run by Google for us) so you can sign in. The app also gives your Automa server a short-lived sign-in token so it can sign you in with the same account. We use this only to sign you in.</p>
+
+  <h2>Studio</h2>
+  <ul>
+    <li>Studio projects (your files, console output, and collaboration chat) are stored on the Automa server that hosts them: your computer, a server, or your phone through Termux. We do not receive them.</li>
+    <li>When you ask the Studio assistant for help, the files and console output it reads are sent to the AI provider you picked, using your own API key, under that provider's privacy policy.</li>
+    <li>When you turn on a public link, your app (not the rest of Automa) is reachable through Cloudflare by anyone with the link until you turn it off.</li>
+    <li>People you invite with a share code see that workspace's files and chat, and the name they choose when they join is shown to you.</li>
+    <li>Cloning from GitHub downloads the repository you enter directly from GitHub to your server.</li>
+  </ul>
 
   <h2>Notifications</h2>
   <p>If you allow notifications, Firebase Cloud Messaging gives this phone a push token. The app registers it with your Automa server, which uses it to tell you when an agent needs a file or an approval is waiting. It is not used for advertising.</p>
@@ -47,7 +56,8 @@
   <p>The app is not directed to children under 13.</p>
 
   <h2>Changes and contact</h2>
-  <p>We will post changes here and update the date above. Questions or deletion requests: use the support email on Automa's Google Play page.</p>
+  <p>We will post changes here and update the date above. Questions or deletion requests: ask on our <a href="https://discord.gg/NfnSrFK7YM">Discord support server</a> or use the support email on Automa's Google Play page.</p>
+  <p class="made-in">© 2026 Corx Labs · Made in Jamaica 🇯🇲</p>
 </main>
 </body>
 </html>
