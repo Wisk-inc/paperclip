@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, CircleAlert, CircleStop, KeyRound, LoaderCircle, Send, Sparkles, Trash2 } from "lucide-react";
+import { Check, CircleAlert, CircleStop, KeyRound, LoaderCircle, Send, Sparkles, Trash2, Undo2 } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
@@ -48,6 +48,8 @@ interface StudioAssistantProps {
   onSend: (message: string, provider: StudioAiProvider, model: string) => Promise<void>;
   onStop: () => Promise<void>;
   onClear: () => Promise<void>;
+  /** Goes back to the checkpoint saved before a message. */
+  onUndo?: (checkpointId: string) => Promise<void>;
   /** Remembers the provider and model per organization. */
   storageKey: string;
   /** A first message to send once a key is ready (from "describe your app"). */
@@ -115,6 +117,7 @@ export function StudioAssistant({
   onSend,
   onStop,
   onClear,
+  onUndo,
   storageKey,
   initialPrompt,
   onInitialPromptUsed,
@@ -126,6 +129,8 @@ export function StudioAssistant({
   const [keyInput, setKeyInput] = useState("");
   const [baseUrlInput, setBaseUrlInput] = useState("");
   const [editingKey, setEditingKey] = useState(false);
+  const [undoing, setUndoing] = useState<string | null>(null);
+  const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const info = STUDIO_AI_PROVIDER_INFO[choice.provider];
@@ -325,8 +330,33 @@ export function StudioAssistant({
           <ol className="flex flex-col gap-4">
             {turns.map((turn) =>
               turn.role === "user" ? (
-                <li key={turn.id} className="ml-8 self-end rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
-                  {turn.text}
+                <li key={turn.id} className="ml-8 flex flex-col items-end gap-1 self-end">
+                  <div className="rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{turn.text}</div>
+                  {turn.checkpointId && onUndo ? (
+                    <button
+                      type="button"
+                      disabled={running || undoing !== null}
+                      onClick={() => {
+                        if (confirmUndo !== turn.checkpointId) {
+                          setConfirmUndo(turn.checkpointId!);
+                          return;
+                        }
+                        setUndoing(turn.checkpointId!);
+                        void onUndo(turn.checkpointId!).finally(() => {
+                          setUndoing(null);
+                          setConfirmUndo(null);
+                        });
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs disabled:opacity-50",
+                        confirmUndo === turn.checkpointId ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:text-foreground",
+                      )}
+                      data-testid="studio-undo-ai"
+                    >
+                      {undoing === turn.checkpointId ? <LoaderCircle className="size-3 animate-spin" /> : <Undo2 className="size-3" />}
+                      {confirmUndo === turn.checkpointId ? "Tap again to undo the AI's changes" : "Undo AI changes"}
+                    </button>
+                  ) : null}
                 </li>
               ) : (
                 <li key={turn.id} className="flex flex-col gap-2">

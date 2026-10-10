@@ -21,6 +21,7 @@ export const studioWorkspaces = pgTable(
     // Collaborators join with this code while sharing is on.
     shareCode: text("share_code"),
     shareEnabled: boolean("share_enabled").notNull().default(false),
+    shareExpiresAt: timestamp("share_expires_at", { withTimezone: true }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

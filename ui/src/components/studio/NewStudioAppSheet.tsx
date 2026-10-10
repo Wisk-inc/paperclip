@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { CircleAlert, CircleCheck, FileCode2, GitBranch, Globe, LoaderCircle, Search, Sparkles, SquareTerminal } from "lucide-react";
+import { CircleAlert, CircleCheck, FileCode2, Globe, LoaderCircle, Search, Sparkles, SquareTerminal } from "lucide-react";
 import { searchStudioLanguages, type StudioLanguageCategory, type StudioToolchainStatus } from "@paperclipai/shared";
 import type { StudioCatalog, StudioCatalogLanguage } from "@/api/studio";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { LanguageLogo } from "./LanguageLogo";
+import { GitHubMark } from "./GitHubMark";
+import { Mascot } from "../mascot/Mascot";
 
 export interface NewStudioAppInput {
   name: string;
@@ -194,8 +196,10 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
                 role="tab"
                 aria-selected={mode === id}
                 onClick={() => setMode(id)}
-                className={cn("flex-1 rounded-md py-1.5 text-sm", mode === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
+                className={cn("flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm", mode === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
+                data-testid={`studio-mode-${id}`}
               >
+                {id === "git" ? <GitHubMark /> : null}
                 {label}
               </button>
             ))}
@@ -276,7 +280,7 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
                 <label className="flex flex-col gap-1">
                   <span className="text-sm font-medium">Repository link</span>
                   <div className="relative">
-                    <GitBranch className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <GitHubMark className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
                     <Input
                       value={gitUrl}
                       onChange={(event) => setGitUrl(event.target.value)}
@@ -336,6 +340,18 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
             </Button>
           </div>
         </form>
+        {busy && mode === "git" ? (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-t-xl bg-background/95 p-6 text-center" role="status" data-testid="studio-cloning">
+            <Mascot pose="thinking" size="md" />
+            <div className="flex items-center gap-2 text-base font-semibold">
+              <GitHubMark /> Cloning {gitUrl.replace(/^https:\/\/(www\.)?github\.com\//, "").replace(/\.git$/, "")}
+            </div>
+            <div className="h-1.5 w-56 overflow-hidden rounded-full bg-muted">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+            </div>
+            <p className="max-w-xs text-sm text-muted-foreground">Downloading the code to this device. Big projects can take a minute.</p>
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

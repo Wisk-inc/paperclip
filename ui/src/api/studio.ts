@@ -3,6 +3,7 @@ import type {
   StudioAiProvider,
   StudioAssistantTurn,
   StudioChangeFile,
+  StudioCheckpoint,
   StudioChangeRequest,
   StudioCollaborator,
   StudioConsoleLine,
@@ -87,6 +88,19 @@ export const studioApi = {
     return api.postForm<{ paths: string[] }>(`${ws(id)}/upload`, form);
   },
   downloadUrl: (id: string, path: string) => `/api${ws(id)}/download?${pathQuery(path)}`,
+  /** A zip of the whole project, or of one folder in it. */
+  archiveUrl: (id: string, path?: string | null) => `/api${ws(id)}/archive${path ? `?${pathQuery(path)}` : ""}`,
+  /** A project file to show inline (images, audio, video, fonts). */
+  rawUrl: (id: string, path: string, version?: string | number) => `/api${ws(id)}/raw?${pathQuery(path)}${version ? `&v=${encodeURIComponent(String(version))}` : ""}`,
+
+  checkpoints: (id: string) => api.get<{ checkpoints: StudioCheckpoint[] }>(`${ws(id)}/checkpoints`, { cache: "no-store" }),
+  saveCheckpoint: (id: string, label?: string | null) => api.post<{ checkpoint: StudioCheckpoint }>(`${ws(id)}/checkpoints`, { label: label ?? null }),
+  restoreCheckpoint: (id: string, checkpointId: string) =>
+    api.post<{ restored: StudioCheckpoint; safety: StudioCheckpoint }>(`${ws(id)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, {}),
+  deleteCheckpoint: (id: string, checkpointId: string) => api.delete<{ ok: true }>(`${ws(id)}/checkpoints/${encodeURIComponent(checkpointId)}`),
+
+  complete: (id: string, input: { path: string; prefix: string; suffix: string; provider: StudioAiProvider; model?: string | null }, signal?: AbortSignal) =>
+    api.post<{ completion: string; model: string; error?: string }>(`${ws(id)}/complete`, input, { signal }),
 
   run: (id: string, command?: string | null) => api.post<{ run: StudioRunState }>(`${ws(id)}/run`, { command: command ?? null }),
   stop: (id: string) => api.post<{ run: StudioRunState }>(`${ws(id)}/stop`, {}),
@@ -101,7 +115,12 @@ export const studioApi = {
   installCloudflared: (companyId: string) =>
     api.post<{ ok: boolean; message: string; log: string[] }>(`${company(companyId)}/cloudflared`, {}),
 
-  share: (id: string, publicLink = true) => api.post<StudioShareResult>(`${ws(id)}/share`, { public: publicLink }),
+  share: (id: string, options: { publicLink?: boolean; expiresInHours?: number | null; newCode?: boolean } = {}) =>
+    api.post<StudioShareResult>(`${ws(id)}/share`, {
+      public: options.publicLink ?? true,
+      ...(options.expiresInHours !== undefined ? { expiresInHours: options.expiresInHours } : {}),
+      ...(options.newCode ? { newCode: true } : {}),
+    }),
   stopSharing: (id: string) => api.delete<{ workspace: StudioWorkspace }>(`${ws(id)}/share`),
   collaborators: (id: string) =>
     api.get<{ collaborators: StudioCollaborator[]; participants: StudioParticipant[] }>(`${ws(id)}/collaborators`),
@@ -183,6 +202,9 @@ export const studioGuestApi = {
   },
   sharedFileUrl: (token: string, attachmentId: string) =>
     `/api/studio-guest/shared/${encodeURIComponent(attachmentId)}?token=${encodeURIComponent(token)}`,
+  rawUrl: (token: string, path: string) => `/api/studio-guest/raw?${pathQuery(path)}&token=${encodeURIComponent(token)}`,
+  archiveUrl: (token: string, path?: string | null) =>
+    `/api/studio-guest/archive?${path ? `${pathQuery(path)}&` : ""}token=${encodeURIComponent(token)}`,
   changes: (token: string) => guestRequest<{ changeRequests: StudioChangeRequest[] }>(token, "/changes"),
   submitChange: (token: string, input: { message?: string | null; files: Array<{ path: string; after: string | null }> }) =>
     guestRequest<{ changeRequest: StudioChangeRequest }>(token, "/changes", { method: "POST", body: JSON.stringify(input) }),

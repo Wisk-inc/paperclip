@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { studioLanguageLogoUrl } from "@/lib/studio-language-logos";
+import { STUDIO_DARK_LOGOS, STUDIO_DIM_LOGOS, studioLanguageLogoUrl } from "@/lib/studio-language-logos";
 import { cn } from "@/lib/utils";
 
 /** Whether a `#rrggbb` color is light enough to need dark text on it. */
@@ -28,8 +28,8 @@ interface LanguageLogoProps {
 }
 
 /**
- * A language's logo on a light tile (so dark marks read in dark mode too),
- * or, for languages without one, its abbreviation on its brand color.
+ * A language's logo on a soft tile (dark in dark mode; black marks flip to
+ * white there), or, without a logo, its abbreviation on its brand color.
  */
 export function LanguageLogo({ language, size = "md", className }: LanguageLogoProps) {
   const url = studioLanguageLogoUrl(language.id);
@@ -42,7 +42,18 @@ export function LanguageLogo({ language, size = "md", className }: LanguageLogoP
         className={cn("flex shrink-0 items-center justify-center bg-studio-logo-tile shadow-sm ring-1 ring-border", tile, className)}
         title={language.name}
       >
-        <img src={url} alt="" aria-hidden="true" className="size-full object-contain" draggable={false} onError={() => setFailed(true)} />
+        <img
+          src={url}
+          alt=""
+          aria-hidden="true"
+          className={cn(
+            "size-full object-contain",
+            STUDIO_DARK_LOGOS.has(language.id) && "dark:invert",
+            STUDIO_DIM_LOGOS.has(language.id) && "dark:brightness-150",
+          )}
+          draggable={false}
+          onError={() => setFailed(true)}
+        />
       </span>
     );
   }

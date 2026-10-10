@@ -103,6 +103,17 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   top strip to report to nobody, or onto empty space to place it; on touch,
   hold first so a swipe still pans. Loops are refused with a warning, and a
   changed reporting line comes with Undo.
+- **Look and feel.** Light or dark plus an accent color theme (`AppearancePicker`
+  in the account sheet and App Studio settings; `lib/accent-themes.ts`,
+  `[data-accent]` blocks in index.css). Automa purple is the default;
+  Classic keeps the neutral black-and-white look. Accents recolor only
+  `--primary`, `--ring`, and the `--accent` tints, so every screen follows.
+- **App Studio.** Language logos come from `public/brands/languages/` on a
+  soft tile that stays dark in dark mode (black marks invert there; no
+  white glare). On phones the IDE's pane tabs sit at the bottom, above the
+  app's tab bar; Upload and a ⋯ menu (checkpoints, zip, settings) sit in the
+  header. Grey AI suggestions are accepted with Tab or a tap. Editor and
+  diff colors are the `--studio-*` tokens.
 - **Depth ladder.** Content, sticky headers (z-20), tab bar and thumb
   actions (z-30), drawer scrim (z-40), sheets/dialogs/menus with blurred
   scrims (z-50), toasts (`--z-120`). Pick a rung; do not invent a z-index.

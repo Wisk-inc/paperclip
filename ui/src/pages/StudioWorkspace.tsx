@@ -4,15 +4,19 @@ import {
   ArrowLeft,
   CircleStop,
   CodeXml,
+  Ellipsis,
   Eye,
+  FileArchive,
   FolderTree,
   Globe,
+  History,
   LoaderCircle,
   Play,
   Settings2,
   Sparkles,
   SquareTerminal,
   TriangleAlert,
+  Upload,
   Users,
 } from "lucide-react";
 import type {
@@ -39,9 +43,13 @@ import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Mascot } from "../components/mascot/Mascot";
 import { AppearancePicker } from "../components/AppearancePicker";
+import { StudioAssets } from "../components/studio/StudioAssets";
+import { StudioCheckpointsSheet } from "../components/studio/StudioCheckpointsSheet";
+import { STUDIO_AI_PROVIDERS, STUDIO_AI_PROVIDER_INFO, type StudioAiProvider } from "@paperclipai/shared";
 import { CodeEditor } from "../components/studio/CodeEditor";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
 import { StudioConsole } from "../components/studio/StudioConsole";
@@ -73,6 +81,21 @@ interface RemoteDraft {
 }
 
 const SAVE_DELAY_MS = 800;
+const SUGGEST_STORAGE_KEY = "automa.studio.suggest";
+
+/** The provider and model chosen in the AI panel (shared with suggestions). */
+function readAiChoice(companyId: string): { provider: StudioAiProvider; model: string } {
+  try {
+    const raw = window.localStorage.getItem(`automa.studio.ai.${companyId}`);
+    const parsed = raw ? (JSON.parse(raw) as { provider?: string; model?: string }) : null;
+    if (parsed?.provider && (STUDIO_AI_PROVIDERS as readonly string[]).includes(parsed.provider)) {
+      return { provider: parsed.provider as StudioAiProvider, model: parsed.model ?? "" };
+    }
+  } catch {
+    // storage unavailable
+  }
+  return { provider: "anthropic", model: "" };
+}
 const DRAFT_INTERVAL_MS = 150;
 
 function errorText(error: unknown) {
@@ -127,6 +150,16 @@ export function StudioWorkspace() {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [share, setShare] = useState<StudioShareResult | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [filesView, setFilesView] = useState<"files" | "assets">("files");
+  const [suggestOn, setSuggestOn] = useState(() => {
+    try {
+      return window.localStorage.getItem(SUGGEST_STORAGE_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const headerUploadRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<"run" | "stop" | "install" | null>(null);
   const [initialPrompt, setInitialPrompt] = useState<string | null>(() => {
     const state = location.state as { prompt?: string } | null;
@@ -289,6 +322,19 @@ export function StudioWorkspace() {
         case "share":
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) });
           break;
+        case "checkpoint:restored": {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
+          const current = fileRef.current;
+          if (current) {
+            void studioApi
+              .readFile(workspaceId, current.path)
+              .then((loaded) => setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version, binary: loaded.content === null }))
+              .catch(() => setFile(null));
+            setSaveState("saved");
+          }
+          pushToast({ title: `Went back to “${event.checkpoint.label}”`, tone: "success" });
+          break;
+        }
         default:
           break;
       }
@@ -320,6 +366,45 @@ export function StudioWorkspace() {
       }
     },
     [send, workspaceId],
+  );
+
+  // Grey AI suggestions in the editor, from the provider picked in the AI panel.
+  const suggest = useCallback(
+    async (input: { prefix: string; suffix: string }, signal: AbortSignal) => {
+      const current = fileRef.current;
+      if (!current) return "";
+      const choice = readAiChoice(companyId);
+      if (!aiKeys.data?.keys.some((key) => key.provider === choice.provider && key.connected)) return "";
+      const model = choice.provider === "custom" ? choice.model : STUDIO_AI_PROVIDER_INFO[choice.provider].completionModel;
+      const result = await studioApi.complete(workspaceId, { path: current.path, prefix: input.prefix, suffix: input.suffix, provider: choice.provider, model }, signal);
+      return result.completion;
+    },
+    [aiKeys.data, companyId, workspaceId],
+  );
+  const suggestKeyReady = Boolean(aiKeys.data?.keys.some((key) => key.provider === readAiChoice(companyId).provider && key.connected));
+  const toggleSuggest = () => {
+    setSuggestOn((on) => {
+      try {
+        window.localStorage.setItem(SUGGEST_STORAGE_KEY, on ? "off" : "on");
+      } catch {
+        // storage unavailable
+      }
+      return !on;
+    });
+  };
+
+  const uploadFiles = useCallback(
+    async (files: File[], folder: string | null) => {
+      try {
+        const result = await studioApi.upload(workspaceId, files, folder);
+        haptic("success");
+        pushToast({ title: result.paths.length === 1 ? `Added ${result.paths[0]}` : `Added ${result.paths.length} files`, tone: "success" });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
+      } catch (error) {
+        pushToast({ title: "Upload failed", body: errorText(error), tone: "error" });
+      }
+    },
+    [pushToast, queryClient, workspaceId],
   );
 
   const openFile = useCallback(
@@ -531,18 +616,46 @@ export function StudioWorkspace() {
         }
       }}
       onDelete={(path) => deletions.run(path, `Deleted ${path.split("/").pop()}`)}
-      onUpload={async (files, folder) => {
-        try {
-          const result = await studioApi.upload(workspaceId, files, folder);
-          haptic("success");
-          pushToast({ title: result.paths.length === 1 ? `Added ${result.paths[0]}` : `Added ${result.paths.length} files`, tone: "success" });
-          await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
-        } catch (error) {
-          pushToast({ title: "Upload failed", body: errorText(error), tone: "error" });
-        }
-      }}
+      onUpload={uploadFiles}
       downloadUrl={(path) => studioApi.downloadUrl(workspaceId, path)}
+      archiveUrl={(path) => studioApi.archiveUrl(workspaceId, path)}
     />
+  );
+  const filesPane = (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="grid grid-cols-2 gap-1 border-b border-border p-1" role="tablist" aria-label="Files or assets">
+        {(
+          [
+            ["files", "Files"],
+            ["assets", "Assets"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={filesView === id}
+            onClick={() => setFilesView(id)}
+            className={cn("rounded-md py-1 text-sm", filesView === id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/50")}
+            data-testid={`studio-files-view-${id}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {filesView === "files" ? (
+          treePane
+        ) : (
+          <StudioAssets
+            tree={tree.data?.tree ?? []}
+            rawUrl={(path) => studioApi.rawUrl(workspaceId, path, tree.dataUpdatedAt)}
+            downloadUrl={(path) => studioApi.downloadUrl(workspaceId, path)}
+            onUpload={uploadFiles}
+          />
+        )}
+      </div>
+    </div>
   );
 
   const editorPane = (
@@ -551,6 +664,20 @@ export function StudioWorkspace() {
         <span className="min-w-0 flex-1 truncate font-mono text-xs" data-testid="studio-open-file">
           {file?.path ?? (fileLoading ? "Opening…" : "No file open")}
         </span>
+        <button
+          type="button"
+          onClick={toggleSuggest}
+          aria-pressed={suggestOn}
+          title={suggestKeyReady ? "Grey AI suggestions while you type (Tab or tap to accept)" : "Add an API key in the AI tab to get suggestions"}
+          className={cn(
+            "flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
+            suggestOn && suggestKeyReady ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground",
+          )}
+          data-testid="studio-suggest-toggle"
+        >
+          <Sparkles className="size-3" />
+          {suggestOn ? (suggestKeyReady ? "AI suggest" : "AI suggest (needs key)") : "AI suggest off"}
+        </button>
         <span className="shrink-0 text-xs text-muted-foreground" data-testid="studio-save-state">
           {saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Edited" : saveState === "error" ? "Not saved" : saveState === "conflict" ? "Changed elsewhere" : file ? "Saved" : ""}
         </span>
@@ -598,7 +725,7 @@ export function StudioWorkspace() {
           watchedDraft ? (
             <CodeEditor key={`watch:${file.path}`} path={file.path} value={watchedDraft.text} readOnly ariaLabel={`${watchedDraft.by.name}'s live edits`} />
           ) : (
-            <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} />
+            <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} suggest={suggestOn && suggestKeyReady ? suggest : null} />
           )
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
@@ -717,21 +844,30 @@ export function StudioWorkspace() {
         await studioApi.clearAssistant(workspaceId);
         setTurns([]);
       }}
+      onUndo={async (checkpointId) => {
+        try {
+          await studioApi.restoreCheckpoint(workspaceId, checkpointId);
+          haptic("success");
+        } catch (error) {
+          pushToast({ title: "Couldn't undo", body: errorText(error), tone: "error" });
+        }
+      }}
     />
   );
 
   const teamPane = (
     <StudioTeamPanel
       shareEnabled={workspace.shareEnabled}
-      shareCode={share?.code ?? workspace.shareCode}
+      shareCode={share?.workspace.shareCode ?? workspace.shareCode}
+      shareExpiresAt={share?.workspace.shareExpiresAt ?? workspace.shareExpiresAt}
       share={share}
       participants={participants}
       collaborators={collaborators.data?.collaborators ?? []}
       messages={messages.data?.messages ?? []}
       changeRequests={changes.data?.changeRequests ?? []}
-      onShare={async () => {
+      onShare={async (options) => {
         try {
-          const result = await studioApi.share(workspaceId);
+          const result = await studioApi.share(workspaceId, options);
           setShare(result);
           haptic("success");
           await queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) });
@@ -816,9 +952,40 @@ export function StudioWorkspace() {
             </span>
           </p>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label="App settings" onClick={() => setSettingsOpen(true)}>
-          <Settings2 />
+        <Button variant="ghost" size="icon-sm" aria-label="Upload files" title="Upload files" onClick={() => headerUploadRef.current?.click()} data-testid="studio-header-upload">
+          <Upload />
         </Button>
+        <input
+          ref={headerUploadRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length) void uploadFiles(files, null);
+          }}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="More" data-testid="studio-more">
+              <Ellipsis />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={() => setHistoryOpen(true)} data-testid="studio-history">
+              <History /> Checkpoints
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={studioApi.archiveUrl(workspaceId)} download>
+                <FileArchive /> Download as zip
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+              <Settings2 /> Settings and colors
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {running ? (
           <Button size="sm" variant="outline" disabled={busy === "stop"} onClick={() => void stopApp()} data-testid="studio-stop">
             {busy === "stop" ? <LoaderCircle className="animate-spin" /> : <CircleStop />} Stop
@@ -833,7 +1000,10 @@ export function StudioWorkspace() {
       {/* Phones: one pane at a time. */}
       {narrow ? (
       <>
-      <div className="flex border-b border-border" role="tablist" aria-label="Studio panes">
+      <div className="min-h-0 flex-1">
+        {pane === "files" ? filesPane : pane === "code" ? editorPane : sidePanes[pane]}
+      </div>
+      <div className="flex border-t border-border bg-card" role="tablist" aria-label="Studio panes">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -848,27 +1018,24 @@ export function StudioWorkspace() {
               }}
               className={cn(
                 "relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-(length:--text-micro)",
-                pane === tab.id ? "font-semibold text-foreground" : "text-muted-foreground",
+                pane === tab.id ? "font-semibold text-primary" : "text-muted-foreground",
               )}
               data-testid={`studio-tab-${tab.id}`}
             >
               <Icon className="size-4" />
               {tab.label}
               {tab.badge ? <span className="absolute top-1 right-1/4 size-1.5 rounded-full bg-primary" /> : null}
-              {pane === tab.id ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
+              {pane === tab.id ? <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" /> : null}
             </button>
           );
         })}
-      </div>
-      <div className="min-h-0 flex-1">
-        {pane === "files" ? treePane : pane === "code" ? editorPane : sidePanes[pane]}
       </div>
 
       {/* Larger screens: files, editor, and a side panel together. */}
       </>
       ) : (
       <div className="flex min-h-0 flex-1">
-        <aside className="w-60 shrink-0 border-r border-border">{treePane}</aside>
+        <aside className="w-60 shrink-0 border-r border-border">{filesPane}</aside>
         <section className="min-w-0 flex-1">{editorPane}</section>
         <aside className="flex w-96 shrink-0 flex-col border-l border-border">
           <div className="flex border-b border-border" role="tablist" aria-label="Side panel">
@@ -901,6 +1068,7 @@ export function StudioWorkspace() {
       </div>
       )}
 
+      <StudioCheckpointsSheet open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={workspaceId} onRestored={() => setHistoryOpen(false)} />
       <StudioSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

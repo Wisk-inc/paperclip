@@ -5,6 +5,7 @@ import {
   Download,
   Ellipsis,
   File,
+  FileArchive,
   FilePlus,
   Folder,
   FolderOpen,
@@ -40,6 +41,8 @@ interface StudioFileTreeProps {
   onDelete?: (path: string) => void;
   onUpload?: (files: File[], folder: string | null) => Promise<void> | void;
   downloadUrl?: (path: string) => string;
+  /** A zip of the project (no path) or of a folder. */
+  archiveUrl?: (path?: string | null) => string;
 }
 
 type Draft = { kind: "create"; type: "file" | "folder"; folder: string | null } | { kind: "rename"; path: string };
@@ -66,6 +69,7 @@ export function StudioFileTree({
   onDelete,
   onUpload,
   downloadUrl,
+  archiveUrl,
 }: StudioFileTreeProps) {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -192,7 +196,7 @@ export function StudioFileTree({
                 </span>
               ) : null}
             </button>
-            {onCreate || onRename || onDelete || downloadUrl ? (
+            {onCreate || onRename || onDelete || downloadUrl || archiveUrl ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -233,6 +237,13 @@ export function StudioFileTree({
                       }}
                     >
                       <Pencil /> Rename
+                    </DropdownMenuItem>
+                  ) : null}
+                  {isFolder && archiveUrl ? (
+                    <DropdownMenuItem asChild>
+                      <a href={archiveUrl(node.path)} download={`${node.name}.zip`}>
+                        <FileArchive /> Download as zip
+                      </a>
                     </DropdownMenuItem>
                   ) : null}
                   {!isFolder && downloadUrl ? (
@@ -289,6 +300,13 @@ export function StudioFileTree({
               }}
             >
               <Upload />
+            </Button>
+          ) : null}
+          {archiveUrl ? (
+            <Button variant="ghost" size="icon-sm" aria-label="Download the project as a zip" title="Download as zip" asChild>
+              <a href={archiveUrl(null)} download data-testid="studio-download-zip">
+                <FileArchive />
+              </a>
             </Button>
           ) : null}
           <input

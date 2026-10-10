@@ -363,6 +363,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
       onOpen={(path) => void openFile(path)}
       editedPaths={new Set(Object.keys(edits))}
       participants={participants.filter((participant) => participant.id !== me?.id)}
+      archiveUrl={(path) => studioGuestApi.archiveUrl(token, path)}
       onCreate={(path, type) => {
         if (type === "folder") return;
         setEdits((all) => ({ ...all, [path]: "" }));
@@ -492,7 +493,8 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
 
       {narrow ? (
       <>
-      <div className="flex border-b border-border" role="tablist" aria-label="Project panes">
+      <div className="min-h-0 flex-1">{pane === "files" ? treePane : pane === "code" ? editorPane : sidePanes[pane]}</div>
+      <div className="flex border-t border-border bg-card" role="tablist" aria-label="Project panes">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -502,18 +504,17 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
               role="tab"
               aria-selected={pane === tab.id}
               onClick={() => setPane(tab.id)}
-              className={cn("relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-(length:--text-micro)", pane === tab.id ? "font-semibold" : "text-muted-foreground")}
+              className={cn("relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-(length:--text-micro)", pane === tab.id ? "font-semibold text-primary" : "text-muted-foreground")}
               data-testid={`studio-tab-${tab.id}`}
             >
               <Icon className="size-4" />
               {tab.label}
               {tab.badge ? <span className="absolute top-1 right-1/4 size-1.5 rounded-full bg-primary" /> : null}
-              {pane === tab.id ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
+              {pane === tab.id ? <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" /> : null}
             </button>
           );
         })}
       </div>
-      <div className="min-h-0 flex-1">{pane === "files" ? treePane : pane === "code" ? editorPane : sidePanes[pane]}</div>
 
       </>
       ) : (

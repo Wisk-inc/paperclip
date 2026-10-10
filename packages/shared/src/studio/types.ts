@@ -15,6 +15,8 @@ export interface StudioWorkspace {
   /** Share code collaborators join with, while sharing is on. */
   shareCode: string | null;
   shareEnabled: boolean;
+  /** When the share code stops working (null: until sharing is turned off). */
+  shareExpiresAt: string | null;
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -86,6 +88,20 @@ export interface StudioParticipant {
   online: boolean;
 }
 
+/** A saved copy of a project's files to go back to. */
+export interface StudioCheckpoint {
+  id: string;
+  label: string;
+  /** `manual`: saved by you; `assistant`: before an AI turn; `change`: before accepting a change; `restore`: before going back. */
+  kind: "manual" | "assistant" | "change" | "restore";
+  by: string;
+  fileCount: number;
+  bytes: number;
+  /** Files left out for being too large. */
+  skippedFiles: number;
+  createdAt: string;
+}
+
 export interface StudioCollaborator {
   id: string;
   workspaceId: string;
@@ -145,6 +161,8 @@ export interface StudioAiProviderInfo {
   /** OpenAI-compatible chat completions endpoint base (unused for Anthropic). */
   baseUrl: string | null;
   defaultModel: string;
+  /** A fast model for inline code suggestions. */
+  completionModel: string;
   /** Suggested models, newest first. */
   models: readonly string[];
   keyUrl: string | null;
@@ -156,6 +174,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "Anthropic (Claude)",
     baseUrl: null,
     defaultModel: "claude-opus-5-5",
+    completionModel: "claude-haiku-5-5",
     models: ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
     keyUrl: "https://console.anthropic.com/settings/keys",
   },
@@ -164,6 +183,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "OpenAI (GPT)",
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-6.1-sol",
+    completionModel: "gpt-6-luna",
     models: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.5"],
     keyUrl: "https://platform.openai.com/api-keys",
   },
@@ -172,6 +192,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "OpenRouter (any model)",
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "anthropic/claude-opus-5.5",
+    completionModel: "anthropic/claude-haiku-5.5",
     models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7"],
     keyUrl: "https://openrouter.ai/keys",
   },
@@ -180,6 +201,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "Google (Gemini)",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-3.8-flash",
+    completionModel: "gemini-3.8-flash",
     models: ["gemini-3.8-flash"],
     keyUrl: "https://aistudio.google.com/apikey",
   },
@@ -188,6 +210,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
     defaultModel: "deepseek-chat",
+    completionModel: "deepseek-chat",
     models: ["deepseek-chat", "deepseek-reasoner"],
     keyUrl: "https://platform.deepseek.com/api_keys",
   },
@@ -196,6 +219,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "xAI (Grok)",
     baseUrl: "https://api.x.ai/v1",
     defaultModel: "grok-4.7",
+    completionModel: "grok-4.7",
     models: ["grok-4.7"],
     keyUrl: "https://console.x.ai",
   },
@@ -204,6 +228,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
+    completionModel: "llama-3.3-70b-versatile",
     models: ["llama-3.3-70b-versatile"],
     keyUrl: "https://console.groq.com/keys",
   },
@@ -212,6 +237,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "Mistral",
     baseUrl: "https://api.mistral.ai/v1",
     defaultModel: "mistral-large-latest",
+    completionModel: "codestral-latest",
     models: ["mistral-large-latest", "codestral-latest"],
     keyUrl: "https://console.mistral.ai/api-keys",
   },
@@ -220,6 +246,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     name: "Other (OpenAI-compatible)",
     baseUrl: null,
     defaultModel: "",
+    completionModel: "",
     models: [],
     keyUrl: null,
   },
@@ -251,6 +278,8 @@ export interface StudioAssistantTurn {
   steps: StudioAssistantStep[];
   /** Text still being written (live updates only). */
   live?: string;
+  /** On your message: the checkpoint saved just before the assistant started. */
+  checkpointId?: string | null;
   provider: StudioAiProvider | null;
   model: string | null;
   error: string | null;
@@ -272,6 +301,7 @@ export type StudioServerEvent =
   | { type: "run"; state: StudioRunState }
   | { type: "assistant"; turn: StudioAssistantTurn; done: boolean }
   | { type: "share"; shareEnabled: boolean }
+  | { type: "checkpoint:restored"; checkpoint: StudioCheckpoint }
   | { type: "kicked"; reason: string };
 
 /** Events a Studio client sends. */
@@ -343,6 +373,29 @@ export const saveStudioAiKeySchema = z.object({
   provider: z.enum(STUDIO_AI_PROVIDERS),
   apiKey: z.string().trim().min(8).max(1000),
   baseUrl: z.string().trim().url().max(500).optional().nullable(),
+});
+
+export const createStudioCheckpointSchema = z.object({
+  label: z.string().trim().max(160).optional().nullable(),
+});
+
+export const shareStudioSchema = z.object({
+  /** Also open a public link to the collaborator page (needs cloudflared). */
+  public: z.boolean().optional(),
+  /** How long the code works: hours from now, or null for until you stop sharing. */
+  expiresInHours: z.number().int().min(1).max(24 * 90).optional().nullable(),
+  /** Replace the code (people who already joined stay in). */
+  newCode: z.boolean().optional(),
+});
+
+export const studioCompleteSchema = z.object({
+  path: z.string().trim().min(1).max(1024),
+  /** Text before the cursor (the end of it). */
+  prefix: z.string().max(12_000),
+  /** Text after the cursor (the start of it). */
+  suffix: z.string().max(4_000),
+  provider: z.enum(STUDIO_AI_PROVIDERS),
+  model: z.string().trim().max(200).optional().nullable(),
 });
 
 export const joinStudioSchema = z.object({

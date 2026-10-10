@@ -303,6 +303,8 @@ export async function runAssistantTurn(input: {
   provider: StudioAiProvider;
   model: string;
   credentials: ProviderCredentials;
+  /** The checkpoint saved just before this turn, to undo it. */
+  checkpointId?: string | null;
 }) {
   const { context } = input;
   if (running.has(context.workspaceId)) throw new Error("The assistant is already working on this project");
@@ -313,6 +315,7 @@ export async function runAssistantTurn(input: {
   const transcript = await readJson<StudioAssistantTurn[]>(transcriptFile, []);
   const userTurn: StudioAssistantTurn = {
     id: randomUUID(), role: "user", text: input.message, steps: [], provider: input.provider, model: input.model, error: null, createdAt: new Date().toISOString(),
+    checkpointId: input.checkpointId ?? null,
   };
   const turn: StudioAssistantTurn = {
     id: randomUUID(), role: "assistant", text: "", steps: [], provider: input.provider, model: input.model, error: null, createdAt: new Date().toISOString(),
@@ -558,4 +561,79 @@ async function runOpenAiCompatible(input: {
 /** Confines a model-supplied path to the project (exported for tests). */
 export async function assistantPathInside(companyId: string, workspaceId: string, relative: string) {
   return resolveInside(studioWorkspaceDirs(companyId, workspaceId).files, relative);
+}
+
+const COMPLETION_SYSTEM = `You are a code completion engine inside a code editor. You get a file with the marker <CURSOR> where the person is typing. Reply with only the text to insert at <CURSOR>: no explanations, no code fences, no repeated text from before the cursor. Finish the current line, and add up to a few more lines when the next lines are obvious. Match the file's language, indentation, and style. If nothing useful fits, reply with nothing.`;
+
+/** Removes fences and any text that repeats what is already before the cursor. */
+export function cleanCompletion(raw: string, prefix: string): string {
+  let text = raw.replace(/^```[\w+-]*\n?/, "").replace(/\n?```\s*$/, "");
+  const currentLine = prefix.slice(prefix.lastIndexOf("\n") + 1);
+  if (currentLine.trim() && text.startsWith(currentLine)) text = text.slice(currentLine.length);
+  const lines = text.split("\n");
+  return lines.slice(0, 8).join("\n").replace(/\s+$/, "");
+}
+
+/**
+ * A short inline suggestion for the code at the cursor (the grey text in the
+ * editor), from a fast model with the person's own key.
+ */
+export async function completeCode(input: {
+  provider: StudioAiProvider;
+  model: string;
+  credentials: ProviderCredentials;
+  path: string;
+  prefix: string;
+  suffix: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const prompt = `File: ${input.path}\n\n${input.prefix}<CURSOR>${input.suffix}`;
+  if (input.provider === "anthropic") {
+    const client = new Anthropic({
+      apiKey: input.credentials.apiKey,
+      baseURL: input.credentials.baseUrl || process.env.PAPERCLIP_STUDIO_ANTHROPIC_BASE_URL || undefined,
+      maxRetries: 0,
+      timeout: 20_000,
+    });
+    // Speed over depth: thinking off where the model accepts that (at low
+    // effort); other models keep adaptive thinking at low effort.
+    const thinkingOff = input.model === "claude-haiku-5-5" || input.model === "claude-opus-5";
+    const response = await client.messages.create(
+      {
+        model: input.model,
+        max_tokens: 400,
+        system: COMPLETION_SYSTEM,
+        messages: [{ role: "user", content: prompt }],
+        ...(thinkingOff ? { thinking: { type: "disabled" as const } } : {}),
+        ...(supportsEffort(input.model) ? { output_config: { effort: "low" as const } } : {}),
+      },
+      { signal: input.signal },
+    );
+    if (response.stop_reason === "refusal") return "";
+    const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+    return cleanCompletion(text, input.prefix);
+  }
+  const info = STUDIO_AI_PROVIDER_INFO[input.provider];
+  const baseUrl = (input.credentials.baseUrl || info.baseUrl || "").replace(/\/+$/, "");
+  if (!baseUrl) throw new Error("Add the API's base URL in Studio's AI settings.");
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    signal: input.signal ?? AbortSignal.timeout(20_000),
+    headers: {
+      authorization: `Bearer ${input.credentials.apiKey}`,
+      "content-type": "application/json",
+      ...(input.provider === "openrouter" ? { "X-Title": "Automa Studio" } : {}),
+    },
+    body: JSON.stringify({
+      model: input.model,
+      messages: [
+        { role: "system", content: COMPLETION_SYSTEM },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 200,
+    }),
+  });
+  if (!response.ok) throw new Error(`${info.name} error ${response.status}`);
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+  return cleanCompletion(data.choices?.[0]?.message?.content ?? "", input.prefix);
 }

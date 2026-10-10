@@ -3383,8 +3383,8 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   /* Text on a language's brand-colored badge. */
   --studio-badge-fg: oklch(1 0 0);
   --studio-badge-fg-dark: oklch(0.2 0 0);
-  /* Language logos sit on a light tile so dark marks read in dark mode. */
-  --studio-logo-tile: oklch(0.99 0 0);
+  /* Language logos sit on a soft tile; dark mode keeps it dark (no glare). */
+  --studio-logo-tile: oklch(0.97 0.004 270);
   /* Phones: the IDE fills the space between the header and the tab bar. */
   --studio-ide-mobile-height: calc(100dvh - var(--sz-safe-top) - var(--sz-60px) - var(--spacing) * 4 - var(--sz-calc-14));
 }
@@ -3404,7 +3404,7 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --studio-diff-del-bg: oklch(0.32 0.07 25 / 0.55);
   --studio-diff-del-fg: oklch(0.88 0.08 25);
   --studio-console-bg: oklch(0.13 0.01 270);
-  --studio-logo-tile: oklch(0.94 0.008 270);
+  --studio-logo-tile: oklch(0.27 0.012 270);
 }
 @theme inline {
   --color-studio-diff-add: var(--studio-diff-add-bg);

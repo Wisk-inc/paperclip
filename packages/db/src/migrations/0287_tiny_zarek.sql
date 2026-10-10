@@ -1,0 +1,1 @@
+ALTER TABLE "studio_workspaces" ADD COLUMN "share_expires_at" timestamp with time zone;

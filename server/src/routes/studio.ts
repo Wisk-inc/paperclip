@@ -10,6 +10,10 @@ import {
   STUDIO_LANGUAGES,
   STUDIO_LANGUAGE_CATEGORIES,
   createStudioChangeRequestSchema,
+  createStudioCheckpointSchema,
+  shareStudioSchema,
+  studioCompleteSchema,
+  STUDIO_AI_PROVIDER_INFO,
   createStudioEntrySchema,
   createStudioWorkspaceSchema,
   execStudioCommandSchema,
@@ -52,8 +56,10 @@ import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installComma
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
 import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
 import { StudioGateway } from "../services/studio/gateway.js";
+import { createCheckpoint, deleteCheckpoint, listCheckpoints, restoreCheckpoint, streamProjectZip } from "../services/studio/checkpoints.js";
 import {
   clearAssistantConversation,
+  completeCode,
   isAssistantRunning,
   readAssistantTranscript,
   runAssistantTurn,
@@ -98,6 +104,8 @@ process.once("exit", () => {
 
 /** Stops every running Studio app, public link, and the collaborator gateway. */
 export async function shutdownStudio() {
+  if (expirySweep) clearInterval(expirySweep);
+  expirySweep = null;
   gatewayTunnel?.process.kill("SIGTERM");
   gatewayTunnel = null;
   await Promise.all([gateway.stop(), stopAllStudioRuntimes()]);
@@ -160,6 +168,40 @@ async function attachmentPath(workspace: WorkspaceRow, attachmentId: string) {
   return { absolute: path.join(dir, name), name };
 }
 
+const RAW_TYPES: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp",
+  ico: "image/x-icon", svg: "image/svg+xml", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", mp4: "video/mp4",
+  webm: "video/webm", mov: "video/quicktime", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf", pdf: "application/pdf",
+};
+
+/** Sends a project file to view inline (images, audio, fonts), sandboxed. */
+async function sendRaw(res: Response, root: string, relative: string) {
+  const absolute = await resolveInside(root, relative);
+  const stat = await fs.stat(absolute).catch(() => null);
+  if (!stat?.isFile()) throw notFound("File not found");
+  const ext = path.extname(absolute).slice(1).toLowerCase();
+  res.setHeader("content-type", RAW_TYPES[ext] ?? "application/octet-stream");
+  res.setHeader("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'");
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("cache-control", "private, max-age=10");
+  createReadStream(absolute).on("error", () => res.status(404).end()).pipe(res);
+}
+
+/** Streams a zip of the project (or a folder in it). */
+async function sendZip(res: Response, root: string, relative: string, fallbackName: string) {
+  const name = `${(relative ? path.basename(relative) : fallbackName).replace(/[^\w .-]+/g, "_").trim() || "project"}.zip`;
+  res.setHeader("content-type", "application/zip");
+  res.setHeader("content-disposition", `attachment; filename="${name}"`);
+  res.setHeader("x-content-type-options", "nosniff");
+  await streamProjectZip(root, relative, (chunk) =>
+    new Promise<void>((resolve) => {
+      if (res.write(Buffer.from(chunk))) resolve();
+      else res.once("drain", () => resolve());
+    }),
+  );
+  res.end();
+}
+
 /**
  * Applies proposed file changes to the project. Each `after` replaces the
  * file; a null `after` deletes it.
@@ -172,10 +214,28 @@ async function applyChangeFiles(workspace: WorkspaceRow, files: StudioChangeFile
   }
 }
 
+let expirySweep: ReturnType<typeof setInterval> | null = null;
+
 /** Owner routes: board users with access to the project's company. */
 export function studioRoutes(db: Db) {
   const router = Router();
   const svc = studioService(db);
+
+  // Codes with an expiry stop working on time: guests are let go and sharing turns off.
+  if (!expirySweep) {
+    expirySweep = setInterval(() => {
+      void svc
+        .expireShares()
+        .then((ids) => {
+          for (const id of ids) {
+            studioHub.kickGuests(id, "The share code expired.");
+            studioHub.broadcast(id, { type: "share", shareEnabled: false });
+          }
+        })
+        .catch(() => undefined);
+    }, 30_000);
+    expirySweep.unref?.();
+  }
 
   async function ownerName(userId: string | null | undefined) {
     if (!userId || userId === "local-board") return "Owner";
@@ -345,6 +405,79 @@ export function studioRoutes(db: Db) {
     res.status(201).json({ paths: saved });
   });
 
+  router.get("/studio/workspaces/:id/archive", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    const relative = typeof req.query.path === "string" && req.query.path.trim() ? normalizeStudioPath(req.query.path) : "";
+    await sendZip(res, studioWorkspaceDirs(workspace.companyId, workspace.id).files, relative, workspace.name);
+  });
+
+  router.get("/studio/workspaces/:id/raw", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    await sendRaw(res, studioWorkspaceDirs(workspace.companyId, workspace.id).files, String(req.query.path ?? ""));
+  });
+
+  // ── Checkpoints ──────────────────────────────────────────────────────────
+
+  router.get("/studio/workspaces/:id/checkpoints", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    res.json({ checkpoints: await listCheckpoints(workspace.companyId, workspace.id) });
+  });
+
+  router.post("/studio/workspaces/:id/checkpoints", validate(createStudioCheckpointSchema), async (req, res) => {
+    const workspace = await workspaceFor(req);
+    const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
+      label: req.body.label?.trim() || `Saved ${new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`,
+      kind: "manual",
+      by: await ownerName(req.actor.userId),
+    });
+    await log(req, workspace, "studio.checkpoint_saved", { checkpointId: checkpoint.id });
+    res.status(201).json({ checkpoint });
+  });
+
+  router.post("/studio/workspaces/:id/checkpoints/:checkpointId/restore", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    if (isAssistantRunning(workspace.id)) throw conflict("Stop the assistant before going back to a checkpoint");
+    const result = await restoreCheckpoint(workspace.companyId, workspace.id, String(req.params.checkpointId), await ownerName(req.actor.userId));
+    studioHub.broadcast(workspace.id, { type: "checkpoint:restored", checkpoint: result.restored });
+    studioHub.broadcast(workspace.id, { type: "tree:changed" });
+    await log(req, workspace, "studio.checkpoint_restored", { checkpointId: result.restored.id, label: result.restored.label });
+    res.json(result);
+  });
+
+  router.delete("/studio/workspaces/:id/checkpoints/:checkpointId", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    await deleteCheckpoint(workspace.companyId, workspace.id, String(req.params.checkpointId));
+    res.json({ ok: true });
+  });
+
+  // ── Inline suggestions ───────────────────────────────────────────────────
+
+  router.post("/studio/workspaces/:id/complete", validate(studioCompleteSchema), async (req, res) => {
+    const workspace = await workspaceFor(req);
+    const provider = req.body.provider as StudioAiProvider;
+    const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), provider);
+    if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
+    const model = req.body.model?.trim() || STUDIO_AI_PROVIDER_INFO[provider].completionModel;
+    if (!model) throw unprocessable("Pick a model for suggestions");
+    const controller = new AbortController();
+    req.on("close", () => controller.abort());
+    try {
+      const completion = await completeCode({
+        provider,
+        model,
+        credentials,
+        path: normalizeStudioPath(req.body.path),
+        prefix: req.body.prefix.slice(-6000),
+        suffix: req.body.suffix.slice(0, 2000),
+        signal: controller.signal,
+      });
+      res.json({ completion, model });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      res.json({ completion: "", model, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   router.get("/studio/workspaces/:id/download", async (req, res) => {
     const workspace = await workspaceFor(req);
     const root = studioWorkspaceDirs(workspace.companyId, workspace.id).files;
@@ -464,9 +597,9 @@ export function studioRoutes(db: Db) {
 
   // ── Sharing and collaborators ────────────────────────────────────────────
 
-  router.post("/studio/workspaces/:id/share", async (req, res) => {
+  router.post("/studio/workspaces/:id/share", validate(shareStudioSchema), async (req, res) => {
     const workspace = await workspaceFor(req);
-    const shared = await svc.enableShare(workspace.id);
+    const shared = await svc.enableShare(workspace.id, { expiresInHours: req.body.expiresInHours, newCode: req.body.newCode === true });
     const gatewayPort = await gateway.start();
     let publicUrl: string | null = null;
     let publicError: string | null = null;
@@ -478,7 +611,7 @@ export function studioRoutes(db: Db) {
       }
     }
     studioHub.broadcast(workspace.id, { type: "share", shareEnabled: true });
-    await log(req, workspace, "studio.share_enabled");
+    await log(req, workspace, req.body.newCode ? "studio.share_code_replaced" : "studio.share_enabled", { expiresAt: shared.shareExpiresAt });
     res.json({
       workspace: shared,
       code: shared.shareCode,
@@ -556,6 +689,7 @@ export function studioRoutes(db: Db) {
     if (row.status !== "open") throw conflict("This change request was already handled");
     const edited = new Map<string, string | null>((req.body.files ?? []).map((file: { path: string; after: string | null }) => [normalizeStudioPath(file.path), file.after]));
     const files: StudioChangeFile[] = row.files.map((file) => (edited.has(normalizeStudioPath(file.path)) ? { ...file, after: edited.get(normalizeStudioPath(file.path))! } : file));
+    await createCheckpoint(workspace.companyId, workspace.id, { label: `Before ${row.authorName}'s change`, kind: "change", by: await ownerName(req.actor.userId) }).catch(() => null);
     await applyChangeFiles(workspace, files);
     const resolved = await svc.resolveChangeRequest(workspace.id, row.id, "accepted", req.actor.userId ?? null, files);
     for (const file of files) await broadcastFile(workspace, file.path, actor(req));
@@ -627,7 +761,14 @@ export function studioRoutes(db: Db) {
     if (isAssistantRunning(workspace.id)) throw conflict("The assistant is still working; wait or tap Stop");
     const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), req.body.provider);
     if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
+    // Saved first, so whatever the assistant does can be undone.
+    const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
+      label: `Before AI: ${req.body.message.replace(/\s+/g, " ").slice(0, 80)}`,
+      kind: "assistant",
+      by: "AI assistant",
+    }).catch(() => null);
     const { userTurn } = await runAssistantTurn({
+      checkpointId: checkpoint?.id ?? null,
       context: {
         workspaceId: workspace.id,
         companyId: workspace.companyId,
@@ -715,6 +856,17 @@ export function studioPublicRoutes(db: Db) {
   router.get("/studio-guest/file", async (req, res) => {
     const guest = await guestFor(req);
     res.json(await readStudioFile(studioWorkspaceDirs(guest.workspace.companyId, guest.workspace.id).files, String(req.query.path ?? "")));
+  });
+
+  router.get("/studio-guest/raw", async (req, res) => {
+    const guest = await guestFor(req);
+    await sendRaw(res, studioWorkspaceDirs(guest.workspace.companyId, guest.workspace.id).files, String(req.query.path ?? ""));
+  });
+
+  router.get("/studio-guest/archive", async (req, res) => {
+    const guest = await guestFor(req);
+    const relative = typeof req.query.path === "string" && req.query.path.trim() ? normalizeStudioPath(req.query.path) : "";
+    await sendZip(res, studioWorkspaceDirs(guest.workspace.companyId, guest.workspace.id).files, relative, guest.workspace.name);
   });
 
   router.get("/studio-guest/console", async (req, res) => {

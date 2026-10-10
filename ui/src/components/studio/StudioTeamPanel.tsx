@@ -20,12 +20,15 @@ export interface StudioShareInfo {
 interface StudioTeamPanelProps {
   shareEnabled: boolean;
   shareCode: string | null;
+  /** When the code stops working (null: never). */
+  shareExpiresAt: string | null;
   share: StudioShareInfo | null;
   participants: StudioParticipant[];
   collaborators: StudioCollaborator[];
   messages: StudioMessage[];
   changeRequests: StudioChangeRequest[];
-  onShare: () => Promise<void>;
+  /** Turns sharing on or changes it (expiry in hours, null for none; a new code). */
+  onShare: (options: { expiresInHours?: number | null; newCode?: boolean }) => Promise<void>;
   onStopSharing: () => Promise<void>;
   onRemoveCollaborator: (collaboratorId: string) => Promise<void>;
   onSendMessage: (body: string, file: File | null) => Promise<void>;
@@ -36,6 +39,52 @@ interface StudioTeamPanelProps {
 }
 
 type Section = "people" | "chat" | "changes";
+
+const EXPIRY_OPTIONS: Array<{ label: string; hours: number | null }> = [
+  { label: "1 hour", hours: 1 },
+  { label: "1 day", hours: 24 },
+  { label: "7 days", hours: 24 * 7 },
+  { label: "30 days", hours: 24 * 30 },
+  { label: "No limit", hours: null },
+];
+
+function expiryText(expiresAt: string | null) {
+  if (!expiresAt) return "Works until you stop sharing";
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 55) return `Expires in ${Math.max(1, minutes)} min`;
+  const hours = Math.round(ms / 3_600_000);
+  if (hours < 48) return `Expires in ${hours} h`;
+  return `Expires in ${Math.round(hours / 24)} days`;
+}
+
+function ExpiryPicker({ value, onChange, disabled }: { value: number | null; onChange: (hours: number | null) => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">Code works for</span>
+      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="How long the code works">
+        {EXPIRY_OPTIONS.map((option) => (
+          <button
+            key={option.label}
+            type="button"
+            role="radio"
+            aria-checked={value === option.hours}
+            disabled={disabled}
+            onClick={() => onChange(option.hours)}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs",
+              value === option.hours ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/60 text-muted-foreground hover:bg-accent",
+            )}
+            data-testid={`studio-expiry-${option.hours ?? "never"}`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CopyField({ label, value, testId }: { label: string; value: string; testId?: string }) {
   const [copied, setCopied] = useState(false);
@@ -162,6 +211,7 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
   const [section, setSection] = useState<Section>(() => (openChanges.length ? "changes" : "people"));
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [expiryHours, setExpiryHours] = useState<number | null>(24);
   const reviewing = useMemo(() => props.changeRequests.find((change) => change.id === reviewId) ?? null, [props.changeRequests, reviewId]);
   const guests = props.participants.filter((participant) => participant.role === "guest");
 
@@ -212,10 +262,15 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                   <Share2 className="size-4 text-primary" />
                   <span className="text-sm font-medium">Sharing is on</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">Join code</span>
-                  <span className="font-mono text-2xl font-semibold tracking-widest" data-testid="studio-share-code">
-                    {props.shareCode}
+                <div className="flex items-end justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground">Join code</span>
+                    <span className="font-mono text-2xl font-semibold tracking-widest" data-testid="studio-share-code">
+                      {props.shareCode}
+                    </span>
+                  </div>
+                  <span className="rounded-full bg-background/70 px-2 py-0.5 text-xs text-muted-foreground" data-testid="studio-share-expiry">
+                    {expiryText(props.shareExpiresAt)}
                   </span>
                 </div>
                 {props.share?.inviteUrl ? <CopyField label="Invite link" value={props.share.inviteUrl} testId="studio-invite-link" /> : null}
@@ -228,17 +283,43 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                 <p className="text-xs text-muted-foreground">
                   People who join see your code as you type, chat with you, and send changes for you to accept. They can't save files or reach the rest of Automa.
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
+                <ExpiryPicker
+                  value={expiryHours}
                   disabled={sharing}
-                  onClick={() => {
+                  onChange={(hours) => {
+                    setExpiryHours(hours);
                     setSharing(true);
-                    void props.onStopSharing().finally(() => setSharing(false));
+                    void props.onShare({ expiresInHours: hours }).finally(() => setSharing(false));
                   }}
-                >
-                  Stop sharing
-                </Button>
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={sharing}
+                    onClick={() => {
+                      setSharing(true);
+                      void props.onShare({ newCode: true, expiresInHours: expiryHours }).finally(() => setSharing(false));
+                    }}
+                    data-testid="studio-new-code"
+                  >
+                    New code
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive"
+                    disabled={sharing}
+                    onClick={() => {
+                      setSharing(true);
+                      void props.onStopSharing().finally(() => setSharing(false));
+                    }}
+                    data-testid="studio-stop-sharing"
+                  >
+                    Revoke all
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">New code stops the old one from working; people already in stay. Revoke all ends sharing and removes everyone.</p>
               </div>
             ) : (
               <div className="flex flex-col items-start gap-3 rounded-2xl border border-border bg-linear-to-br from-primary/15 to-card p-4">
@@ -252,12 +333,13 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                     <p className="text-sm text-muted-foreground">Share a code or link. Friends see what you type live, chat, share files, and suggest changes you approve.</p>
                   </div>
                 </div>
+                <ExpiryPicker value={expiryHours} onChange={setExpiryHours} disabled={sharing} />
                 <Button
                   disabled={sharing}
                   data-testid="studio-share-button"
                   onClick={() => {
                     setSharing(true);
-                    void props.onShare().finally(() => setSharing(false));
+                    void props.onShare({ expiresInHours: expiryHours }).finally(() => setSharing(false));
                   }}
                 >
                   {sharing ? <LoaderCircle className="animate-spin" /> : <Share2 />} Invite people

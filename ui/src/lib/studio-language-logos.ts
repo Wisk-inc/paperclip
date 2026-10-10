@@ -62,6 +62,12 @@ export const STUDIO_LANGUAGE_LOGOS: ReadonlySet<string> = new Set([
   "zsh",
 ]);
 
+/** Black or near-black marks: shown inverted (light) in dark mode. */
+export const STUDIO_DARK_LOGOS: ReadonlySet<string> = new Set(["awk", "crystal", "deno", "emacslisp", "express", "flask", "rust"]);
+
+/** Deep-colored marks: brightened a little in dark mode so they stand out. */
+export const STUDIO_DIM_LOGOS: ReadonlySet<string> = new Set(["d", "erlang", "fortran", "haskell", "pwa", "racket", "scala", "bash"]);
+
 export function studioLanguageLogoUrl(languageId: string): string | null {
   return STUDIO_LANGUAGE_LOGOS.has(languageId) ? `/brands/languages/${languageId}.svg` : null;
 }

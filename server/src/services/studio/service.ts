@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import {
   studioAiKeys,
   studioChangeRequests,
@@ -49,6 +49,7 @@ export function toStudioWorkspace(row: WorkspaceRow): StudioWorkspace {
     createdByUserId: row.createdByUserId,
     shareCode: row.shareEnabled ? row.shareCode : null,
     shareEnabled: row.shareEnabled,
+    shareExpiresAt: row.shareEnabled ? iso(row.shareExpiresAt) : null,
     lastRunAt: iso(row.lastRunAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -166,6 +167,10 @@ export function suggestRunCommand(files: readonly string[], packageJson: { scrip
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isShareExpired(row: { shareExpiresAt: Date | null }) {
+  return row.shareExpiresAt !== null && row.shareExpiresAt.getTime() <= Date.now();
+}
 
 export function studioService(db: Db) {
   async function get(id: string) {
@@ -304,14 +309,27 @@ export function studioService(db: Db) {
     return row;
   }
 
-  async function enableShare(id: string) {
+  /**
+   * Turns sharing on (or updates it): keeps the current code unless a new
+   * one is asked for, and sets when the code stops working. `expiresInHours`
+   * left out keeps the current expiry; null means no expiry.
+   */
+  async function enableShare(id: string, options: { expiresInHours?: number | null; newCode?: boolean } = {}) {
     const row = await require(id);
-    if (row.shareEnabled && row.shareCode) return toStudioWorkspace(row);
+    const shareExpiresAt =
+      options.expiresInHours === undefined
+        ? row.shareEnabled && !isShareExpired(row)
+          ? row.shareExpiresAt
+          : null
+        : options.expiresInHours === null
+          ? null
+          : new Date(Date.now() + options.expiresInHours * 3_600_000);
+    const keepCode = row.shareEnabled && row.shareCode && !options.newCode && !isShareExpired(row);
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         const [updated] = await db
           .update(studioWorkspaces)
-          .set({ shareEnabled: true, shareCode: newShareCode(), updatedAt: new Date() })
+          .set({ shareEnabled: true, shareCode: keepCode ? row.shareCode : newShareCode(), shareExpiresAt, updatedAt: new Date() })
           .where(eq(studioWorkspaces.id, id))
           .returning();
         return toStudioWorkspace(updated!);
@@ -326,7 +344,7 @@ export function studioService(db: Db) {
     await require(id);
     const [updated] = await db
       .update(studioWorkspaces)
-      .set({ shareEnabled: false, shareCode: null, updatedAt: new Date() })
+      .set({ shareEnabled: false, shareCode: null, shareExpiresAt: null, updatedAt: new Date() })
       .where(eq(studioWorkspaces.id, id))
       .returning();
     await db
@@ -341,6 +359,7 @@ export function studioService(db: Db) {
     if (normalized.length < 6) throw badRequest("Check the code and try again");
     const [workspace] = await db.select().from(studioWorkspaces).where(eq(studioWorkspaces.shareCode, normalized)).limit(1);
     if (!workspace || !workspace.shareEnabled || workspace.archivedAt) throw notFound("No shared project has that code (or sharing was turned off)");
+    if (isShareExpired(workspace)) throw notFound("This code has expired. Ask for a new one.");
     const existing = await db.select({ id: studioCollaborators.id }).from(studioCollaborators).where(eq(studioCollaborators.workspaceId, workspace.id));
     const token = randomBytes(24).toString("base64url");
     const [collaborator] = await db
@@ -366,9 +385,19 @@ export function studioService(db: Db) {
       .limit(1);
     if (!collaborator || collaborator.status !== "active") return null;
     const workspace = await get(collaborator.workspaceId);
-    if (!workspace || !workspace.shareEnabled) return null;
+    if (!workspace || !workspace.shareEnabled || isShareExpired(workspace)) return null;
     await db.update(studioCollaborators).set({ lastSeenAt: new Date() }).where(eq(studioCollaborators.id, collaborator.id));
     return { collaborator, workspace };
+  }
+
+  /** Turns sharing off for every project whose code has expired; returns their ids. */
+  async function expireShares(): Promise<string[]> {
+    const expired = await db
+      .select({ id: studioWorkspaces.id })
+      .from(studioWorkspaces)
+      .where(and(eq(studioWorkspaces.shareEnabled, true), lt(studioWorkspaces.shareExpiresAt, new Date())));
+    for (const row of expired) await disableShare(row.id);
+    return expired.map((row) => row.id);
   }
 
   async function collaborators(workspaceId: string) {
@@ -544,6 +573,7 @@ export function studioService(db: Db) {
     disableShare,
     join,
     guestByToken,
+    expireShares,
     collaborators,
     removeCollaborator,
     messages,

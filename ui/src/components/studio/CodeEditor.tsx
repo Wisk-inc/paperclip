@@ -17,6 +17,7 @@ import {
 import { classHighlighter } from "@lezer/highlight";
 import { studioEditorLanguageForPath } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
+import { inlineSuggestions, type SuggestFn } from "./inline-suggestions";
 
 interface CodeEditorProps {
   /** The file's path; picks the syntax highlighting. */
@@ -29,6 +30,8 @@ interface CodeEditorProps {
   placeholder?: string;
   className?: string;
   ariaLabel?: string;
+  /** Grey AI suggestions while typing (off when absent). */
+  suggest?: SuggestFn | null;
 }
 
 /** Editor chrome in token colors, so it follows light and dark mode. */
@@ -61,11 +64,15 @@ function languageFor(path: string): LanguageDescription | null {
  * soft-wrapped lines so code reads on a phone. Colors come from the
  * `--studio-syntax-*` tokens.
  */
-export function CodeEditor({ path, value, onChange, readOnly = false, onSave, placeholder, className, ariaLabel }: CodeEditorProps) {
+export function CodeEditor({ path, value, onChange, readOnly = false, onSave, placeholder, className, ariaLabel, suggest = null }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageSlot = useRef(new Compartment());
   const readOnlySlot = useRef(new Compartment());
+  const suggestSlot = useRef(new Compartment());
+  // The editor keeps one suggestion extension; it calls whatever function is current.
+  const suggestRef = useRef<SuggestFn | null>(suggest);
+  suggestRef.current = suggest;
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   onChangeRef.current = onChange;
@@ -115,6 +122,7 @@ export function CodeEditor({ path, value, onChange, readOnly = false, onSave, pl
             indentWithTab,
           ]),
           languageSlot.current.of([]),
+          suggestSlot.current.of(suggest && !readOnly ? inlineSuggestions((input, signal) => suggestRef.current?.(input, signal) ?? Promise.resolve("")) : []),
           readOnlySlot.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
           EditorView.contentAttributes.of({ "aria-label": ariaLabel ?? `Code editor: ${path}`, autocapitalize: "off", autocorrect: "off", spellcheck: "false" }),
           EditorView.updateListener.of((update) => {
@@ -150,6 +158,15 @@ export function CodeEditor({ path, value, onChange, readOnly = false, onSave, pl
       effects: readOnlySlot.current.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
     });
   }, [readOnly]);
+
+  const suggestionsOn = Boolean(suggest) && !readOnly;
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: suggestSlot.current.reconfigure(
+        suggestionsOn ? inlineSuggestions((input, signal) => suggestRef.current?.(input, signal) ?? Promise.resolve("")) : [],
+      ),
+    });
+  }, [suggestionsOn]);
 
   // Someone else's save, a live draft, or a reload: replace the text but keep
   // the cursor where it was (clamped to the new length).

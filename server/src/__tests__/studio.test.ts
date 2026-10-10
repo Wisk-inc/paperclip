@@ -175,3 +175,68 @@ describe("Studio language catalog", () => {
     expect(studioEditorLanguageForPath("Dockerfile")).toBe("Dockerfile");
   });
 });
+
+describe("Studio checkpoints and zips", () => {
+  let dir: string;
+  const companyId = "company_1";
+  const workspaceId = "workspace_1";
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "studio-cp-"));
+    process.env.PAPERCLIP_STUDIO_DIR = dir;
+  });
+  afterEach(async () => {
+    delete process.env.PAPERCLIP_STUDIO_DIR;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("saves, restores, and can undo a restore, leaving dependencies alone", async () => {
+    const { createCheckpoint, restoreCheckpoint, listCheckpoints } = await import("../services/studio/checkpoints.js");
+    const { studioWorkspaceDirs } = await import("../services/studio/files.js");
+    const files = studioWorkspaceDirs(companyId, workspaceId).files;
+    await mkdir(path.join(files, "node_modules", "dep"), { recursive: true });
+    await writeFile(path.join(files, "node_modules", "dep", "index.js"), "dep");
+    await writeFile(path.join(files, "app.py"), "v1");
+    const first = await createCheckpoint(companyId, workspaceId, { label: "v1", kind: "manual", by: "me" });
+    expect(first.fileCount).toBe(1);
+    await writeFile(path.join(files, "app.py"), "v2");
+    await writeFile(path.join(files, "new.py"), "new");
+    const { safety } = await restoreCheckpoint(companyId, workspaceId, first.id, "me");
+    expect(await readFile(path.join(files, "app.py"), "utf8")).toBe("v1");
+    await expect(readFile(path.join(files, "new.py"))).rejects.toThrow();
+    expect(await readFile(path.join(files, "node_modules", "dep", "index.js"), "utf8")).toBe("dep");
+    await restoreCheckpoint(companyId, workspaceId, safety.id, "me");
+    expect(await readFile(path.join(files, "app.py"), "utf8")).toBe("v2");
+    expect((await listCheckpoints(companyId, workspaceId)).map((entry) => entry.kind)).toContain("restore");
+    await expect(restoreCheckpoint(companyId, workspaceId, "00000000-0000-0000-0000-000000000000", "me")).rejects.toThrow();
+  });
+
+  it("zips the project without dependencies or symlinks", async () => {
+    const { streamProjectZip } = await import("../services/studio/checkpoints.js");
+    const { unzipSync, strFromU8 } = await import("fflate");
+    const root = path.join(dir, "project");
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await mkdir(path.join(root, "node_modules", "x"), { recursive: true });
+    await writeFile(path.join(root, "src", "app.js"), "console.log(1)");
+    await writeFile(path.join(root, "node_modules", "x", "i.js"), "x");
+    await symlink("/etc", path.join(root, "etc-link"));
+    const chunks: Uint8Array[] = [];
+    await streamProjectZip(root, "", async (chunk) => {
+      chunks.push(chunk);
+    });
+    const entries = unzipSync(Buffer.concat(chunks));
+    expect(Object.keys(entries)).toEqual(["src/app.js"]);
+    expect(strFromU8(entries["src/app.js"]!)).toBe("console.log(1)");
+    const folderChunks: Uint8Array[] = [];
+    await streamProjectZip(root, "src", async (chunk) => {
+      folderChunks.push(chunk);
+    });
+    expect(Object.keys(unzipSync(Buffer.concat(folderChunks)))).toEqual(["src/app.js"]);
+  });
+
+  it("cleans model suggestions", async () => {
+    const { cleanCompletion } = await import("../services/studio/assistant.js");
+    expect(cleanCompletion('```python\nt("hi")\n```', "prin")).toBe('t("hi")');
+    expect(cleanCompletion('print("hi")', "print")).toBe('("hi")');
+    expect(cleanCompletion("a\nb\nc\nd\ne\nf\ng\nh\ni\nj", "")).toBe("a\nb\nc\nd\ne\nf\ng\nh");
+  });
+});

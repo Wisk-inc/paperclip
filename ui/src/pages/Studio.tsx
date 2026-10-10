@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, GitBranch, Globe, LogIn, Plus, Rocket, Share2, Sparkles, SquareTerminal, Users } from "lucide-react";
+import { ChevronRight, Ellipsis, FileArchive, FolderOpen, Globe, LogIn, Pencil, Plus, Rocket, Share2, Sparkles, SquareTerminal, Trash2, Users } from "lucide-react";
 import { studioApi, type StudioCatalogLanguage } from "../api/studio";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -16,6 +16,10 @@ import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { NewStudioAppSheet, type NewStudioAppInput } from "../components/studio/NewStudioAppSheet";
 import { LanguageLogo } from "../components/studio/LanguageLogo";
+import { GitHubMark } from "../components/studio/GitHubMark";
+import { useUndoableAction } from "../hooks/useUndoableAction";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 /** Where a join code or invite link takes you: the collaborator page. */
 export function studioJoinTarget(input: string): string | null {
@@ -39,7 +43,7 @@ const TIPS = [
   { icon: Sparkles, title: "Describe it, get an app", body: "Tell the AI assistant what you want. It writes the UI, the logic, and the database, then runs it." },
   { icon: Globe, title: "Share a live link", body: "Your app runs on this device. One tap gives it a public Cloudflare link anyone can open." },
   { icon: Users, title: "Build with friends", body: "Share a code. They watch you type, chat, send files, and suggest changes you approve." },
-  { icon: GitBranch, title: "Bring a GitHub project", body: "Paste a repository link to clone it, then ask the assistant to set it up or fix it." },
+  { icon: GitHubMark, title: "Bring a GitHub project", body: "Paste a repository link to clone it, then ask the assistant to set it up or fix it." },
 ];
 
 function kindLabel(language: StudioCatalogLanguage | undefined) {
@@ -60,6 +64,7 @@ export function Studio() {
   const [newOpen, setNewOpen] = useState(false);
   const [startWith, setStartWith] = useState<string | null>(null);
   const [join, setJoin] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const companyId = selectedCompanyId ?? "";
 
   useEffect(() => {
@@ -89,8 +94,23 @@ export function Studio() {
     },
   });
 
+  const removal = useUndoableAction({
+    commit: async (id) => {
+      await studioApi.remove(id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
+    },
+  });
+  const rename = useMutation({
+    mutationFn: (input: { id: string; name: string }) => studioApi.update(input.id, { name: input.name }),
+    onSuccess: () => {
+      haptic("success");
+      setRenaming(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
+    },
+  });
+
   const languageById = useMemo(() => new Map((catalog.data?.languages ?? []).map((language) => [language.id, language])), [catalog.data]);
-  const workspaces = list.data?.workspaces ?? [];
+  const workspaces = (list.data?.workspaces ?? []).filter((workspace) => !removal.hiddenIds.has(workspace.id));
   const running = workspaces.filter((workspace) => workspace.run?.status === "running" || workspace.run?.status === "starting").length;
   const shared = workspaces.filter((workspace) => workspace.shareEnabled).length;
   const quickStarts = QUICK_STARTS.map((id) => languageById.get(id)).filter((language): language is StudioCatalogLanguage => Boolean(language));
@@ -147,7 +167,7 @@ export function Studio() {
             <Plus /> New app
           </Button>
           <Button variant="outline" onClick={() => openNew("github")}>
-            <GitBranch /> Clone from GitHub
+            <GitHubMark /> Clone from GitHub
           </Button>
         </div>
       </section>
@@ -202,10 +222,10 @@ export function Studio() {
               const language = languageById.get(workspace.language);
               const isRunning = workspace.run?.status === "running" || workspace.run?.status === "starting";
               return (
-                <li key={workspace.id}>
+                <li key={workspace.id} className="relative">
                   <Link
                     to={`/studio/${workspace.id}`}
-                    className="group flex h-full flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/60 hover:bg-accent/40"
+                    className="group flex h-full flex-col gap-3 rounded-xl border border-border bg-card p-3 pr-12 transition-colors hover:border-primary/60 hover:bg-accent/40"
                     data-testid="studio-app-card"
                   >
                     <div className="flex items-start gap-3">
@@ -217,7 +237,6 @@ export function Studio() {
                           {kindLabel(language) ? ` · ${kindLabel(language)}` : ""}
                         </p>
                       </div>
-                      <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                     </div>
                     {workspace.description ? <p className="line-clamp-2 text-sm text-muted-foreground">{workspace.description}</p> : null}
                     <div className="mt-auto flex flex-wrap items-center gap-1.5 text-xs">
@@ -238,7 +257,7 @@ export function Studio() {
                       ) : null}
                       {workspace.sourceUrl ? (
                         <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                          <GitBranch className="size-3" /> GitHub
+                          <GitHubMark className="size-3" /> GitHub
                         </span>
                       ) : null}
                       <span className="ml-auto text-muted-foreground">
@@ -246,6 +265,30 @@ export function Studio() {
                       </span>
                     </div>
                   </Link>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon-sm" className="absolute top-2 right-2" aria-label={`More for ${workspace.name}`} data-testid="studio-app-menu">
+                        <Ellipsis />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem onSelect={() => navigate(`/studio/${workspace.id}`)}>
+                        <FolderOpen /> Open
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setRenaming({ id: workspace.id, name: workspace.name })} data-testid="studio-app-rename">
+                        <Pencil /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <a href={studioApi.archiveUrl(workspace.id)} download>
+                          <FileArchive /> Download as zip
+                        </a>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => removal.run(workspace.id, `Deleted ${workspace.name}`)} data-testid="studio-app-delete">
+                        <Trash2 /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </li>
               );
             })}
@@ -289,6 +332,39 @@ export function Studio() {
       </section>
 
       {workspaces.length ? <ThumbAction label="New app" onClick={() => openNew()} /> : null}
+
+      <Dialog open={renaming !== null} onOpenChange={(open) => !open && setRenaming(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename app</DialogTitle>
+            <DialogDescription>Only the name changes; files and links stay the same.</DialogDescription>
+          </DialogHeader>
+          <form
+            id="studio-rename-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (renaming?.name.trim()) rename.mutate({ id: renaming.id, name: renaming.name.trim() });
+            }}
+          >
+            <Input
+              autoFocus
+              value={renaming?.name ?? ""}
+              onChange={(event) => setRenaming((current) => (current ? { ...current, name: event.target.value } : current))}
+              maxLength={80}
+              aria-label="App name"
+              data-testid="studio-rename-input"
+            />
+          </form>
+          <DialogFooter className="flex-row justify-between sm:justify-between">
+            <Button variant="ghost" onClick={() => setRenaming(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="studio-rename-form" disabled={rename.isPending || !renaming?.name.trim()} data-testid="studio-rename-save">
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <NewStudioAppSheet
         open={newOpen}
