@@ -4,6 +4,7 @@ import type { StudioFileNode } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/issue-output";
 import { haptic } from "@/lib/haptics";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { Mascot } from "../mascot/Mascot";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
@@ -42,11 +43,11 @@ export function StudioAssets({ tree, rawUrl, downloadUrl, onUpload }: StudioAsse
   const [copied, setCopied] = useState<string | null>(null);
 
   const copyPath = (path: string) => {
-    void navigator.clipboard?.writeText(path).then(() => {
+    void copyTextToClipboard(path).then(() => {
       haptic("success");
       setCopied(path);
       setTimeout(() => setCopied(null), 1400);
-    });
+    }, () => haptic("warning"));
   };
 
   return (

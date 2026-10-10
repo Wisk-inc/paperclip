@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Copy, GitPullRequest, LoaderCircle, Pencil, Share2, U
 import type { StudioChangeFile, StudioChangeRequest, StudioCollaborator, StudioMessage, StudioParticipant } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { timeAgo } from "@/lib/timeAgo";
 import { cn } from "@/lib/utils";
 import { Mascot } from "../mascot/Mascot";
@@ -100,11 +101,11 @@ function CopyField({ label, value, testId }: { label: string; value: string; tes
           size="icon-xs"
           aria-label={`Copy ${label.toLowerCase()}`}
           onClick={() => {
-            void navigator.clipboard?.writeText(value).then(() => {
+            void copyTextToClipboard(value).then(() => {
               haptic("success");
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
-            });
+            }, () => haptic("warning"));
           }}
         >
           {copied ? <Check /> : <Copy />}

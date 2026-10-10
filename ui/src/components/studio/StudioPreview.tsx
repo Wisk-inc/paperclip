@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, Globe, LoaderCircle, Play, RefreshCw, Rocket
 import type { StudioRunState } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { Mascot } from "../mascot/Mascot";
 
 interface StudioPreviewProps {
@@ -44,7 +45,7 @@ export function StudioPreview({ run, consoleApp, onRun, onShowConsole, publicLin
 
   const copy = async (url: string) => {
     try {
-      await navigator.clipboard.writeText(url);
+      await copyTextToClipboard(url);
       haptic("success");
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
