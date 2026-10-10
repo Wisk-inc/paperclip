@@ -93,6 +93,23 @@ import {
   createDeviceFileRequestSchema,
   declineDeviceFileRequestSchema,
   listDeviceFileRequestsQuerySchema,
+  // App Studio
+  createStudioChangeRequestSchema,
+  createStudioCheckpointSchema,
+  createStudioEntrySchema,
+  createStudioWorkspaceSchema,
+  execStudioCommandSchema,
+  joinStudioSchema,
+  moveStudioEntrySchema,
+  resolveStudioChangeRequestSchema,
+  saveStudioAiKeySchema,
+  shareStudioSchema,
+  studioAssistantMessageSchema,
+  studioCompleteSchema,
+  studioConsoleInputSchema,
+  studioRunSchema,
+  updateStudioWorkspaceSchema,
+  writeStudioFileSchema,
   ensureMySkillFolderSchema,
   folderKindSchema,
   moveFolderItemSchema,
@@ -1305,6 +1322,21 @@ const PUBLIC_OPERATIONS = new Set([
   "POST /mcp/gateways/{gatewayPublicId}",
   "GET /api/tool-gateway/gateways/{gatewayId}/mcp",
   "POST /api/tool-gateway/gateways/{gatewayId}/mcp",
+  // App Studio collaborators authenticate with their share token
+  // (x-studio-guest header), never a board or agent credential.
+  "POST /api/studio-guest/join",
+  "GET /api/studio-guest/workspace",
+  "GET /api/studio-guest/tree",
+  "GET /api/studio-guest/file",
+  "GET /api/studio-guest/raw",
+  "GET /api/studio-guest/archive",
+  "GET /api/studio-guest/console",
+  "GET /api/studio-guest/messages",
+  "POST /api/studio-guest/messages",
+  "GET /api/studio-guest/shared/{attachmentId}",
+  "GET /api/studio-guest/changes",
+  "POST /api/studio-guest/changes",
+
 ]);
 
 const BOARD_ONLY_PREFIXES = [
@@ -1313,6 +1345,8 @@ const BOARD_ONLY_PREFIXES = [
   "/api/admin/",
   "/api/plugins",
   "/api/instance/",
+  "/api/studio/",
+  "/api/companies/{companyId}/studio/",
 ];
 
 const BOARD_ONLY_OPERATIONS = new Set([
@@ -1395,6 +1429,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "GET /api/secrets/{id}/usage",
   "GET /api/secrets/{id}/access-events",
   "POST /api/health/dev-server/restart",
+  "POST /api/studio/workspaces/{id}/assistant",
   "POST /api/issues/{issueId}/file-resources/availability",
   "GET /api/issues/{issueId}/file-resources/content",
   "GET /api/issues/{issueId}/file-resources/list",
@@ -1557,6 +1592,15 @@ const CREATED_OPERATIONS = new Set([
   "POST /api/companies/{companyId}/devices",
   "POST /api/companies/{companyId}/device-files",
   "POST /api/companies/{companyId}/device-file-requests",
+  "POST /api/companies/{companyId}/studio/workspaces",
+  "POST /api/studio/workspaces/{id}/entries",
+  "POST /api/studio/workspaces/{id}/upload",
+  "POST /api/studio/workspaces/{id}/checkpoints",
+  "POST /api/studio/workspaces/{id}/messages",
+  "POST /api/studio/workspaces/{id}/shared/{attachmentId}/add",
+  "POST /api/studio-guest/join",
+  "POST /api/studio-guest/messages",
+  "POST /api/studio-guest/changes",
   "POST /api/adapters/install",
   "POST /api/chat-endpoints/{endpointId}/setup-secret",
   "POST /api/companies/{companyId}/agent-hires",
@@ -7712,6 +7756,104 @@ registerCurrentRoute({
   tags: ["device-files"],
   summary: "Cancel a pending file request",
 });
+
+// ─── App Studio ──────────────────────────────────────────────────────────────
+// Coding workspaces the board runs on its own device, plus the collaborator
+// (guest) surface reached with a share code.
+
+const studioPathQuery = z.object({ path: z.string() });
+const studioOptionalPathQuery = z.object({ path: z.string().optional() });
+
+function registerStudioFileRoute(input: {
+  method: "get" | "post";
+  path: string;
+  summary: string;
+  query?: z.ZodTypeAny;
+  description: string;
+  multipart?: boolean;
+}) {
+  registry.registerPath({
+    method: input.method,
+    path: input.path,
+    tags: ["studio"],
+    summary: input.summary,
+    request: {
+      ...(paramsSchemaFromPath(input.path) ? { params: paramsSchemaFromPath(input.path)! } : {}),
+      ...(input.query ? { query: input.query } : {}),
+    },
+    responses: input.multipart
+      ? { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 422: r.unprocessable }
+      : { 200: { description: input.description }, 401: r.unauthorized, 404: r.notFound },
+  });
+}
+
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/languages", tags: ["studio"], summary: "List App Studio languages and whether each toolchain is installed", query: z.object({ refresh: z.string().optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/workspaces", tags: ["studio"], summary: "List App Studio apps" });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/studio/workspaces", tags: ["studio"], summary: "Create an app from a language template or a Git clone", body: createStudioWorkspaceSchema });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/studio/cloudflared", tags: ["studio"], summary: "Install cloudflared for temporary public links" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "List which AI providers have a saved key (never the keys)" });
+registerCurrentRoute({ method: "put", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "Save an AI provider key for the coding assistant", body: saveStudioAiKeySchema });
+registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/studio/ai-keys/{provider}", tags: ["studio"], summary: "Remove a saved AI provider key" });
+
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}", tags: ["studio"], summary: "Get an app" });
+registerCurrentRoute({ method: "patch", path: "/api/studio/workspaces/{id}", tags: ["studio"], summary: "Rename or update an app", body: updateStudioWorkspaceSchema });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}", tags: ["studio"], summary: "Delete an app and its files" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/tree", tags: ["studio"], summary: "List the app's file tree" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/file", tags: ["studio"], summary: "Read a file with its version", query: studioPathQuery });
+registerCurrentRoute({ method: "put", path: "/api/studio/workspaces/{id}/file", tags: ["studio"], summary: "Save a file (409 when the version is stale)", body: writeStudioFileSchema, responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/entries", tags: ["studio"], summary: "Create a file or folder", body: createStudioEntrySchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/move", tags: ["studio"], summary: "Move or rename a file or folder", body: moveStudioEntrySchema });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/entries", tags: ["studio"], summary: "Delete a file or folder", query: studioPathQuery });
+registerStudioFileRoute({ method: "post", path: "/api/studio/workspaces/{id}/upload", summary: "Upload files (multipart field 'files', optional 'folder')", description: "Saved paths", multipart: true });
+registerStudioFileRoute({ method: "get", path: "/api/studio/workspaces/{id}/archive", summary: "Download the app, or one folder, as a zip", query: studioOptionalPathQuery, description: "Zip archive" });
+registerStudioFileRoute({ method: "get", path: "/api/studio/workspaces/{id}/raw", summary: "Serve a file's bytes for previews (sandboxed)", query: studioPathQuery, description: "File content" });
+registerStudioFileRoute({ method: "get", path: "/api/studio/workspaces/{id}/download", summary: "Download one file", query: studioPathQuery, description: "File content" });
+
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/checkpoints", tags: ["studio"], summary: "List saved checkpoints" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/checkpoints", tags: ["studio"], summary: "Save a checkpoint of the app's files", body: createStudioCheckpointSchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/checkpoints/{checkpointId}/restore", tags: ["studio"], summary: "Go back to a checkpoint (saves a restore checkpoint first)", responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/checkpoints/{checkpointId}", tags: ["studio"], summary: "Delete a checkpoint" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/complete", tags: ["studio"], summary: "Suggest the code that comes next at the cursor", body: studioCompleteSchema });
+
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/run", tags: ["studio"], summary: "Run the app", body: studioRunSchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/stop", tags: ["studio"], summary: "Stop the running app" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/console", tags: ["studio"], summary: "Read console output", query: z.object({ after: z.string().optional() }) });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/console", tags: ["studio"], summary: "Clear the console" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/console/input", tags: ["studio"], summary: "Send a line to the running app's standard input", body: studioConsoleInputSchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/exec", tags: ["studio"], summary: "Run a shell command in the app folder", body: execStudioCommandSchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/install-toolchain", tags: ["studio"], summary: "Install the language toolchain this app needs" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/public-link", tags: ["studio"], summary: "Open a temporary public link to the running app" });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/public-link", tags: ["studio"], summary: "Close the public link" });
+
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/share", tags: ["studio"], summary: "Turn on sharing: a share code with an optional expiry, and an optional invite link", body: shareStudioSchema });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/share", tags: ["studio"], summary: "Revoke the share code and disconnect everyone" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/collaborators", tags: ["studio"], summary: "List collaborators" });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/collaborators/{collaboratorId}", tags: ["studio"], summary: "Remove a collaborator" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/messages", tags: ["studio"], summary: "List team chat messages" });
+registerStudioFileRoute({ method: "post", path: "/api/studio/workspaces/{id}/messages", summary: "Send a team chat message (multipart: 'body', optional 'file')", description: "Message", multipart: true });
+registerStudioFileRoute({ method: "get", path: "/api/studio/workspaces/{id}/shared/{attachmentId}", summary: "Download a file shared in team chat", description: "File content" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/shared/{attachmentId}/add", tags: ["studio"], summary: "Add a file shared in team chat to the app" });
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/changes", tags: ["studio"], summary: "List collaborators' proposed changes" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/changes/{changeId}/accept", tags: ["studio"], summary: "Accept a proposed change, optionally edited (saves a checkpoint first)", body: resolveStudioChangeRequestSchema });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/changes/{changeId}/reject", tags: ["studio"], summary: "Deny a proposed change" });
+
+registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Read the coding assistant conversation" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Ask the coding assistant (runs in the background; saves a checkpoint first)", body: studioAssistantMessageSchema, responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant/stop", tags: ["studio"], summary: "Stop the assistant's current turn" });
+registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Clear the assistant conversation" });
+
+registerCurrentRoute({ method: "post", path: "/api/studio-guest/join", tags: ["studio"], summary: "Join an app with a share code (returns a collaborator token)", body: joinStudioSchema });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/workspace", tags: ["studio"], summary: "Collaborator: the shared app" });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/tree", tags: ["studio"], summary: "Collaborator: the shared app's file tree" });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/file", tags: ["studio"], summary: "Collaborator: read a file", query: studioPathQuery });
+registerStudioFileRoute({ method: "get", path: "/api/studio-guest/raw", summary: "Collaborator: a file's bytes for previews (sandboxed)", query: studioPathQuery, description: "File content" });
+registerStudioFileRoute({ method: "get", path: "/api/studio-guest/archive", summary: "Collaborator: download the app, or one folder, as a zip", query: studioOptionalPathQuery, description: "Zip archive" });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/console", tags: ["studio"], summary: "Collaborator: read console output", query: z.object({ after: z.string().optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/messages", tags: ["studio"], summary: "Collaborator: list team chat messages" });
+registerStudioFileRoute({ method: "post", path: "/api/studio-guest/messages", summary: "Collaborator: send a team chat message (multipart: 'body', optional 'file')", description: "Message", multipart: true });
+registerStudioFileRoute({ method: "get", path: "/api/studio-guest/shared/{attachmentId}", summary: "Collaborator: download a file shared in team chat", description: "File content" });
+registerCurrentRoute({ method: "get", path: "/api/studio-guest/changes", tags: ["studio"], summary: "Collaborator: list my proposed changes" });
+registerCurrentRoute({ method: "post", path: "/api/studio-guest/changes", tags: ["studio"], summary: "Collaborator: propose a change for the owner to accept or deny", body: createStudioChangeRequestSchema });
 
 // ─── Company skills ───────────────────────────────────────────────────────────
 
