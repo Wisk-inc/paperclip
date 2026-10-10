@@ -25,6 +25,7 @@ import type { StorageService } from "./storage/types.js";
 import { httpLogger, errorHandler } from "./middleware/index.js";
 import { actorMiddleware } from "./middleware/auth.js";
 import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
+import { shutdownStudio, studioPublicRoutes, studioRoutes } from "./routes/studio.js";
 import {
   privateHostnameGuard,
   resolvePrivateHostnameAllowSet,
@@ -640,7 +641,18 @@ export async function createApp(
   // Mount API routes
   const api = Router();
   const agentAvatars = agentAvatarRoutes();
+  // Collaborators reach Automa only through the Studio gateway, which tags
+  // its requests. They get the guest API and previews, never the board API.
+  api.use((req, res, next) => {
+    if (req.headers["x-studio-gateway"] && !/^\/(studio-guest|studio-preview)\//.test(req.path)) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    next();
+  });
   api.use(agentAvatars.router);
+  // Studio guests and previews authenticate with their own tokens.
+  api.use(studioPublicRoutes(db));
   api.use(boardMutationGuard());
   api.use(
     "/health",
@@ -804,6 +816,7 @@ export async function createApp(
   api.use(resourceMembershipRoutes(db));
   api.use(inboxDismissalRoutes(db));
   api.use(instanceSettingsRoutes(db));
+  api.use(studioRoutes(db));
   if (opts.databaseBackupService) {
     api.use(instanceDatabaseBackupRoutes(opts.databaseBackupService));
   }
@@ -1339,6 +1352,8 @@ export async function createApp(
       // End the avatar worker pool, if a request ever started one, so no
       // render outlives the HTTP teardown.
       await agentAvatars.close();
+      // Stop Studio apps and their public links so none outlive Automa.
+      await shutdownStudio().catch(() => undefined);
       // Cancel every live setup-token login session and AWAIT the cancellation,
       // so each direct child stops and the server releases each lease before the
       // caller stops the database and the provider. A lease release that

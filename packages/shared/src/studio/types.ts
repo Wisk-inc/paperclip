@@ -1,0 +1,375 @@
+import { z } from "zod";
+
+/** A Studio project: a folder of code on the Automa server, in one language. */
+export interface StudioWorkspace {
+  id: string;
+  companyId: string;
+  name: string;
+  language: string;
+  description: string | null;
+  /** The Git repository it was cloned from. */
+  sourceUrl: string | null;
+  /** This project's own run command, instead of the language's default. */
+  runCommand: string | null;
+  createdByUserId: string | null;
+  /** Share code collaborators join with, while sharing is on. */
+  shareCode: string | null;
+  shareEnabled: boolean;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudioFileNode {
+  name: string;
+  /** Path from the project root, with `/` separators. */
+  path: string;
+  type: "file" | "folder";
+  size?: number;
+  children?: StudioFileNode[];
+}
+
+export interface StudioFileContent {
+  path: string;
+  /** UTF-8 text; null for binary or too-large files. */
+  content: string | null;
+  size: number;
+  binary: boolean;
+  /** Changes on every save; send it back to avoid overwriting someone else's save. */
+  version: string;
+}
+
+export type StudioRunStatus = "idle" | "starting" | "running" | "exited" | "failed" | "stopped";
+
+export interface StudioRunState {
+  status: StudioRunStatus;
+  command: string | null;
+  pid: number | null;
+  /** The port a web app serves on, once it answers. */
+  port: number | null;
+  previewReady: boolean;
+  /** Where the running app is previewed through Automa (a fresh random path each run). */
+  previewPath: string | null;
+  exitCode: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** The public link while a tunnel is open. */
+  publicUrl: string | null;
+  tunnelStatus: "off" | "starting" | "on" | "failed";
+  tunnelError: string | null;
+}
+
+export interface StudioConsoleLine {
+  seq: number;
+  stream: "stdout" | "stderr" | "system" | "command";
+  text: string;
+  at: string;
+}
+
+export interface StudioToolchainStatus {
+  languageId: string;
+  requires: string | null;
+  available: boolean;
+  /** The command that installs it on this host (Termux, apt, or brew), when known. */
+  installCommand: string | null;
+  note: string | null;
+  platform: "termux" | "debian" | "mac" | "other";
+}
+
+export interface StudioParticipant {
+  id: string;
+  name: string;
+  role: "owner" | "guest";
+  color: string;
+  /** The file they are looking at. */
+  activePath: string | null;
+  online: boolean;
+}
+
+export interface StudioCollaborator {
+  id: string;
+  workspaceId: string;
+  displayName: string;
+  color: string;
+  status: "active" | "removed";
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+export interface StudioChangeFile {
+  path: string;
+  /** Contents when the collaborator started editing; null for a new file. */
+  before: string | null;
+  /** Proposed contents; null to delete the file. */
+  after: string | null;
+}
+
+export type StudioChangeRequestStatus = "open" | "accepted" | "rejected";
+
+export interface StudioChangeRequest {
+  id: string;
+  workspaceId: string;
+  collaboratorId: string | null;
+  authorName: string;
+  message: string | null;
+  files: StudioChangeFile[];
+  status: StudioChangeRequestStatus;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface StudioMessageAttachment {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string | null;
+}
+
+export interface StudioMessage {
+  id: string;
+  workspaceId: string;
+  authorType: "owner" | "guest" | "system";
+  authorName: string;
+  collaboratorId: string | null;
+  body: string;
+  attachment: StudioMessageAttachment | null;
+  createdAt: string;
+}
+
+export const STUDIO_AI_PROVIDERS = ["anthropic", "openai", "openrouter", "google", "deepseek", "xai", "groq", "mistral", "custom"] as const;
+export type StudioAiProvider = (typeof STUDIO_AI_PROVIDERS)[number];
+
+export interface StudioAiProviderInfo {
+  id: StudioAiProvider;
+  name: string;
+  /** OpenAI-compatible chat completions endpoint base (unused for Anthropic). */
+  baseUrl: string | null;
+  defaultModel: string;
+  /** Suggested models, newest first. */
+  models: readonly string[];
+  keyUrl: string | null;
+}
+
+export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {
+  anthropic: {
+    id: "anthropic",
+    name: "Anthropic (Claude)",
+    baseUrl: null,
+    defaultModel: "claude-opus-5-5",
+    models: ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
+    keyUrl: "https://console.anthropic.com/settings/keys",
+  },
+  openai: {
+    id: "openai",
+    name: "OpenAI (GPT)",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-6.1-sol",
+    models: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.5"],
+    keyUrl: "https://platform.openai.com/api-keys",
+  },
+  openrouter: {
+    id: "openrouter",
+    name: "OpenRouter (any model)",
+    baseUrl: "https://openrouter.ai/api/v1",
+    defaultModel: "anthropic/claude-opus-5.5",
+    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7"],
+    keyUrl: "https://openrouter.ai/keys",
+  },
+  google: {
+    id: "google",
+    name: "Google (Gemini)",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-3.8-flash",
+    models: ["gemini-3.8-flash"],
+    keyUrl: "https://aistudio.google.com/apikey",
+  },
+  deepseek: {
+    id: "deepseek",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-chat",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+    keyUrl: "https://platform.deepseek.com/api_keys",
+  },
+  xai: {
+    id: "xai",
+    name: "xAI (Grok)",
+    baseUrl: "https://api.x.ai/v1",
+    defaultModel: "grok-4.7",
+    models: ["grok-4.7"],
+    keyUrl: "https://console.x.ai",
+  },
+  groq: {
+    id: "groq",
+    name: "Groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    defaultModel: "llama-3.3-70b-versatile",
+    models: ["llama-3.3-70b-versatile"],
+    keyUrl: "https://console.groq.com/keys",
+  },
+  mistral: {
+    id: "mistral",
+    name: "Mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    defaultModel: "mistral-large-latest",
+    models: ["mistral-large-latest", "codestral-latest"],
+    keyUrl: "https://console.mistral.ai/api-keys",
+  },
+  custom: {
+    id: "custom",
+    name: "Other (OpenAI-compatible)",
+    baseUrl: null,
+    defaultModel: "",
+    models: [],
+    keyUrl: null,
+  },
+};
+
+export interface StudioAiKeyStatus {
+  provider: StudioAiProvider;
+  connected: boolean;
+  last4: string | null;
+  baseUrl: string | null;
+  updatedAt: string | null;
+}
+
+/** One step the Studio assistant took, as shown in the chat. */
+export interface StudioAssistantStep {
+  tool: string;
+  /** Short description, for example the path or the command. */
+  summary: string;
+  ok: boolean;
+  /** First part of the result (command output, error). */
+  detail: string | null;
+}
+
+export interface StudioAssistantTurn {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  steps: StudioAssistantStep[];
+  provider: StudioAiProvider | null;
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+/** Events the Studio socket sends. */
+export type StudioServerEvent =
+  | { type: "hello"; you: StudioParticipant; participants: StudioParticipant[] }
+  | { type: "presence"; participants: StudioParticipant[] }
+  | { type: "file:saved"; path: string; version: string; content: string | null; by: string }
+  | { type: "tree:changed" }
+  | { type: "draft"; path: string; text: string; by: StudioParticipant }
+  | { type: "draft:clear"; path: string; byId: string }
+  | { type: "chat"; message: StudioMessage }
+  | { type: "change:new"; changeRequest: StudioChangeRequest }
+  | { type: "change:resolved"; changeRequest: StudioChangeRequest }
+  | { type: "console"; lines: StudioConsoleLine[] }
+  | { type: "run"; state: StudioRunState }
+  | { type: "assistant"; turn: StudioAssistantTurn; done: boolean }
+  | { type: "share"; shareEnabled: boolean }
+  | { type: "kicked"; reason: string };
+
+/** Events a Studio client sends. */
+export type StudioClientEvent =
+  | { type: "draft"; path: string; text: string }
+  | { type: "draft:clear"; path: string }
+  | { type: "focus"; path: string | null }
+  | { type: "ping" };
+
+const relativePath = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1024)
+  .refine((value) => !value.startsWith("/") && !value.split(/[\\/]/).includes(".."), "Use a path inside the project");
+
+export const createStudioWorkspaceSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  language: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(4000).optional().nullable(),
+  /** Clone this Git repository instead of using the language's starter. */
+  gitUrl: z.string().trim().url().max(2000).optional().nullable(),
+});
+export type CreateStudioWorkspace = z.infer<typeof createStudioWorkspaceSchema>;
+
+export const updateStudioWorkspaceSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(4000).optional().nullable(),
+  /** Empty or null goes back to the language's default. */
+  runCommand: z.string().trim().max(4000).optional().nullable(),
+});
+
+export const writeStudioFileSchema = z.object({
+  path: relativePath,
+  content: z.string().max(5_000_000),
+  /** The version you edited; a newer save on the server makes this a 409. */
+  baseVersion: z.string().max(200).optional().nullable(),
+});
+
+export const createStudioEntrySchema = z.object({
+  path: relativePath,
+  type: z.enum(["file", "folder"]),
+});
+
+export const moveStudioEntrySchema = z.object({
+  from: relativePath,
+  to: relativePath,
+});
+
+export const execStudioCommandSchema = z.object({
+  command: z.string().trim().min(1).max(4000),
+});
+
+export const studioRunSchema = z.object({
+  command: z.string().trim().max(4000).optional().nullable(),
+});
+
+export const studioConsoleInputSchema = z.object({
+  text: z.string().max(10_000),
+});
+
+export const studioAssistantMessageSchema = z.object({
+  message: z.string().trim().min(1).max(20_000),
+  provider: z.enum(STUDIO_AI_PROVIDERS),
+  model: z.string().trim().min(1).max(200),
+});
+
+export const saveStudioAiKeySchema = z.object({
+  provider: z.enum(STUDIO_AI_PROVIDERS),
+  apiKey: z.string().trim().min(8).max(1000),
+  baseUrl: z.string().trim().url().max(500).optional().nullable(),
+});
+
+export const joinStudioSchema = z.object({
+  code: z.string().trim().min(4).max(20),
+  name: z.string().trim().min(1).max(40),
+});
+
+export const createStudioChangeRequestSchema = z.object({
+  message: z.string().trim().max(2000).optional().nullable(),
+  files: z
+    .array(
+      z.object({
+        path: relativePath,
+        /** Ignored: Automa records the file as it is when the change arrives. */
+        before: z.string().max(5_000_000).nullable().optional(),
+        after: z.string().max(5_000_000).nullable(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const resolveStudioChangeRequestSchema = z.object({
+  /** The owner's edited version of some files, used instead of the proposal. */
+  files: z
+    .array(z.object({ path: relativePath, after: z.string().max(5_000_000).nullable() }))
+    .max(50)
+    .optional(),
+});
+
+export const postStudioMessageSchema = z.object({
+  body: z.string().trim().max(4000),
+});

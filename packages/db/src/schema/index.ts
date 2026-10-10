@@ -211,3 +211,4 @@ export { aiConnectionDefaults } from "./ai_connection_defaults.js";
 export { aiProviderDefaults } from "./ai_provider_defaults.js";
 export * from "./email.js";
 export { announcementDismissals, announcementPublications } from "./announcement_dismissals.js";
+export { studioWorkspaces, studioCollaborators, studioChangeRequests, studioMessages, studioAiKeys } from "./studio.js";
