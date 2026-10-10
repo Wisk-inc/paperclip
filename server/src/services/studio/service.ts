@@ -3,14 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, lt } from "drizzle-orm";
-import {
-  studioAiKeys,
-  studioChangeRequests,
-  studioCollaborators,
-  studioMessages,
-  studioWorkspaces,
-  type Db,
-} from "@paperclipai/db";
+import { authUsers, studioAiKeys, studioChangeRequests, studioCollaborators, studioMessages, studioWorkspaces, type Db } from "@paperclipai/db";
 import {
   STUDIO_AI_PROVIDERS,
   studioLanguage,
@@ -103,6 +96,25 @@ function newShareCode() {
   let code = "";
   for (let index = 0; index < 8; index += 1) code += SHARE_CODE_ALPHABET[randomInt(SHARE_CODE_ALPHABET.length)];
   return code;
+}
+
+/** Names nobody may join as: the system author and the owner's role. */
+const RESERVED_GUEST_NAMES = ["automa", "owner", "system", "admin", "paperclip"];
+
+/** One comparable form of a display name: trimmed, single-spaced, lower-cased, no control characters. */
+export function comparableName(name: string): string {
+  return name.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202f\ufeff]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Whether a collaborator may not take `name`: it is reserved, or someone in
+ * the project (the owner, an active collaborator) already goes by it. One
+ * name, one person, so nobody can pose as another in the chat or a review.
+ */
+export function nameIsClaimed(name: string, taken: readonly (string | null | undefined)[]): boolean {
+  const mine = comparableName(name);
+  if (!mine || RESERVED_GUEST_NAMES.includes(mine)) return true;
+  return taken.some((other) => other && comparableName(other) === mine);
 }
 
 /** Normalizes what someone typed as a code ("abcd 1234", "ABCD-1234") to the stored form. */
@@ -360,14 +372,24 @@ export function studioService(db: Db) {
     const [workspace] = await db.select().from(studioWorkspaces).where(eq(studioWorkspaces.shareCode, normalized)).limit(1);
     if (!workspace || !workspace.shareEnabled || workspace.archivedAt) throw notFound("No shared project has that code (or sharing was turned off)");
     if (isShareExpired(workspace)) throw notFound("This code has expired. Ask for a new one.");
-    const existing = await db.select({ id: studioCollaborators.id }).from(studioCollaborators).where(eq(studioCollaborators.workspaceId, workspace.id));
+    const existing = await db
+      .select({ id: studioCollaborators.id, displayName: studioCollaborators.displayName, status: studioCollaborators.status })
+      .from(studioCollaborators)
+      .where(eq(studioCollaborators.workspaceId, workspace.id));
+    const owner = workspace.createdByUserId
+      ? await db.select({ name: authUsers.name }).from(authUsers).where(eq(authUsers.id, workspace.createdByUserId)).then((rows) => rows[0] ?? null)
+      : null;
+    const cleanName = name.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim();
+    if (!cleanName) throw badRequest("Enter a name");
+    const taken = [owner?.name, ...existing.filter((row) => row.status === "active").map((row) => row.displayName)];
+    if (nameIsClaimed(cleanName, taken)) throw conflict("That name is already taken in this project. Pick another one.");
     const token = randomBytes(24).toString("base64url");
     const [collaborator] = await db
       .insert(studioCollaborators)
       .values({
         companyId: workspace.companyId,
         workspaceId: workspace.id,
-        displayName: name.trim(),
+        displayName: cleanName,
         color: STUDIO_GUEST_COLORS[existing.length % STUDIO_GUEST_COLORS.length]!,
         tokenHash: hashToken(token),
       })

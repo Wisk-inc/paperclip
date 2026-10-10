@@ -281,3 +281,4 @@ input:focus-visible { border-color: var(--fg); }
 @keyframes connected-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes connected-fill { from { width: 0; } to { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .connected, .connected-mascot, .connected-progress span { animation: none; } .connected-progress span { width: 100%; } }
+.connected-warning { margin-top: 6px !important; color: var(--danger) !important; font-size: 13px !important; }

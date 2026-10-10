@@ -15,7 +15,7 @@ import {
   saveUploadedFile,
   writeStudioFile,
 } from "../services/studio/files.js";
-import { detectStudioLanguage, normalizeShareCode, validateGitUrl } from "../services/studio/service.js";
+import { detectStudioLanguage, nameIsClaimed, normalizeShareCode, validateGitUrl } from "../services/studio/service.js";
 import { studioChildEnv } from "../services/studio/runner.js";
 
 describe("Studio collaborator gateway", () => {
@@ -128,6 +128,17 @@ describe("Studio projects", () => {
 
   it("reads share codes forgivingly", () => {
     expect(normalizeShareCode(" ab12-cd34 ")).toBe("AB12CD34");
+  });
+
+  it("refuses a guest name someone in the project already has, however it is spelled", () => {
+    const taken = ["Sam Rivera", "jordan"];
+    expect(nameIsClaimed("Jordan", taken)).toBe(true);
+    expect(nameIsClaimed("  sam   RIVERA ", taken)).toBe(true);
+    expect(nameIsClaimed("Sam\u200bRivera", ["Sam Rivera"])).toBe(false);
+    expect(nameIsClaimed("Owner", [])).toBe(true);
+    expect(nameIsClaimed("automa", [])).toBe(true);
+    expect(nameIsClaimed("", [])).toBe(true);
+    expect(nameIsClaimed("Alex", taken)).toBe(false);
   });
 
   it("guesses a cloned project's language", () => {

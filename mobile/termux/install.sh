@@ -38,15 +38,33 @@ if [ "$node_major" -lt 24 ]; then
 fi
 
 say "Setting up the database"
+# On a phone every app can reach 127.0.0.1, so the database asks for a
+# password even from loopback (scram-sha-256). The password is made once and
+# kept readable by Termux alone; the automa command puts it in DATABASE_URL.
+db_password_file="$automa_home/db-password"
+mkdir -p "$automa_home"
+if [ ! -s "$db_password_file" ]; then
+  (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$db_password_file")
+fi
+db_user="$(id -un)"
 if [ ! -f "$pgdata/PG_VERSION" ]; then
   mkdir -p "$pgdata"
-  initdb "$pgdata" >/dev/null
+  initdb --auth=scram-sha-256 --pwfile="$db_password_file" "$pgdata" >/dev/null
 fi
 if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
   pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
 fi
-if ! psql -d postgres -tAc "select 1 from pg_database where datname = 'automa'" | grep -q 1; then
-  createdb automa
+export PGPASSWORD="$(cat "$db_password_file")"
+# A database made by an earlier installer trusted every local connection:
+# give it the password and require it from now on.
+if grep -Eq '^(local|host)\s+all\s+all\s+.*\btrust\s*$' "$pgdata/pg_hba.conf" 2>/dev/null; then
+  say "Locking the database to a password"
+  psql -h 127.0.0.1 -d postgres -tAc "alter user \"$db_user\" with password '$PGPASSWORD'" >/dev/null
+  sed -i -E 's/^((local|host)\s+all\s+all\s+\S*\s*)trust$/\1scram-sha-256/' "$pgdata/pg_hba.conf"
+  pg_ctl -D "$pgdata" reload >/dev/null
+fi
+if ! psql -h 127.0.0.1 -d postgres -tAc "select 1 from pg_database where datname = 'automa'" | grep -q 1; then
+  createdb -h 127.0.0.1 automa
 fi
 
 installed_version="$(cat "$server_dir/.automa-version" 2>/dev/null || true)"
@@ -124,7 +142,7 @@ esac
 if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
   pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
 fi
-export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un)@127.0.0.1:5432/automa}"
+export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un):\$(cat "$db_password_file")@127.0.0.1:5432/automa}"
 # A running server holds a wake lock so Android does not pause it, and the app
 # is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then

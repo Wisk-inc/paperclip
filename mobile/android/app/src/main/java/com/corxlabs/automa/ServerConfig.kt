@@ -70,10 +70,10 @@ class ServerConfig(context: Context) {
      * see server/src/middleware/local-trusted-secret.ts), per origin. The app
      * sends it as a cookie; nothing else on the phone has it.
      */
-    fun secretFor(origin: String): String? = prefs.getString(KEY_SECRET_PREFIX + origin, null)
+    fun secretFor(origin: String): String? = prefs.getString(KEY_SECRET_PREFIX + origin, null)?.let(SecretStore::open)
 
     fun rememberSecret(origin: String, secret: String) {
-        prefs.edit().putString(KEY_SECRET_PREFIX + origin, secret).apply()
+        prefs.edit().putString(KEY_SECRET_PREFIX + origin, SecretStore.seal(secret)).apply()
     }
 
     fun forgetSecret(origin: String) {

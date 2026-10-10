@@ -85,6 +85,8 @@
       li.textContent = fact;
       facts.appendChild(li);
     });
+    var warning = document.getElementById("connected-warning");
+    warning.hidden = !reply.insecure;
     document.getElementById("connected-next").textContent = reply.firstRun ? "Taking you to setup…" : "Opening your board…";
     panel.hidden = false;
   }

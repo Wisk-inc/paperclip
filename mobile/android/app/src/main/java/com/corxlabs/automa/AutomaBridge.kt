@@ -170,6 +170,11 @@ class AutomaBridge(
     @JavascriptInterface
     fun firebaseIdToken(key: String?, callId: String) {
         if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
+        // A sign-in token on plain HTTP across the internet can be read on the way.
+        val origin = config.serverOrigin() ?: ""
+        if (origin.startsWith("http://") && !ServerConfig.looksPrivate(Uri.parse(origin).host ?: "")) {
+            return resolve(callId, error("Sign in with Google needs an https:// address for a server outside your network."))
+        }
         activity.runOnUiThread {
             val deliver = {
                 googleSignIn.idToken { token ->
