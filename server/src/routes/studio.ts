@@ -37,7 +37,7 @@ import {
 import { validate } from "../middleware/validate.js";
 import { badRequest, conflict, notFound, unauthorized, unprocessable } from "../errors.js";
 import { logActivity } from "../services/index.js";
-import { assertBoard, assertCompanyAccess } from "./authz.js";
+import { assertBoard, assertCompanyAccess, hasCompanyAccess } from "./authz.js";
 import {
   createStudioEntry,
   deleteStudioEntry,
@@ -245,7 +245,9 @@ export function studioRoutes(db: Db) {
 
   async function workspaceFor(req: Request) {
     assertBoard(req);
-    const workspace = await svc.require(String(req.params.id));
+    const workspace = await svc.get(String(req.params.id));
+    // Missing and other-company apps answer the same 404, so ids can't be probed.
+    if (!workspace || !hasCompanyAccess(req, workspace.companyId)) throw notFound("Studio project not found");
     assertCompanyAccess(req, workspace.companyId);
     return workspace;
   }

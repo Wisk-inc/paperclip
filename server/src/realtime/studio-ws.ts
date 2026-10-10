@@ -165,9 +165,9 @@ export function setupStudioWebSocketServer(
         return reject(socket, "400 Bad Request");
       }
       const workspace = await svc.get(workspaceId).catch(() => null);
-      if (!workspace) return reject(socket, "404 Not Found");
-      const owner = await ownerFor(req, workspace.companyId);
-      if (!owner) return reject(socket, "403 Forbidden");
+      const owner = workspace ? await ownerFor(req, workspace.companyId) : null;
+      // Missing and other-company apps get the same answer, so ids can't be probed.
+      if (!workspace || !owner) return reject(socket, "404 Not Found");
       accept(req, socket, head, (ws) => {
         studioHub.join({
           workspaceId: workspace.id,
