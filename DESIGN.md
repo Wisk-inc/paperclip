@@ -114,6 +114,11 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   app's tab bar; Upload and a ⋯ menu (checkpoints, zip, settings) sit in the
   header. Grey AI suggestions are accepted with Tab or a tap. Editor and
   diff colors are the `--studio-*` tokens.
+- **Restart required.** The dev server's stale-code notice opens as a card
+  in the middle of the screen over a blurred scrim, so "Restart now" is in
+  thumb reach. With live runs, the first tap only warns and the second
+  restarts. "Later" tucks it into an amber tab on the right edge, halfway
+  down, that opens it again.
 - **Depth ladder.** Content, sticky headers (z-20), tab bar and thumb
   actions (z-30), drawer scrim (z-40), sheets/dialogs/menus with blurred
   scrims (z-50), toasts (`--z-120`). Pick a rung; do not invent a z-index.
