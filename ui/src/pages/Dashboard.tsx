@@ -26,9 +26,10 @@ import { usePublishSharedQueryData, useSharedPollingQuery } from "../hooks/useSh
 
 import { ActivityRow } from "../components/ActivityRow";
 import { timeAgo } from "../lib/timeAgo";
-import { cn, formatCents } from "../lib/utils";
+import { cn, formatCents, formatDurationMs, formatTokens } from "../lib/utils";
+import { costsApi } from "../api/costs";
 import { SHOW_TASK_PRIORITY_UI } from "../lib/ui-flags";
-import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
+import { Bot, CircleDot, Clock, Coins, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle, Play } from "lucide-react";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { NeedsYouList } from "../components/NeedsYouList";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
@@ -380,6 +381,8 @@ export function Dashboard() {
         pendingApprovals={data ? data.pendingApprovals + data.budgets.pendingApprovals : null}
       />
 
+      <UsageCard companyId={selectedCompanyId!} />
+
       <ActiveAgentsPanel companyId={selectedCompanyId!} />
 
       {data && (
@@ -563,5 +566,61 @@ export function Dashboard() {
         </>
       )}
     </div>
+  );
+}
+
+/** Start of the current month, for "this month" usage. */
+function monthStartIso(now = new Date()): string {
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
+/**
+ * What the agents used this month: money, tokens, their time, and runs. The
+ * Costs page has the breakdown; this is the glance.
+ */
+function UsageCard({ companyId }: { companyId: string }) {
+  const from = useMemo(() => monthStartIso(), []);
+  const { data } = useQuery({
+    queryKey: queryKeys.costs(companyId, from, undefined),
+    queryFn: () => costsApi.summary(companyId, from),
+    refetchInterval: 60_000,
+  });
+  if (!data) return null;
+  const tokens = data.inputTokens + data.cachedInputTokens + data.outputTokens;
+  const facts = [
+    { icon: DollarSign, label: "Spent", value: formatCents(data.spendCents) },
+    { icon: Coins, label: "Tokens", value: formatTokens(tokens) },
+    { icon: Clock, label: "Agent time", value: formatDurationMs(data.runtimeMs) },
+    { icon: Play, label: "Runs", value: String(data.runCount) },
+  ];
+  return (
+    <Link
+      to="/costs"
+      className="block rounded-xl border border-border bg-card p-4 transition-colors hover:bg-accent/40"
+      data-testid="dashboard-usage"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold">Usage this month</h2>
+        <span className="text-xs text-muted-foreground">
+          {data.budgetCents > 0 ? `${data.utilizationPercent}% of ${formatCents(data.budgetCents)} budget` : "No budget limit"}
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {facts.map(({ icon: Icon, label, value }) => (
+          <div key={label} className="flex items-center gap-2.5">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Icon className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="truncate text-base font-semibold tabular-nums">{value}</dd>
+            </div>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Tokens are what the models read and wrote; agent time is how long their runs took. Tap for the breakdown by agent and model.
+      </p>
+    </Link>
   );
 }

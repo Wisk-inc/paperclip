@@ -28,6 +28,13 @@ export interface CostSummary {
   spendCents: number;
   budgetCents: number;
   utilizationPercent: number;
+  /** Tokens billed in the period, from cost events. */
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  /** Agent runs started in the period, and the time they spent (running ones count up to now). */
+  runCount: number;
+  runtimeMs: number;
 }
 
 export interface IssueCostSummary {

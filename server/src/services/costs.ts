@@ -116,14 +116,30 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
       if (range?.from) conditions.push(gte(costEvents.occurredAt, range.from));
       if (range?.to) conditions.push(lte(costEvents.occurredAt, range.to));
 
-      const [{ total }] = await db
-        .select({
-          total: sumAsNumber(costEvents.costCents),
-        })
-        .from(costEvents)
-        .where(and(...conditions));
+      const runConditions: ReturnType<typeof eq>[] = [eq(heartbeatRuns.companyId, companyId), isNotNull(heartbeatRuns.startedAt)];
+      if (range?.from) runConditions.push(gte(heartbeatRuns.startedAt, range.from));
+      if (range?.to) runConditions.push(lte(heartbeatRuns.startedAt, range.to));
 
-      const spendCents = Number(total);
+      const [[costRow], [runRow]] = await Promise.all([
+        db
+          .select({
+            total: sumAsNumber(costEvents.costCents),
+            inputTokens: sumAsNumber(costEvents.inputTokens),
+            cachedInputTokens: sumAsNumber(costEvents.cachedInputTokens),
+            outputTokens: sumAsNumber(costEvents.outputTokens),
+          })
+          .from(costEvents)
+          .where(and(...conditions)),
+        db
+          .select({
+            runCount: sql<number>`count(*)::int`,
+            runtimeMs: sql<number>`coalesce(sum(extract(epoch from (coalesce(${heartbeatRuns.finishedAt}, now()) - ${heartbeatRuns.startedAt})) * 1000), 0)::double precision`,
+          })
+          .from(heartbeatRuns)
+          .where(and(...runConditions)),
+      ]);
+
+      const spendCents = Number(costRow?.total ?? 0);
       const utilization =
         company.budgetMonthlyCents > 0
           ? (spendCents / company.budgetMonthlyCents) * 100
@@ -134,6 +150,11 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         spendCents,
         budgetCents: company.budgetMonthlyCents,
         utilizationPercent: Number(utilization.toFixed(2)),
+        inputTokens: Number(costRow?.inputTokens ?? 0),
+        cachedInputTokens: Number(costRow?.cachedInputTokens ?? 0),
+        outputTokens: Number(costRow?.outputTokens ?? 0),
+        runCount: Number(runRow?.runCount ?? 0),
+        runtimeMs: Number(runRow?.runtimeMs ?? 0),
       };
     },
 

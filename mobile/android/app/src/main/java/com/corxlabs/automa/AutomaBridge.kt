@@ -243,15 +243,25 @@ class AutomaBridge(
                 resolve(callId, error(ServerConfig.explain(reachedUrl, health)))
                 return@execute
             }
+            // A fresh install opens on setup: say so on the success screen.
+            val origin = ServerConfig.originOf(Uri.parse(reachedUrl))
+            val secret = appKey
+                ?: config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
+                ?: origin?.let(config::secretFor)
+            val companyCount = ServerConfig.companyCount(reachedUrl, secret)
             resolve(
                 callId,
                 JSONObject()
                     .put("ok", true)
                     .put("url", reachedUrl)
                     .put("insecure", reachedUrl.startsWith("http://") && !ServerConfig.looksPrivate(Uri.parse(reachedUrl).host ?: ""))
+                    .put("version", health.version ?: JSONObject.NULL)
+                    .put("locked", health.locked)
+                    .put("firstRun", companyCount == 0)
                     .toString(),
             )
-            activity.runOnUiThread { activity.finishConnect(reachedUrl, appKey) }
+            // The page shows its success screen first (see connect.js showConnected).
+            activity.runOnUiThread { activity.finishConnect(reachedUrl, appKey, MainActivity.CONNECTED_SCREEN_MS) }
         }
     }
 

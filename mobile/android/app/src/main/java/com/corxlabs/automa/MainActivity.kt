@@ -95,6 +95,8 @@ class MainActivity : ComponentActivity() {
 
         /** Gap between the two beats of the success haptic on Android 10 and older. */
         private const val SUCCESS_BEAT_GAP_MS = 70L
+        /** How long the connect screen's success panel shows before Automa opens. */
+        const val CONNECTED_SCREEN_MS = 1900L
 
         /** Saves `<a download>` blob links (exports) through the bridge; they have no URL a native download could fetch. */
         private const val DOWNLOAD_HOOK = """
@@ -308,8 +310,12 @@ class MainActivity : ComponentActivity() {
         showConnect(null)
     }
 
-    /** The connect screen reached [reachedUrl]: remember it, keep its app key, and open it. */
-    fun finishConnect(reachedUrl: String, appKey: String?) {
+    /**
+     * The connect screen reached [reachedUrl]: remember it, keep its app key,
+     * and open it after [delayMs], which is how long the page's success screen
+     * stays up (the board takes the rest of the trip, setup first on a fresh install).
+     */
+    fun finishConnect(reachedUrl: String, appKey: String?, delayMs: Long = 0) {
         val origin = ServerConfig.originOf(Uri.parse(reachedUrl))
         config.remember(reachedUrl)
         if (origin != null) {
@@ -318,7 +324,7 @@ class MainActivity : ComponentActivity() {
             if (secret != null) config.rememberSecret(origin, secret)
             if (pending != null) config.pendingConnect = null
         }
-        loadServer()
+        if (delayMs > 0) webView.postDelayed({ loadServer() }, delayMs) else loadServer()
     }
 
     fun forgetServer(url: String) {

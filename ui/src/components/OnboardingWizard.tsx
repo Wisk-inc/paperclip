@@ -759,6 +759,12 @@ function OnboardingWizardInner({
    * customer on the step to try again — and without this each press would store
    * another copy of the same credential.
    */
+  /**
+   * Set while "Skip for now" hires: no key is stored, no sign-in starts, and
+   * the environment test is left for the agent's page. The agent exists and
+   * waits for a credential in Settings.
+   */
+  const skipCredentialRef = useRef(false);
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
   const managedProvider = aiProviderForAdapter(adapterType);
@@ -1443,6 +1449,22 @@ function OnboardingWizardInner({
   }
 
   /**
+   * "Skip for now" on the connect step: hire the agent with no credential and
+   * no environment test. It shows up paused-for-a-key on its own page, where
+   * Settings → Models takes a key or a sign-in later.
+   */
+  async function handleSkipConnect() {
+    if (loading || connectPhase === "waiting" || connectPhase === "connecting") return;
+    skipCredentialRef.current = true;
+    setError(null);
+    try {
+      await handleGiveHeartbeat();
+    } finally {
+      skipCredentialRef.current = false;
+    }
+  }
+
+  /**
    * When the input canvas is open: exactly when a source has been chosen.
    *
    * The card is the answer to the tile that was just pressed, so an untouched
@@ -2089,11 +2111,12 @@ function OnboardingWizardInner({
       // hire describe it the same way — as a reference. A failure here stops the
       // hire rather than falling through to a configuration with no credential.
       let apiKeyStored = false;
-      if (credentialMode === "api" && !selectedApiKey && apiKey.trim()) {
+      const skippingCredential = skipCredentialRef.current;
+      if (!skippingCredential && credentialMode === "api" && !selectedApiKey && apiKey.trim()) {
         apiKeyStored = await storeApiKeyUserSecret(createdCompanyId);
         if (!apiKeyStored || !isCurrent()) return;
       }
-      if (credentialMode !== "api" && canUseLocalLogin && managedProvider && !managedBindingForStep() && !savedSubscription && !savedKeys.storedLogin.data) {
+      if (!skippingCredential && credentialMode !== "api" && canUseLocalLogin && managedProvider && !managedBindingForStep() && !savedSubscription && !savedKeys.storedLogin.data) {
         await localLogin.connect();
         if (!isCurrent()) return;
         managedSubscriptionRef.current = { companyId: createdCompanyId, binding: { provider: managedProvider, method: "subscription", mode: "responsible_user" } };
@@ -2127,7 +2150,7 @@ function OnboardingWizardInner({
           }
         : baseAdapterConfig;
 
-      if (isLocalAdapter) {
+      if (isLocalAdapter && !skippingCredential) {
         // A cached result is reusable only when it tested the same
         // configuration the hire below sends, and only when it does not
         // block the hire — see blocksAgentCreate. With the "Test now" card
@@ -3061,6 +3084,21 @@ function OnboardingWizardInner({
                   ready, and the pill above has just woken to show it — a
                   checklist restating those in three rows only asked the
                   customer to audit work they watched happen. */}
+
+              {/* The connect step can be left for later: the key or sign-in is
+                  added in Settings, and the agent waits until then. */}
+              {step === 4 && !loading && connectPhase !== "waiting" && connectPhase !== "connecting" && (
+                <div className="mt-5 text-center">
+                  <button
+                    type="button"
+                    className="text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+                    onClick={() => void handleSkipConnect()}
+                    data-testid="onboarding-skip-connect"
+                  >
+                    Skip for now (add a key or sign in later in Settings)
+                  </button>
+                </div>
+              )}
 
               {/* Error */}
               {visibleError && (

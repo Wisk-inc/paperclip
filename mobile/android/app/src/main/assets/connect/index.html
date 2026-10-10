@@ -9,6 +9,15 @@
 </head>
 <body>
 <main class="screen">
+  <!-- Shown for a moment after a successful connection, before the app opens Automa. -->
+  <section id="connected" class="connected" hidden aria-live="polite">
+    <img class="connected-mascot" src="img/connect-success.png" alt="" width="128" height="128">
+    <h2 id="connected-title">Connected</h2>
+    <p id="connected-detail"></p>
+    <ul class="connected-facts" id="connected-facts"></ul>
+    <div class="connected-progress"><span></span></div>
+    <p class="connected-next" id="connected-next">Opening Automa…</p>
+  </section>
   <header class="brand">
     <svg class="lockup" viewBox="0 0 128 32" role="img" aria-label="Automa">
       <path fill-rule="evenodd" d="M7 0H25A7 7 0 0 1 32 7V25A7 7 0 0 1 25 32H7A7 7 0 0 1 0 25V7A7 7 0 0 1 7 0Z M7.6 25.46 13.87 7.54H18.13L24.4 25.46H20.59L16 12.13 11.41 25.46Z M18.35 21.43A2.35 2.35 0 1 1 13.65 21.43A2.35 2.35 0 1 1 18.35 21.43Z"/>

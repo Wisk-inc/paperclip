@@ -106,6 +106,13 @@ export async function handoffToOnboardedService(
     return;
   }
 
+  if (process.env.PAPERCLIP_LOCAL_TRUSTED_SECRET?.trim()) {
+    // Automa in Termux: the instance answers only the Automa app, which the
+    // launcher has already pointed at it. A browser would only see a notice.
+    deps.info("This Automa only answers the Automa app on this phone. Open the app and tap Connect; if it did not open by itself, run: automa link");
+    return;
+  }
+
   if (!deps.isInteractive() || envDisablesBrowser()) return;
 
   if (await deps.openDashboard(dashboardUrl)) {

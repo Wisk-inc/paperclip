@@ -102,6 +102,10 @@ import { InviteLandingPage } from "./pages/InviteLanding";
 import { JoinRequestQueue } from "./pages/JoinRequestQueue";
 import { NotFoundPage } from "./pages/NotFound";
 import { useCompany } from "./context/CompanyContext";
+import { useQuery } from "@tanstack/react-query";
+import { healthApi } from "./api/health";
+import { queryKeys } from "./lib/queryKeys";
+import { LocalSecretNotice } from "./components/LocalSecretNotice";
 import { useDialogActions, useDialogState } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
 import {
@@ -848,6 +852,25 @@ export function App() {
         </Route>
       </Routes>
       <OnboardingWizardVariant />
+      <LockedInstanceGate />
     </>
+  );
+}
+
+/**
+ * A `local_trusted` instance locked to the Automa app
+ * (PAPERCLIP_LOCAL_TRUSTED_SECRET) answers a page without the key with 403s,
+ * which the company list reports as unauthorized. Say so on top of
+ * everything, instead of leaving the onboarding wizard to open on an empty
+ * list it was never allowed to read.
+ */
+function LockedInstanceGate() {
+  const { companyListUnauthorized } = useCompany();
+  const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), staleTime: 60_000 });
+  if (!health?.localSecretRequired || !companyListUnauthorized) return null;
+  return (
+    <div className="fixed inset-0 z-(--z-120) flex flex-col bg-background">
+      <LocalSecretNotice />
+    </div>
   );
 }

@@ -59,6 +59,36 @@
     else bridge.connect(KEY, value, callId);
   }
 
+  /**
+   * The success screen. The app opens Automa itself a moment later (see
+   * finishConnect in MainActivity); this is what shows meanwhile: where you
+   * connected, what runs there, and where you are being taken.
+   */
+  function showConnected(reply) {
+    var panel = document.getElementById("connected");
+    var onPhone = /^https?:\/\/(127\.0\.0\.1|localhost)(:|$)/.test(reply.url || "");
+    var host = (reply.url || "").replace(/^https?:\/\//, "");
+    document.getElementById("connected-title").textContent = onPhone ? "Automa is running on this phone" : "Connected to Automa";
+    document.getElementById("connected-detail").textContent = reply.firstRun
+      ? "Everything is set up. Next comes a short setup: name your organization and hire your first agent."
+      : onPhone ? "Your agents run right here, in Termux." : "Your agents are reachable at " + host + ".";
+    var facts = document.getElementById("connected-facts");
+    facts.innerHTML = "";
+    [
+      onPhone ? "On this phone" : host,
+      reply.version ? "Automa " + reply.version : null,
+      reply.locked ? "Locked to this app" : null,
+      reply.insecure ? "Plain HTTP" : (reply.url || "").indexOf("https://") === 0 ? "HTTPS" : null,
+    ].forEach(function (fact) {
+      if (!fact) return;
+      var li = document.createElement("li");
+      li.textContent = fact;
+      facts.appendChild(li);
+    });
+    document.getElementById("connected-next").textContent = reply.firstRun ? "Taking you to setup…" : "Opening your board…";
+    panel.hidden = false;
+  }
+
   function connect(address, appKey) {
     if (!bridge) { showError("Open this screen in the Automa app."); return; }
     var value = (address || "").trim();
@@ -79,7 +109,8 @@
       }
       setPose("success");
       haptic("success");
-      // On success the app opens the server itself.
+      showConnected(reply);
+      // The app opens the server itself once the success screen has shown.
     });
   }
 
@@ -113,6 +144,7 @@
         stopWaiting();
         setPose("success");
         haptic("success");
+        showConnected(reply);
         return;
       }
       var message = (reply && reply.error) || "Could not connect.";

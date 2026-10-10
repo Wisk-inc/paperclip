@@ -162,7 +162,7 @@ class ServerConfig(context: Context) {
                     ?: return HealthResult(HealthKind.NOT_AUTOMA, "not JSON")
                 if (!json.has("status")) return HealthResult(HealthKind.NOT_AUTOMA, "no status")
                 if (json.optString("status") != "ok") return HealthResult(HealthKind.UNHEALTHY, json.optString("status"))
-                HealthResult(HealthKind.OK, null, json.optString("deploymentMode"), json.optString("version"))
+                HealthResult(HealthKind.OK, null, json.optString("deploymentMode"), json.optString("version"), json.optBoolean("localSecretRequired", false))
             } catch (error: java.net.UnknownHostException) {
                 HealthResult(HealthKind.NOT_FOUND, error.message)
             } catch (error: java.net.ConnectException) {
@@ -266,6 +266,22 @@ class ServerConfig(context: Context) {
             }
         }
 
+        /**
+         * How many organizations the board can see, or null when the request was
+         * refused or failed. Zero means a fresh install: the board opens on setup.
+         */
+        fun companyCount(serverUrl: String, secret: String?): Int? = runCatching {
+            val connection = URL("$serverUrl/api/companies").openConnection() as HttpURLConnection
+            connection.connectTimeout = 8000
+            connection.readTimeout = 8000
+            connection.setRequestProperty("Accept", "application/json")
+            if (secret != null) connection.setRequestProperty("Cookie", "paperclip_local_secret=${Uri.encode(secret)}")
+            val code = connection.responseCode
+            val body = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else null
+            connection.disconnect()
+            body?.let { JSONArray(it).length() }
+        }.getOrNull()
+
         fun isLoopback(url: String): Boolean {
             val host = Uri.parse(url).host ?: return false
             return host == "localhost" || runCatching { InetAddress.getByName(host).isLoopbackAddress }.getOrDefault(false)
@@ -279,6 +295,8 @@ class ServerConfig(context: Context) {
         val detail: String?,
         val deploymentMode: String? = null,
         val version: String? = null,
+        /** The instance only answers the app that holds its key (PAPERCLIP_LOCAL_TRUSTED_SECRET). */
+        val locked: Boolean = false,
     ) {
         val ok: Boolean get() = kind == HealthKind.OK
     }
