@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { presentsLocalTrustedSecret, secretsMatch } from "../middleware/local-trusted-secret.js";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import { createRequire } from "node:module";
 import type { Duplex } from "node:stream";
@@ -128,6 +129,7 @@ async function authorizeUpgrade(
   url: URL,
   opts: {
     deploymentMode: DeploymentMode;
+    localTrustedSecret?: string | null;
     resolveSessionFromHeaders?: (headers: Headers) => Promise<BetterAuthSessionResult | null>;
     resolveCloudActor?: (req: IncomingMessage) => Promise<CloudUpgradeActor | null>;
   },
@@ -136,15 +138,25 @@ async function authorizeUpgrade(
   const authToken = parseBearerToken(req.headers.authorization);
   const token = authToken ?? (queryToken.length > 0 ? queryToken : null);
 
-  // Browser board context has no bearer token in local_trusted and authenticated modes.
-  if (!token) {
-    if (opts.deploymentMode === "local_trusted") {
+  if (opts.deploymentMode === "local_trusted") {
+    const secret = opts.localTrustedSecret ?? null;
+    // With a secret, the board is whoever presents it (the app's cookie, or
+    // the secret itself as the token); without one, every local socket is.
+    const isBoard = secret === null
+      ? !token
+      : secretsMatch(token, secret) || (!token && presentsLocalTrustedSecret(req.headers, secret));
+    if (isBoard) {
       return {
         companyId,
         actorType: "board",
         actorId: "board",
       };
     }
+    if (!token) return null;
+  }
+
+  // Browser board context has no bearer token in authenticated mode.
+  if (!token) {
 
     // Cloud-managed deployments authenticate proxied browsers with trusted
     // x-paperclip-cloud-* headers, never a local Better Auth session — the
@@ -229,6 +241,7 @@ export function setupLiveEventsWebSocketServer(
   db: Db,
   opts: {
     deploymentMode: DeploymentMode;
+    localTrustedSecret?: string | null;
     resolveSessionFromHeaders?: (headers: Headers) => Promise<BetterAuthSessionResult | null>;
     /**
      * Resolves a Cloud-proxied browser's identity from the trusted
@@ -318,6 +331,7 @@ export function setupLiveEventsWebSocketServer(
 
     void authorizeUpgrade(db, req, companyId, url, {
       deploymentMode: opts.deploymentMode,
+      localTrustedSecret: opts.localTrustedSecret,
       resolveSessionFromHeaders: opts.resolveSessionFromHeaders,
       resolveCloudActor: opts.resolveCloudActor,
     })

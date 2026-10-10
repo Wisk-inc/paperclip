@@ -240,3 +240,31 @@ describe("Studio checkpoints and zips", () => {
     expect(cleanCompletion("a\nb\nc\nd\ne\nf\ng\nh\ni\nj", "")).toBe("a\nb\nc\nd\ne\nf\ng\nh");
   });
 });
+
+describe("Studio join limiter", () => {
+  it("slows a client down after wrong codes, and everyone after many", async () => {
+    const { AttemptLimiter, joinLimiterKey } = await import("../services/studio/join-limiter.js");
+    let now = 1_000_000;
+    const limiter = new AttemptLimiter({ windowMs: 60_000, perKey: 3, total: 5, now: () => now });
+    for (let i = 0; i < 3; i += 1) {
+      expect(limiter.check("a").allowed).toBe(true);
+      limiter.recordFailure("a");
+    }
+    const refused = limiter.check("a");
+    expect(refused.allowed).toBe(false);
+    expect(refused.retryAfterSeconds).toBe(60);
+    expect(limiter.check("b").allowed).toBe(true);
+    limiter.recordFailure("b");
+    limiter.recordFailure("b");
+    // Five failures in total: a third client is refused too, until the oldest ages out.
+    expect(limiter.check("c").allowed).toBe(false);
+    now += 61_000;
+    expect(limiter.check("c").allowed).toBe(true);
+    expect(limiter.check("a").allowed).toBe(true);
+    limiter.recordFailure("a");
+    limiter.recordSuccess("a");
+    expect(limiter.check("a").allowed).toBe(true);
+    expect(joinLimiterKey({ header: (name) => (name === "cf-connecting-ip" ? "203.0.113.9" : undefined), ip: "127.0.0.1" })).toBe("203.0.113.9");
+    expect(joinLimiterKey({ header: () => undefined, ip: "127.0.0.1" })).toBe("127.0.0.1");
+  });
+});

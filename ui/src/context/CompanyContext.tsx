@@ -26,6 +26,8 @@ interface CompanyContextValue {
   selectedCompany: Company | null;
   selectionSource: CompanySelectionSource;
   loading: boolean;
+  /** The list request was refused (401/403): not signed in, or on a locked local instance, not the Automa app. */
+  companyListUnauthorized: boolean;
   error: Error | null;
   /**
    * There is no usable company list *and* the reason is a failed request rather
@@ -258,6 +260,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       selectedCompany,
       selectionSource,
       loading: isLoading,
+      companyListUnauthorized,
       error: error as Error | null,
       companyListUnavailable,
       retryCompanies,

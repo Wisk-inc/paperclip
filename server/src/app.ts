@@ -476,6 +476,8 @@ export async function createApp(
     databaseBackupService?: InstanceDatabaseBackupService;
     databaseBackupHealth?: InspectDatabaseBackupHealthOptions;
     deploymentMode: DeploymentMode;
+    /** `local_trusted` only: the lock on a shared loopback (see middleware/local-trusted-secret.ts). */
+    localTrustedSecret?: string | null;
     deploymentExposure: DeploymentExposure;
     allowedHostnames: string[];
     bindHost: string;
@@ -566,6 +568,7 @@ export async function createApp(
   app.use(
     actorMiddleware(db, {
       deploymentMode: opts.deploymentMode,
+      localTrustedSecret: opts.localTrustedSecret,
       resolveSession: opts.resolveSession,
     }),
   );
@@ -659,6 +662,7 @@ export async function createApp(
     healthRoutes(db, {
       deploymentMode: opts.deploymentMode,
       deploymentExposure: opts.deploymentExposure,
+      localSecretRequired: Boolean(opts.localTrustedSecret),
       authReady: opts.authReady,
       companyDeletionEnabled: opts.companyDeletionEnabled,
       databaseBackupHealth: opts.databaseBackupHealth,

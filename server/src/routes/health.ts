@@ -123,6 +123,8 @@ export function healthRoutes(
   opts: {
     deploymentMode: DeploymentMode;
     deploymentExposure: DeploymentExposure;
+    /** `local_trusted` with PAPERCLIP_LOCAL_TRUSTED_SECRET: anonymous local requests are not the board. */
+    localSecretRequired?: boolean;
     authReady: boolean;
     companyDeletionEnabled: boolean;
     serverInfo?: ServerInfoSnapshot;
@@ -393,6 +395,7 @@ export function healthRoutes(
         status: healthStatus,
         deploymentMode: opts.deploymentMode,
         deploymentExposure: opts.deploymentExposure,
+        ...(opts.localSecretRequired ? { localSecretRequired: true } : {}),
         localAiLoginSupported: supportsLocalAiLogin(opts),
         commit,
         bootstrapStatus,
@@ -417,7 +420,8 @@ export function healthRoutes(
       commit,
       deploymentMode: opts.deploymentMode,
       deploymentExposure: opts.deploymentExposure,
-        localAiLoginSupported: supportsLocalAiLogin(opts),
+      ...(opts.localSecretRequired ? { localSecretRequired: true } : {}),
+      localAiLoginSupported: supportsLocalAiLogin(opts),
       authReady: opts.authReady,
       bootstrapStatus,
       bootstrapInviteActive,

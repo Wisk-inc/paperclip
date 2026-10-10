@@ -35,7 +35,7 @@ import {
   type StudioParticipant,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { badRequest, conflict, notFound, unauthorized, unprocessable } from "../errors.js";
+import { badRequest, conflict, notFound, tooManyRequests, unauthorized, unprocessable } from "../errors.js";
 import { logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, hasCompanyAccess } from "./authz.js";
 import {
@@ -56,6 +56,7 @@ import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installComma
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
 import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
 import { StudioGateway } from "../services/studio/gateway.js";
+import { AttemptLimiter, joinLimiterKey } from "../services/studio/join-limiter.js";
 import { createCheckpoint, deleteCheckpoint, listCheckpoints, restoreCheckpoint, streamProjectZip } from "../services/studio/checkpoints.js";
 import {
   clearAssistantConversation,
@@ -67,6 +68,9 @@ import {
 } from "../services/studio/assistant.js";
 
 type WorkspaceRow = typeof studioWorkspaces.$inferSelect;
+
+/** Ten wrong share codes per client, or forty overall, in ten minutes. */
+const joinLimiter = new AttemptLimiter({ windowMs: 10 * 60_000, perKey: 10, total: 40 });
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
 const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
@@ -825,7 +829,21 @@ export function studioPublicRoutes(db: Db) {
   }
 
   router.post("/studio-guest/join", validate(joinStudioSchema), async (req, res) => {
-    const joined = await svc.join(req.body.code, req.body.name);
+    // Wrong codes are counted per client and overall, so a code can't be guessed.
+    const limiterKey = joinLimiterKey(req);
+    const gate = joinLimiter.check(limiterKey);
+    if (!gate.allowed) {
+      res.set("Retry-After", String(gate.retryAfterSeconds));
+      throw tooManyRequests(`Too many tries. Wait ${gate.retryAfterSeconds} seconds and check the code.`);
+    }
+    let joined: Awaited<ReturnType<typeof svc.join>>;
+    try {
+      joined = await svc.join(req.body.code, req.body.name);
+    } catch (error) {
+      joinLimiter.recordFailure(limiterKey);
+      throw error;
+    }
+    joinLimiter.recordSuccess(limiterKey);
     const message = await svc.postMessage({
       workspace: joined.workspace,
       authorType: "system",

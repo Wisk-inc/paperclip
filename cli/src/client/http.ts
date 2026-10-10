@@ -125,6 +125,11 @@ export class PaperclipApiClient {
 
     if (this.apiKey) {
       headers.authorization = `Bearer ${this.apiKey}`;
+    } else {
+      // A local_trusted instance locked with a secret (Automa in Termux):
+      // the launcher exports it, and the secret as a bearer is the board.
+      const localSecret = process.env.PAPERCLIP_LOCAL_TRUSTED_SECRET?.trim();
+      if (localSecret) headers.authorization = `Bearer ${localSecret}`;
     }
 
     if (this.runId) {

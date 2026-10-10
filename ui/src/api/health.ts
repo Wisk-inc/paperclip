@@ -27,6 +27,8 @@ export type HealthStatus = {
   status: "ok";
   version?: string;
   deploymentMode?: "local_trusted" | "authenticated";
+  /** A local instance locked to the Automa app (PAPERCLIP_LOCAL_TRUSTED_SECRET); other local clients are anonymous. */
+  localSecretRequired?: boolean;
   deploymentExposure?: "private" | "public";
   localAiLoginSupported?: boolean;
   authReady?: boolean;

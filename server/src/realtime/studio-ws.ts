@@ -6,6 +6,7 @@ import type { Db } from "@paperclipai/db";
 import { authUsers, companyMemberships, instanceUserRoles } from "@paperclipai/db";
 import type { DeploymentMode } from "@paperclipai/shared";
 import type { BetterAuthSessionResult } from "../auth/better-auth.js";
+import { originMatchesHost, presentsLocalTrustedSecret } from "../middleware/local-trusted-secret.js";
 import { logger } from "../middleware/logger.js";
 import { STUDIO_OWNER_COLOR, studioHub, type StudioHubSocket } from "../services/studio/hub.js";
 import { studioService } from "../services/studio/service.js";
@@ -65,6 +66,7 @@ export function setupStudioWebSocketServer(
   db: Db,
   opts: {
     deploymentMode: DeploymentMode;
+    localTrustedSecret?: string | null;
     resolveSessionFromHeaders?: (headers: Headers) => Promise<BetterAuthSessionResult | null>;
   },
 ) {
@@ -89,7 +91,14 @@ export function setupStudioWebSocketServer(
   async function ownerFor(req: IncomingMessage, companyId: string): Promise<{ userId: string; name: string } | null> {
     // A request that came through the collaborator gateway is never the owner.
     if (req.headers["x-studio-gateway"]) return null;
-    if (opts.deploymentMode === "local_trusted") return { userId: "local-board", name: "Owner" };
+    // A browser page from another site (or a sandboxed preview) must not ride
+    // the owner's ambient trust or cookies into the project's live socket.
+    if (!originMatchesHost(req.headers.origin, req.headers.host)) return null;
+    if (opts.deploymentMode === "local_trusted") {
+      const secret = opts.localTrustedSecret ?? null;
+      if (secret !== null && !presentsLocalTrustedSecret(req.headers, secret)) return null;
+      return { userId: "local-board", name: "Owner" };
+    }
     if (!opts.resolveSessionFromHeaders) return null;
     const session = await opts.resolveSessionFromHeaders(headersFrom(req));
     const userId = session?.user?.id;

@@ -26,6 +26,7 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { DeviceFilesSync } from "./DeviceFilesSync";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
+import { LocalSecretNotice } from "./LocalSecretNotice";
 import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { SidebarShell } from "./SidebarShell";
@@ -97,6 +98,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
   const pushToast = useOptionalToastActions()?.pushToast ?? null;
   const {
     companies,
+    companyListUnauthorized,
     loading: companiesLoading,
     selectedCompany,
     selectedCompanyId,
@@ -638,6 +640,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       </a>
       <WorktreeBanner />
       <DevRestartBanner devServer={health?.devServer} />
+      {health?.localSecretRequired && companyListUnauthorized ? <LocalSecretNotice /> : null}
       <div className={cn("min-h-0 flex-1", isMobile ? "w-full" : "flex overflow-clip")}>
         {isMobile && sidebarOpen && (
           <button

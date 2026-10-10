@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { presentsLocalTrustedSecret, presentsLocalTrustedSecretAsBearer } from "./local-trusted-secret.js";
 import type { Request, RequestHandler } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
@@ -210,6 +211,8 @@ async function auditAgentKeyMissingResponsibleUser(
 
 interface ActorMiddlewareOptions {
   deploymentMode: DeploymentMode;
+  /** `local_trusted` only: requests without this secret (cookie or bearer) are anonymous. */
+  localTrustedSecret?: string | null;
   resolveSession?: (req: Request) => Promise<BetterAuthSessionResult | null>;
 }
 
@@ -219,18 +222,21 @@ const publicMcpGatewayProtocolPath = /^\/mcp\/gateways\/gw_[a-f0-9]{32}\/?$/i;
 
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   const boardAuth = boardAuthService(db);
+  const localSecret = opts.deploymentMode === "local_trusted" ? (opts.localTrustedSecret ?? null) : null;
   return async (req, _res, next) => {
-    req.actor =
-      opts.deploymentMode === "local_trusted"
-        ? {
-            type: "board",
-            userId: "local-board",
-            userName: "Local Board",
-            userEmail: null,
-            isInstanceAdmin: true,
-            source: "local_implicit",
-          }
-        : { type: "none", source: "none" };
+    // On a shared loopback (a phone) the operator is whoever holds the secret.
+    const localTrust =
+      opts.deploymentMode === "local_trusted" && (localSecret === null || presentsLocalTrustedSecret(req.headers, localSecret));
+    req.actor = localTrust
+      ? {
+          type: "board",
+          userId: "local-board",
+          userName: "Local Board",
+          userEmail: null,
+          isInstanceAdmin: true,
+          source: "local_implicit",
+        }
+      : { type: "none", source: "none" };
 
     // Routine ingress authenticates its own bearer/signature. Never interpret
     // webhook credentials as agent keys or attach an ambient browser session.
@@ -252,6 +258,13 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     // restricted to the unguessable public gateway path; all /api routes retain
     // the normal actor authentication path below.
     if (hasBearerCredentials && publicMcpGatewayProtocolPath.test(req.path)) {
+      if (runIdHeader) req.actor.runId = runIdHeader;
+      next();
+      return;
+    }
+
+    // The secret as a bearer token (the CLI in Termux) is the board, not an agent key.
+    if (localSecret !== null && localTrust && presentsLocalTrustedSecretAsBearer(req.headers, localSecret)) {
       if (runIdHeader) req.actor.runId = runIdHeader;
       next();
       return;

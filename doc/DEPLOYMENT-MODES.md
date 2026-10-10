@@ -47,6 +47,28 @@ Paperclip now treats **bind** as a separate concern from auth:
 - no human login flow
 - optimized for fastest local startup
 
+### `local_trusted` on a shared loopback: `PAPERCLIP_LOCAL_TRUSTED_SECRET`
+
+`local_trusted` assumes that whoever reaches loopback is the operator. That
+holds on a laptop. On an Android phone (Automa running in Termux) every
+installed app can reach `127.0.0.1`, so the launcher sets
+`PAPERCLIP_LOCAL_TRUSTED_SECRET` (16+ characters) and hands the value to the
+Automa app. With the secret set:
+
+- a request is the local board only when it presents the secret as the
+  `paperclip_local_secret` cookie (the app) or as `Authorization: Bearer`
+  (the CLI reads the same environment variable);
+- every other local request is anonymous: public routes and agent keys still
+  work, the board does not;
+- the live-events and Studio sockets apply the same rule;
+- `GET /api/health` reports `localSecretRequired: true`, and the board UI
+  tells a browser without the cookie to open Automa in the app.
+
+Independently of the secret, a `local_trusted` mutation that carries a browser
+`Origin` must come from this instance's own pages (same host, or
+`PAPERCLIP_PUBLIC_URL`); `Origin: null` (a sandboxed frame) or another site is
+refused. Requests without an `Origin` (the CLI, curl) are unchanged.
+
 ## `authenticated + private`
 
 - login required

@@ -1,4 +1,5 @@
 import { readConfigFile } from "./config-file.js";
+import { readLocalTrustedSecret } from "./middleware/local-trusted-secret.js";
 import { parseChatWebhookPublicBaseUrl } from "./chat-webhook-public-url.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
@@ -57,6 +58,8 @@ type DatabaseMode = "embedded-postgres" | "postgres";
 
 export interface Config {
   deploymentMode: DeploymentMode;
+  /** When set, `local_trusted` trust needs this value on the request (see middleware/local-trusted-secret.ts). */
+  localTrustedSecret: string | null;
   deploymentExposure: DeploymentExposure;
   bind: BindMode;
   customBindHost: string | undefined;
@@ -173,6 +176,7 @@ export function loadConfig(): Config {
       ? (deploymentModeFromEnvRaw as DeploymentMode)
       : null;
   const deploymentMode: DeploymentMode = deploymentModeFromEnv ?? fileConfig?.server.deploymentMode ?? "local_trusted";
+  const localTrustedSecret = deploymentMode === "local_trusted" ? readLocalTrustedSecret() : null;
   const strictModeFromEnv = process.env.PAPERCLIP_SECRETS_STRICT_MODE;
   const secretsStrictMode =
     strictModeFromEnv !== undefined
@@ -316,6 +320,7 @@ export function loadConfig(): Config {
 
   return {
     deploymentMode,
+    localTrustedSecret,
     deploymentExposure,
     bind: resolvedBind.bind,
     customBindHost: resolvedBind.customBindHost,

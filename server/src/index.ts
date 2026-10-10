@@ -662,6 +662,9 @@ async function startServerWithDatabaseTeardown(
   if (config.deploymentMode === "local_trusted" && config.deploymentExposure !== "private") {
     throw new Error("local_trusted mode only supports private exposure");
   }
+  if (config.localTrustedSecret) {
+    logger.info("local_trusted secret set: board access needs the paperclip_local_secret cookie or bearer token");
+  }
   
   if (config.deploymentMode === "authenticated") {
     if (config.authBaseUrlMode === "explicit" && !config.authPublicBaseUrl) {
@@ -906,6 +909,7 @@ async function startServerWithDatabaseTeardown(
         }
       : undefined,
     deploymentMode: config.deploymentMode,
+    localTrustedSecret: config.localTrustedSecret,
     deploymentExposure: config.deploymentExposure,
     allowedHostnames: config.allowedHostnames,
     bindHost: config.host,
@@ -962,10 +966,12 @@ async function startServerWithDatabaseTeardown(
   });
   setupStudioWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,
+    localTrustedSecret: config.localTrustedSecret,
     resolveSessionFromHeaders,
   });
   setupLiveEventsWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,
+    localTrustedSecret: config.localTrustedSecret,
     resolveSessionFromHeaders,
     // Cloud-proxied browsers carry trusted x-paperclip-cloud-* headers instead
     // of a local Better Auth session; without this lane every live-events

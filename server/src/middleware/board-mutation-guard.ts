@@ -85,6 +85,15 @@ export function boardMutationGuard(): RequestHandler {
       return;
     }
 
+    // A local_trusted request that a browser sent (it carries an Origin) must
+    // come from this Automa's own pages: a sandboxed frame ("null") or another
+    // site would otherwise act as the operator with no credentials at all.
+    // Non-browser clients (the CLI, curl) send no Origin and pass as before.
+    if (req.actor.source === "local_implicit" && req.header("origin") !== undefined && !trustedBoardMutationOrigin(req)) {
+      res.status(403).json({ error: "Board mutation requires trusted browser origin" });
+      return;
+    }
+
     // Local-trusted mode, board bearer keys, trusted Cloud tenant calls, and
     // signed Cloud control assertions are not browser-session requests.
     // In these modes, origin/referer headers can be absent; do not block those mutations.

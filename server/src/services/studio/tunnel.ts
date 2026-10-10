@@ -5,6 +5,8 @@ import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { findOnPath, studioHostPlatform, clearToolchainCache } from "./toolchains.js";
 import { studioChildEnv } from "./runner.js";
 
+const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
+
 /** Where Automa keeps a cloudflared it downloaded itself. */
 export function studioBinDir() {
   return path.resolve(resolvePaperclipInstanceRoot(), "bin");
@@ -108,6 +110,10 @@ export async function installCloudflared(log: (line: string) => void): Promise<{
       const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(180_000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = Buffer.from(await response.arrayBuffer());
+      // A redirect to an error page or a truncated download must never be run.
+      if (data.length < 5 * 1024 * 1024 || !data.subarray(0, 4).equals(ELF_MAGIC)) {
+        throw new Error("the download is not a cloudflared binary");
+      }
       const dir = studioBinDir();
       await mkdir(dir, { recursive: true });
       const target = path.join(dir, "cloudflared");
