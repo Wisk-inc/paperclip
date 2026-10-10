@@ -76,7 +76,12 @@ to the app with an intent when `automa run` starts. The app applies a new
 address or key only after a tap on **Connect**, and then sends the key as an
 `HttpOnly` cookie on every request. If Termux could not open the app,
 `automa link` prints the key to paste under **Run Automa on this phone**. A
-browser on the phone sees a notice instead of the board.
+browser on the phone sees a notice instead of the board. The database is
+locked the same way: it asks for a password even from loopback
+(`~/.automa/db-password`, made by the installer), and a database from an older
+installer gets the password on the next install. The app seals the key with
+the Android Keystore before storing it. `doc/AUTOMA-SECURITY.md` has the full
+threat model.
 
 What `install.sh` does beyond npm: sharp (image processing) has no native
 Android build, so `add-sharp-wasm.mjs` adds sharp's official WebAssembly build.

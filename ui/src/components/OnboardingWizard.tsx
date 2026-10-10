@@ -765,6 +765,8 @@ function OnboardingWizardInner({
    * waits for a credential in Settings.
    */
   const skipCredentialRef = useRef(false);
+  /** The hire went through "Skip for now": the last step says what is still missing. */
+  const [skippedCredential, setSkippedCredential] = useState(false);
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
   const managedProvider = aiProviderForAdapter(adapterType);
@@ -1456,6 +1458,7 @@ function OnboardingWizardInner({
   async function handleSkipConnect() {
     if (loading || connectPhase === "waiting" || connectPhase === "connecting") return;
     skipCredentialRef.current = true;
+    setSkippedCredential(true);
     setError(null);
     try {
       await handleGiveHeartbeat();
@@ -2599,7 +2602,9 @@ function OnboardingWizardInner({
                         <motion.span key={step} {...titleSwapMotion} className="inline-block">
                           {step === 4
                             ? "Automa works with your subscription or API keys."
-                            : `${agentName.trim() || "Your first agent"} is ready to work!`}
+                            : skippedCredential
+                              ? `${agentName.trim() || "Your first agent"} is hired. Add a key or sign in under Settings before the first run.`
+                              : `${agentName.trim() || "Your first agent"} is ready to work!`}
                         </motion.span>
                       </p>
                     </motion.div>
