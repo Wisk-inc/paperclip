@@ -42,7 +42,7 @@ summaries.
 | Investment | API keys, agents, skills and routines persist and compound: each one makes the next task cheaper to start. |
 | Load | Skills show product logos and plain names, not slugs; Audit hides read receipts and raw codes by default; Studio takes the whole screen. |
 | Predictability | The drawer is always the company menu; the tour explains every section once, with Skip; "Pick up where you left off" on Home. |
-| Feedback | 30 fps cap and scroll-pause for the mascot keep every swipe smooth; blur removed from fixed bars on phones. |
+| Feedback | The brand mascot is a still with a float on phones (measured: the live character cost about a quarter of the idle main thread under a 4x CPU throttle); agents' characters run at 30 fps and pause while the page scrolls; blur removed from fixed bars. |
 
 ## What we deliberately do not do
 

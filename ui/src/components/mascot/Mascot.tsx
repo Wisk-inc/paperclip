@@ -113,6 +113,12 @@ const MascotLayer = memo(function MascotLayer({
 export interface MascotProps {
   pose?: MascotPose;
   size?: MascotSize;
+  /**
+   * `auto` (default): the live WebGL character on a pointer device, stills
+   * with a gentle float on a phone. `live` forces the character everywhere;
+   * `still` never mounts it.
+   */
+  motion?: "auto" | "live" | "still";
   /** `down` makes the mascot look at the primary action placed directly under it. */
   gaze?: MascotGaze;
   /** Accessible name. Leave empty when the mascot is decorative (the default). */
@@ -131,9 +137,20 @@ export interface MascotProps {
  *   change switches its animation in place; it is never remounted.
  * Art and pose mapping live in `mascot-art.tsx`.
  */
-export function Mascot({ pose = "idle", size = "md", gaze = "ahead", label, className }: MascotProps) {
+/**
+ * Phones get the stills: a 3D character redrawn 30 times a second is the
+ * single largest idle cost on a phone's main thread, and at these sizes the
+ * breathing is barely visible. Agents' own characters (AgentCharacter) stay
+ * animated; the brand mascot keeps its float and its pose crossfades.
+ */
+function coarsePointer(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+export function Mascot({ pose = "idle", size = "md", gaze = "ahead", label, className, motion = "auto" }: MascotProps) {
   const { className: sizeClass, px } = SIZES[size];
   const [live, setLive] = useState(false);
+  const [wantsLive] = useState(() => motion === "live" || (motion === "auto" && !coarsePointer()));
   const activeArt = MASCOT_ART[pose];
   useEffect(() => preloadMascotArt(size), [size]);
   return (
@@ -151,7 +168,7 @@ export function Mascot({ pose = "idle", size = "md", gaze = "ahead", label, clas
             <MascotLayer key={layerPose} pose={layerPose} active={layerPose === pose} px={px} />
           ))}
         </div>
-        {activeArt.kind === "character" ? (
+        {wantsLive && activeArt.kind === "character" ? (
           <AgentCharacter
             appearance={appearanceForPalette(activeArt.paletteId ?? MASCOT_PALETTE)}
             size={px}

@@ -41,8 +41,9 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 - **Feel**: primary actions sit in the thumb zone, destructive actions have
   Undo, and taps, sends, limits, and successes use Android's own haptics
   (they follow the phone's touch-feedback setting; no vibrate permission).
-  The tab bar stays put while you scroll, fixed bars do not blur, the
-  mascot draws at 30 fps and pauses while the page moves, and dialogs and
+  The tab bar stays put while you scroll, fixed bars do not blur, the brand
+  mascot is a still with a gentle float on phones (agents' own characters
+  stay animated at 30 fps and pause while the page moves), and dialogs and
   menus always fit the screen.
 
 ## Requirements
