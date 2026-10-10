@@ -1,3 +1,4 @@
+import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate } from "@codemirror/view";
 
@@ -100,7 +101,8 @@ function goodSpot(view: EditorView): boolean {
 /**
  * Grey "ghost" suggestions from the AI as you type: they appear after a short
  * pause, Tab accepts, Escape dismisses, and typing the same characters keeps
- * the rest. `suggest` is called with the text around the cursor.
+ * the rest. While one shows, the editor's word list is closed so there is only
+ * one suggestion to accept. `suggest` is called with the text around the cursor.
  */
 export function inlineSuggestions(suggest: SuggestFn, delayMs = 650): Extension {
   const plugin = ViewPlugin.fromClass(
@@ -109,6 +111,10 @@ export function inlineSuggestions(suggest: SuggestFn, delayMs = 650): Extension 
       controller: AbortController | null = null;
       constructor(readonly view: EditorView) {}
       update(update: ViewUpdate) {
+        // One suggestion at a time: while the grey text shows, the word list stays closed.
+        if (update.state.field(suggestionField, false) && completionStatus(update.state)) {
+          queueMicrotask(() => closeCompletion(this.view));
+        }
         const typed = update.transactions.some((tr) => tr.isUserEvent("input.type") || tr.isUserEvent("delete") || tr.isUserEvent("input.paste"));
         if (!typed && !(update.selectionSet && !update.docChanged)) return;
         this.cancel();
