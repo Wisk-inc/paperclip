@@ -256,6 +256,9 @@ export interface TaskChatMarkerItem {
   createdAtIso?: string;
   runHref?: string;
   planHref?: string;
+  /** A place that fixes the failure, e.g. the API keys page when no key is set. */
+  helpHref?: string;
+  helpLabel?: string;
 }
 
 /** A second-tier live token/cost readout (ACP UsageUpdate). */

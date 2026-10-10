@@ -3424,6 +3424,8 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
 }
 @layer components {
   .studio-ide { height: var(--studio-ide-mobile-height); }
+  /* Phones: the IDE takes the whole screen (fixed inset-0), not a slot. */
+  .studio-ide.studio-ide-immersive { height: auto; }
   [data-slot="studio-editor"] .cm-editor {
     height: 100%;
     font-size: var(--studio-editor-font-size);
@@ -3689,4 +3691,63 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --sidebar-accent: oklch(0.27 0.045 150);
   --sidebar-accent-foreground: oklch(0.95 0.03 150);
   --sidebar-ring: oklch(0.65 0.16 150);
+}
+
+/* ─── Phones: feel ───────────────────────────────────────────────────────
+   Overlays never exceed the screen, fixed bars do not blur what scrolls
+   under them, halo animations become opacity and transform only, and a tap
+   acts at once (no double-tap zoom wait). Unlayered on purpose: these must
+   win over the utility classes a call site passes. */
+@media (max-width: 767px) {
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+  }
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="popover-content"],
+  [data-slot="select-content"],
+  [data-slot="hover-card-content"],
+  [data-slot="context-menu-content"] {
+    max-width: calc(100vw - 1rem);
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .backdrop-blur,
+  .backdrop-blur-xs,
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"] {
+    touch-action: manipulation;
+  }
+  [data-slot="skeleton"] {
+    animation-name: skeleton-pulse-flat;
+  }
+  .agent-cap-online,
+  .agent-cap-online-blue {
+    animation-name: agent-cap-online-pulse-flat;
+  }
+}
+@keyframes skeleton-pulse-flat {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes agent-cap-online-pulse-flat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
 }

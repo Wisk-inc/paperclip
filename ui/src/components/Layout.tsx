@@ -31,6 +31,7 @@ import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { SidebarShell } from "./SidebarShell";
 import { SecondarySidebar } from "./SecondarySidebar";
+import { FeatureTour } from "./FeatureTour";
 import { ContextualSidebarFrame } from "./ContextualSidebarFrame";
 import { SidebarAccountMenu } from "./SidebarAccountMenu";
 import { useDialogActions } from "../context/DialogContext";
@@ -136,7 +137,6 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       ? companyPathSegments[2]
       : null;
   const onboardingTriggered = useRef(false);
-  const lastMainScrollTop = useRef(0);
   const previousPathname = useRef<string | null>(null);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const scrollMemory = useRef(new NavigationScrollMemory());
@@ -465,14 +465,6 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     onGoToInbox: () => navigate("/inbox"),
   });
 
-  useEffect(() => {
-    if (!isMobile) {
-      setMobileNavVisible(true);
-      return;
-    }
-    lastMainScrollTop.current = 0;
-    setMobileNavVisible(true);
-  }, [isMobile]);
 
   // Swipe gesture to open/close sidebar on mobile
   useEffect(() => {
@@ -519,38 +511,34 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     };
   }, [isMobile, sidebarOpen, setSidebarOpen]);
 
-  const updateMobileNavVisibility = useCallback((currentTop: number) => {
-    const delta = currentTop - lastMainScrollTop.current;
-
-    if (currentTop <= 24) {
-      setMobileNavVisible(true);
-    } else if (delta > 8) {
-      setMobileNavVisible(false);
-    } else if (delta < -8) {
-      setMobileNavVisible(true);
-    }
-
-    lastMainScrollTop.current = currentTop;
-  }, []);
-
+  // The tab bar stays where it is while the page scrolls. A bar that slid
+  // away on every swipe moved the composer and the page padding with it, so
+  // the first swipe after a direction change looked ignored. It steps aside
+  // only while a text field has focus, which gives the keyboard the room.
   useEffect(() => {
     if (!isMobile) {
       setMobileNavVisible(true);
-      lastMainScrollTop.current = 0;
       return;
     }
-
-    const onScroll = () => {
-      updateMobileNavVisibility(window.scrollY || document.documentElement.scrollTop || 0);
+    const editable = (node: EventTarget | null) =>
+      node instanceof HTMLElement &&
+      node.matches(
+        'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])',
+      );
+    const onFocusIn = (event: FocusEvent) => {
+      if (editable(event.target)) setMobileNavVisible(false);
     };
-
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-
+    const onFocusOut = (event: FocusEvent) => {
+      if (editable(event.target)) setMobileNavVisible(true);
+    };
+    setMobileNavVisible(!editable(document.activeElement));
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
     };
-  }, [isMobile, updateMobileNavVisibility]);
+  }, [isMobile]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -660,11 +648,11 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
           >
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <div className="w-60 shrink-0 overflow-hidden">
-                {hasSecondarySidebar ? (
-                  <SecondarySidebar>{secondarySidebar}</SecondarySidebar>
-                ) : (
-                  <Sidebar>{sidebarSections}</Sidebar>
-                )}
+                {/* A phone's menu is always the same menu. A page's own
+                    navigation (an agent's tabs, the Skills sections, the
+                    settings pages) stays on the page, so opening the drawer
+                    never lands somewhere unexpected. */}
+                <Sidebar>{sidebarSections}</Sidebar>
               </div>
             </div>
             <SidebarAccountMenu
@@ -707,7 +695,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
           <div
             className={cn(
               !isMobile && useStreamlinedTaskDetailShell && "hidden",
-              isMobile && "sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85",
+              isMobile && "sticky top-0 z-20 bg-background",
             )}
           >
             <StandaloneBrowserControls mobile={isMobile} />
@@ -787,6 +775,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
       <DeviceFilesSync companyId={selectedCompanyId ?? null} />
       <CommandPalette />
+      <FeatureTour />
       <NewIssueDialog />
       <NewProjectDialog />
       <NewGoalDialog />

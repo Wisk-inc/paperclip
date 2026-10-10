@@ -6,6 +6,7 @@ import {
   Download,
   FlaskConical,
   KeyRound,
+  Lock,
   MailPlus,
   MonitorCog,
   Puzzle,
@@ -132,8 +133,11 @@ export function CompanySettingsSidebar() {
           {showPage("company.invites") && (
             <SidebarNavItem to="/company/settings/invites" label="Invites" icon={MailPlus} end />
           )}
+          {showPage("company.api_keys") && (
+            <SidebarNavItem to="/company/settings/api-keys" label="API keys" icon={KeyRound} end />
+          )}
           {showPage("company.secrets") && (
-            <SidebarNavItem to="/company/settings/secrets" label="Secrets" icon={KeyRound} end />
+            <SidebarNavItem to="/company/settings/secrets" label="Secrets" icon={Lock} end />
           )}
           {showPage("instance.environments") && (
             <SidebarNavItem

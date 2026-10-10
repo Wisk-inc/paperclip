@@ -258,6 +258,15 @@ export interface StudioAiKeyStatus {
   last4: string | null;
   baseUrl: string | null;
   updatedAt: string | null;
+  /** Where the key comes from: saved in Studio, or the organization's API keys page. */
+  source: "studio" | "automa" | null;
+}
+
+/** A file sent with a message to the assistant; the transcript keeps its name and size only. */
+export interface StudioAssistantAttachment {
+  name: string;
+  type: string;
+  size: number;
 }
 
 /** One step the Studio assistant took, as shown in the chat. */
@@ -280,6 +289,8 @@ export interface StudioAssistantTurn {
   live?: string;
   /** On your message: the checkpoint saved just before the assistant started. */
   checkpointId?: string | null;
+  /** On your message: the files that went with it. */
+  attachments?: StudioAssistantAttachment[];
   provider: StudioAiProvider | null;
   model: string | null;
   error: string | null;
@@ -363,11 +374,32 @@ export const studioConsoleInputSchema = z.object({
   text: z.string().max(10_000),
 });
 
-export const studioAssistantMessageSchema = z.object({
-  message: z.string().trim().min(1).max(20_000),
-  provider: z.enum(STUDIO_AI_PROVIDERS),
-  model: z.string().trim().min(1).max(200),
+/** Image types the assistant can look at (sent as base64). */
+export const STUDIO_ASSISTANT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+export const STUDIO_ASSISTANT_MAX_ATTACHMENTS = 4;
+/** One image, base64 without the data: prefix, kept under the JSON body limit. */
+export const STUDIO_ASSISTANT_MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+/** One text file, inlined into the prompt. */
+export const STUDIO_ASSISTANT_MAX_TEXT_BYTES = 200 * 1024;
+export const studioAssistantAttachmentSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  type: z.string().trim().max(120),
+  /** Images travel as base64; text files as their text. */
+  encoding: z.enum(["base64", "text"]),
+  data: z.string().max(3_000_000),
 });
+export type StudioAssistantAttachmentInput = z.infer<typeof studioAssistantAttachmentSchema>;
+export const studioAssistantMessageSchema = z
+  .object({
+    message: z.string().trim().max(20_000),
+    provider: z.enum(STUDIO_AI_PROVIDERS),
+    model: z.string().trim().min(1).max(200),
+    attachments: z.array(studioAssistantAttachmentSchema).max(STUDIO_ASSISTANT_MAX_ATTACHMENTS).optional(),
+  })
+  .refine((value) => value.message.length > 0 || (value.attachments?.length ?? 0) > 0, {
+    message: "Write a message or attach a file",
+    path: ["message"],
+  });
 
 export const saveStudioAiKeySchema = z.object({
   provider: z.enum(STUDIO_AI_PROVIDERS),

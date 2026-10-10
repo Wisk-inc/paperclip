@@ -26,7 +26,10 @@ export function ByokKeysCard({ connected, className }: { connected: ReadonlySet<
         <KeyRound className="size-4 text-muted-foreground" aria-hidden="true" />
         Your API keys
       </h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">Bring your own key. Keys are stored encrypted on your Automa server.</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        Bring your own key. Keys are stored encrypted on your Automa server and used by agents, chats, and App Studio.{" "}
+        <Link to="/company/settings/api-keys" className="font-medium text-foreground underline underline-offset-2">Manage keys</Link>
+      </p>
       <ul className="mt-2 divide-y divide-border">
         {BYOK_PROVIDERS.map(({ provider, name, brand, hint }) => (
           <li key={provider} className="flex items-center gap-3 py-2" data-byok-provider={provider}>

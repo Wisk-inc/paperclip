@@ -15,9 +15,11 @@ import {
   type StudioMessage,
   type StudioMessageAttachment,
   type StudioWorkspace,
+  type AiProvider,
 } from "@paperclipai/shared";
 import { badRequest, conflict, notFound, unprocessable } from "../../errors.js";
 import { localEncryptedProvider } from "../../secrets/local-encrypted-provider.js";
+import { aiConnectionService } from "../ai-connections.js";
 import { studioWorkspaceDirs, writeStarterFiles } from "./files.js";
 import { studioChildEnv } from "./runner.js";
 import { STUDIO_GUEST_COLORS } from "./hub.js";
@@ -529,19 +531,35 @@ export function studioService(db: Db) {
     return toChangeRequest(updated!);
   }
 
+  /** Studio providers that the organization's API keys page can also supply. */
+  const ORGANIZATION_KEY_PROVIDERS: Partial<Record<StudioAiProvider, AiProvider>> = {
+    anthropic: "anthropic",
+    openai: "openai",
+    openrouter: "openrouter",
+    xai: "xai",
+  };
+
   async function aiKeyStatuses(companyId: string, userId: string): Promise<StudioAiKeyStatus[]> {
-    const rows = await db
-      .select()
-      .from(studioAiKeys)
-      .where(and(eq(studioAiKeys.companyId, companyId), eq(studioAiKeys.userId, userId)));
+    const [rows, organizationKeys] = await Promise.all([
+      db
+        .select()
+        .from(studioAiKeys)
+        .where(and(eq(studioAiKeys.companyId, companyId), eq(studioAiKeys.userId, userId))),
+      aiConnectionService(db).list(companyId, userId).catch(() => []),
+    ]);
     return STUDIO_AI_PROVIDERS.map((provider) => {
       const row = rows.find((item) => item.provider === provider);
+      const organizationProvider = ORGANIZATION_KEY_PROVIDERS[provider];
+      const shared = organizationProvider
+        ? organizationKeys.find((key) => key.provider === organizationProvider && key.method === "api_key" && key.status === "connected")
+        : undefined;
       return {
         provider,
-        connected: Boolean(row),
+        connected: Boolean(row) || Boolean(shared),
         last4: row?.last4 ?? null,
         baseUrl: row?.baseUrl ?? null,
         updatedAt: row ? row.updatedAt.toISOString() : null,
+        source: row ? "studio" : shared ? "automa" : null,
       };
     });
   }
@@ -578,7 +596,13 @@ export function studioService(db: Db) {
       .from(studioAiKeys)
       .where(and(eq(studioAiKeys.companyId, companyId), eq(studioAiKeys.userId, userId), eq(studioAiKeys.provider, provider)))
       .limit(1);
-    if (!row) return null;
+    if (!row) {
+      // No Studio key: the organization's key for this provider (Settings → API keys).
+      const organizationProvider = ORGANIZATION_KEY_PROVIDERS[provider];
+      if (!organizationProvider) return null;
+      const apiKey = await aiConnectionService(db).credentialForProvider(companyId, userId, organizationProvider).catch(() => null);
+      return apiKey ? { apiKey, baseUrl: null } : null;
+    }
     const apiKey = await localEncryptedProvider.resolveVersion({ material: row.material as never, externalRef: null });
     return { apiKey, baseUrl: row.baseUrl };
   }

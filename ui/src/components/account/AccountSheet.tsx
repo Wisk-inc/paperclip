@@ -13,6 +13,8 @@ import {
   Settings,
   Trash2,
   type LucideIcon,
+  Compass,
+  KeyRound,
 } from "lucide-react";
 import type { AuthSession, Company, CurrentUserProfile } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
@@ -25,6 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppearancePicker } from "../AppearancePicker";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { DiscordSupportLink } from "../DiscordSupportLink";
+import { requestFeatureTour } from "@/lib/feature-tour";
 import { useCompany } from "@/context/CompanyContext";
 import { useDialogActions } from "@/context/DialogContext";
 import { useToastActions } from "@/context/ToastContext";
@@ -341,9 +345,23 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 <ActionRow icon={Network} label="Structure" hint="Org chart: who reports to whom" to="/org" onClick={close} />
                 <ActionRow icon={Package} label="Artifacts" hint="Files and results your agents made" to="/artifacts" onClick={close} />
                 <ActionRow icon={Settings} label="Organization settings" hint="Budgets, approvals, members" to="/company/settings" onClick={close} />
+                <ActionRow icon={KeyRound} label="API keys" hint="Add, copy or remove the keys everything runs on" to="/company/settings/api-keys" onClick={close} />
+                <ActionRow
+                  icon={Compass}
+                  label="Take the tour"
+                  hint="Every section of Automa in a minute"
+                  onClick={() => {
+                    close();
+                    requestFeatureTour();
+                  }}
+                />
               </div>
             </section>
           ) : null}
+
+          <section aria-label="Help" className="flex flex-col gap-2">
+            <DiscordSupportLink variant="card" />
+          </section>
 
           <section aria-labelledby="switch-org-heading" className="flex flex-col gap-2" data-slot="account-switch-organization">
             <h3 id="switch-org-heading" className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

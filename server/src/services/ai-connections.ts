@@ -28,6 +28,7 @@ import {
   type AiManagedConnectionSummary,
   type CreateAiConnection,
   type AiConnectionLoginIntent,
+  type AiProvider,
 } from "@paperclipai/shared";
 import { forbidden, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
@@ -775,5 +776,73 @@ export function aiConnectionService(db: Db) {
       return { connectionId: id, grantId };
     });
   }
-  return { list, select, credential, save, setDefault, membership };
+  /**
+   * The API key behind the user's default connection for a provider, else
+   * the first usable one. In-app helpers (App Studio's assistant) share the
+   * organization's keys this way instead of asking for them again.
+   */
+  async function credentialForProvider(companyId: string, userId: string, provider: AiProvider): Promise<string | null> {
+    const [accounts, defaults, members] = await Promise.all([
+      rows(companyId),
+      db
+        .select()
+        .from(aiProviderDefaults)
+        .where(and(eq(aiProviderDefaults.companyId, companyId), eq(aiProviderDefaults.userId, userId))),
+      db.select().from(connectionGrantMembers).where(eq(connectionGrantMembers.companyId, companyId)),
+    ]);
+    const usable = accounts.filter(({ connection, grant }) => {
+      const metadata = aiConnectionMetadataSchema.safeParse(connection.config.ai);
+      return (
+        metadata.success &&
+        metadata.data.provider === provider &&
+        metadata.data.method === "api_key" &&
+        grant.status === "active" &&
+        connection.enabled &&
+        connection.status === "active" &&
+        canUseCredential(grant, userId, members.filter((m) => m.grantId === grant.id))
+      );
+    });
+    const row = usable.find(({ grant }) => defaults.some((d) => d.grantId === grant.id)) ?? usable[0];
+    if (!row) return null;
+    return credential({
+      ...row,
+      attribution: {
+        connectionId: row.connection.id,
+        grantId: row.grant.id,
+        provider,
+        method: "api_key",
+        mode: "responsible_user",
+        responsibleUserId: userId,
+      } satisfies AiConnectionAttribution,
+    });
+  }
+  /**
+   * The stored key of one connection, shown again to an operator who may use
+   * it (the owner, or anyone for a shared key). The route logs every call.
+   */
+  async function reveal(companyId: string, userId: string, connectionId: string): Promise<string> {
+    const [accounts, members] = await Promise.all([
+      rows(companyId),
+      db.select().from(connectionGrantMembers).where(eq(connectionGrantMembers.companyId, companyId)),
+    ]);
+    const row = accounts.find(({ connection }) => connection.id === connectionId);
+    if (!row) throw notFound("AI connection not found");
+    const metadata = aiConnectionMetadataSchema.safeParse(row.connection.config.ai);
+    if (!metadata.success || metadata.data.method !== "api_key")
+      throw unprocessable("Only an API key can be shown; a sign-in has no key to copy");
+    if (!canUseCredential(row.grant, userId, members.filter((m) => m.grantId === row.grant.id)))
+      throw forbidden("This key belongs to another member");
+    return credential({
+      ...row,
+      attribution: {
+        connectionId: row.connection.id,
+        grantId: row.grant.id,
+        provider: metadata.data.provider,
+        method: "api_key",
+        mode: "responsible_user",
+        responsibleUserId: userId,
+      } satisfies AiConnectionAttribution,
+    });
+  }
+  return { list, select, credential, credentialForProvider, reveal, save, setDefault, membership };
 }

@@ -74,7 +74,7 @@ export function SidebarRecentTasks({
   companyId: string | null | undefined;
   liveIssueIds: ReadonlySet<string>;
 }) {
-  const { collapsed, peeking } = useSidebar();
+  const { collapsed, peeking, isMobile } = useSidebar();
   const rail = collapsed && !peeking;
   const { data: session, isPending } = useQuery({
     queryKey: queryKeys.auth.session,
@@ -92,6 +92,7 @@ export function SidebarRecentTasks({
       userId={userId}
       liveIssueIds={liveIssueIds}
       rail={rail}
+      isMobile={isMobile}
     />
   );
 }
@@ -101,11 +102,13 @@ function RecentTasksList({
   userId,
   liveIssueIds,
   rail,
+  isMobile,
 }: {
   companyId: string;
   userId: string | null;
   liveIssueIds: ReadonlySet<string>;
   rail: boolean;
+  isMobile: boolean;
 }) {
   const { entries, storageKey } = useRecentTasks({ companyId, userId });
   const queryClient = useQueryClient();
@@ -275,8 +278,10 @@ function RecentTasksList({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                  side="right"
-                  align="start"
+                  // Beside the trigger on a wide screen; below it on a phone,
+                  // where "right" has no room and the menu would leave the screen.
+                  side={isMobile ? "bottom" : "right"}
+                  align={isMobile ? "end" : "start"}
                   className="w-(--profile-popover-width) rounded-xl p-1.5 shadow-(--shadow-profile-popover)"
                 >
                   <DropdownMenuItem

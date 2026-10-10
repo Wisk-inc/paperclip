@@ -186,7 +186,27 @@ function AuditEntityNode({ record }: { record: AuditActionRecord }) {
     );
   }
   // Non-linkable entities (company, agent, goal, …) — show a plain descriptor.
-  return <span className="text-muted-foreground">{record.entityType}</span>;
+  return <span className="text-muted-foreground">{entityLabel(record.entityType)}</span>;
+}
+
+/** A readable noun for an entity type: "studio_workspace" → "an App Studio app". */
+function entityLabel(entityType: string): string {
+  const known: Record<string, string> = {
+    studio_workspace: "an App Studio app",
+    studio_ai_key: "an App Studio AI key",
+    tool_connection: "a connection",
+    connection_grant: "a connection grant",
+    heartbeat_run: "a run",
+    company: "the organization",
+    agent: "an agent",
+    device: "this phone",
+    goal: "a goal",
+    project: "a project",
+    routine: "a routine",
+    skill: "a skill",
+    secret: "a secret",
+  };
+  return known[entityType] ?? entityType.replace(/[_-]+/g, " ");
 }
 
 function AuditRow({
@@ -243,7 +263,7 @@ function AuditRow({
                 View run
               </Link>
             ) : null}
-            <span className="font-mono text-(length:--text-micro) opacity-70">{record.action}</span>
+            <span className="hidden font-mono text-(length:--text-micro) opacity-70 sm:inline">{record.action}</span>
           </div>
         </div>
         <time
@@ -277,6 +297,11 @@ function AuditUpsell() {
       </CardContent>
     </Card>
   );
+}
+
+/** A read marker: someone opened a task, nothing changed. */
+function isReadReceipt(action: string): boolean {
+  return action.endsWith(".read_marked") || action.endsWith(".read");
 }
 
 export function AuditFeed({
@@ -381,11 +406,18 @@ export function AuditFeed({
   // that produced the privileged attribution on the pages already in the cache.
   // Drop those pages rather than rendering revoked "on behalf of" attribution
   // next to stripped rows — the recovery refetch below may never clear them.
+  // Read receipts ("Board read NOR-4") are bookkeeping, not events anyone
+  // acts on. They stay out of the way unless asked for.
+  const [showReads, setShowReads] = useState(false);
   const items = useMemo(() => {
     const pages = feed.data?.pages ?? [];
     const visible = hasBasicPage ? pages.filter((page) => page.accessTier !== "full") : pages;
     return visible.flatMap((page) => page.items);
   }, [feed.data, hasBasicPage]);
+  const visibleItems = useMemo(
+    () => (showReads ? items : items.filter((record) => !isReadReceipt(record.action))),
+    [items, showReads],
+  );
   // Access may be revoked between cursor requests. Treat the least-privileged
   // page as authoritative until every cached page has been fetched again.
   const accessTier = hasBasicPage ? "basic" : feed.data?.pages[0]?.accessTier;
@@ -633,11 +665,20 @@ export function AuditFeed({
             Clear filters
           </Button>
         ) : null}
+        <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-4 rounded border-border"
+            checked={showReads}
+            onChange={(event) => setShowReads(event.target.checked)}
+            data-testid="audit-show-reads"
+          />
+          Show read receipts
+        </label>
         {canUseAdvancedControls ? (
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto"
             onClick={handleExport}
             disabled={exporting || feed.isLoading || items.length === 0}
           >
@@ -694,7 +735,12 @@ export function AuditFeed({
       ) : (
         <div className="border-y border-border">
           <ul className={cn("divide-y divide-border")} aria-label="Audit activity">
-            {items.map((record) => (
+            {visibleItems.length === 0 ? (
+              <li className="px-4 py-6 text-center text-sm text-muted-foreground">
+                Only read receipts in this range. Turn on “Show read receipts” to see them.
+              </li>
+            ) : null}
+            {visibleItems.map((record) => (
               <AuditRow
                 key={record.id}
                 record={record}

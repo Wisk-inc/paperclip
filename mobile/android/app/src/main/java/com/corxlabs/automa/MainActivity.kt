@@ -604,6 +604,9 @@ class MainActivity : ComponentActivity() {
             // Follow the system font size for accessibility.
             textZoom = (resources.configuration.fontScale * 100).toInt().coerceIn(85, 200)
             userAgentString = "$userAgentString AutomaAndroid/${BuildConfig.VERSION_NAME}"
+            // Rasterize tiles just outside the screen while the view is attached:
+            // a fast flick lands on painted content instead of a blank strip.
+            offscreenPreRaster = true
         }
         // Native feel: no web scrollbars and no stretch/glow past the ends.
         view.isVerticalScrollBarEnabled = false

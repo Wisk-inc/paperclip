@@ -119,6 +119,21 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
 import { TaskChatPresentationProvider } from "@/components/task-chat/presentation-mode";
 
+/**
+ * Run failures that mean the agent never got a model session: the harness
+ * started but could not sign in. On a phone that is nearly always a missing
+ * or invalid API key, so the marker says so and links to the keys page.
+ */
+function isModelSessionFailure(code: string): boolean {
+  return (
+    code === "acpx_auth_required" ||
+    code === "acpx_session_init_failed" ||
+    code === "acpx_backend_missing" ||
+    code === "acpx_backend_unavailable" ||
+    code === "acpx_handshake_timeout"
+  );
+}
+
 function toMs(value: Date | string | null | undefined): number {
   if (!value) return 0;
   const ms = new Date(value).getTime();
@@ -1644,6 +1659,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? "You can retry this message now."
             : "Your message is preserved.";
         const restoreFailed = hasWorkspaceRestoreFailure(meta?.resultJson);
+        const failedAgentName = (meta?.agentId ? agentMap?.get(meta.agentId)?.name : undefined) ?? "The agent";
         const savedPlan = Boolean(planDocument && (meta?.resultJson?.savedPlanRevisionId === planDocument.latestRevisionId || interactions?.some((interaction) =>
           interaction.sourceRunId === source.id && interactionTargetsPlanRevision(interaction, planDocument),
         )));
@@ -1662,6 +1678,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? `Provider output exceeded the safe limit. ${retryDetail}`
             : code.startsWith("workspace_git_scan_")
             ? `Workspace setup failed before the agent started. ${retryDetail}`
+            : isModelSessionFailure(code)
+            ? `${failedAgentName} couldn't start a session with its model (${code}). Almost always the API key is missing, wrong, or out of credit. Add or check it under Settings → API keys, then send again.`
             : `The run failed (${code}). ${retryDetail}`;
         const id = `${source.id}:failure`;
         entriesWithFailures.push({
@@ -1678,6 +1696,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
               retryable: meta?.resultJson?.workspaceRestoreFailure !== "restore_unsafe_archive",
               collapsible: true,
               runHref: meta?.agentId ? `/agents/${encodeURIComponent(agentMap?.get(meta.agentId)?.urlKey ?? meta.agentId)}/runs/${encodeURIComponent(source.id)}` : undefined,
+              ...(isModelSessionFailure(code) ? { helpHref: "/company/settings/api-keys", helpLabel: "Open API keys" } : {}),
               planHref: savedPlan ? "#document-plan" : undefined,
             } : {}),
             tone: source.status === "cancelled" ? "neutral" : "error",

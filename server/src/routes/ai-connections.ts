@@ -223,6 +223,34 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
       ),
     });
   });
+  // The API keys page: copy a key back out. Only the board, never a viewer,
+  // and every reveal is an audit entry.
+  router.post(
+    "/companies/:companyId/ai-connections/:connectionId/reveal",
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const connectionId = req.params.connectionId as string;
+      assertBoard(req);
+      assertCompanyAccess(req, companyId);
+      if (
+        req.actor.memberships?.some(
+          (m) => m.companyId === companyId && m.membershipRole === "viewer",
+        )
+      )
+        throw forbidden("Viewers cannot see keys");
+      const userId = getActorInfo(req).actorId;
+      const apiKey = await service.reveal(companyId, userId, connectionId);
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: userId,
+        action: "ai_connection.credential_revealed",
+        entityType: "tool_connection",
+        entityId: connectionId,
+      });
+      res.json({ apiKey });
+    },
+  );
   router.get(
     "/companies/:companyId/ai-connections/:connectionId/active-runs",
     async (req, res) => {

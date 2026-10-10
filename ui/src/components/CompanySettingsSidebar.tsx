@@ -5,6 +5,7 @@ import {
   Download,
   FlaskConical,
   KeyRound,
+  Lock,
   MonitorCog,
   Puzzle,
   Shield,
@@ -131,8 +132,11 @@ export function CompanySettingsSidebar() {
                 end
               />
             ))}
+          {showPage("company.api_keys") && (
+            <SidebarNavItem to="/company/settings/api-keys" label="API keys" icon={KeyRound} end />
+          )}
           {showPage("company.secrets") && (
-            <SidebarNavItem to="/company/settings/secrets" label="Secrets" icon={KeyRound} end />
+            <SidebarNavItem to="/company/settings/secrets" label="Secrets" icon={Lock} end />
           )}
           {showPage("instance.environments") && (
             <SidebarNavItem

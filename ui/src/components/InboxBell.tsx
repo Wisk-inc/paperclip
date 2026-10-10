@@ -1,31 +1,52 @@
+import { useEffect, useMemo, useState } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { haptic } from "../lib/haptics";
+import { BELL_SEEN_KEY, loadBellSeenKeys, saveBellSeenKeys } from "../lib/inbox";
 
 /**
- * The phone header's inbox: a bell with the unread count. It sits in the
- * header so the tab bar keeps five thumb-sized destinations (Home, Chats,
- * New, Tasks, Files).
+ * The phone header's inbox: a bell with the count of items that arrived since
+ * it was last tapped. Tapping it opens the inbox and clears the count; the
+ * inbox itself still lists everything. It sits in the header so the tab bar
+ * keeps five thumb-sized destinations (Home, Chats, New, Tasks, Files).
  */
 export function InboxBell() {
   const { selectedCompanyId } = useCompany();
-  const { inbox } = useInboxBadge(selectedCompanyId);
-  const label = inbox > 0 ? `Inbox, ${inbox} unread` : "Inbox";
+  const { keys } = useInboxBadge(selectedCompanyId);
+  const [seen, setSeen] = useState<Set<string>>(loadBellSeenKeys);
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === BELL_SEEN_KEY) setSeen(loadBellSeenKeys());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  const unseen = useMemo(() => keys.filter((key) => !seen.has(key)).length, [keys, seen]);
+  const label = unseen > 0 ? `Inbox, ${unseen} new` : "Inbox";
+  const markSeen = () => {
+    haptic("tick");
+    const next = new Set(keys);
+    saveBellSeenKeys(next);
+    setSeen(next);
+  };
   return (
     <Link
       to="/inbox"
       aria-label={label}
       title="Inbox"
       data-slot="inbox-bell"
-      onClick={() => haptic("tick")}
+      onClick={markSeen}
       className="relative ml-1 inline-flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent"
     >
       <Bell className="size-5" aria-hidden="true" />
-      {inbox > 0 ? (
-        <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-(length:--text-nano) font-semibold leading-none text-white tabular-nums">
-          {inbox > 99 ? "99+" : inbox}
+      {unseen > 0 ? (
+        <span
+          data-testid="inbox-bell-count"
+          className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-(length:--text-nano) font-semibold leading-none text-white tabular-nums"
+        >
+          {unseen > 99 ? "99+" : unseen}
         </span>
       ) : null}
     </Link>

@@ -769,7 +769,7 @@ export function studioRoutes(db: Db) {
     if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
     // Saved first, so whatever the assistant does can be undone.
     const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
-      label: `Before AI: ${req.body.message.replace(/\s+/g, " ").slice(0, 80)}`,
+      label: `Before AI: ${(req.body.message || req.body.attachments?.[0]?.name || "attachment").replace(/\s+/g, " ").slice(0, 80)}`,
       kind: "assistant",
       by: "AI assistant",
     }).catch(() => null);
@@ -787,6 +787,7 @@ export function studioRoutes(db: Db) {
       message: req.body.message,
       provider: req.body.provider,
       model: req.body.model,
+      attachments: req.body.attachments ?? [],
       credentials,
     });
     res.status(202).json({ turn: userTurn });

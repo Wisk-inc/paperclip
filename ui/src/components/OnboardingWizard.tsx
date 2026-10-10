@@ -5,6 +5,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { aiProviderForAdapter } from "./ai-connections/AiConnectionField";
 import type { AiConnectionBinding } from "@paperclipai/shared";
 import { storeProviderApiKey } from "../lib/provider-credential";
+import { requestFeatureTour } from "../lib/feature-tour";
 import { SavedProviderKeySelect, useSavedProviderKeys } from "./onboarding/SavedProviderKeySelect";
 import { randomAgentAppearance, resolveAgentAppearance, agentAppearanceSchema } from "@paperclipai/shared";
 import { OnboardingCharacter } from "./onboarding/OnboardingCharacter";
@@ -766,7 +767,7 @@ function OnboardingWizardInner({
    */
   const skipCredentialRef = useRef(false);
   /** The hire went through "Skip for now": the last step says what is still missing. */
-  const [skippedCredential, setSkippedCredential] = useState(false);
+  const [skippedCredential] = useState(false);
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
   const managedProvider = aiProviderForAdapter(adapterType);
@@ -1451,23 +1452,6 @@ function OnboardingWizardInner({
   }
 
   /**
-   * "Skip for now" on the connect step: hire the agent with no credential and
-   * no environment test. It shows up paused-for-a-key on its own page, where
-   * Settings → Models takes a key or a sign-in later.
-   */
-  async function handleSkipConnect() {
-    if (loading || connectPhase === "waiting" || connectPhase === "connecting") return;
-    skipCredentialRef.current = true;
-    setSkippedCredential(true);
-    setError(null);
-    try {
-      await handleGiveHeartbeat();
-    } finally {
-      skipCredentialRef.current = false;
-    }
-  }
-
-  /**
    * When the input canvas is open: exactly when a source has been chosen.
    *
    * The card is the answer to the tile that was just pressed, so an untouched
@@ -1786,6 +1770,9 @@ function OnboardingWizardInner({
       setSelectedCompanyId(createdCompanyId, { source: "route_sync" });
       reset();
       closeOnboarding();
+      // The feature tour opens on the first screen after onboarding (see
+      // FeatureTour): every section in one minute, with a Skip.
+      requestFeatureTour();
       // Drop the user straight into the first task's detail page (not the
       // dashboard) so they land on the conversation the agent will start in.
       navigate(prefix ? `/${prefix}/issues/${issueRef}` : `/issues/${issueRef}`);
@@ -3090,20 +3077,10 @@ function OnboardingWizardInner({
                   checklist restating those in three rows only asked the
                   customer to audit work they watched happen. */}
 
-              {/* The connect step can be left for later: the key or sign-in is
-                  added in Settings, and the agent waits until then. */}
-              {step === 4 && !loading && connectPhase !== "waiting" && connectPhase !== "connecting" && (
-                <div className="mt-5 text-center">
-                  <button
-                    type="button"
-                    className="text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
-                    onClick={() => void handleSkipConnect()}
-                    data-testid="onboarding-skip-connect"
-                  >
-                    Skip for now (add a key or sign in later in Settings)
-                  </button>
-                </div>
-              )}
+              {/* The connect step is required: an agent without a key or a
+                  sign-in cannot run, and a first run that fails for that
+                  reason is the worst first impression. Keys can still be
+                  changed later under Settings → API keys. */}
 
               {/* Error */}
               {visibleError && (

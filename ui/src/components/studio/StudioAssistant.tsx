@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, CircleAlert, CircleStop, KeyRound, LoaderCircle, Send, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { Check, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
+  STUDIO_ASSISTANT_IMAGE_TYPES,
+  STUDIO_ASSISTANT_MAX_ATTACHMENTS,
+  STUDIO_ASSISTANT_MAX_IMAGE_BYTES,
+  STUDIO_ASSISTANT_MAX_TEXT_BYTES,
   type StudioAiKeyStatus,
   type StudioAiProvider,
+  type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
+import { Link } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +51,7 @@ interface StudioAssistantProps {
   keys: StudioAiKeyStatus[];
   onSaveKey: (provider: StudioAiProvider, apiKey: string, baseUrl: string | null) => Promise<void>;
   onRemoveKey: (provider: StudioAiProvider) => Promise<void>;
-  onSend: (message: string, provider: StudioAiProvider, model: string) => Promise<void>;
+  onSend: (message: string, provider: StudioAiProvider, model: string, attachments?: StudioAssistantAttachmentInput[]) => Promise<void>;
   onStop: () => Promise<void>;
   onClear: () => Promise<void>;
   /** Goes back to the checkpoint saved before a message. */
@@ -73,6 +79,44 @@ function readChoice(storageKey: string): { provider: StudioAiProvider; model: st
 }
 
 type StepGroup = { kind: "say"; text: string } | { kind: "tools"; steps: StudioAssistantStep[] };
+
+/** A file picked for the next message, read once so sending never waits on disk. */
+interface PendingAttachment {
+  id: string;
+  file: File;
+  input: StudioAssistantAttachmentInput;
+  /** Images get a thumbnail; text files a paperclip. */
+  previewUrl: string | null;
+}
+
+function isImage(file: File) {
+  return (STUDIO_ASSISTANT_IMAGE_TYPES as readonly string[]).includes(file.type);
+}
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Couldn't read the file"));
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.slice(url.indexOf(",") + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Reads a picked file into what the assistant takes, or explains why it can't. */
+async function toAttachment(file: File): Promise<PendingAttachment> {
+  const id = `${file.name}:${file.size}:${file.lastModified}`;
+  if (isImage(file)) {
+    if (file.size > STUDIO_ASSISTANT_MAX_IMAGE_BYTES) throw new Error(`${file.name} is over ${Math.round(STUDIO_ASSISTANT_MAX_IMAGE_BYTES / 1024 / 1024)} MB. Send a smaller image.`);
+    return { id, file, previewUrl: URL.createObjectURL(file), input: { name: file.name, type: file.type, encoding: "base64", data: await readAsBase64(file) } };
+  }
+  if (file.size > STUDIO_ASSISTANT_MAX_TEXT_BYTES) throw new Error(`${file.name} is over ${Math.round(STUDIO_ASSISTANT_MAX_TEXT_BYTES / 1024)} KB. Add it to the project instead and ask about it.`);
+  const text = await file.text();
+  if (text.includes("\u0000")) throw new Error(`${file.name} is not a text file or an image.`);
+  return { id, file, previewUrl: null, input: { name: file.name, type: file.type || "text/plain", encoding: "text", data: text } };
+}
 
 /** What the assistant said, and runs of tool steps between its messages. */
 function groupSteps(steps: StudioAssistantStep[]): StepGroup[] {
@@ -132,6 +176,8 @@ export function StudioAssistant({
   const [undoing, setUndoing] = useState<string | null>(null);
   const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const info = STUDIO_AI_PROVIDER_INFO[choice.provider];
   const keyStatus = keys.find((key) => key.provider === choice.provider);
@@ -163,15 +209,46 @@ export function StudioAssistant({
     return list;
   }, [info.models, choice.model]);
 
+  const addFiles = async (files: File[]) => {
+    setError(null);
+    const room = STUDIO_ASSISTANT_MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) {
+      setError(`Up to ${STUDIO_ASSISTANT_MAX_ATTACHMENTS} files per message.`);
+      return;
+    }
+    const picked: PendingAttachment[] = [];
+    for (const file of files.slice(0, room)) {
+      try {
+        picked.push(await toAttachment(file));
+      } catch (readError) {
+        setError(readError instanceof Error ? readError.message : "Couldn't read that file");
+      }
+    }
+    if (picked.length) {
+      haptic("tick");
+      setAttachments((current) => [...current, ...picked.filter((item) => !current.some((existing) => existing.id === item.id))]);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((current) => {
+      const gone = current.find((item) => item.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      return current.filter((item) => item.id !== id);
+    });
+  };
+
   const send = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || !choice.model.trim()) return;
+    if ((!trimmed && attachments.length === 0) || !choice.model.trim()) return;
     setSending(true);
     setError(null);
     try {
-      await onSend(trimmed, choice.provider, choice.model.trim());
+      await onSend(trimmed, choice.provider, choice.model.trim(), attachments.map((item) => item.input));
       haptic("tick");
       setMessage("");
+      for (const item of attachments) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      setAttachments([]);
       if (initialPrompt) onInitialPromptUsed?.();
     } catch (sendError) {
       haptic("warning");
@@ -285,6 +362,17 @@ export function StudioAssistant({
               ) : null}
             </p>
           </form>
+        ) : keyStatus?.source === "automa" ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <KeyRound className="size-3.5" />
+            <span className="min-w-0 flex-1 truncate">
+              Using your organization&apos;s {info.name.replace(/ \(.*\)$/, "")} key (
+              <Link to="/company/settings/api-keys" className="underline underline-offset-2">Settings → API keys</Link>)
+            </span>
+            <Button variant="ghost" size="xs" onClick={() => setEditingKey(true)}>
+              Use another
+            </Button>
+          </div>
         ) : (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <KeyRound className="size-3.5" />
@@ -331,7 +419,17 @@ export function StudioAssistant({
             {turns.map((turn) =>
               turn.role === "user" ? (
                 <li key={turn.id} className="ml-8 flex flex-col items-end gap-1 self-end">
-                  <div className="rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{turn.text}</div>
+                  {turn.attachments?.length ? (
+                    <ul className="flex flex-wrap justify-end gap-1" aria-label="Attached files">
+                      {turn.attachments.map((item) => (
+                        <li key={`${item.name}:${item.size}`} className="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted-foreground">
+                          {item.type.startsWith("image/") ? <ImagePlus className="size-3" aria-hidden="true" /> : <Paperclip className="size-3" aria-hidden="true" />}
+                          <span className="max-w-40 truncate">{item.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {turn.text ? <div className="rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{turn.text}</div> : null}
                   {turn.checkpointId && onUndo ? (
                     <button
                       type="button"
@@ -402,9 +500,33 @@ export function StudioAssistant({
           event.preventDefault();
           void send(message);
         }}
-        className="flex flex-col gap-2 border-t border-border p-2"
+        className="flex flex-col gap-2 border-t border-border p-2 pb-(--sz-safe-bottom)"
       >
         {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+        {attachments.length ? (
+          <ul className="flex flex-wrap gap-2" aria-label="Files to send">
+            {attachments.map((item) => (
+              <li key={item.id} className="relative flex items-center gap-2 rounded-lg border border-border bg-card p-1 pr-2 text-xs">
+                {item.previewUrl ? (
+                  <img src={item.previewUrl} alt="" className="size-10 rounded-md object-cover" />
+                ) : (
+                  <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <Paperclip className="size-4" aria-hidden="true" />
+                  </span>
+                )}
+                <span className="max-w-32 truncate">{item.file.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${item.file.name}`}
+                  onClick={() => removeAttachment(item.id)}
+                  className="ml-1 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
@@ -421,6 +543,30 @@ export function StudioAssistant({
           className="max-h-40 min-h-16 resize-none text-sm"
         />
         <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Attach an image or a text file"
+            title="Attach an image or a text file"
+            disabled={!connected || running}
+            onClick={() => fileInputRef.current?.click()}
+            data-testid="studio-assistant-attach"
+          >
+            <Paperclip />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            accept={[...STUDIO_ASSISTANT_IMAGE_TYPES, ".txt,.md,.json,.js,.ts,.tsx,.jsx,.css,.html,.py,.go,.rs,.java,.kt,.sql,.yaml,.yml,.toml,.csv,.sh,.env"].join(",")}
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              if (files.length) void addFiles(files);
+            }}
+          />
           {turns.length ? (
             <Button type="button" variant="ghost" size="sm" disabled={running} onClick={() => void onClear()}>
               <Trash2 /> New chat
@@ -432,7 +578,7 @@ export function StudioAssistant({
               <CircleStop /> Stop
             </Button>
           ) : (
-            <Button type="submit" size="sm" disabled={!connected || sending || !message.trim()}>
+            <Button type="submit" size="sm" disabled={!connected || sending || (!message.trim() && attachments.length === 0)}>
               {sending ? <LoaderCircle className="animate-spin" /> : <Send />}
               Send
             </Button>

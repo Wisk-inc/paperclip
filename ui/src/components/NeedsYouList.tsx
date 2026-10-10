@@ -3,9 +3,12 @@ import { Link } from "@/lib/router";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
 import { cn } from "../lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { authApi } from "../api/auth";
+import { queryKeys } from "../lib/queryKeys";
+import { useRecentTasks } from "../hooks/useRecentTasks";
 import { Mascot } from "./mascot/Mascot";
 import { useAccountProfile } from "../hooks/useAccountProfile";
-import { DiscordSupportLink } from "./DiscordSupportLink";
 import { AccountButton } from "./account/AccountSheet";
 
 function greetingFor(hour: number): string {
@@ -39,6 +42,11 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
   ];
 
   const waiting = inbox.inbox + (pendingApprovals ?? 0) + files.pendingRequests;
+  // Where you were last: the most recent task or chat you opened, one tap away.
+  const { data: session } = useQuery({ queryKey: queryKeys.auth.session, queryFn: () => authApi.getSession(), retry: false });
+  const userId = session?.user?.id ?? session?.session?.userId ?? null;
+  const { entries: recentTasks } = useRecentTasks({ companyId, userId });
+  const lastTask = recentTasks[0] ?? null;
   const profile = useAccountProfile();
   const firstName = profile.firstName;
   const greeting = `${greetingFor(new Date().getHours())}${firstName ? `, ${firstName}` : ""}`;
@@ -55,6 +63,17 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
               ? `${waiting} ${waiting === 1 ? "thing needs" : "things need"} you. Start at the top.`
               : "You're all caught up. Your agents are on it."}
           </p>
+          {lastTask ? (
+            <Link
+              to={`/issues/${lastTask.id}`}
+              className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-medium text-foreground no-underline"
+              data-testid="home-continue"
+            >
+              <span className="shrink-0 text-muted-foreground">Pick up:</span>
+              <span className="truncate">{lastTask.title}</span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </Link>
+          ) : null}
         </div>
         <AccountButton size="md" className="self-start" />
       </div>
@@ -92,7 +111,6 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
           );
         })}
       </ul>
-      <DiscordSupportLink variant="card" />
     </section>
   );
 }

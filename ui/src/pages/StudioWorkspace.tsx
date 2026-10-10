@@ -832,9 +832,9 @@ export function StudioWorkspace() {
         await studioApi.deleteAiKey(companyId, provider);
         await queryClient.invalidateQueries({ queryKey: queryKeys.studio.aiKeys(companyId) });
       }}
-      onSend={async (message, provider, model) => {
+      onSend={async (message, provider, model, attachments) => {
         await save();
-        await studioApi.askAssistant(workspaceId, { message, provider, model });
+        await studioApi.askAssistant(workspaceId, { message, provider, model, ...(attachments?.length ? { attachments } : {}) });
         setAssistantRunning(true);
       }}
       onStop={async () => {
@@ -927,7 +927,17 @@ export function StudioWorkspace() {
   ];
 
   return (
-    <div className="studio-ide flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background md:-m-2" data-testid="studio-workspace">
+    <div
+      className={cn(
+        "studio-ide flex min-h-0 flex-col overflow-hidden bg-background",
+        // Phones: the whole screen is the IDE. The app's header and tab bar
+        // sit underneath; the back arrow in the Studio bar leaves.
+        narrow
+          ? "studio-ide-immersive fixed inset-0 z-40 pt-(--sz-safe-top) pb-(--sz-safe-bottom)"
+          : "rounded-lg border border-border md:-m-2",
+      )}
+      data-testid="studio-workspace"
+    >
       {/* Header: the app and its Run button. */}
       <div className="flex items-center gap-2 border-b border-border bg-linear-to-r from-primary/10 to-transparent px-2 py-1.5">
         <Button variant="ghost" size="icon-sm" aria-label="All apps" asChild>
@@ -1017,12 +1027,12 @@ export function StudioWorkspace() {
                 setPane(tab.id);
               }}
               className={cn(
-                "relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-(length:--text-micro)",
+                "relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 py-1.5 text-(length:--text-micro)",
                 pane === tab.id ? "font-semibold text-primary" : "text-muted-foreground",
               )}
               data-testid={`studio-tab-${tab.id}`}
             >
-              <Icon className="size-4" />
+              <Icon className="size-5" />
               {tab.label}
               {tab.badge ? <span className="absolute top-1 right-1/4 size-1.5 rounded-full bg-primary" /> : null}
               {pane === tab.id ? <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" /> : null}

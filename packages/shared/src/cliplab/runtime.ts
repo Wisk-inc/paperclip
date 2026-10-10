@@ -15,16 +15,26 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
   const canvas = document.createElement('canvas')
   canvas.style.cssText = 'display:block;width:100%;height:100%;touch-action:pan-y;'
   canvas.setAttribute('aria-hidden', 'true')
-  const renderer = new CharacterRenderer(canvas, { width: target.clientWidth || 256, height: target.clientHeight || 256, displaySize: options.displaySize, framing: 'character' })
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
+  const coarse = window.matchMedia('(pointer: coarse)')
+  // Phones draw a smaller buffer (the display ratio, not twice it), half the
+  // frames, and nothing at all while the page scrolls: the character must
+  // never compete with a swipe for the GPU or the main thread.
+  const phone = coarse.matches
+  const PHONE_FRAME_MS = 1000 / 30
+  const renderer = new CharacterRenderer(canvas, {
+    width: target.clientWidth || 256, height: target.clientHeight || 256, displaySize: options.displaySize, framing: 'character',
+    ...(phone ? { pixelRatio: Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) } : {}),
+  })
   target.appendChild(canvas)
   let animation = options.animation ?? 'idle', elapsed = 0, last = 0, raf = 0
   let visible = false, destroyed = false, playing = true, tracking = false
   const resting = (): Gaze => options.restingGaze ? clampGaze(options.restingGaze) : centeredGaze()
   let gaze = resting(), goal = resting()
   const region = options.trackingScope === 'page' ? target.ownerDocument.documentElement : options.trackingRegion ?? target
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
-  const coarse = window.matchMedia('(pointer: coarse)')
-  const canRun = () => !destroyed && visible && !document.hidden && !reduced.matches
+  let scrolling = false, scrollTimer = 0, lastDraw = 0
+  const onScroll = () => { scrolling = true; window.clearTimeout(scrollTimer); scrollTimer = window.setTimeout(() => { scrolling = false; sync() }, 160) }
+  const canRun = () => !destroyed && visible && !document.hidden && !reduced.matches && !scrolling
   const render = () => renderer.render({ ...definition.character, followCursor: options.followCursor !== false, followRotation: options.followRotation !== false }, sampleDefinition(definition, animation, elapsed), { cursor: gaze, reducedMotion: reduced.matches }, gaze)
   const pointer = (event: PointerEvent) => { if (event.pointerType !== 'touch') goal = pointerGaze(event, target.getBoundingClientRect()) }
   const leave = () => { goal = resting() }
@@ -41,6 +51,8 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
   }
   function frame(now: number) {
     if (!canRun()) { sync(); return }
+    if (phone && now - lastDraw < PHONE_FRAME_MS) { raf = requestAnimationFrame(frame); return }
+    lastDraw = now
     const seconds = Math.min((now - last) / 1000, .1); last = now
     elapsed += seconds; gaze = easeGaze(gaze, goal, seconds, false)
     try { render() } catch { playing = false; sync(); options.onError?.(); return }
@@ -63,6 +75,7 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
     if (destroyed) return
     destroyed = true; sync(); resize?.disconnect(); intersection?.disconnect()
     document.removeEventListener('visibilitychange', sync); reduced.removeEventListener('change', sync); coarse.removeEventListener('change', sync)
+    window.removeEventListener('scroll', onScroll, true); window.clearTimeout(scrollTimer)
     canvas.removeEventListener('webglcontextlost', contextLost); renderer.dispose(); canvas.remove()
   }
   try {
@@ -73,6 +86,8 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
     intersection = new IntersectionObserver(entries => { visible = entries[0]?.isIntersecting ?? false; sync() })
     resize.observe(target); intersection.observe(target)
     document.addEventListener('visibilitychange', sync); reduced.addEventListener('change', sync); coarse.addEventListener('change', sync)
+    // Capture: element scrolls do not bubble, but they do pass the window on the way down.
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true })
     canvas.addEventListener('webglcontextlost', contextLost)
     render()
   } catch (error) { destroy(); throw error }

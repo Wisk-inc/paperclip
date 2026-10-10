@@ -4,9 +4,11 @@ import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import {
+  STUDIO_ASSISTANT_IMAGE_TYPES,
   STUDIO_AI_PROVIDER_INFO,
   studioLanguage,
   type StudioAiProvider,
+  type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
@@ -305,17 +307,25 @@ export async function runAssistantTurn(input: {
   credentials: ProviderCredentials;
   /** The checkpoint saved just before this turn, to undo it. */
   checkpointId?: string | null;
+  /** Images the model looks at and text files inlined into the prompt. */
+  attachments?: StudioAssistantAttachmentInput[];
 }) {
   const { context } = input;
   if (running.has(context.workspaceId)) throw new Error("The assistant is already working on this project");
   const controller = new AbortController();
   running.set(context.workspaceId, controller);
 
+  const attachments = input.attachments ?? [];
+  const images = attachments.filter((item) => item.encoding === "base64" && (STUDIO_ASSISTANT_IMAGE_TYPES as readonly string[]).includes(item.type));
+  const texts = attachments.filter((item) => item.encoding === "text");
   const transcriptFile = metaFile(context, "assistant-transcript.json");
   const transcript = await readJson<StudioAssistantTurn[]>(transcriptFile, []);
   const userTurn: StudioAssistantTurn = {
     id: randomUUID(), role: "user", text: input.message, steps: [], provider: input.provider, model: input.model, error: null, createdAt: new Date().toISOString(),
     checkpointId: input.checkpointId ?? null,
+    ...(attachments.length
+      ? { attachments: attachments.map((item) => ({ name: item.name, type: item.type, size: item.encoding === "base64" ? Math.round((item.data.length * 3) / 4) : item.data.length })) }
+      : {}),
   };
   const turn: StudioAssistantTurn = {
     id: randomUUID(), role: "assistant", text: "", steps: [], provider: input.provider, model: input.model, error: null, createdAt: new Date().toISOString(),
@@ -358,11 +368,13 @@ export async function runAssistantTurn(input: {
 
   void (async () => {
     try {
-      const prompt = `${input.message}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
+      const attachedText = texts.map((item) => `\n\nAttached file "${item.name}":\n\`\`\`\n${item.data}\n\`\`\``).join("");
+      const message = input.message || (images.length ? "Look at the attached image." : "See the attached files.");
+      const prompt = `${message}${attachedText}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
       if (input.provider === "anthropic") {
-        await runAnthropic({ ...input, prompt, signal: controller.signal, onStep, onText, onDelta });
+        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onText, onDelta });
       } else {
-        await runOpenAiCompatible({ ...input, prompt, signal: controller.signal, onStep, onText });
+        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onText });
       }
     } catch (error) {
       turn.error = describeProviderError(error, controller.signal.aborted);
@@ -384,9 +396,21 @@ function describeProviderError(error: unknown, aborted: boolean): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** History on disk keeps a note where an image was, never the image itself. */
+function withoutImages<T extends { role: string; content: unknown }>(messages: T[]): T[] {
+  return messages.map((message) => {
+    if (message.role !== "user" || !Array.isArray(message.content)) return message;
+    const content = (message.content as Array<Record<string, unknown>>).map((part) =>
+      part.type === "image" || part.type === "image_url" ? { type: "text", text: "[an image was attached here]" } : part,
+    );
+    return { ...message, content };
+  });
+}
+
 async function runAnthropic(input: {
   context: StudioAssistantContext;
   prompt: string;
+  images: StudioAssistantAttachmentInput[];
   model: string;
   credentials: ProviderCredentials;
   signal: AbortSignal;
@@ -405,7 +429,18 @@ async function runAnthropic(input: {
   let messages = await readJson<Anthropic.Beta.BetaMessageParam[]>(historyFile, []);
   // A fresh conversation instead of trimming: earlier turns are never edited.
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
-  messages.push({ role: "user", content: input.prompt });
+  messages.push({
+    role: "user",
+    content: input.images.length
+      ? [
+          ...input.images.map((image) => ({
+            type: "image" as const,
+            source: { type: "base64" as const, media_type: image.type as "image/png" | "image/jpeg" | "image/gif" | "image/webp", data: image.data },
+          })),
+          { type: "text" as const, text: input.prompt },
+        ]
+      : input.prompt,
+  });
 
   // Large file writes stream in as they are written. Proxies behind a custom
   // base URL may not accept the field, so it is only sent to Anthropic.
@@ -446,7 +481,7 @@ async function runAnthropic(input: {
     }
     // Keep every block (thinking, fallback markers) exactly as returned.
     messages.push({ role: "assistant", content: response.content as Anthropic.Beta.BetaContentBlockParam[] });
-    await writeJson(historyFile, messages);
+    await writeJson(historyFile, withoutImages(messages));
 
     for (const block of response.content) {
       if (block.type === "text") input.onText(block.text);
@@ -471,14 +506,15 @@ async function runAnthropic(input: {
     }
     // All results of one turn go back together, in a single user message.
     messages.push({ role: "user", content: results });
-    await writeJson(historyFile, messages);
+    await writeJson(historyFile, withoutImages(messages));
   }
   input.onText(`(I stopped after ${MAX_STEPS} steps. Ask me to keep going.)`);
 }
 
+type ChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ChatContentPart[] | null;
   tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
   tool_call_id?: string;
 }
@@ -486,6 +522,7 @@ interface ChatMessage {
 async function runOpenAiCompatible(input: {
   context: StudioAssistantContext;
   prompt: string;
+  images: StudioAssistantAttachmentInput[];
   provider: StudioAiProvider;
   model: string;
   credentials: ProviderCredentials;
@@ -500,7 +537,15 @@ async function runOpenAiCompatible(input: {
   const historyFile = metaFile(context, `assistant-${input.provider}.json`);
   let messages = await readJson<ChatMessage[]>(historyFile, []);
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
-  messages.push({ role: "user", content: input.prompt });
+  messages.push({
+    role: "user",
+    content: input.images.length
+      ? [
+          ...input.images.map((image) => ({ type: "image_url" as const, image_url: { url: `data:${image.type};base64,${image.data}` } })),
+          { type: "text" as const, text: input.prompt },
+        ]
+      : input.prompt,
+  });
   const tools = TOOLS.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } }));
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
@@ -537,8 +582,9 @@ async function runOpenAiCompatible(input: {
     if (!message) throw new Error(`${info.name} sent an empty reply.`);
     const assistant: ChatMessage = { role: "assistant", content: message.content ?? "", ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) };
     messages.push(assistant);
-    await writeJson(historyFile, messages);
-    if (message.content) input.onText(message.content);
+    await writeJson(historyFile, withoutImages(messages));
+    const replyText = typeof message.content === "string" ? message.content : (message.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    if (replyText) input.onText(replyText);
     if (!message.tool_calls?.length) return;
     for (const call of message.tool_calls) {
       let args: unknown = {};
@@ -553,7 +599,7 @@ async function runOpenAiCompatible(input: {
       input.onStep(outcome.step);
       messages.push({ role: "tool", tool_call_id: call.id, content: outcome.output });
     }
-    await writeJson(historyFile, messages);
+    await writeJson(historyFile, withoutImages(messages));
   }
   input.onText(`(I stopped after ${MAX_STEPS} steps. Ask me to keep going.)`);
 }

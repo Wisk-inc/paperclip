@@ -29,10 +29,21 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 - **Screens**: edge-to-edge on Android 15/16, safe around camera cutouts and
   the gesture bar, keyboard-aware, portrait and landscape, phones, tablets,
   foldables, and Chromebooks (`resizeableActivity`, no orientation lock).
+- **App Studio, full screen**: on a phone the IDE takes the whole screen; the
+  AI panel takes images and text files along with a message, and uses the
+  organization's API key when none is saved in Studio.
+- **API keys in one place**: Settings → API keys adds, copies, defaults and
+  removes the keys that agents, chats and App Studio run on. A run that
+  fails before its model session says so and links there.
+- **Tour**: after onboarding, one card per section (what it is, why it
+  matters), with Skip at every step; again any time from the account sheet.
 - **Launcher shortcuts**: Files, New task, Change server.
 - **Feel**: primary actions sit in the thumb zone, destructive actions have
   Undo, and taps, sends, limits, and successes use Android's own haptics
   (they follow the phone's touch-feedback setting; no vibrate permission).
+  The tab bar stays put while you scroll, fixed bars do not blur, the
+  mascot draws at 30 fps and pauses while the page moves, and dialogs and
+  menus always fit the screen.
 
 ## Requirements
 

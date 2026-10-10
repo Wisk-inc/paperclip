@@ -6,6 +6,7 @@ import type { TranscriptEntry } from "@/adapters";
 import { heartbeatsApi } from "@/api/heartbeats";
 import { useLiveRunTranscripts } from "@/components/transcript/useLiveRunTranscripts";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useSheetDrag } from "@/hooks/useSheetDrag";
 import { Link } from "@/lib/router";
 import { cn, relativeTime } from "@/lib/utils";
 
@@ -106,11 +107,20 @@ export function AgentTerminalSheet({ agent, open, onOpenChange }: { agent: Agent
     [selected, transcriptByRun, rawCommand],
   );
   const live = selected?.status === "running" || selected?.status === "queued";
+  const { style: sheetStyle, handleProps } = useSheetDrag(56);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-2xl md:-translate-x-1/2" data-testid="agent-terminal-sheet">
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border" aria-hidden="true" />
+      <SheetContent
+        side="bottom"
+        style={sheetStyle}
+        className="gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-2xl md:-translate-x-1/2"
+        data-testid="agent-terminal-sheet"
+      >
+        {/* The slim handle: pull it up to make the terminal taller. */}
+        <div {...handleProps} className="flex shrink-0 cursor-grab touch-none items-center justify-center py-2 active:cursor-grabbing" data-testid="agent-terminal-handle">
+          <span className="h-1.5 w-12 rounded-full bg-border" aria-hidden="true" />
+        </div>
         <SheetHeader className="gap-1 px-4 pt-3 pb-2">
           <SheetTitle className="flex items-center gap-2 text-base">
             <SquareTerminal className="size-4" aria-hidden="true" />

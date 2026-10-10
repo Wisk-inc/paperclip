@@ -137,7 +137,18 @@ the gateway, never at Automa itself.
 
 **What if a collaborator reads the owner's AI keys?** Keys are stored
 encrypted (`localEncryptedProvider`), listed only as "set / last 4", and used
-server-side; no route returns them.
+server-side; no guest route returns them. The one place a key comes back out
+is the board's own API keys page (Settings → API keys → Copy key): board only,
+never a viewer, only a key the caller may use (their own, or a shared one),
+and every copy is an audit entry (`ai_connection.credential_revealed`). The
+board already controls every agent that runs with the key, so showing it
+again to the board adds no reach; the log makes it visible.
+
+**What if Studio uses a key it was not given?** Studio's assistant takes the
+key saved in Studio for that provider; without one it falls back to the
+organization's key for the same provider from the API keys page, selected
+with the same ownership rules as an agent run (the caller's default, else a
+key the caller may use). It never reads another member's personal key.
 
 ## 5. Accounts and data
 

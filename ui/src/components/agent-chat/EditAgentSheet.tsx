@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useSheetDrag } from "@/hooks/useSheetDrag";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
@@ -186,16 +187,19 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
       pushToast({ title: "Couldn’t save", body: error instanceof Error ? error.message : String(error), tone: "error" });
     },
   });
-
+  const { style: sheetStyle, handleProps } = useSheetDrag(62);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
+        style={sheetStyle}
+        className="gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
         data-testid="edit-agent-sheet"
       >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border" aria-hidden="true" />
+        <div {...handleProps} className="flex shrink-0 cursor-grab touch-none items-center justify-center py-2 active:cursor-grabbing" data-testid="edit-agent-handle">
+          <span className="h-1.5 w-12 rounded-full bg-border" aria-hidden="true" />
+        </div>
         <SheetHeader className="flex-row items-center gap-3 px-4 pt-3 pb-3">
           <AgentAvatar agent={{ ...agent, name: trimmedName || agent.name }} size={48} pose="success" />
           <div className="min-w-0">

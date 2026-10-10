@@ -134,6 +134,9 @@ const STATUS_FILTER_MAP: Record<FilterValue, Set<string> | null> = {
 };
 
 function matchesFilter(event: ActivityEvent, filter: FilterValue): boolean {
+  // Read receipts ("Board read NOR-4") are bookkeeping, not activity: the
+  // Audit page lists them behind its own toggle.
+  if (event.action.endsWith(".read_marked")) return false;
   if (filter === "all") return true;
   const actions = FILTER_ACTIONS[filter];
   if (actions?.has(event.action)) return true;

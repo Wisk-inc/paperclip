@@ -1365,6 +1365,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "DELETE /api/companies/{companyId}/ai-connections/local/attempts/{sessionId}",
   "PUT /api/companies/{companyId}/ai-connections/default",
   "GET /api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
+  "POST /api/companies/{companyId}/ai-connections/{connectionId}/reveal",
   "GET /api/companies/{companyId}/ai-connections/login/{sessionId}",
 
   "GET /api/companies/{companyId}/project-repositories",
@@ -10559,6 +10560,14 @@ registerCurrentRoute({
   tags: ["ai-connections"],
   summary: "Set the signed-in owner’s personal AI default",
   body: z.object({ grantId: z.string().uuid() }),
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/ai-connections/{connectionId}/reveal",
+  tags: ["ai-connections"],
+  summary: "Show an API key again to the board (audited); sign-ins have no key",
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
 });
 

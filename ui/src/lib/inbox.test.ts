@@ -342,6 +342,7 @@ describe("inbox helpers", () => {
       joinRequests: 1,
       mineIssues: 1,
       alerts: 1,
+      keys: expect.any(Array),
     });
   });
 
@@ -364,6 +365,7 @@ describe("inbox helpers", () => {
       joinRequests: 0,
       mineIssues: 0,
       alerts: 0,
+      keys: expect.any(Array),
     });
   });
 

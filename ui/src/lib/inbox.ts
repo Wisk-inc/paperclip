@@ -20,6 +20,8 @@ export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
+/** Item keys the phone's bell was tapped on; the badge counts only what came after. */
+export const BELL_SEEN_KEY = "paperclip:inbox:bell-seen";
 export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
 export const INBOX_ISSUE_COLUMNS_KEY = "paperclip:inbox:issue-columns";
 export const INBOX_NESTING_KEY = "paperclip:inbox:nesting";
@@ -84,6 +86,8 @@ export interface InboxBadgeData {
   joinRequests: number;
   mineIssues: number;
   alerts: number;
+  /** One key per item behind `inbox`, so a bell can tell new items from ones already seen. */
+  keys: string[];
 }
 
 export interface InboxWorkItemGroup {
@@ -355,6 +359,25 @@ export function loadReadInboxItems(): Set<string> {
 export function saveReadInboxItems(ids: Set<string>) {
   try {
     localStorage.setItem(READ_ITEMS_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+export function loadBellSeenKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(BELL_SEEN_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Only the keys that currently exist are kept, so the list never grows past the inbox. */
+export function saveBellSeenKeys(keys: Iterable<string>) {
+  try {
+    localStorage.setItem(BELL_SEEN_KEY, JSON.stringify([...keys]));
   } catch {
     // Ignore localStorage failures.
   }
@@ -1280,19 +1303,30 @@ export function computeInboxBadgeData({
   dismissedAtByKey: ReadonlyMap<string, number>;
   currentUserId?: string | null;
 }): InboxBadgeData {
-  const actionableApprovals = approvals.filter(
+  const actionableApprovalItems = approvals.filter(
     (approval) =>
       isApprovalVisibleInMine(approval, currentUserId) &&
       ACTIONABLE_APPROVAL_STATUSES.has(approval.status) &&
       !isInboxEntityDismissed(dismissedAtByKey, `approval:${approval.id}`, approval.updatedAt),
-  ).length;
-  const failedRuns = getLatestFailedRunsByAgent(heartbeatRuns).filter(
+  );
+  const actionableApprovals = actionableApprovalItems.length;
+  const failedRunItems = getLatestFailedRunsByAgent(heartbeatRuns).filter(
     (run) => !isInboxEntityDismissed(dismissedAtByKey, `run:${run.id}`, run.createdAt),
-  ).length;
-  const visibleJoinRequests = joinRequests.filter(
+  );
+  const failedRuns = failedRunItems.length;
+  const visibleJoinRequestItems = joinRequests.filter(
     (jr) => !isInboxEntityDismissed(dismissedAtByKey, `join:${jr.id}`, jr.updatedAt ?? jr.createdAt),
-  ).length;
-  const visibleMineIssues = mineIssues.filter((issue) => issue.isUnreadForMe).length;
+  );
+  const visibleJoinRequests = visibleJoinRequestItems.length;
+  const visibleMineIssueItems = mineIssues.filter((issue) => issue.isUnreadForMe);
+  const visibleMineIssues = visibleMineIssueItems.length;
+  // An item that changes again (a new comment, a re-requested approval) gets a new key.
+  const keys = [
+    ...actionableApprovalItems.map((approval) => `approval:${approval.id}:${approval.updatedAt}`),
+    ...visibleJoinRequestItems.map((jr) => `join:${jr.id}:${jr.updatedAt ?? jr.createdAt}`),
+    ...failedRunItems.map((run) => `run:${run.id}`),
+    ...visibleMineIssueItems.map((issue) => `issue:${issue.id}:${issue.updatedAt}`),
+  ];
   const agentErrorCount = dashboard?.agents.error ?? 0;
   const monthBudgetCents = dashboard?.costs.monthBudgetCents ?? 0;
   const monthUtilizationPercent = dashboard?.costs.monthUtilizationPercent ?? 0;
@@ -1314,5 +1348,6 @@ export function computeInboxBadgeData({
     joinRequests: visibleJoinRequests,
     mineIssues: visibleMineIssues,
     alerts,
+    keys,
   };
 }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode, useContext } from "react";
 import type { ToolConnectionCredentialSource } from "@paperclipai/shared";
 import { Navigate, Outlet, Route, Routes, useActiveCompanyPrefix, useLocation, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
@@ -85,6 +85,7 @@ import { GatewayDetail } from "./pages/apps/gateways/GatewayDetail";
 import { CompanySkills } from "./pages/CompanySkills";
 import { SkillStudio } from "./pages/SkillStudio";
 import { Secrets } from "./pages/Secrets";
+import { ApiKeys } from "./pages/ApiKeys";
 import { CompanyImport } from "./pages/CompanyImport";
 import { DesignGuide } from "./pages/DesignGuide";
 import { InstanceExperimentalSettings } from "./pages/InstanceExperimentalSettings";
@@ -102,7 +103,7 @@ import { InviteLandingPage } from "./pages/InviteLanding";
 import { JoinRequestQueue } from "./pages/JoinRequestQueue";
 import { NotFoundPage } from "./pages/NotFound";
 import { useCompany } from "./context/CompanyContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, QueryClientContext } from "@tanstack/react-query";
 import { healthApi } from "./api/health";
 import { queryKeys } from "./lib/queryKeys";
 import { LocalSecretNotice } from "./components/LocalSecretNotice";
@@ -197,6 +198,9 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       </Route>
       <Route element={<HiddenSettingsPageGate pageKey="company.secrets" />}>
         <Route path="company/settings/secrets" element={<Secrets />} />
+      </Route>
+      <Route element={<HiddenSettingsPageGate pageKey="company.api_keys" />}>
+        <Route path="company/settings/api-keys" element={<ApiKeys />} />
       </Route>
       <Route path="company/settings/tools" element={<LegacyToolsSettingsRedirect />} />
       <Route path="company/settings/tools/:tab" element={<LegacyToolsSettingsRedirect />} />
@@ -865,6 +869,14 @@ export function App() {
  * list it was never allowed to read.
  */
 function LockedInstanceGate() {
+  // Route tests mount the board routes without a QueryClient; the gate only
+  // matters in the real shell, where one is always present.
+  const client = useContext(QueryClientContext);
+  if (!client) return null;
+  return <LockedInstanceGateInner />;
+}
+
+function LockedInstanceGateInner() {
   const { companyListUnauthorized } = useCompany();
   const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), staleTime: 60_000 });
   if (!health?.localSecretRequired || !companyListUnauthorized) return null;

@@ -93,7 +93,7 @@ import {
   splitCategoryDraft,
   type SkillCreateDraft,
 } from "../lib/skill-create";
-import { SkillCardIcon } from "../components/SkillCardIcon";
+import { SkillCardIcon, skillAuthorLine, skillDisplayName } from "../components/SkillCardIcon";
 import { ImportSkillsFromProjectDialog } from "./skills/ImportSkillsFromProjectDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -262,7 +262,9 @@ function buildTree(entries: CompanySkillFileInventoryEntry[]) {
   return root.children;
 }
 
-function sourceMeta(sourceBadge: CompanySkillSourceBadge, sourceLabel: string | null) {
+function sourceMeta(sourceBadge: CompanySkillSourceBadge, rawSourceLabel: string | null) {
+  // Skills that ship with the app say so in the app's words.
+  const sourceLabel = rawSourceLabel && /^paperclip bundled$/i.test(rawSourceLabel.trim()) ? "Built in" : rawSourceLabel;
   const normalizedLabel = sourceLabel?.toLowerCase() ?? "";
   const isSkillsShManaged =
     normalizedLabel.includes("skills.sh") || normalizedLabel.includes("vercel-labs/skills");
@@ -875,9 +877,9 @@ function SkillCard({
         ) : null}
         <SkillCardIcon card={card} />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-sm font-medium text-foreground">{card.name}</div>
+          <div className="truncate text-sm font-medium text-foreground">{skillDisplayName(card.name)}</div>
           <div className="truncate text-xs text-muted-foreground">
-            by {card.author}{card.version ? ` · ${card.version}` : ""}
+            {skillAuthorLine(card.author)}{card.version ? ` · ${card.version}` : ""}
           </div>
           {badgeFolder !== undefined ? (
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
