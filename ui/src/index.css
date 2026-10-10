@@ -1461,16 +1461,16 @@
 /* Skeleton "tombstones" glow while they wait: a luminous band sweeps across
    each placeholder and a soft halo breathes around it. */
 :root {
-  /* A faint indigo, so the glow reads as light rather than grey. */
-  --skeleton-glow-core: oklch(0.72 0.14 275 / 0.3);
-  --skeleton-glow-edge: oklch(0.72 0.14 275 / 0.1);
-  --skeleton-halo: oklch(0.66 0.16 275 / 0.3);
+  /* A soft neutral light, matching the default black-and-white look. */
+  --skeleton-glow-core: oklch(0.78 0 0 / 0.3);
+  --skeleton-glow-edge: oklch(0.78 0 0 / 0.1);
+  --skeleton-halo: oklch(0.7 0 0 / 0.3);
   --skeleton-halo-size: 16px;
 }
 .dark {
-  --skeleton-glow-core: oklch(0.8 0.12 275 / 0.28);
-  --skeleton-glow-edge: oklch(0.8 0.12 275 / 0.09);
-  --skeleton-halo: oklch(0.7 0.16 275 / 0.38);
+  --skeleton-glow-core: oklch(0.88 0 0 / 0.22);
+  --skeleton-glow-edge: oklch(0.88 0 0 / 0.07);
+  --skeleton-halo: oklch(0.82 0 0 / 0.26);
 }
 @layer components {
   [data-slot="skeleton"] {
@@ -3493,7 +3493,8 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --accent-swatch-sunset: oklch(0.6 0.17 45);
   --accent-swatch-rose: oklch(0.6 0.19 8);
   --accent-swatch-grape: oklch(0.6 0.18 318);
-  --accent-swatch-classic: oklch(0.3 0 0);
+  --accent-swatch-classic: oklch(0.1 0 0);
+  --accent-swatch-classic-2: oklch(0.98 0 0);
   --accent-swatch-jamaica: oklch(0.86 0.17 92);
   --accent-swatch-jamaica-2: oklch(0.6 0.16 150);
 }

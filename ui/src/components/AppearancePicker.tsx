@@ -65,7 +65,12 @@ export function AppearancePicker({ className }: { className?: string }) {
                       : `linear-gradient(135deg, var(${option.swatch[0]}), var(${option.swatch[0]}))`,
                 }}
               >
-                {selected ? <Check className="size-4 text-studio-badge-foreground drop-shadow" /> : null}
+                {/* The check sits on its own chip so it reads on any swatch, even half white. */}
+                {selected ? (
+                  <span className="flex size-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm">
+                    <Check className="size-3.5" />
+                  </span>
+                ) : null}
               </span>
               {option.label}
             </button>

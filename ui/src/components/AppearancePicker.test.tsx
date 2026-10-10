@@ -30,7 +30,7 @@ describe("AppearancePicker", () => {
     container.remove();
   });
 
-  it("starts on the Automa accent and remembers a new one", () => {
+  it("starts black and white and remembers a new color", () => {
     act(() => {
       root.render(
         <ThemeProvider>
@@ -38,8 +38,15 @@ describe("AppearancePicker", () => {
         </ThemeProvider>,
       );
     });
+    expect(document.documentElement.dataset.accent).toBeUndefined();
+    expect(container.querySelector('[data-testid="accent-classic"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("automa.accent")).toBeNull();
+
+    act(() => {
+      (container.querySelector('[data-testid="accent-indigo"]') as HTMLButtonElement).click();
+    });
     expect(document.documentElement.dataset.accent).toBe("indigo");
-    expect(container.querySelector('[data-testid="accent-indigo"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("automa.accent")).toBe("indigo");
 
     act(() => {
       (container.querySelector('[data-testid="accent-jamaica"]') as HTMLButtonElement).click();

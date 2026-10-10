@@ -1,10 +1,10 @@
 /**
- * Accent color themes. `classic` is Automa's neutral black-and-white look;
+ * Accent color themes. `classic` (the default) is the neutral black-and-white look;
  * the others recolor primary actions, focus rings, and selections. Colors
  * live in index.css (`[data-accent]`), swatches in `--accent-swatch-*`.
  */
 export const ACCENT_THEMES = [
-  { id: "classic", label: "Classic", swatch: ["--accent-swatch-classic"] },
+  { id: "classic", label: "Black & white", swatch: ["--accent-swatch-classic", "--accent-swatch-classic-2"] },
   { id: "indigo", label: "Automa", swatch: ["--accent-swatch-indigo"] },
   { id: "ocean", label: "Ocean", swatch: ["--accent-swatch-ocean"] },
   { id: "teal", label: "Teal", swatch: ["--accent-swatch-teal"] },
@@ -19,8 +19,8 @@ export type AccentTheme = (typeof ACCENT_THEMES)[number]["id"];
 
 export const ACCENT_STORAGE_KEY = "automa.accent";
 
-/** Automa's own purple, until someone picks another. */
-export const DEFAULT_ACCENT: AccentTheme = "indigo";
+/** The neutral black-and-white look, until someone picks a color. */
+export const DEFAULT_ACCENT: AccentTheme = "classic";
 
 export function isAccentTheme(value: unknown): value is AccentTheme {
   return typeof value === "string" && ACCENT_THEMES.some((theme) => theme.id === value);

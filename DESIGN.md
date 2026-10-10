@@ -97,7 +97,7 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   the organization switcher. Photos are tap-to-change (a camera badge on the
   avatar or logo), never a separate upload form.
 - **Loading glows.** Skeletons (`[data-slot="skeleton"]`) sweep a faint
-  indigo band and breathe a soft halo (`--skeleton-glow-*`,
+  neutral light band and breathe a soft halo (`--skeleton-glow-*`,
   `--motion-skeleton-glow`); both stop under reduced motion.
 - **Org chart editing.** Drag a card onto another to set its manager, onto the
   top strip to report to nobody, or onto empty space to place it; on touch,
@@ -105,8 +105,8 @@ dismissed, retains drafts, and hides message inputs until the pause is released.
   changed reporting line comes with Undo.
 - **Look and feel.** Light or dark plus an accent color theme (`AppearancePicker`
   in the account sheet and App Studio settings; `lib/accent-themes.ts`,
-  `[data-accent]` blocks in index.css). Automa purple is the default;
-  Classic keeps the neutral black-and-white look. Accents recolor only
+  `[data-accent]` blocks in index.css). Black & white (`classic`) is the
+  default; Automa purple and the other colors are a tap away. Accents recolor only
   `--primary`, `--ring`, and the `--accent` tints, so every screen follows.
 - **App Studio.** Language logos come from `public/brands/languages/` on a
   soft tile that stays dark in dark mode (black marks invert there; no
