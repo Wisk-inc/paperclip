@@ -37,6 +37,9 @@
           const isDark = theme === "dark";
           document.documentElement.classList.toggle("dark", isDark);
           document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+          // The accent color theme picked in the account sheet.
+          const accent = window.localStorage.getItem("automa.accent") || "indigo";
+          if (accent !== "classic" && /^[a-z]+$/.test(accent)) document.documentElement.dataset.accent = accent;
           const themeColorMeta = document.querySelector('meta[name="theme-color"]');
           if (themeColorMeta) {
             themeColorMeta.setAttribute("content", isDark ? darkThemeColor : lightThemeColor);

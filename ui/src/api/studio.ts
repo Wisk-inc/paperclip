@@ -19,8 +19,8 @@ import type {
 import { buildSameOriginWebSocketUrl } from "../lib/websocket-url";
 import { api, ApiError } from "./client";
 
-/** A catalog entry as the server lists it (without the starter files). */
-export type StudioCatalogLanguage = Omit<StudioLanguage, "files">;
+/** A catalog entry as the server lists it: starter file names, not contents. */
+export type StudioCatalogLanguage = Omit<StudioLanguage, "files"> & { starterFiles?: string[] };
 
 export interface StudioCatalog {
   platform: StudioToolchainStatus["platform"];

@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, Globe, LoaderCircle, Play, RefreshCw, Rocket
 import type { StudioRunState } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
+import { Mascot } from "../mascot/Mascot";
 
 interface StudioPreviewProps {
   run: StudioRunState | null;
@@ -87,15 +88,17 @@ export function StudioPreview({ run, consoleApp, onRun, onShowConsole, publicLin
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             {running && !consoleApp ? (
               <>
-                <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Starting your app. The preview opens when it answers.</p>
+                <Mascot pose="thinking" size="sm" />
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="size-4 animate-spin" /> Starting your app. The preview opens when it answers.
+                </p>
                 <Button variant="outline" size="sm" onClick={onShowConsole}>
                   <SquareTerminal /> Watch the console
                 </Button>
               </>
             ) : consoleApp ? (
               <>
-                <SquareTerminal className="size-6 text-muted-foreground" />
+                <Mascot pose="thinking" size="sm" gaze="down" />
                 <p className="max-w-xs text-sm text-muted-foreground">This app prints to the console. Run it and read its output there.</p>
                 <div className="flex gap-2">
                   {onRun ? (
@@ -110,7 +113,7 @@ export function StudioPreview({ run, consoleApp, onRun, onShowConsole, publicLin
               </>
             ) : (
               <>
-                <Globe className="size-6 text-muted-foreground" />
+                <Mascot pose="idle" size="sm" gaze="down" />
                 <p className="max-w-xs text-sm text-muted-foreground">{onRun ? "Run your app to see it here." : "The preview shows up here when the owner runs the app."}</p>
                 {onRun ? (
                   <Button size="sm" onClick={onRun}>

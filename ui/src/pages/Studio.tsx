@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CodeXml, LogIn, Plus } from "lucide-react";
-import { studioApi } from "../api/studio";
+import { ChevronRight, GitBranch, Globe, LogIn, Plus, Rocket, Share2, Sparkles, SquareTerminal, Users } from "lucide-react";
+import { studioApi, type StudioCatalogLanguage } from "../api/studio";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
@@ -11,10 +11,11 @@ import { timeAgo } from "../lib/timeAgo";
 import { Link, useNavigate } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { EmptyState } from "../components/EmptyState";
+import { Mascot } from "../components/mascot/Mascot";
 import { ThumbAction } from "../components/ThumbAction";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { LanguageBadge, NewStudioAppSheet, type NewStudioAppInput } from "../components/studio/NewStudioAppSheet";
+import { NewStudioAppSheet, type NewStudioAppInput } from "../components/studio/NewStudioAppSheet";
+import { LanguageLogo } from "../components/studio/LanguageLogo";
 
 /** Where a join code or invite link takes you: the collaborator page. */
 export function studioJoinTarget(input: string): string | null {
@@ -22,8 +23,7 @@ export function studioJoinTarget(input: string): string | null {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) {
     try {
-      const url = new URL(value);
-      return url.toString();
+      return new URL(value).toString();
     } catch {
       return null;
     }
@@ -32,8 +32,23 @@ export function studioJoinTarget(input: string): string | null {
   return code.length >= 4 ? `/studio-guest/?code=${encodeURIComponent(code)}` : null;
 }
 
+/** Languages offered as one-tap starting points, in this order. */
+const QUICK_STARTS = ["html", "python", "fullstack-node", "react", "flask", "javascript", "go", "rust", "pwa", "typescript"];
+
+const TIPS = [
+  { icon: Sparkles, title: "Describe it, get an app", body: "Tell the AI assistant what you want. It writes the UI, the logic, and the database, then runs it." },
+  { icon: Globe, title: "Share a live link", body: "Your app runs on this device. One tap gives it a public Cloudflare link anyone can open." },
+  { icon: Users, title: "Build with friends", body: "Share a code. They watch you type, chat, send files, and suggest changes you approve." },
+  { icon: GitBranch, title: "Bring a GitHub project", body: "Paste a repository link to clone it, then ask the assistant to set it up or fix it." },
+];
+
+function kindLabel(language: StudioCatalogLanguage | undefined) {
+  if (!language) return null;
+  return language.kind === "web" ? "Web app" : language.kind === "static" ? "Website" : "Console app";
+}
+
 /**
- * Studio: apps you build and run on this device. Start one in any of the
+ * App Studio: apps you build and run on this device. Start one in any of the
  * languages, clone one from GitHub, or join someone else's project.
  */
 export function Studio() {
@@ -43,6 +58,7 @@ export function Studio() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [newOpen, setNewOpen] = useState(false);
+  const [startWith, setStartWith] = useState<string | null>(null);
   const [join, setJoin] = useState("");
   const companyId = selectedCompanyId ?? "";
 
@@ -73,8 +89,18 @@ export function Studio() {
     },
   });
 
-  const languageById = new Map((catalog.data?.languages ?? []).map((language) => [language.id, language]));
+  const languageById = useMemo(() => new Map((catalog.data?.languages ?? []).map((language) => [language.id, language])), [catalog.data]);
   const workspaces = list.data?.workspaces ?? [];
+  const running = workspaces.filter((workspace) => workspace.run?.status === "running" || workspace.run?.status === "starting").length;
+  const shared = workspaces.filter((workspace) => workspace.shareEnabled).length;
+  const quickStarts = QUICK_STARTS.map((id) => languageById.get(id)).filter((language): language is StudioCatalogLanguage => Boolean(language));
+
+  /** Opens the New app sheet, optionally on a language or on "github". */
+  const openNew = (start: string | null = null) => {
+    haptic("tick");
+    setStartWith(start);
+    setNewOpen(true);
+  };
 
   const onJoin = (event: FormEvent) => {
     event.preventDefault();
@@ -89,88 +115,186 @@ export function Studio() {
 
   if (!selectedCompanyId || (list.isLoading && !list.data)) return <PageSkeleton variant="list" />;
 
-  const joinCard = (
-    <form onSubmit={onJoin} className="flex flex-col gap-2 rounded-lg border border-border p-3">
-      <span className="text-sm font-medium">Join someone's project</span>
-      <div className="flex gap-2">
-        <Input value={join} onChange={(event) => setJoin(event.target.value)} placeholder="Invite link or join code" aria-label="Invite link or join code" className="h-9" />
-        <Button type="submit" variant="outline" size="sm" className="h-9">
-          <LogIn /> Join
-        </Button>
-      </div>
-    </form>
-  );
-
   return (
-    <div className="flex flex-col gap-4" data-testid="studio-page">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold">App Studio</h1>
-          <p className="text-sm text-muted-foreground">Build apps in {catalog.data?.languages.length ?? "50+"} languages, run them on this device, and share them.</p>
+    <div className="flex flex-col gap-6" data-testid="studio-page">
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-2xl border border-border bg-linear-to-br from-primary/25 via-card to-card p-4 md:p-6">
+        <div className="flex items-center gap-4">
+          <Mascot pose={running ? "cheering" : "excited"} size="md" className="shrink-0" />
+          <div className="min-w-0 flex-1">
+            <h1 className="font-display text-2xl font-bold tracking-tight md:text-3xl">App Studio</h1>
+            <p className="text-sm text-muted-foreground md:text-base">
+              Build, run, and share apps in {catalog.data?.languages.length ?? "50+"} languages, right from this device.
+            </p>
+          </div>
         </div>
-        <Button className="hidden md:inline-flex" onClick={() => setNewOpen(true)}>
-          <Plus /> New app
-        </Button>
-      </div>
+        <dl className="mt-4 grid grid-cols-3 gap-2">
+          {[
+            { label: "Apps", value: workspaces.length, icon: SquareTerminal },
+            { label: "Running", value: running, icon: Rocket },
+            { label: "Shared", value: shared, icon: Share2 },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-xl border border-border/60 bg-background/70 p-3 backdrop-blur">
+              <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <stat.icon className="size-3.5" /> {stat.label}
+              </dt>
+              <dd className="mt-0.5 text-2xl font-semibold tabular-nums">{stat.value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4 hidden gap-2 md:flex">
+          <Button onClick={() => openNew()}>
+            <Plus /> New app
+          </Button>
+          <Button variant="outline" onClick={() => openNew("github")}>
+            <GitBranch /> Clone from GitHub
+          </Button>
+        </div>
+      </section>
 
-      {list.error ? <p className="text-sm text-destructive">{list.error instanceof Error ? list.error.message : "Couldn't load your apps"}</p> : null}
+      {/* Quick starts */}
+      {quickStarts.length ? (
+        <section aria-labelledby="studio-quick-heading" className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h2 id="studio-quick-heading" className="text-sm font-semibold">
+              Start something new
+            </h2>
+            <button type="button" onClick={() => openNew()} className="flex items-center gap-0.5 text-sm text-muted-foreground hover:text-foreground">
+              All languages <ChevronRight className="size-4" />
+            </button>
+          </div>
+          <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:px-0 xl:grid-cols-10" data-testid="studio-quick-starts">
+            {quickStarts.map((language) => (
+              <li key={language.id} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => openNew(language.id)}
+                  className="flex h-full w-28 flex-col items-center gap-2 rounded-xl border border-border bg-card p-3 text-center transition-colors hover:border-primary hover:bg-accent/50 md:w-full"
+                  data-testid={`studio-quick-${language.id}`}
+                >
+                  <LanguageLogo language={language} size="lg" />
+                  <span className="line-clamp-2 text-xs font-medium leading-tight">{language.name.replace(/ \(.*\)$/, "")}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
-      {workspaces.length === 0 ? (
-        <>
-          <EmptyState
-            icon={CodeXml}
-            title="Build your first app"
-            message="Pick a language, name it, and it's ready to run."
-            description="Write code yourself, or describe it and let the AI assistant build it with your own API key."
-            action="New app"
-            onAction={() => setNewOpen(true)}
-            steps={["Pick a language or paste a GitHub link", "Run it and watch the console", "Preview it, or get a public link", "Invite friends to build with you"]}
-          />
-          {joinCard}
-        </>
-      ) : (
-        <>
+      {/* Your apps */}
+      <section aria-labelledby="studio-apps-heading" className="flex flex-col gap-2">
+        <h2 id="studio-apps-heading" className="text-sm font-semibold">
+          Your apps
+        </h2>
+        {list.error ? <p className="text-sm text-destructive">{list.error instanceof Error ? list.error.message : "Couldn't load your apps"}</p> : null}
+        {workspaces.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border p-6 text-center">
+            <Mascot pose="idle" size="sm" gaze="down" />
+            <p className="text-sm font-medium">No apps yet</p>
+            <p className="max-w-xs text-sm text-muted-foreground">Pick a language above, or describe an app and let the assistant build it.</p>
+            <Button onClick={() => openNew()}>
+              <Plus /> New app
+            </Button>
+          </div>
+        ) : (
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3" aria-label="Your apps">
             {workspaces.map((workspace) => {
               const language = languageById.get(workspace.language);
-              const running = workspace.run?.status === "running" || workspace.run?.status === "starting";
+              const isRunning = workspace.run?.status === "running" || workspace.run?.status === "starting";
               return (
                 <li key={workspace.id}>
                   <Link
                     to={`/studio/${workspace.id}`}
-                    className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-accent/50"
+                    className="group flex h-full flex-col gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/60 hover:bg-accent/40"
                     data-testid="studio-app-card"
                   >
-                    {language ? <LanguageBadge language={language} /> : <span className="flex size-9 items-center justify-center rounded-md bg-muted font-mono text-xs">{"</>"}</span>}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{workspace.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {language?.name ?? workspace.language}
-                        {workspace.sourceUrl ? " · from GitHub" : ""}
-                        {workspace.shareEnabled ? " · shared" : ""}
-                        {" · "}
-                        {workspace.lastRunAt ? `ran ${timeAgo(workspace.lastRunAt)}` : `made ${timeAgo(workspace.createdAt)}`}
+                    <div className="flex items-start gap-3">
+                      <LanguageLogo language={language ?? { id: "unknown", abbr: "</>", color: "var(--muted-foreground)", name: workspace.language }} size="lg" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{workspace.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {language?.name ?? workspace.language}
+                          {kindLabel(language) ? ` · ${kindLabel(language)}` : ""}
+                        </p>
+                      </div>
+                      <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </div>
+                    {workspace.description ? <p className="line-clamp-2 text-sm text-muted-foreground">{workspace.description}</p> : null}
+                    <div className="mt-auto flex flex-wrap items-center gap-1.5 text-xs">
+                      {isRunning ? (
+                        <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium text-(--status-agent-running)">
+                          <span className="size-1.5 animate-pulse rounded-full bg-current" /> Running
+                        </span>
+                      ) : null}
+                      {workspace.run?.publicUrl ? (
+                        <span className="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary">
+                          <Globe className="size-3" /> Public link
+                        </span>
+                      ) : null}
+                      {workspace.shareEnabled ? (
+                        <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                          <Users className="size-3" /> Shared
+                        </span>
+                      ) : null}
+                      {workspace.sourceUrl ? (
+                        <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                          <GitBranch className="size-3" /> GitHub
+                        </span>
+                      ) : null}
+                      <span className="ml-auto text-muted-foreground">
+                        {workspace.lastRunAt ? `Ran ${timeAgo(workspace.lastRunAt)}` : `Made ${timeAgo(workspace.createdAt)}`}
                       </span>
-                    </span>
-                    {running ? (
-                      <span className="flex items-center gap-1 text-xs font-medium text-(--status-agent-running)" aria-label="Running">
-                        <span className="size-2 rounded-full bg-current" /> Running
-                      </span>
-                    ) : null}
+                    </div>
                   </Link>
                 </li>
               );
             })}
           </ul>
-          {joinCard}
-          <ThumbAction label="New app" onClick={() => setNewOpen(true)} />
-        </>
-      )}
+        )}
+      </section>
+
+      {/* Join */}
+      <form onSubmit={onJoin} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2">
+          <Users className="size-4 text-primary" />
+          <span className="text-sm font-semibold">Join someone's project</span>
+        </div>
+        <p className="text-sm text-muted-foreground">Paste the invite link or join code a friend sent you.</p>
+        <div className="flex gap-2">
+          <Input value={join} onChange={(event) => setJoin(event.target.value)} placeholder="Invite link or join code" aria-label="Invite link or join code" className="h-10" />
+          <Button type="submit" variant="outline" className="h-10">
+            <LogIn /> Join
+          </Button>
+        </div>
+      </form>
+
+      {/* Tips */}
+      <section aria-labelledby="studio-tips-heading" className="flex flex-col gap-2">
+        <h2 id="studio-tips-heading" className="text-sm font-semibold">
+          What you can do
+        </h2>
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {TIPS.map((tip) => (
+            <li key={tip.title} className="flex gap-3 rounded-xl border border-border bg-card p-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <tip.icon className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{tip.title}</span>
+                <span className="block text-sm text-muted-foreground">{tip.body}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {workspaces.length ? <ThumbAction label="New app" onClick={() => openNew()} /> : null}
 
       <NewStudioAppSheet
         open={newOpen}
         onOpenChange={setNewOpen}
         catalog={catalog.data}
+        startWith={startWith}
         onCreate={async (input) => {
           await create.mutateAsync(input);
         }}

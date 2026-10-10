@@ -40,13 +40,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { Mascot } from "../components/mascot/Mascot";
+import { AppearancePicker } from "../components/AppearancePicker";
 import { CodeEditor } from "../components/studio/CodeEditor";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
 import { StudioConsole } from "../components/studio/StudioConsole";
 import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioAssistant } from "../components/studio/StudioAssistant";
 import { StudioTeamPanel } from "../components/studio/StudioTeamPanel";
-import { LanguageBadge } from "../components/studio/NewStudioAppSheet";
+import { LanguageLogo } from "../components/studio/LanguageLogo";
 
 type Pane = "files" | "code" | "console" | "preview" | "ai" | "team";
 type SideTab = Exclude<Pane, "files" | "code">;
@@ -599,7 +601,16 @@ export function StudioWorkspace() {
             <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} />
           )
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">{fileLoading ? <LoaderCircle className="size-5 animate-spin" /> : "Pick a file to edit, or make a new one."}</div>
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+            {fileLoading ? (
+              <LoaderCircle className="size-5 animate-spin" />
+            ) : (
+              <>
+                <Mascot pose="idle" size="sm" gaze="down" />
+                Pick a file to edit, or make a new one.
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -782,18 +793,27 @@ export function StudioWorkspace() {
   return (
     <div className="studio-ide flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background md:-m-2" data-testid="studio-workspace">
       {/* Header: the app and its Run button. */}
-      <div className="flex items-center gap-2 border-b border-border px-2 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border bg-linear-to-r from-primary/10 to-transparent px-2 py-1.5">
         <Button variant="ghost" size="icon-sm" aria-label="All apps" asChild>
           <Link to="/studio">
             <ArrowLeft />
           </Link>
         </Button>
-        {language ? <LanguageBadge language={language} size="sm" /> : null}
+        {language ? <LanguageLogo language={language} size="md" /> : null}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{workspace.name}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {language?.name ?? workspace.language}
-            {socketStatus !== "open" ? " · reconnecting…" : participants.length > 1 ? ` · ${participants.length} here` : ""}
+          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+            {running ? (
+              <span className="flex items-center gap-1 font-medium text-(--status-agent-running)">
+                <span className="size-1.5 animate-pulse rounded-full bg-current" /> Running
+              </span>
+            ) : run?.status === "failed" ? (
+              <span className="font-medium text-destructive">Crashed</span>
+            ) : null}
+            <span className="truncate">
+              {language?.name ?? workspace.language}
+              {socketStatus !== "open" ? " · reconnecting…" : participants.length > 1 ? ` · ${participants.length} here` : ""}
+            </span>
           </p>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="App settings" onClick={() => setSettingsOpen(true)}>
@@ -929,10 +949,10 @@ function StudioSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-(--sz-85vh) overflow-y-auto">
         <DialogHeader>
           <DialogTitle>App settings</DialogTitle>
-          <DialogDescription>Rename the app or change how it runs.</DialogDescription>
+          <DialogDescription>Rename the app, change how it runs, or pick Automa's colors.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
@@ -951,6 +971,10 @@ function StudioSettingsDialog({
             />
             <span className="text-xs text-muted-foreground">Runs in the project folder. Web apps should listen on $PORT. Leave empty for the default.</span>
           </label>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Colors</span>
+            <AppearancePicker />
+          </div>
           <Button
             variant={confirmDelete ? "destructive" : "outline"}
             disabled={deleting}

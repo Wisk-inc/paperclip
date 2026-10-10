@@ -15,6 +15,7 @@ import { ModelLogo } from "@/components/ModelLogo";
 import { modelDisplayName } from "@/lib/model-brand";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
+import { Mascot } from "../mascot/Mascot";
 
 /** Claude models where Anthropic retries a declined request on another model. */
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
@@ -297,10 +298,15 @@ export function StudioAssistant({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="studio-assistant-log">
         {turns.length === 0 ? (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="size-4 text-primary" /> Tell the assistant what to build
+            <div className="flex items-center gap-3">
+              <Mascot pose="excited" size="sm" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Sparkles className="size-4 text-primary" /> Tell me what to build
+                </div>
+                <p className="text-sm text-muted-foreground">I write the code, set up the database, run your app, and fix what breaks, right here in this project.</p>
+              </div>
             </div>
-            <p className="text-sm text-muted-foreground">It writes the code, sets up the database, runs your app, and fixes what breaks, right here in this project.</p>
             <div className="flex flex-col gap-2">
               {SUGGESTIONS.map((suggestion) => (
                 <button
@@ -349,8 +355,11 @@ export function StudioAssistant({
               ),
             )}
             {running ? (
-              <li className="flex items-center gap-2 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" /> Working…
+              <li className="flex items-center gap-3 text-sm text-muted-foreground" data-testid="studio-assistant-working">
+                <Mascot pose="thinking" size="sm" className="size-12" />
+                <span className="flex items-center gap-2">
+                  <LoaderCircle className="size-4 animate-spin" /> Working on it…
+                </span>
               </li>
             ) : null}
           </ol>

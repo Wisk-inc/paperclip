@@ -1,4 +1,5 @@
 import { automaNative } from "../lib/automa-native";
+import { ACCENT_STORAGE_KEY, DEFAULT_ACCENT, applyAccent, isAccentTheme, type AccentTheme } from "../lib/accent-themes";
 import {
   createContext,
   useCallback,
@@ -15,6 +16,19 @@ interface ThemeContextValue {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+  /** The accent color theme, remembered on this device. */
+  accent: AccentTheme;
+  setAccent: (accent: AccentTheme) => void;
+}
+
+function readStoredAccent(): AccentTheme {
+  if (typeof window === "undefined") return DEFAULT_ACCENT;
+  try {
+    const stored = window.localStorage.getItem(ACCENT_STORAGE_KEY);
+    return isAccentTheme(stored) ? stored : DEFAULT_ACCENT;
+  } catch {
+    return DEFAULT_ACCENT;
+  }
 }
 
 const THEME_STORAGE_KEY = "paperclip.theme";
@@ -58,6 +72,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // follow OS-level changes mid-session without being persisted.
   const [hasExplicitChoice, setHasExplicitChoice] = useState<boolean>(() => hasStoredTheme());
 
+  const [accent, setAccentState] = useState<AccentTheme>(() => readStoredAccent());
+  const setAccent = useCallback((next: AccentTheme) => {
+    setAccentState(next);
+    try {
+      localStorage.setItem(ACCENT_STORAGE_KEY, next);
+    } catch {
+      // Ignore local storage write failures in restricted environments.
+    }
+  }, []);
+  useEffect(() => {
+    applyAccent(accent);
+  }, [accent]);
+
   const setTheme = useCallback((nextTheme: Theme) => {
     setHasExplicitChoice(true);
     setThemeState(nextTheme);
@@ -96,8 +123,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       theme,
       setTheme,
       toggleTheme,
+      accent,
+      setAccent,
     }),
-    [theme, setTheme, toggleTheme],
+    [theme, setTheme, toggleTheme, accent, setAccent],
   );
 
   return (

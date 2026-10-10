@@ -104,7 +104,7 @@ export async function shutdownStudio() {
 }
 
 function languageCatalog() {
-  return STUDIO_LANGUAGES.map(({ files: _files, ...language }) => language);
+  return STUDIO_LANGUAGES.map(({ files, ...language }) => ({ ...language, starterFiles: Object.keys(files) }));
 }
 
 function runCommandFor(workspace: WorkspaceRow): { command: string; static: boolean } {

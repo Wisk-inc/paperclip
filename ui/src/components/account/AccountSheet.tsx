@@ -23,6 +23,7 @@ import { CompanyPatternIcon } from "@/components/CompanyPatternIcon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AppearancePicker } from "../AppearancePicker";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCompany } from "@/context/CompanyContext";
 import { useDialogActions } from "@/context/DialogContext";
@@ -386,6 +387,15 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 </button>
               </li>
             </ul>
+          </section>
+
+          <section aria-labelledby="appearance-heading" className="flex flex-col gap-2" data-slot="account-appearance">
+            <h3 id="appearance-heading" className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Look and feel
+            </h3>
+            <div className="rounded-xl border border-border bg-card p-3">
+              <AppearancePicker />
+            </div>
           </section>
 
           <section aria-label="Account" className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">

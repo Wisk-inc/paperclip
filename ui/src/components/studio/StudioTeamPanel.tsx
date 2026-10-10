@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
 import { timeAgo } from "@/lib/timeAgo";
 import { cn } from "@/lib/utils";
+import { Mascot } from "../mascot/Mascot";
 import { CodeEditor } from "./CodeEditor";
 import { StudioChat } from "./StudioChat";
 import { StudioDiffView } from "./StudioDiffView";
@@ -206,7 +207,7 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-4">
             {props.shareEnabled && props.shareCode ? (
-              <div className="flex flex-col gap-3 rounded-lg border border-border p-3" data-testid="studio-share-card">
+              <div className="flex flex-col gap-3 rounded-2xl border border-primary/40 bg-linear-to-br from-primary/15 to-card p-4" data-testid="studio-share-card">
                 <div className="flex items-center gap-2">
                   <Share2 className="size-4 text-primary" />
                   <span className="text-sm font-medium">Sharing is on</span>
@@ -240,12 +241,17 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col items-start gap-2 rounded-lg border border-border p-3">
-                <div className="flex items-center gap-2">
-                  <Users className="size-4 text-primary" />
-                  <span className="text-sm font-medium">Build together</span>
+              <div className="flex flex-col items-start gap-3 rounded-2xl border border-border bg-linear-to-br from-primary/15 to-card p-4">
+                <div className="flex items-center gap-3">
+                  <Mascot pose="cheering" size="sm" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Users className="size-4 text-primary" />
+                      <span className="text-sm font-semibold">Build together</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Share a code or link. Friends see what you type live, chat, share files, and suggest changes you approve.</p>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">Share a code or link. Friends see what you type live, chat, share files, and suggest changes you approve.</p>
                 <Button
                   disabled={sharing}
                   data-testid="studio-share-button"

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { GitBranch, LoaderCircle, Search, Sparkles } from "lucide-react";
+import { CircleAlert, CircleCheck, FileCode2, GitBranch, Globe, LoaderCircle, Search, Sparkles, SquareTerminal } from "lucide-react";
 import { searchStudioLanguages, type StudioLanguageCategory, type StudioToolchainStatus } from "@paperclipai/shared";
 import type { StudioCatalog, StudioCatalogLanguage } from "@/api/studio";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { LanguageLogo } from "./LanguageLogo";
 
 export interface NewStudioAppInput {
   name: string;
@@ -19,35 +20,78 @@ interface NewStudioAppSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   catalog: StudioCatalog | undefined;
+  /** Opens on this language, or on "github" for cloning. */
+  startWith?: string | null;
   onCreate: (input: NewStudioAppInput) => Promise<void>;
 }
 
-/** Whether a `#rrggbb` color is light enough to need dark text on it. */
-export function isLightColor(color: string): boolean {
-  const match = /^#?([0-9a-f]{6})$/i.exec(color.trim());
-  if (!match) return false;
-  const value = parseInt(match[1]!, 16);
-  const [r, g, b] = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((channel) => {
-    const c = channel / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.3;
-}
-
-/** A language's badge: its abbreviation on its usual brand color. */
-export function LanguageBadge({ language, size = "md" }: { language: Pick<StudioCatalogLanguage, "abbr" | "color" | "name">; size?: "sm" | "md" }) {
+function LanguageDetail({
+  language,
+  toolchain,
+  onChange,
+}: {
+  language: StudioCatalogLanguage;
+  toolchain: StudioToolchainStatus | undefined;
+  onChange: () => void;
+}) {
+  const KindIcon = language.kind === "cli" ? SquareTerminal : Globe;
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex shrink-0 items-center justify-center rounded-md font-mono font-semibold",
-        isLightColor(language.color) ? "text-studio-badge-foreground-dark" : "text-studio-badge-foreground",
-        size === "md" ? "size-9 text-xs" : "size-6 text-(length:--text-micro)",
-      )}
-      style={{ backgroundColor: language.color }}
-    >
-      {language.abbr}
-    </span>
+    <div className="flex shrink-0 flex-col gap-3 rounded-2xl border border-primary/40 bg-linear-to-br from-primary/10 to-card p-4" data-testid="studio-language-detail">
+      <div className="flex items-center gap-3">
+        <LanguageLogo language={language} size="xl" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-lg font-semibold">{language.name}</p>
+          <p className="text-sm text-muted-foreground">{language.blurb}</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onChange} data-testid="studio-change-language">
+          Change
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-1.5 text-xs">
+        <span className="flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5">
+          <KindIcon className="size-3" />
+          {language.kind === "cli" ? "Prints to the console" : language.kind === "static" ? "Website, served by Automa" : "Web app with a live preview"}
+        </span>
+        {language.requires ? (
+          toolchain?.available ? (
+            <span className="flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-(--status-agent-running)">
+              <CircleCheck className="size-3" /> {language.requires} is installed
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-destructive">
+              <CircleAlert className="size-3" /> Needs {language.requires}
+            </span>
+          )
+        ) : (
+          <span className="flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-(--status-agent-running)">
+            <CircleCheck className="size-3" /> Nothing to install
+          </span>
+        )}
+      </div>
+      {language.requires && !toolchain?.available ? (
+        <p className="text-xs text-muted-foreground">
+          {toolchain?.installCommand ? `Automa can install it for you when you run the app (${toolchain.installCommand}).` : toolchain?.note ?? "Install it on this device to run the app."}
+        </p>
+      ) : null}
+      {language.run ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Runs with</span>
+          <code className="truncate rounded-md bg-background/80 px-2 py-1 font-mono text-xs">{language.run}</code>
+        </div>
+      ) : null}
+      {language.starterFiles?.length ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Starts with</span>
+          <div className="flex flex-wrap gap-1">
+            {language.starterFiles.map((file) => (
+              <span key={file} className="flex items-center gap-1 rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-xs">
+                <FileCode2 className="size-3 text-muted-foreground" /> {file}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -61,11 +105,13 @@ function repoNameFrom(url: string): string {
  * category), name it, and optionally describe it so the AI assistant builds
  * it. Or paste a GitHub link to clone a repository.
  */
-export function NewStudioAppSheet({ open, onOpenChange, catalog, onCreate }: NewStudioAppSheetProps) {
+export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = null, onCreate }: NewStudioAppSheetProps) {
   const [mode, setMode] = useState<"new" | "git">("new");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<StudioLanguageCategory>("popular");
   const [languageId, setLanguageId] = useState<string | null>(null);
+  /** The list shows until a language is picked, then folds away. */
+  const [browsing, setBrowsing] = useState(true);
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [description, setDescription] = useState("");
@@ -77,7 +123,14 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, onCreate }: New
     if (!open) return;
     setError(null);
     setBusy(false);
-  }, [open]);
+    if (startWith === "github") setMode("git");
+    else if (startWith) {
+      setMode("new");
+      setQuery("");
+      setLanguageId(startWith);
+      setBrowsing(false);
+    }
+  }, [open, startWith]);
 
   const toolchains = useMemo(() => new Map<string, StudioToolchainStatus>((catalog?.toolchains ?? []).map((status) => [status.languageId, status])), [catalog]);
   const languages = catalog?.languages ?? [];
@@ -151,7 +204,9 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, onCreate }: New
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-            {mode === "new" ? (
+            {mode === "new" && selected && !browsing ? (
+              <LanguageDetail language={selected} toolchain={toolchains.get(selected.id)} onChange={() => setBrowsing(true)} />
+            ) : mode === "new" ? (
               <>
                 <div className="relative shrink-0">
                   <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -191,6 +246,7 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, onCreate }: New
                           type="button"
                           onClick={() => {
                             setLanguageId(language.id);
+                            setBrowsing(false);
                             setError(null);
                           }}
                           aria-pressed={languageId === language.id}
@@ -200,7 +256,7 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, onCreate }: New
                           )}
                           data-testid={`studio-language-${language.id}`}
                         >
-                          <LanguageBadge language={language} />
+                          <LanguageLogo language={language} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-medium">{language.name}</span>
                             <span className="block truncate text-xs text-muted-foreground">
