@@ -644,7 +644,7 @@ export async function createApp(
   // Collaborators reach Automa only through the Studio gateway, which tags
   // its requests. They get the guest API and previews, never the board API.
   api.use((req, res, next) => {
-    if (req.headers["x-studio-gateway"] && !/^\/(studio-guest|studio-preview)\//.test(req.path)) {
+    if (req.headers["x-studio-gateway"] && !/^\/(studio-guest|studio-preview|agent-avatars)\//.test(req.path)) {
       res.status(404).json({ error: "Not found" });
       return;
     }

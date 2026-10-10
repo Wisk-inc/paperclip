@@ -3350,3 +3350,130 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
 @media (max-width: 767px) {
   .plugin-app-shell-overlays { bottom: var(--plugin-shell-mobile-bottom); }
 }
+
+/* Studio: the code editor, its syntax colors, the console, and the red/green
+   change review. Syntax classes come from @lezer/highlight's classHighlighter
+   (tok-*), so every color here follows light and dark mode. */
+:root {
+  --studio-editor-bg: var(--background);
+  --studio-editor-gutter: var(--muted-foreground);
+  --studio-editor-active-line: oklch(0.5 0 0 / 0.06);
+  --studio-editor-selection: oklch(0.62 0.16 275 / 0.25);
+  --studio-editor-font-size: 0.8125rem;
+  --studio-syntax-keyword: oklch(0.48 0.2 300);
+  --studio-syntax-string: oklch(0.48 0.13 150);
+  --studio-syntax-number: oklch(0.55 0.15 55);
+  --studio-syntax-comment: oklch(0.58 0.02 260);
+  --studio-syntax-function: oklch(0.48 0.15 255);
+  --studio-syntax-type: oklch(0.52 0.12 200);
+  --studio-syntax-tag: oklch(0.52 0.18 25);
+  --studio-syntax-attribute: oklch(0.52 0.13 80);
+  --studio-syntax-invalid: oklch(0.55 0.22 25);
+  --studio-diff-add-bg: oklch(0.94 0.06 150);
+  --studio-diff-add-fg: oklch(0.36 0.11 150);
+  --studio-diff-add-mark: oklch(0.6 0.16 150);
+  --studio-diff-del-bg: oklch(0.94 0.05 25);
+  --studio-diff-del-fg: oklch(0.42 0.16 25);
+  --studio-diff-del-mark: oklch(0.6 0.2 25);
+  --studio-console-bg: oklch(0.17 0.01 270);
+  --studio-console-fg: oklch(0.9 0.01 270);
+  --studio-console-err: oklch(0.72 0.17 25);
+  --studio-console-sys: oklch(0.72 0.1 275);
+  --studio-console-in: oklch(0.78 0.12 150);
+  /* Text on a language's brand-colored badge. */
+  --studio-badge-fg: oklch(1 0 0);
+  --studio-badge-fg-dark: oklch(0.2 0 0);
+  /* Phones: the IDE fills the space between the header and the tab bar. */
+  --studio-ide-mobile-height: calc(100dvh - var(--sz-safe-top) - var(--sz-60px) - var(--spacing) * 4 - var(--sz-calc-14));
+}
+.dark {
+  --studio-editor-active-line: oklch(1 0 0 / 0.05);
+  --studio-editor-selection: oklch(0.7 0.14 275 / 0.3);
+  --studio-syntax-keyword: oklch(0.78 0.14 300);
+  --studio-syntax-string: oklch(0.8 0.13 150);
+  --studio-syntax-number: oklch(0.82 0.13 65);
+  --studio-syntax-comment: oklch(0.62 0.02 260);
+  --studio-syntax-function: oklch(0.8 0.11 240);
+  --studio-syntax-type: oklch(0.82 0.1 195);
+  --studio-syntax-tag: oklch(0.76 0.15 25);
+  --studio-syntax-attribute: oklch(0.84 0.12 85);
+  --studio-diff-add-bg: oklch(0.32 0.06 150 / 0.55);
+  --studio-diff-add-fg: oklch(0.88 0.1 150);
+  --studio-diff-del-bg: oklch(0.32 0.07 25 / 0.55);
+  --studio-diff-del-fg: oklch(0.88 0.08 25);
+  --studio-console-bg: oklch(0.13 0.01 270);
+}
+@theme inline {
+  --color-studio-diff-add: var(--studio-diff-add-bg);
+  --color-studio-diff-add-foreground: var(--studio-diff-add-fg);
+  --color-studio-diff-add-mark: var(--studio-diff-add-mark);
+  --color-studio-diff-del: var(--studio-diff-del-bg);
+  --color-studio-diff-del-foreground: var(--studio-diff-del-fg);
+  --color-studio-diff-del-mark: var(--studio-diff-del-mark);
+  --color-studio-console: var(--studio-console-bg);
+  --color-studio-console-foreground: var(--studio-console-fg);
+  --color-studio-console-error: var(--studio-console-err);
+  --color-studio-console-system: var(--studio-console-sys);
+  --color-studio-console-input: var(--studio-console-in);
+  --color-studio-badge-foreground: var(--studio-badge-fg);
+  --color-studio-badge-foreground-dark: var(--studio-badge-fg-dark);
+}
+@layer components {
+  .studio-ide { height: var(--studio-ide-mobile-height); }
+  [data-slot="studio-editor"] .cm-editor {
+    height: 100%;
+    font-size: var(--studio-editor-font-size);
+    background: var(--studio-editor-bg);
+    color: var(--foreground);
+  }
+  [data-slot="studio-editor"] .cm-editor.cm-focused { outline: none; }
+  [data-slot="studio-editor"] .cm-scroller { font-family: var(--font-mono); line-height: 1.55; }
+  [data-slot="studio-editor"] .cm-gutters {
+    background: var(--studio-editor-bg);
+    color: var(--studio-editor-gutter);
+    border-right: 1px solid var(--border);
+  }
+  [data-slot="studio-editor"] .cm-activeLine,
+  [data-slot="studio-editor"] .cm-activeLineGutter { background: var(--studio-editor-active-line); }
+  [data-slot="studio-editor"] .cm-selectionBackground,
+  [data-slot="studio-editor"] .cm-focused .cm-selectionBackground,
+  [data-slot="studio-editor"] .cm-content ::selection { background: var(--studio-editor-selection); }
+  [data-slot="studio-editor"] .cm-cursor { border-left-color: var(--foreground); }
+  [data-slot="studio-editor"] .cm-panels { background: var(--card); color: var(--foreground); border-color: var(--border); }
+  [data-slot="studio-editor"] .cm-tooltip { background: var(--popover); color: var(--popover-foreground); border-color: var(--border); }
+  [data-slot="studio-editor"] .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--accent); color: var(--accent-foreground); }
+  [data-slot="studio-editor"] .tok-keyword,
+  [data-slot="studio-editor"] .tok-operatorKeyword,
+  [data-slot="studio-editor"] .tok-controlKeyword,
+  [data-slot="studio-editor"] .tok-definitionKeyword,
+  [data-slot="studio-editor"] .tok-moduleKeyword { color: var(--studio-syntax-keyword); }
+  [data-slot="studio-editor"] .tok-string,
+  [data-slot="studio-editor"] .tok-string2,
+  [data-slot="studio-editor"] .tok-regexp { color: var(--studio-syntax-string); }
+  [data-slot="studio-editor"] .tok-number,
+  [data-slot="studio-editor"] .tok-bool,
+  [data-slot="studio-editor"] .tok-atom,
+  [data-slot="studio-editor"] .tok-null { color: var(--studio-syntax-number); }
+  [data-slot="studio-editor"] .tok-comment,
+  [data-slot="studio-editor"] .tok-lineComment,
+  [data-slot="studio-editor"] .tok-blockComment,
+  [data-slot="studio-editor"] .tok-meta { color: var(--studio-syntax-comment); font-style: italic; }
+  [data-slot="studio-editor"] .tok-variableName.tok-definition,
+  [data-slot="studio-editor"] .tok-propertyName.tok-definition,
+  [data-slot="studio-editor"] .tok-function { color: var(--studio-syntax-function); }
+  [data-slot="studio-editor"] .tok-typeName,
+  [data-slot="studio-editor"] .tok-className,
+  [data-slot="studio-editor"] .tok-namespace { color: var(--studio-syntax-type); }
+  [data-slot="studio-editor"] .tok-tagName,
+  [data-slot="studio-editor"] .tok-heading { color: var(--studio-syntax-tag); font-weight: 600; }
+  [data-slot="studio-editor"] .tok-attributeName,
+  [data-slot="studio-editor"] .tok-propertyName,
+  [data-slot="studio-editor"] .tok-labelName { color: var(--studio-syntax-attribute); }
+  [data-slot="studio-editor"] .tok-invalid { color: var(--studio-syntax-invalid); }
+  [data-slot="studio-editor"] .tok-link { text-decoration: underline; }
+  [data-slot="studio-editor"] .tok-emphasis { font-style: italic; }
+  [data-slot="studio-editor"] .tok-strong { font-weight: 700; }
+}
+@media (min-width: 768px) {
+  .studio-ide { height: 100%; }
+}

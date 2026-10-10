@@ -459,7 +459,7 @@ export function studioRoutes(db: Db) {
     assertCompanyAccess(req, String(req.params.companyId));
     const lines: string[] = [];
     const result = await installCloudflared((line) => lines.push(line));
-    res.status(result.ok ? 200 : 422).json({ ...result, log: lines.slice(-40) });
+    res.json({ ...result, log: lines.slice(-40) });
   });
 
   // ── Sharing and collaborators ────────────────────────────────────────────

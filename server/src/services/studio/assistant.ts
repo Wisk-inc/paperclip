@@ -337,18 +337,19 @@ export async function runAssistantTurn(input: {
   // finished reply.
   let live = "";
   let lastLivePublish = 0;
-  const withLive = () => (live.trim() ? (turn.text ? `${turn.text}\n\n${live.trimStart()}` : live.trimStart()) : turn.text);
   const onDelta = (delta: string) => {
     live += delta;
     const now = Date.now();
     if (now - lastLivePublish < 120) return;
     lastLivePublish = now;
-    studioHub.broadcast(context.workspaceId, { type: "assistant", turn: { ...turn, text: withLive(), steps: [...turn.steps] }, done: false });
+    studioHub.broadcast(context.workspaceId, { type: "assistant", turn: { ...turn, steps: [...turn.steps], live: live.trimStart() }, done: false });
   };
   const onText = (text: string) => {
     live = "";
     if (!text.trim()) return;
     turn.text = turn.text ? `${turn.text}\n\n${text.trim()}` : text.trim();
+    // Kept in order with the tool steps, so the chat reads as it happened.
+    turn.steps.push({ tool: "say", summary: text.trim(), ok: true, detail: null });
     publish(false);
   };
 

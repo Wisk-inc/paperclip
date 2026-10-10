@@ -446,6 +446,17 @@ export const queryKeys = {
     requests: (companyId: string) => ["device-files", companyId, "requests"] as const,
     device: (deviceId: string) => ["device-files", "device", deviceId] as const,
   },
+  studio: {
+    catalog: (companyId: string) => ["studio", companyId, "catalog"] as const,
+    list: (companyId: string) => ["studio", companyId, "list"] as const,
+    aiKeys: (companyId: string) => ["studio", companyId, "ai-keys"] as const,
+    detail: (workspaceId: string) => ["studio", "workspace", workspaceId] as const,
+    tree: (workspaceId: string) => ["studio", "workspace", workspaceId, "tree"] as const,
+    messages: (workspaceId: string) => ["studio", "workspace", workspaceId, "messages"] as const,
+    changes: (workspaceId: string) => ["studio", "workspace", workspaceId, "changes"] as const,
+    collaborators: (workspaceId: string) => ["studio", "workspace", workspaceId, "collaborators"] as const,
+    assistant: (workspaceId: string) => ["studio", "workspace", workspaceId, "assistant"] as const,
+  },
   folders: {
     list: (companyId: string, kind: string) =>
       ["folders", companyId, kind] as const,

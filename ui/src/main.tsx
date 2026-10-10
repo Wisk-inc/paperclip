@@ -37,9 +37,16 @@ installInputLimitHaptics();
 // re-checks /sw.js on tab focus and hourly, and applies a discovered update
 // with one reload while the tab is hidden — otherwise an old worker and its
 // cached shell can outlive a deploy indefinitely.
-window.addEventListener("load", () => {
-  startServiceWorkerUpdates();
-});
+// Collaborators who open a Studio invite get only the guest page: they come
+// through the collaborator gateway, which serves nothing of the board.
+const isStudioGuest = window.location.pathname === "/studio-guest" || window.location.pathname.startsWith("/studio-guest/");
+const StudioGuest = React.lazy(() => import("./pages/StudioGuest").then((module) => ({ default: module.StudioGuest })));
+
+if (!isStudioGuest) {
+  window.addEventListener("load", () => {
+    startServiceWorkerUpdates();
+  });
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +70,19 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Automa root element is missing");
 
 getOrCreatePaperclipReactRoot(window, rootElement).render(
+  isStudioGuest ? (
+    <StrictMode>
+      <AppErrorBoundary>
+        <ThemeProvider>
+          <TooltipProvider>
+            <React.Suspense fallback={null}>
+              <StudioGuest />
+            </React.Suspense>
+          </TooltipProvider>
+        </ThemeProvider>
+      </AppErrorBoundary>
+    </StrictMode>
+  ) : (
   <StrictMode>
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
@@ -95,4 +115,5 @@ getOrCreatePaperclipReactRoot(window, rootElement).render(
       </QueryClientProvider>
     </AppErrorBoundary>
   </StrictMode>
+  ),
 );

@@ -681,11 +681,17 @@ export function studioLanguage(id: string | null | undefined): StudioLanguage | 
   return (id && STUDIO_LANGUAGE_BY_ID.get(id)) || null;
 }
 
+/** What the language search looks at (catalog entries without starter files work too). */
+export type StudioLanguageSearchFields = Pick<StudioLanguage, "id" | "name" | "abbr" | "category" | "blurb" | "aliases">;
+
 /** Languages matching a search (name, id, aliases, category, blurb), best matches first. */
-export function searchStudioLanguages(query: string, languages: readonly StudioLanguage[] = STUDIO_LANGUAGES): StudioLanguage[] {
+export function searchStudioLanguages<T extends StudioLanguageSearchFields = StudioLanguage>(
+  query: string,
+  languages: readonly T[] = STUDIO_LANGUAGES as unknown as readonly T[],
+): T[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [...languages];
-  const scored: Array<{ language: StudioLanguage; score: number; index: number }> = [];
+  const scored: Array<{ language: T; score: number; index: number }> = [];
   languages.forEach((language, index) => {
     const name = language.name.toLowerCase();
     const haystack = [language.id, name, language.abbr.toLowerCase(), language.category, language.blurb.toLowerCase(), ...language.aliases]

@@ -17,6 +17,7 @@ import {
   Settings,
   FolderOpen,
   FolderSync,
+  CodeXml,
   Unplug,
   MessagesSquare,
   GanttChartSquare,
@@ -206,6 +207,7 @@ export function Sidebar({ children }: { children?: ReactNode }) {
           <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
           <SidebarNavItem to="/artifacts" label="Artifacts" icon={Package} />
           <SidebarNavItem to="/device-files" label="Files" icon={FolderSync} badge={filesBadge.pendingRequests} badgeLabel="file requests" />
+          <SidebarNavItem to="/studio" label="App Studio" icon={CodeXml} />
           {showCases ? (
             <SidebarNavItem to="/cases" label="Cases" icon={Layers} textBadge="beta" />
           ) : null}

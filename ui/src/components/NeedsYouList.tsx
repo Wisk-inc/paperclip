@@ -1,4 +1,4 @@
-import { ChevronRight, FolderSync, Inbox, ShieldCheck, Users } from "lucide-react";
+import { ChevronRight, CodeXml, FolderSync, Inbox, ShieldCheck, Users } from "lucide-react";
 import { Link } from "@/lib/router";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useDeviceFilesBadge } from "../hooks/useDeviceFilesBadge";
@@ -35,6 +35,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
     { to: "/approvals", label: "Approvals", hint: "Hires, budgets, plans", count: pendingApprovals ?? 0, icon: ShieldCheck },
     { to: "/device-files", label: "File requests", hint: "Agents waiting on a file", count: files.pendingRequests, icon: FolderSync },
     { to: "/agents/all", label: "Agents", hint: "Who is working on what", count: null, icon: Users },
+    { to: "/studio", label: "App Studio", hint: "Build and run your own apps", count: null, icon: CodeXml },
   ];
 
   const waiting = inbox.inbox + (pendingApprovals ?? 0) + files.pendingRequests;

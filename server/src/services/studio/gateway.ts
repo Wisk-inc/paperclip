@@ -17,12 +17,18 @@ export function isGatewayPathAllowed(pathname: string, dev = process.env.NODE_EN
   if (pathname.startsWith("/api/studio-guest/")) return true;
   // The running app's preview (its random path is the key; it is sandboxed).
   if (pathname.startsWith("/api/studio-preview/")) return true;
+  // The mascot's pictures (drawn from a palette, no organization data).
+  if (pathname.startsWith("/api/agent-avatars/")) return true;
   if (/^\/(assets|brands|fonts|legal)\//.test(pathname)) return true;
   if (/^\/(favicon[^/]*|apple-touch-icon\.png|android-chrome-[^/]+\.png|site\.webmanifest|manifest\.webmanifest)$/.test(pathname)) return true;
   if (dev) {
     // The Vite dev server's modules (development builds only).
     if (pathname === "/@react-refresh" || /^\/(@vite|@id|src|node_modules)\//.test(pathname)) return true;
-    if (pathname.startsWith("/@fs/") && pathname.includes("/node_modules/")) return true;
+    // Modules Vite serves by file path (it limits these to the workspace and
+    // refuses .env and key files itself); never hidden files or keys here.
+    if (pathname.startsWith("/@fs/")) {
+      return !/\/\.(?!pnpm\/|vite\/)/.test(pathname) && !/\.(?:env|pem|key|crt|jks|keystore|p12)$/i.test(pathname) && !/\/secrets\//.test(pathname);
+    }
   }
   return false;
 }

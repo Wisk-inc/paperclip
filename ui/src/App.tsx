@@ -141,6 +141,10 @@ const ProductionOrgChart = lazy(() =>
   import("./pages/OrgChart.production").then((module) => ({ default: module.OrgChart })),
 );
 
+// Studio loads its code editor only when you open it.
+const Studio = lazy(() => import("./pages/Studio").then((module) => ({ default: module.Studio })));
+const StudioWorkspace = lazy(() => import("./pages/StudioWorkspace").then((module) => ({ default: module.StudioWorkspace })));
+
 function ProductionSurface({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PaperclipLoading />}>{children}</Suspense>;
 }
@@ -380,6 +384,8 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="goals/:goalId" element={<GoalDetail />} />
       <Route path="artifacts" element={<Artifacts />} />
       <Route path="device-files" element={<DeviceFiles />} />
+      <Route path="studio" element={<ProductionSurface><Studio /></ProductionSurface>} />
+      <Route path="studio/:workspaceId" element={<ProductionSurface><StudioWorkspace /></ProductionSurface>} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
       <Route path="approvals/pending" element={<Approvals />} />
       <Route path="approvals/all" element={<Approvals />} />
@@ -790,6 +796,8 @@ export function App() {
           <Route path="pipelines/:pipelineId/items/:caseId" element={<UnprefixedBoardRedirect />} />
           <Route path="pipelines/:pipelineId/cases/:caseId" element={<UnprefixedBoardRedirect />} />
           <Route path="artifacts" element={<UnprefixedBoardRedirect />} />
+          <Route path="studio" element={<UnprefixedBoardRedirect />} />
+          <Route path="studio/:workspaceId" element={<UnprefixedBoardRedirect />} />
           <Route path="audit" element={<UnprefixedBoardRedirect />} />
           {streamlinedUiEnabled ? (
             <>

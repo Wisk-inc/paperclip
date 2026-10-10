@@ -247,7 +247,10 @@ export interface StudioAssistantTurn {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** In order: what the assistant said (tool `say`) and each tool it used. */
   steps: StudioAssistantStep[];
+  /** Text still being written (live updates only). */
+  live?: string;
   provider: StudioAiProvider | null;
   model: string | null;
   error: string | null;
