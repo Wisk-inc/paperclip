@@ -65,10 +65,49 @@ class ServerConfig(context: Context) {
         prefs.edit().remove(KEY_SERVER).apply()
     }
 
+    /**
+     * The app key of a locked Automa on this phone (PAPERCLIP_LOCAL_TRUSTED_SECRET,
+     * see server/src/middleware/local-trusted-secret.ts), per origin. The app
+     * sends it as a cookie; nothing else on the phone has it.
+     */
+    fun secretFor(origin: String): String? = prefs.getString(KEY_SECRET_PREFIX + origin, null)
+
+    fun rememberSecret(origin: String, secret: String) {
+        prefs.edit().putString(KEY_SECRET_PREFIX + origin, secret).apply()
+    }
+
+    fun forgetSecret(origin: String) {
+        prefs.edit().remove(KEY_SECRET_PREFIX + origin).apply()
+    }
+
+    /** A connect request another app sent (Termux's launcher). Applied only when the person taps Connect. */
+    data class PendingConnect(val url: String, val secret: String?)
+
+    var pendingConnect: PendingConnect?
+        get() {
+            val raw = prefs.getString(KEY_PENDING, null) ?: return null
+            return runCatching {
+                val json = JSONObject(raw)
+                PendingConnect(json.getString("url"), json.optString("secret").takeIf { it.isNotEmpty() })
+            }.getOrNull()
+        }
+        set(value) {
+            if (value == null) {
+                prefs.edit().remove(KEY_PENDING).apply()
+            } else {
+                prefs.edit().putString(KEY_PENDING, JSONObject().put("url", value.url).put("secret", value.secret ?: "").toString()).apply()
+            }
+        }
+
     companion object {
         private const val KEY_SERVER = "server_url"
         private const val KEY_RECENT = "recent_servers"
         private const val KEY_CLIENT = "client_key"
+        private const val KEY_SECRET_PREFIX = "secret:"
+        private const val KEY_PENDING = "pending_connect"
+        /** Bounds for an app key typed by hand; the server needs 16+ characters. */
+        const val MIN_SECRET_LENGTH = 16
+        const val MAX_SECRET_LENGTH = 256
 
         fun originOf(uri: Uri): String? {
             val scheme = uri.scheme?.lowercase() ?: return null

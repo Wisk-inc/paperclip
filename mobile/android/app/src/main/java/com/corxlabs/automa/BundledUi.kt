@@ -4,6 +4,7 @@ import android.content.Context
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.IOException
 
 /**
@@ -18,7 +19,7 @@ import java.io.IOException
  * When the APK was built without a bundle, nothing is intercepted and the
  * app shows the server's own UI.
  */
-class BundledUi(private val context: Context) {
+class BundledUi(private val context: Context, private val pageKey: String) {
     private val files: Set<String> = loadManifest()
 
     val available: Boolean get() = INDEX in files
@@ -43,7 +44,11 @@ class BundledUi(private val context: Context) {
             name.equals("Accept", ignoreCase = true) && value.contains("text/html")
         }
 
+    /** The bundled connect screen, with the page key in it. */
+    fun serveConnectPage(): WebResourceResponse? = serveHtml("connect/index.html", "no-cache")
+
     private fun serve(relative: String): WebResourceResponse? {
+        if (relative == INDEX) return serveHtml("$ROOT/$INDEX", cacheControl(INDEX))
         val stream = try {
             context.assets.open("$ROOT/$relative")
         } catch (_: IOException) {
@@ -57,6 +62,17 @@ class BundledUi(private val context: Context) {
             "X-Content-Type-Options" to "nosniff",
         )
         return WebResourceResponse(mime, if (textual) "utf-8" else null, 200, "OK", headers, stream)
+    }
+
+    private fun serveHtml(assetPath: String, cache: String): WebResourceResponse? {
+        val html = try {
+            context.assets.open(assetPath).bufferedReader().use { it.readText() }
+        } catch (_: IOException) {
+            return null
+        }
+        val headers = mapOf("Cache-Control" to cache, "X-Content-Type-Options" to "nosniff")
+        val body = injectPageKey(html, pageKey).toByteArray(Charsets.UTF_8)
+        return WebResourceResponse("text/html", "utf-8", 200, "OK", headers, ByteArrayInputStream(body))
     }
 
     private fun cacheControl(relative: String): String = when {
@@ -105,5 +121,17 @@ class BundledUi(private val context: Context) {
 
         fun mimeType(relative: String): String =
             MIME_TYPES[relative.substringAfterLast('.', "").lowercase()] ?: "application/octet-stream"
+
+        private val HEAD_TAG = Regex("<head[^>]*>", RegexOption.IGNORE_CASE)
+
+        /**
+         * Puts `window.__automaKey` at the top of the document, before any page
+         * script runs. The key is hex, so it needs no escaping.
+         */
+        fun injectPageKey(html: String, key: String): String {
+            val script = "<script>window.__automaKey=\"$key\";</script>"
+            val match = HEAD_TAG.find(html) ?: return script + html
+            return html.substring(0, match.range.last + 1) + script + html.substring(match.range.last + 1)
+        }
     }
 }

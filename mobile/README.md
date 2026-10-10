@@ -64,8 +64,19 @@ Termux app with no computer:
    It installs Node.js and PostgreSQL from Termux packages, creates a local
    `automa` database, installs the server packages with npm, adds an `automa`
    command, and starts Automa on `127.0.0.1:3100`.
-4. Back in the app, tap **Connect to this phone**. Next time, start it in
-   Termux with `automa run`.
+4. When Automa starts, Termux opens the app on the connect screen: tap
+   **Connect** (the app waits for the server to come up). Next time, start it
+   in Termux with `automa run`.
+
+**Locked to the app.** On a phone every installed app can reach `127.0.0.1`,
+so Automa in Termux only answers the Automa app: the installer makes an app
+key (`~/.automa/app-secret`), the launcher exports it as
+`PAPERCLIP_LOCAL_TRUSTED_SECRET` (see `doc/DEPLOYMENT-MODES.md`) and hands it
+to the app with an intent when `automa run` starts. The app applies a new
+address or key only after a tap on **Connect**, and then sends the key as an
+`HttpOnly` cookie on every request. If Termux could not open the app,
+`automa link` prints the key to paste under **Run Automa on this phone**. A
+browser on the phone sees a notice instead of the board.
 
 What `install.sh` does beyond npm: sharp (image processing) has no native
 Android build, so `add-sharp-wasm.mjs` adds sharp's official WebAssembly build.
@@ -108,9 +119,15 @@ covered by the test above. A computer is faster for heavy agent work.
 **Letting agents control the phone (optional).** Agents in Termux get the
 phone's shell (`adb shell`: `input`, `screencap`, `pm`, `settings`) through
 the phone's own Wireless debugging. Turn on **Developer options → Wireless
-debugging**, tap **Pair device with pairing code**, and in Termux run
-`automa adb pair PAIRING-PORT CODE`, then `automa adb connect PORT`
-(`automa adb` installs `android-tools` the first time).
+debugging** and run `automa adb link` in Termux (it installs `android-tools`
+the first time). Two numbers are involved and they look alike: the *pairing*
+port and 6-digit code from **Pair device with pairing code**, then the
+*connection* port from **IP address & Port** on the Wireless debugging
+screen, which is a different number. The wizard finds them over mDNS when it
+can, asks otherwise, and refuses a 6-digit code typed as a port. Both change
+every time the screen is opened. No `adb reverse` is involved: Automa and the
+app are already on the same phone. `automa adb pair PAIRING-PORT CODE` and
+`automa adb connect PORT` remain for scripts.
 
 ### Linking a computer over ADB (USB or Wireless debugging)
 
@@ -122,15 +139,18 @@ needs no firewall rule, LAN binding, or HTTPS.
 1. Start Automa on the computer (`pnpm install`, then `pnpm dev`).
 2. On the phone, turn on **USB debugging** or **Wireless debugging** in
    Developer options (the app's **Link a computer with ADB** section opens it).
-3. Run the helper from the source folder:
+3. Run the helper **on the computer** (not in Termux, where it would only
+   link the phone to itself), from the source folder:
    - USB: `node mobile/adb/automa-adb.mjs`
    - Wireless, first time: `node mobile/adb/automa-adb.mjs --pair PHONE-IP:PAIRING-PORT --code CODE`
-     (it finds the connect port over mDNS)
+     (it finds the connect port over mDNS, and refuses the 6-digit code typed
+     as the port)
    - Wireless, already paired: `node mobile/adb/automa-adb.mjs --connect PHONE-IP:PORT`
-   It links the phone, opens Automa already connected (the app accepts a
-   server address from an intent only when it is loopback), and keeps the link
-   up, relinking when the phone sleeps or reconnects. `--apk FILE` installs or
-   updates the app in place, and `--remove-old` uninstalls Automa 1.0.
+   It links the phone, opens Automa on the connect screen (the app accepts a
+   server address from an intent only when it is loopback, and applies a new
+   one only after a tap on **Connect**), and keeps the link up, relinking when
+   the phone sleeps or reconnects. `--apk FILE` installs or updates the app in
+   place, and `--remove-old` uninstalls Automa 1.0.
 4. Or by hand: `adb reverse tcp:3100 tcp:3100`, then **Connect over ADB** in
    the app.
 
@@ -291,9 +311,16 @@ server that has the matching API (for example, Files needs the Device Files
 API from this release).
 
 Security notes: only the configured server origin (and the bundled connect
-screen) loads inside the app; every other link opens in the browser. Bridge
-methods check the calling page's origin. File bytes never cross the bridge as
-strings; the page fetches them from same-origin URLs the app serves locally
-with a per-process token. Cleartext HTTP is allowed because self-hosted
+screen) loads inside the app; every other link opens in the browser. Android
+injects `window.AutomaNative` into every frame of the WebView, sandboxed
+Studio previews included, so every bridge method takes the page key the app
+hands only to its own pages (a document-start script scoped to those origins,
+and inline in the HTML the app serves); without it a call does nothing.
+Methods also check the calling page's origin. File bytes never cross the
+bridge as strings; the page fetches them from same-origin URLs the app serves
+locally with a per-process token. A connect request from another app
+(`CONNECT`/`SECRET` extras) is applied only for a loopback address, and only
+after a tap on the connect screen unless the app already has that address and
+key. Cleartext HTTP is allowed because self-hosted
 servers are often plain HTTP on a LAN or tailnet; the connect screen suggests
 HTTPS outside private networks.

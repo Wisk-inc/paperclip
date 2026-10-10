@@ -10,6 +10,11 @@
  * locally, so the page reads them with `fetch` and uploads them with the
  * ordinary API client.
  *
+ * Android injects the bridge into every frame of the WebView, sandboxed
+ * Studio previews included, so each call carries the page key the app hands
+ * only to its own pages (`window.__automaKey`); the app refuses calls without
+ * it.
+ *
  * In a regular browser `window.AutomaNative` is absent and every helper here
  * returns `null`, so callers fall back to browser behavior.
  */
@@ -39,29 +44,29 @@ export interface AutomaIncomingShare {
   url: string;
 }
 
-/** The raw methods the Android shell exposes through `addJavascriptInterface`. */
+/** The raw methods the Android shell exposes through `addJavascriptInterface`; `key` is the page key. */
 interface AutomaNativeRaw {
-  getInfo(): string;
-  getSharedFolder(): string;
-  pickSharedFolder(callId: string): void;
-  clearSharedFolder(): void;
-  listSharedFolder(callId: string): void;
-  sharedFileUrl(path: string): string;
-  getIncomingShares(): string;
-  clearIncomingShares(): void;
-  setDarkTheme?(dark: boolean): void;
+  getInfo(key: string): string;
+  getSharedFolder(key: string): string;
+  pickSharedFolder(key: string, callId: string): void;
+  clearSharedFolder(key: string): void;
+  listSharedFolder(key: string, callId: string): void;
+  sharedFileUrl(key: string, path: string): string;
+  getIncomingShares(key: string): string;
+  clearIncomingShares(key: string): void;
+  setDarkTheme?(key: string, dark: boolean): void;
   /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
-  haptic?(kind: string): void;
+  haptic?(key: string, kind: string): void;
   /** `{ enabled, user }` for the app's Firebase "Continue with Google" account. */
-  getAuthState?(): string;
+  getAuthState?(key: string): string;
   /** Resolves `{ ok, idToken }` with a Firebase ID token, signing in with Google first when needed. */
-  firebaseIdToken?(callId: string): void;
+  firebaseIdToken?(key: string, callId: string): void;
   /** This phone's Firebase Cloud Messaging token, or "" when push is not set up. */
-  pushToken?(): string;
+  pushToken?(key: string): string;
   /** Signs the app's Google account out on this phone. */
-  signOut?(): void;
+  signOut?(key: string): void;
   /** Shows the connect screen (sign in again, or pick another server). */
-  openConnectScreen?(): void;
+  openConnectScreen?(key: string): void;
 }
 
 export interface AutomaAppAccount {
@@ -74,6 +79,8 @@ export interface AutomaAppAccount {
 declare global {
   interface Window {
     AutomaNative?: AutomaNativeRaw;
+    /** The page key the app injects into its own pages before any script runs. */
+    __automaKey?: string;
     __automaNative?: { resolve: (callId: string, payload: string) => void };
   }
 }
@@ -81,6 +88,10 @@ declare global {
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 const pending = new Map<string, Pending>();
 let callCounter = 0;
+
+function pageKey(): string {
+  return typeof window !== "undefined" && typeof window.__automaKey === "string" ? window.__automaKey : "";
+}
 
 function ensureResolver() {
   if (typeof window === "undefined" || window.__automaNative) return;
@@ -100,7 +111,7 @@ function ensureResolver() {
   };
 }
 
-function callAsync<T>(invoke: (raw: AutomaNativeRaw, callId: string) => void): Promise<T> {
+function callAsync<T>(invoke: (raw: AutomaNativeRaw, key: string, callId: string) => void): Promise<T> {
   const raw = rawBridge();
   if (!raw) return Promise.reject(new Error("Not running inside the Automa app"));
   ensureResolver();
@@ -109,7 +120,7 @@ function callAsync<T>(invoke: (raw: AutomaNativeRaw, callId: string) => void): P
   return new Promise<T>((resolve, reject) => {
     pending.set(callId, { resolve: resolve as (value: unknown) => void, reject });
     try {
-      invoke(raw, callId);
+      invoke(raw, pageKey(), callId);
     } catch (error) {
       pending.delete(callId);
       reject(error instanceof Error ? error : new Error(String(error)));
@@ -139,77 +150,78 @@ export function isAutomaApp(): boolean {
 export const automaNative = {
   info(): AutomaNativeInfo | null {
     const raw = rawBridge();
-    return raw ? parseJson<AutomaNativeInfo>(raw.getInfo()) : null;
+    return raw ? parseJson<AutomaNativeInfo>(raw.getInfo(pageKey())) : null;
   },
   sharedFolder(): { name: string } | null {
     const raw = rawBridge();
-    return raw ? parseJson<{ name: string }>(raw.getSharedFolder()) : null;
+    return raw ? parseJson<{ name: string }>(raw.getSharedFolder(pageKey())) : null;
   },
   pickSharedFolder(): Promise<{ name: string }> {
-    return callAsync((raw, callId) => raw.pickSharedFolder(callId));
+    return callAsync((raw, key, callId) => raw.pickSharedFolder(key, callId));
   },
   clearSharedFolder() {
-    rawBridge()?.clearSharedFolder();
+    rawBridge()?.clearSharedFolder(pageKey());
   },
   listSharedFolder(): Promise<AutomaSharedFolderListing> {
-    return callAsync((raw, callId) => raw.listSharedFolder(callId));
+    return callAsync((raw, key, callId) => raw.listSharedFolder(key, callId));
   },
   /** Read one file from the shared folder as a Blob. */
   async readSharedFile(path: string): Promise<Blob> {
     const raw = rawBridge();
     if (!raw) throw new Error("Not running inside the Automa app");
-    const url = raw.sharedFileUrl(path);
+    const url = raw.sharedFileUrl(pageKey(), path);
+    if (!url) throw new Error("The Automa app refused the file");
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(res.status === 404 ? `${path} is no longer in the shared folder` : "Could not read the file");
     return res.blob();
   },
   incomingShares(): AutomaIncomingShare[] {
     const raw = rawBridge();
-    return (raw ? parseJson<AutomaIncomingShare[]>(raw.getIncomingShares()) : null) ?? [];
+    return (raw ? parseJson<AutomaIncomingShare[]>(raw.getIncomingShares(pageKey())) : null) ?? [];
   },
   clearIncomingShares() {
-    rawBridge()?.clearIncomingShares();
+    rawBridge()?.clearIncomingShares(pageKey());
   },
   setDarkTheme(dark: boolean) {
-    rawBridge()?.setDarkTheme?.(dark);
+    rawBridge()?.setDarkTheme?.(pageKey(), dark);
   },
   /** The app's Google account (Firebase), when this build has Firebase set up. */
   account(): { enabled: boolean; user: AutomaAppAccount | null } | null {
     const raw = rawBridge();
     if (!raw?.getAuthState) return null;
-    return parseJson<{ enabled: boolean; user: AutomaAppAccount | null }>(raw.getAuthState());
+    return parseJson<{ enabled: boolean; user: AutomaAppAccount | null }>(raw.getAuthState(pageKey()));
   },
   /** A Firebase ID token for the server's "Continue with Google" sign-in. */
   firebaseIdToken(): Promise<string> {
-    return callAsync<{ idToken: string }>((raw, callId) => {
+    return callAsync<{ idToken: string }>((raw, key, callId) => {
       if (!raw.firebaseIdToken) throw new Error("This version of the Automa app cannot sign in with Google");
-      raw.firebaseIdToken(callId);
+      raw.firebaseIdToken(key, callId);
     }).then((reply) => reply.idToken);
   },
   /** This phone's push token, or null outside the app or before Firebase hands one out. */
   pushToken(): string | null {
-    const token = rawBridge()?.pushToken?.() ?? "";
+    const token = rawBridge()?.pushToken?.(pageKey()) ?? "";
     return token.length > 0 ? token : null;
   },
   /** Signs the phone's Google account out of the app; the connect screen then asks to sign in again. */
   signOutOfGoogle(): boolean {
     const raw = rawBridge();
     if (!raw?.signOut) return false;
-    raw.signOut();
+    raw.signOut(pageKey());
     return true;
   },
   /** Leaves this server for the app's connect screen. False outside the app. */
   openConnectScreen(): boolean {
     const raw = rawBridge();
     if (!raw?.openConnectScreen) return false;
-    raw.openConnectScreen();
+    raw.openConnectScreen(pageKey());
     return true;
   },
   /** Returns false when the app build has no haptic bridge, so callers can fall back. */
   haptic(kind: string): boolean {
     const raw = rawBridge();
     if (!raw?.haptic) return false;
-    raw.haptic(kind);
+    raw.haptic(pageKey(), kind);
     return true;
   },
 };

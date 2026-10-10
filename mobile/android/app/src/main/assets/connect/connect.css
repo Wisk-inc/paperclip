@@ -256,3 +256,12 @@ input:focus-visible { border-color: var(--fg); }
   color: var(--fg); font-size: 15px; font-weight: 500;
 }
 .this-phone .fine { margin: 12px; color: var(--muted); font-size: 12px; }
+
+/* A connect request from Termux (or another app): waits for a tap. */
+.requested { border-color: var(--fg); }
+.requested .row { display: flex; gap: 8px; margin-top: 10px; }
+.requested .row button { flex: 1; height: 44px; }
+.sub input { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; font-size: 14px; }
+.sub ul.plain { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.sub .primary { width: 100%; }
+.setup .sub { margin: 10px 0 0; }

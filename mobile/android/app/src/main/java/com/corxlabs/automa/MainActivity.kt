@@ -37,6 +37,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.ScriptHandler
 import androidx.webkit.ServiceWorkerClientCompat
 import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebSettingsCompat
@@ -69,16 +70,22 @@ class MainActivity : ComponentActivity() {
         /**
          * A server address on this phone's loopback, from the ADB helper
          * (`adb shell am start ... --es com.corxlabs.automa.CONNECT http://127.0.0.1:3100`
-         * after `adb reverse`). Anything that is not loopback is ignored, so
-         * no other app can point Automa at a server of its choosing.
+         * after `adb reverse`) or the Termux launcher. Anything that is not
+         * loopback is ignored, and a new address or key waits for a tap on the
+         * connect screen (see [connectRequested]).
          */
         const val EXTRA_CONNECT = "com.corxlabs.automa.CONNECT"
+        /** The app key of a locked Automa on this phone (PAPERCLIP_LOCAL_TRUSTED_SECRET), with [EXTRA_CONNECT]. */
+        const val EXTRA_SECRET = "com.corxlabs.automa.SECRET"
+        /** The cookie a locked local Automa expects (server/src/middleware/local-trusted-secret.ts). */
+        private const val SECRET_COOKIE = "paperclip_local_secret"
         /** Automa 1.0 shipped under this id; it installs beside, not over, this app. */
         private const val OLD_APP_PACKAGE = "app.automa.android"
         private const val PREF_OLD_APP_OFFERED = "oldAppRemovalOffered"
         const val ASSETS_HOST = "appassets.androidplatform.net"
         const val ASSETS_ORIGIN = "https://$ASSETS_HOST"
-        const val CONNECT_URL = "$ASSETS_ORIGIN/assets/connect/index.html"
+        const val CONNECT_PATH = "/assets/connect/index.html"
+        const val CONNECT_URL = "$ASSETS_ORIGIN$CONNECT_PATH"
         private const val SHARE_EVENT = "window.dispatchEvent(new Event('automa:incoming-shares'))"
         private const val CAMERA_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
         private const val SERVER_BUNDLE_NAME = "automa-server.tar.xz"
@@ -99,7 +106,7 @@ class MainActivity : ComponentActivity() {
       var reader = new FileReader();
       reader.onload = function () {
         var data = String(reader.result || '');
-        if (window.AutomaNative) window.AutomaNative.saveBase64(name || 'download', blob.type || 'application/octet-stream', data.slice(data.indexOf(',') + 1));
+        if (window.AutomaNative) window.AutomaNative.saveBase64(window.__automaKey || '', name || 'download', blob.type || 'application/octet-stream', data.slice(data.indexOf(',') + 1));
       };
       reader.readAsDataURL(blob);
     });
@@ -129,6 +136,8 @@ class MainActivity : ComponentActivity() {
     private val executor: ExecutorService = Executors.newFixedThreadPool(2)
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var pageKeyHandler: ScriptHandler? = null
+    private var pageKeyOrigins: Set<String> = emptySet()
     private var pendingFolderCall: String? = null
     private var downloadHookInstalled = false
 
@@ -201,7 +210,7 @@ class MainActivity : ComponentActivity() {
 
         googleSignIn = GoogleSignIn(this)
         bridge = AutomaBridge(this, config, sharedFolder, incoming, executor, googleSignIn)
-        bundledUi = BundledUi(this)
+        bundledUi = BundledUi(this, bridge.pageKey)
         installWebView()
         installServiceWorkerInterception()
 
@@ -271,7 +280,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            intent?.getStringExtra(EXTRA_CONNECT) != null -> connectLoopback(intent.getStringExtra(EXTRA_CONNECT) ?: "")
+            intent?.getStringExtra(EXTRA_CONNECT) != null ->
+                connectRequested(intent.getStringExtra(EXTRA_CONNECT) ?: "", intent.getStringExtra(EXTRA_SECRET))
             intent?.action == ACTION_OPEN_PATH -> openPath(intent.data?.schemeSpecificPart ?: "/")
             // A push notification tapped while the app was in the background.
             intent?.getStringExtra(Push.PATH_KEY) != null -> openPath(intent.getStringExtra(Push.PATH_KEY) ?: "/")
@@ -279,38 +289,106 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Connects to a loopback address handed over by the ADB helper (see [EXTRA_CONNECT]). */
-    private fun connectLoopback(input: String) {
+    /**
+     * A connect request from another app (Termux's launcher, or the ADB helper
+     * through `am start`). Only loopback addresses count, and only an address
+     * and key the app already has is applied by itself: anything new waits on
+     * the connect screen for a tap, so no app can quietly point Automa at a
+     * server of its own and collect the sign-in that follows.
+     */
+    private fun connectRequested(input: String, secret: String?) {
         val url = ServerConfig.normalize(input)
         if (url == null || !ServerConfig.isLoopback(url)) return loadServer()
-        executor.execute {
-            val (reachedUrl, health) = ServerConfig.probe(input, url)
-            runOnUiThread {
-                if (health.ok) {
-                    config.remember(reachedUrl)
-                    loadServer()
-                } else {
-                    showConnect(ServerConfig.explain(reachedUrl, health))
-                }
-            }
+        val origin = ServerConfig.originOf(Uri.parse(url))
+        val appKey = secret?.trim()?.takeIf { it.length in ServerConfig.MIN_SECRET_LENGTH..ServerConfig.MAX_SECRET_LENGTH }
+        val knownServer = config.serverUrl == url
+        val knownKey = appKey == null || (origin != null && config.secretFor(origin) == appKey)
+        if (knownServer && knownKey) return loadServer()
+        config.pendingConnect = ServerConfig.PendingConnect(url, appKey)
+        showConnect(null)
+    }
+
+    /** The connect screen reached [reachedUrl]: remember it, keep its app key, and open it. */
+    fun finishConnect(reachedUrl: String, appKey: String?) {
+        val origin = ServerConfig.originOf(Uri.parse(reachedUrl))
+        config.remember(reachedUrl)
+        if (origin != null) {
+            val pending = config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }
+            val secret = appKey ?: pending?.secret
+            if (secret != null) config.rememberSecret(origin, secret)
+            if (pending != null) config.pendingConnect = null
         }
+        loadServer()
+    }
+
+    fun forgetServer(url: String) {
+        ServerConfig.originOf(Uri.parse(url))?.let { origin ->
+            config.forgetSecret(origin)
+            clearServerCookie(origin)
+        }
+        config.forget(url)
     }
 
     fun loadServer() {
         val url = config.serverUrl
-        if (url == null || googleSignIn.needsSignIn) showConnect(null) else webView.loadUrl(url)
+        if (url == null || googleSignIn.needsSignIn) return showConnect(null)
+        installPageKey()
+        applyServerCookie()
+        webView.loadUrl(url)
     }
 
     private fun openPath(path: String) {
         val server = config.serverUrl ?: return showConnect(null)
         if (googleSignIn.needsSignIn) return showConnect(null)
         val safePath = if (path.startsWith("/") && !path.startsWith("//")) path else "/"
+        installPageKey()
+        applyServerCookie()
         webView.loadUrl(server + safePath)
     }
 
     fun showConnect(error: String?) {
         val suffix = error?.let { "?error=" + Uri.encode(it) } ?: ""
+        installPageKey()
         webView.loadUrl(CONNECT_URL + suffix)
+    }
+
+    /** Sends a locked server its app key on every request, as a cookie only this app holds. */
+    private fun applyServerCookie() {
+        val origin = config.serverOrigin() ?: return
+        val secret = config.secretFor(origin)
+        if (secret == null) return clearServerCookie(origin)
+        val secure = if (origin.startsWith("https://")) "; Secure" else ""
+        CookieManager.getInstance().apply {
+            setCookie(origin, "$SECRET_COOKIE=${Uri.encode(secret)}; Path=/; HttpOnly; SameSite=Strict$secure")
+            flush()
+        }
+    }
+
+    private fun clearServerCookie(origin: String) {
+        CookieManager.getInstance().apply {
+            setCookie(origin, "$SECRET_COOKIE=; Path=/; Max-Age=0")
+            flush()
+        }
+    }
+
+    /**
+     * Hands `window.__automaKey` to the app's own pages (the connect screen and
+     * the configured server) before any of their scripts run. The bridge
+     * refuses calls without it, which is what keeps every other frame in the
+     * WebView, sandboxed Studio previews above all, away from the phone. HTML
+     * the app serves itself carries the key inline as well, for WebViews
+     * without document-start scripts.
+     */
+    private fun installPageKey() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
+        val origins = setOfNotNull(ASSETS_ORIGIN, config.serverOrigin())
+        if (origins == pageKeyOrigins && pageKeyHandler != null) return
+        pageKeyHandler?.remove()
+        pageKeyHandler = null
+        runCatching {
+            pageKeyHandler = WebViewCompat.addDocumentStartJavaScript(webView, "window.__automaKey=${JSONObject.quote(bridge.pageKey)};", origins)
+            pageKeyOrigins = origins
+        }
     }
 
     fun evaluate(script: String) {
@@ -391,6 +469,18 @@ class MainActivity : ComponentActivity() {
                 continue
             }
         }
+    }
+
+    /** The Wireless debugging screen itself (Android 11+), else Developer options. */
+    fun openWirelessDebugging() {
+        val direct = Intent().setClassName("com.android.settings", "com.android.settings.Settings\$WirelessDebuggingActivity")
+        try {
+            startActivity(direct)
+            return
+        } catch (error: Exception) {
+            // Not every phone exports it; Developer options is one tap away.
+        }
+        openDeveloperOptions()
     }
 
     fun openTermux() {
@@ -483,6 +573,9 @@ class MainActivity : ComponentActivity() {
 
     private fun installWebView() {
         webView = createWebView()
+        pageKeyHandler = null
+        pageKeyOrigins = emptySet()
+        installPageKey()
         root.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
@@ -525,7 +618,11 @@ class MainActivity : ComponentActivity() {
         view.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url
-                if (url.host == ASSETS_HOST) return assetLoader.shouldInterceptRequest(url)
+                if (url.host == ASSETS_HOST) {
+                    // The connect screen carries the page key inline (see installPageKey).
+                    if (url.path == CONNECT_PATH) bundledUi.serveConnectPage()?.let { return it }
+                    return assetLoader.shouldInterceptRequest(url)
+                }
                 return bridge.intercept(url) ?: bundledUi.intercept(request, config.serverOrigin())
             }
 

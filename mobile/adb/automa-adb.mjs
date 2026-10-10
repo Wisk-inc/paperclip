@@ -45,7 +45,24 @@ export function parseArgs(argv) {
     else throw new Error(`Unknown option ${arg} (try --help)`);
   }
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) throw new Error("--port must be 1-65535");
+  if (options.pair) options.pair = checkAddress(options.pair, "--pair");
+  if (options.connect) options.connect = checkAddress(options.connect, "--connect");
+  if (options.code !== undefined && !/^\d{6}$/.test(options.code.trim())) throw new Error("--code is the 6-digit pairing code shown on the phone");
   return options;
+}
+
+/**
+ * "IP:PORT" as the phone shows it. Catches the usual slip: the 6-digit pairing
+ * code typed where the port goes.
+ */
+export function checkAddress(value, flag) {
+  const address = value.trim();
+  const match = /^([\w.-]+):(\d+)$/.exec(address);
+  if (!match) throw new Error(`${flag} wants IP:PORT as shown on the phone, like 192.168.1.20:37123`);
+  const port = Number(match[2]);
+  if (match[2].length === 6) throw new Error(`${match[2]} has 6 digits: that is the pairing code, not the port. The port is the number after the colon in the address the phone shows (give the code with --code).`);
+  if (port < 1 || port > 65535) throw new Error(`${flag}: ${match[2]} is not a port`);
+  return address;
 }
 
 /** Serials of phones that are ready (state `device`) in `adb devices` output. */
@@ -119,7 +136,7 @@ async function link(options) {
         if (!options.connect) await sleep(1000);
       }
       if (!options.connect) {
-        throw new Error("Paired. Now run again with --connect PHONE-IP:PORT, using the IP address & Port shown at the top of Wireless debugging.");
+        throw new Error("Paired. Now run again with --connect PHONE-IP:PORT, using the IP address & Port shown at the top of Wireless debugging (a different port from the pairing one).");
       }
     }
   }
@@ -138,7 +155,9 @@ async function link(options) {
 async function askCode() {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await prompt.question("Pairing code shown on the phone: ")).trim();
+      const code = (await prompt.question("6-digit pairing code shown on the phone: ")).trim();
+      if (!/^\d{6}$/.test(code)) throw new Error("The pairing code is exactly 6 digits");
+      return code;
   } finally {
     prompt.close();
   }

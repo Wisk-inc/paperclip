@@ -9,17 +9,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 
 /**
  * `window.AutomaNative` — the contract implemented by ui/src/lib/automa-native.ts.
  *
- * Methods run on the WebView's JavaBridge thread. Every method checks which
- * page is calling: device methods answer only the configured Automa server,
- * connect methods answer only the bundled connect screen. File bytes never
- * travel through this bridge as strings; the page fetches them from
- * same-origin URLs under [NATIVE_PREFIX] that [intercept] serves locally.
+ * Methods run on the WebView's JavaBridge thread. Every method takes the page
+ * key first: Android injects a JavaScript interface into every frame of the
+ * WebView, including sandboxed previews of apps built in Studio and anything
+ * else shown in a frame, so the key (handed only to the app's own pages, see
+ * [MainActivity.installPageKey]) is what keeps those frames out. Device
+ * methods answer only the configured Automa server, connect methods only the
+ * bundled connect screen. File bytes never travel through this bridge as
+ * strings; the page fetches them from same-origin URLs under [NATIVE_PREFIX]
+ * that [intercept] serves locally.
  */
 class AutomaBridge(
     private val activity: MainActivity,
@@ -32,12 +37,19 @@ class AutomaBridge(
     /** Per-process secret in native file URLs, so only this page's scripts can build them. */
     private val token = UUID.randomUUID().toString().replace("-", "")
 
+    /** Per-process key the app's own pages receive as `window.__automaKey`; every method needs it. */
+    val pageKey: String = UUID.randomUUID().toString().replace("-", "")
+
     /** Origin of the page currently shown; written on the main thread by the WebViewClient. */
     @Volatile
     var pageOrigin: String? = null
 
-    private fun onServerPage(): Boolean = pageOrigin != null && pageOrigin == config.serverOrigin()
-    private fun onConnectPage(): Boolean = pageOrigin == MainActivity.ASSETS_ORIGIN
+    private fun keyOk(key: String?): Boolean =
+        key != null && MessageDigest.isEqual(key.toByteArray(Charsets.UTF_8), pageKey.toByteArray(Charsets.UTF_8))
+
+    private fun onServerPage(key: String?): Boolean = keyOk(key) && pageOrigin != null && pageOrigin == config.serverOrigin()
+    private fun onConnectPage(key: String?): Boolean = keyOk(key) && pageOrigin == MainActivity.ASSETS_ORIGIN
+    private fun onAppPage(key: String?): Boolean = onServerPage(key) || onConnectPage(key)
 
     private fun error(message: String) = JSONObject().put("ok", false).put("error", message).toString()
 
@@ -49,8 +61,8 @@ class AutomaBridge(
     // ─── Device (Automa server pages only) ─────────────────────────────────
 
     @JavascriptInterface
-    fun getInfo(): String {
-        if (!onServerPage()) return "null"
+    fun getInfo(key: String?): String {
+        if (!onServerPage(key)) return "null"
         return JSONObject()
             .put("clientKey", config.clientKey)
             .put("deviceName", deviceName())
@@ -70,69 +82,70 @@ class AutomaBridge(
     }
 
     @JavascriptInterface
-    fun getSharedFolder(): String = if (onServerPage()) sharedFolder.describeJson() else "null"
+    fun getSharedFolder(key: String?): String = if (onServerPage(key)) sharedFolder.describeJson() else "null"
 
     @JavascriptInterface
-    fun pickSharedFolder(callId: String) {
-        if (!onServerPage()) return resolve(callId, error("Not available on this page"))
+    fun pickSharedFolder(key: String?, callId: String) {
+        if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
         activity.runOnUiThread { activity.pickFolder(callId) }
     }
 
     @JavascriptInterface
-    fun clearSharedFolder() {
-        if (onServerPage()) sharedFolder.clear()
+    fun clearSharedFolder(key: String?) {
+        if (onServerPage(key)) sharedFolder.clear()
     }
 
     @JavascriptInterface
-    fun listSharedFolder(callId: String) {
-        if (!onServerPage()) return resolve(callId, error("Not available on this page"))
+    fun listSharedFolder(key: String?, callId: String) {
+        if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
         executor.execute { resolve(callId, sharedFolder.listJson()) }
     }
 
     @JavascriptInterface
-    fun sharedFileUrl(path: String): String = if (onServerPage()) "$NATIVE_PREFIX/shared/$token?path=${Uri.encode(path)}" else ""
+    fun sharedFileUrl(key: String?, path: String): String =
+        if (onServerPage(key)) "$NATIVE_PREFIX/shared/$token?path=${Uri.encode(path)}" else ""
 
     @JavascriptInterface
-    fun getIncomingShares(): String =
-        if (onServerPage()) incoming.toJson { "$NATIVE_PREFIX/incoming/$token/${it.id}" } else "[]"
+    fun getIncomingShares(key: String?): String =
+        if (onServerPage(key)) incoming.toJson { "$NATIVE_PREFIX/incoming/$token/${it.id}" } else "[]"
 
     @JavascriptInterface
-    fun clearIncomingShares() {
-        if (onServerPage()) incoming.clear()
+    fun clearIncomingShares(key: String?) {
+        if (onServerPage(key)) incoming.clear()
     }
 
     @JavascriptInterface
-    fun setDarkTheme(dark: Boolean) {
-        activity.runOnUiThread { activity.applyTheme(dark) }
+    fun setDarkTheme(key: String?, dark: Boolean) {
+        if (onAppPage(key)) activity.runOnUiThread { activity.applyTheme(dark) }
     }
 
     /** One of `tick`, `thud`, `success`, `warning`; see ui/src/lib/haptics.ts. */
     @JavascriptInterface
-    fun haptic(kind: String) {
-        if (!onServerPage() && !onConnectPage()) return
+    fun haptic(key: String?, kind: String) {
+        if (!onAppPage(key)) return
         activity.runOnUiThread { activity.performHaptic(kind) }
     }
 
     /** Blob/data downloads created by page scripts (exports, generated files). */
     @JavascriptInterface
-    fun saveBase64(filename: String, mimeType: String, base64: String) {
-        if (!onServerPage()) return
+    fun saveBase64(key: String?, filename: String, mimeType: String, base64: String) {
+        if (!onServerPage(key)) return
         executor.execute { activity.reportDownload(Downloads.saveBase64(activity, filename, mimeType, base64)) }
     }
 
     @JavascriptInterface
-    fun openConnectScreen() {
-        activity.runOnUiThread { activity.showConnect(null) }
+    fun openConnectScreen(key: String?) {
+        if (onAppPage(key)) activity.runOnUiThread { activity.showConnect(null) }
     }
 
     // ─── Account and push (connect screen and Automa server pages) ─────────
 
     @JavascriptInterface
-    fun getAuthState(): String = if (onConnectPage() || onServerPage()) googleSignIn.stateJson() else "null"
+    fun getAuthState(key: String?): String = if (onAppPage(key)) googleSignIn.stateJson() else "null"
 
     @JavascriptInterface
-    fun signInWithGoogle(callId: String) {
-        if (!onConnectPage() && !onServerPage()) return resolve(callId, error("Not available on this page"))
+    fun signInWithGoogle(key: String?, callId: String) {
+        if (!onAppPage(key)) return resolve(callId, error("Not available on this page"))
         activity.runOnUiThread {
             googleSignIn.signIn { result ->
                 result
@@ -146,8 +159,8 @@ class AutomaBridge(
     }
 
     @JavascriptInterface
-    fun signOut() {
-        if (onConnectPage() || onServerPage()) activity.runOnUiThread { googleSignIn.signOut() }
+    fun signOut(key: String?) {
+        if (onAppPage(key)) activity.runOnUiThread { googleSignIn.signOut() }
     }
 
     /**
@@ -155,8 +168,8 @@ class AutomaBridge(
      * signing in with Google first when needed. Server pages only.
      */
     @JavascriptInterface
-    fun firebaseIdToken(callId: String) {
-        if (!onServerPage()) return resolve(callId, error("Not available on this page"))
+    fun firebaseIdToken(key: String?, callId: String) {
+        if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
         activity.runOnUiThread {
             val deliver = {
                 googleSignIn.idToken { token ->
@@ -179,26 +192,51 @@ class AutomaBridge(
 
     /** This phone's push token, registered with the server as part of the device record. */
     @JavascriptInterface
-    fun pushToken(): String = if (onServerPage()) Push.token(activity) ?: "" else ""
+    fun pushToken(key: String?): String = if (onServerPage(key)) Push.token(activity) ?: "" else ""
 
     // ─── Connect screen (bundled page only) ────────────────────────────────
 
     @JavascriptInterface
-    fun getConnectState(): String {
-        if (!onConnectPage()) return "null"
+    fun getConnectState(key: String?): String {
+        if (!onConnectPage(key)) return "null"
+        val pending = config.pendingConnect
         return JSONObject()
             .put("serverUrl", config.serverUrl ?: JSONObject.NULL)
             .put("recent", JSONArray(config.recentServers))
             .put("appVersion", BuildConfig.VERSION_NAME)
             .put("phoneAddress", ServerConfig.localNetworkAddress() ?: JSONObject.NULL)
+            // A connect request another app sent (Termux's launcher): shown, never applied without a tap.
+            .put(
+                "requested",
+                pending?.let { JSONObject().put("url", it.url).put("withKey", it.secret != null) } ?: JSONObject.NULL,
+            )
             .toString()
     }
 
     @JavascriptInterface
-    fun connect(input: String, callId: String) {
-        if (!onConnectPage()) return resolve(callId, error("Not available on this page"))
+    fun connect(key: String?, input: String, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
+        startConnect(input, null, callId)
+    }
+
+    /**
+     * Connects to Automa on this phone with an app key pasted from Termux
+     * (`automa link`), for when the launcher could not hand it over itself.
+     */
+    @JavascriptInterface
+    fun connectWithKey(key: String?, input: String, appKey: String, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
+        val trimmed = appKey.trim()
+        if (trimmed.length < ServerConfig.MIN_SECRET_LENGTH || trimmed.length > ServerConfig.MAX_SECRET_LENGTH) {
+            return resolve(callId, error("That app key does not look right. In Termux, run: automa link"))
+        }
+        startConnect(input, trimmed, callId)
+    }
+
+    private fun startConnect(input: String, appKey: String?, callId: String) {
         val url = ServerConfig.normalize(input)
             ?: return resolve(callId, error("Enter an address like 192.168.1.20:3100 or https://automa.example.com"))
+        if (appKey != null && !ServerConfig.isLoopback(url)) return resolve(callId, error("An app key is only for Automa running on this phone (127.0.0.1)."))
         executor.execute {
             val (reachedUrl, health) = ServerConfig.probe(input, url)
             if (!health.ok) {
@@ -213,40 +251,43 @@ class AutomaBridge(
                     .put("insecure", reachedUrl.startsWith("http://") && !ServerConfig.looksPrivate(Uri.parse(reachedUrl).host ?: ""))
                     .toString(),
             )
-            activity.runOnUiThread {
-                config.remember(reachedUrl)
-                activity.loadServer()
-            }
+            activity.runOnUiThread { activity.finishConnect(reachedUrl, appKey) }
         }
     }
 
     /** Opens Developer options, for USB or Wireless debugging (ADB). Connect screen only. */
     @JavascriptInterface
-    fun openDeveloperOptions() {
-        if (onConnectPage()) activity.runOnUiThread { activity.openDeveloperOptions() }
+    fun openDeveloperOptions(key: String?) {
+        if (onConnectPage(key)) activity.runOnUiThread { activity.openDeveloperOptions() }
+    }
+
+    /** Opens the Wireless debugging screen when the phone has one, else Developer options. */
+    @JavascriptInterface
+    fun openWirelessDebugging(key: String?) {
+        if (onConnectPage(key)) activity.runOnUiThread { activity.openWirelessDebugging() }
     }
 
     /** Whether Termux (to run Automa on this phone) is installed. Connect screen only. */
     @JavascriptInterface
-    fun isTermuxInstalled(): Boolean = onConnectPage() && activity.isTermuxInstalled()
+    fun isTermuxInstalled(key: String?): Boolean = onConnectPage(key) && activity.isTermuxInstalled()
 
     /** Opens Termux, or its download page when it is not installed. Connect screen only. */
     @JavascriptInterface
-    fun openTermux() {
-        if (onConnectPage()) activity.runOnUiThread { activity.openTermux() }
+    fun openTermux(key: String?) {
+        if (onConnectPage(key)) activity.runOnUiThread { activity.openTermux() }
     }
 
     /** Whether this build carries the server that Termux installs ("Run Automa on this phone"). */
     @JavascriptInterface
-    fun hasServerBundle(): Boolean = onConnectPage() && activity.hasServerBundle()
+    fun hasServerBundle(key: String?): Boolean = onConnectPage(key) && activity.hasServerBundle()
 
     /**
      * Hands the bundled server to Termux, which saves it as
      * ~/downloads/automa-server.tar.xz. Replies {ok} or {ok:false, error}. Connect screen only.
      */
     @JavascriptInterface
-    fun sendServerToTermux(callId: String) {
-        if (!onConnectPage()) return resolve(callId, error("Not available on this page"))
+    fun sendServerToTermux(key: String?, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
         activity.sendServerToTermux { result ->
             resolve(
                 callId,
@@ -260,18 +301,24 @@ class AutomaBridge(
 
     /** Copies text (setup commands) to the clipboard. Connect screen only. */
     @JavascriptInterface
-    fun copyText(text: String) {
-        if (onConnectPage() && text.length <= 4096) activity.runOnUiThread { activity.copyToClipboard(text) }
+    fun copyText(key: String?, text: String) {
+        if (onConnectPage(key) && text.length <= 4096) activity.runOnUiThread { activity.copyToClipboard(text) }
     }
 
     @JavascriptInterface
-    fun forgetServer(url: String) {
-        if (onConnectPage()) config.forget(url)
+    fun forgetServer(key: String?, url: String) {
+        if (onConnectPage(key)) activity.runOnUiThread { activity.forgetServer(url) }
+    }
+
+    /** Drops a connect request another app sent, without connecting. Connect screen only. */
+    @JavascriptInterface
+    fun dismissRequested(key: String?) {
+        if (onConnectPage(key)) config.pendingConnect = null
     }
 
     @JavascriptInterface
-    fun retry() {
-        if (onConnectPage()) activity.runOnUiThread { activity.loadServer() }
+    fun retry(key: String?) {
+        if (onConnectPage(key)) activity.runOnUiThread { activity.loadServer() }
     }
 
     // ─── Local file serving for the page ───────────────────────────────────

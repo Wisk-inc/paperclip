@@ -1,6 +1,9 @@
 (function () {
   "use strict";
   var bridge = window.AutomaNative;
+  // The page key the app hands this page before any script runs; every bridge
+  // call carries it, so frames the app did not open can't use the bridge.
+  var KEY = typeof window.__automaKey === "string" ? window.__automaKey : "";
   var form = document.getElementById("connect-form");
   var input = document.getElementById("server");
   var button = document.getElementById("connect");
@@ -9,6 +12,7 @@
   var recentList = document.getElementById("recent");
   var pending = {};
   var counter = 0;
+  var LOCAL = "127.0.0.1:3100";
 
   window.__automaNative = {
     resolve: function (callId, payload) {
@@ -19,14 +23,17 @@
     },
   };
 
+  function haptic(kind) { if (bridge && bridge.haptic) bridge.haptic(KEY, kind); }
+  function nextCall(prefix, done) { counter += 1; var callId = prefix + "-" + counter; pending[callId] = done; return callId; }
+
   function showError(message) {
     errorBox.textContent = message || "";
     errorBox.hidden = !message;
   }
 
-  function setBusy(busy) {
+  function setBusy(busy, label) {
     button.disabled = busy;
-    button.textContent = busy ? "Connecting…" : "Connect";
+    button.textContent = busy ? (label || "Connecting…") : "Connect";
   }
 
   // The mascot reacts: listening → thinking while connecting → cheering or confused.
@@ -41,20 +48,29 @@
     thisPhone.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function connect(address) {
+  /**
+   * Connects once. `appKey` (optional) is the key of a locked Automa on this
+   * phone, pasted from `automa link`. Calls back with the reply.
+   */
+  function connectOnce(address, appKey, done) {
+    var value = (address || "").trim();
+    var callId = nextCall("connect", done);
+    if (appKey) bridge.connectWithKey(KEY, value, appKey, callId);
+    else bridge.connect(KEY, value, callId);
+  }
+
+  function connect(address, appKey) {
     if (!bridge) { showError("Open this screen in the Automa app."); return; }
     var value = (address || "").trim();
     if (!value) { showError("Enter your Automa server address."); input.focus(); return; }
     showError("");
     setBusy(true);
     setPose("thinking");
-    counter += 1;
-    var callId = "connect-" + counter;
-    pending[callId] = function (reply) {
+    connectOnce(value, appKey, function (reply) {
       if (!reply || reply.ok === false) {
         setBusy(false);
         setPose("confused");
-        if (bridge.haptic) bridge.haptic("warning");
+        haptic("warning");
         var message = (reply && reply.error) || "Could not connect.";
         showError(message);
         // Aimed at this phone (its own address or 127.0.0.1): show how to run Automa here.
@@ -62,62 +78,129 @@
         return;
       }
       setPose("success");
-      if (bridge.haptic) bridge.haptic("success");
+      haptic("success");
       // On success the app opens the server itself.
-    };
-    bridge.connect(value, callId);
+    });
   }
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
-    if (bridge && bridge.haptic) bridge.haptic("tick");
+    haptic("tick");
     connect(input.value);
+  });
+
+  // ─── A connect request from Termux (or another app) ───────────────────
+  // The app never applies it by itself: the address (and app key) take effect
+  // only when Connect is tapped here. Automa in Termux can take a minute to
+  // start, so that tap keeps trying until it answers.
+  var requested = document.getElementById("requested");
+  var waitTimer = null;
+  var waitTries = 0;
+  function stopWaiting() {
+    if (waitTimer) clearTimeout(waitTimer);
+    waitTimer = null;
+    waitTries = 0;
+    setBusy(false);
+  }
+  function connectWaiting(address) {
+    if (!bridge) return;
+    showError("");
+    setPose("thinking");
+    waitTries += 1;
+    setBusy(true, "Waiting for Automa to start in Termux… (" + waitTries + ")");
+    connectOnce(address, null, function (reply) {
+      if (reply && reply.ok !== false) {
+        stopWaiting();
+        setPose("success");
+        haptic("success");
+        return;
+      }
+      var message = (reply && reply.error) || "Could not connect.";
+      // Not up yet (refused, still starting): try again shortly, for a while.
+      if (waitTries < 40 && /not running|nothing answers|still starting|try again|refused/i.test(message)) {
+        waitTimer = setTimeout(function () { connectWaiting(address); }, 3000);
+        return;
+      }
+      stopWaiting();
+      setPose("confused");
+      haptic("warning");
+      showError(message);
+    });
+  }
+  function renderRequested(request) {
+    requested.hidden = !request;
+    if (!request) return;
+    document.getElementById("requested-url").textContent = request.url.replace(/^https?:\/\//, "");
+    document.getElementById("requested-detail").textContent = request.withKey
+      ? "Termux is handing over the app key for Automa on this phone. Tap Connect if you just ran automa run or automa link; otherwise dismiss it."
+      : "Tap Connect if you expected this (for example, you just linked a computer over ADB); otherwise dismiss it.";
+    input.value = request.url.replace(/^https?:\/\//, "");
+    requested.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  document.getElementById("requested-connect").addEventListener("click", function () {
+    haptic("tick");
+    connectWaiting(input.value);
+  });
+  document.getElementById("requested-dismiss").addEventListener("click", function () {
+    haptic("tick");
+    stopWaiting();
+    if (bridge && bridge.dismissRequested) bridge.dismissRequested(KEY);
+    requested.hidden = true;
   });
 
   // ─── Run Automa on this phone (Termux) ─────────────────────────────────
   var termuxButton = document.getElementById("termux");
   var termuxStatus = document.getElementById("termux-status");
-  if (bridge && bridge.isTermuxInstalled && bridge.isTermuxInstalled()) {
+  if (bridge && bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY)) {
     termuxButton.textContent = "Open Termux";
     termuxStatus.textContent = "Termux is installed.";
   }
   termuxButton.addEventListener("click", function () {
-    if (bridge && bridge.openTermux) bridge.openTermux();
+    if (bridge && bridge.openTermux) bridge.openTermux(KEY);
   });
   var sendButton = document.getElementById("send-server");
   var sendStatus = document.getElementById("send-status");
-  if (!(bridge && bridge.hasServerBundle && bridge.hasServerBundle())) {
+  if (!(bridge && bridge.hasServerBundle && bridge.hasServerBundle(KEY))) {
     sendButton.disabled = true;
     sendStatus.textContent = "This build of Automa does not include the phone server.";
   }
   sendButton.addEventListener("click", function () {
     if (!bridge || !bridge.sendServerToTermux) return;
-    counter += 1;
-    var callId = "send-server-" + counter;
     sendButton.disabled = true;
     sendButton.textContent = "Sending…";
-    pending[callId] = function (reply) {
+    bridge.sendServerToTermux(KEY, nextCall("send-server", function (reply) {
       sendButton.disabled = false;
       sendButton.textContent = "Send again";
       sendStatus.textContent = reply && reply.ok
         ? "Sent. In Termux, tap Open directory, then paste the command below."
         : (reply && reply.error) || "Could not send it to Termux.";
-    };
-    bridge.sendServerToTermux(callId);
+    }));
   });
-  var copyButton = document.getElementById("copy-setup");
-  copyButton.addEventListener("click", function () {
-    var text = document.getElementById("setup-cmd").textContent;
-    if (bridge && bridge.copyText) bridge.copyText(text);
-    else if (navigator.clipboard) navigator.clipboard.writeText(text);
-    if (bridge && bridge.haptic) bridge.haptic("tick");
-    copyButton.textContent = "Copied";
-    setTimeout(function () { copyButton.textContent = "Copy command"; }, 2000);
-  });
+  function copyButton(buttonId, sourceId) {
+    var el = document.getElementById(buttonId);
+    el.addEventListener("click", function () {
+      var text = document.getElementById(sourceId).textContent;
+      if (bridge && bridge.copyText) bridge.copyText(KEY, text);
+      else if (navigator.clipboard) navigator.clipboard.writeText(text);
+      haptic("tick");
+      el.textContent = "Copied";
+      setTimeout(function () { el.textContent = "Copy command"; }, 2000);
+    });
+  }
+  copyButton("copy-setup", "setup-cmd");
+  copyButton("copy-adb", "adb-cmd");
   document.getElementById("connect-local").addEventListener("click", function () {
-    input.value = "127.0.0.1:3100";
-    if (bridge && bridge.haptic) bridge.haptic("tick");
+    input.value = LOCAL;
+    haptic("tick");
     connect(input.value);
+  });
+  var appKeyField = document.getElementById("app-key");
+  document.getElementById("connect-with-key").addEventListener("click", function () {
+    var appKey = appKeyField.value.trim();
+    if (!appKey) { appKeyField.focus(); return; }
+    input.value = LOCAL;
+    haptic("tick");
+    connect(input.value, appKey);
   });
   document.getElementById("chip-this-phone").addEventListener("click", openThisPhone);
 
@@ -130,22 +213,20 @@
   });
   document.querySelectorAll(".dev-options").forEach(function (devButton) {
     devButton.addEventListener("click", function () {
-      if (bridge && bridge.haptic) bridge.haptic("tick");
-      if (bridge && bridge.openDeveloperOptions) bridge.openDeveloperOptions();
+      haptic("tick");
+      if (bridge && bridge.openDeveloperOptions) bridge.openDeveloperOptions(KEY);
     });
   });
-  var copyAdb = document.getElementById("copy-adb");
-  copyAdb.addEventListener("click", function () {
-    var text = document.getElementById("adb-cmd").textContent;
-    if (bridge && bridge.copyText) bridge.copyText(text);
-    else if (navigator.clipboard) navigator.clipboard.writeText(text);
-    if (bridge && bridge.haptic) bridge.haptic("tick");
-    copyAdb.textContent = "Copied";
-    setTimeout(function () { copyAdb.textContent = "Copy command"; }, 2000);
+  document.querySelectorAll(".wireless-debugging").forEach(function (wirelessButton) {
+    wirelessButton.addEventListener("click", function () {
+      haptic("tick");
+      if (bridge && bridge.openWirelessDebugging) bridge.openWirelessDebugging(KEY);
+      else if (bridge && bridge.openDeveloperOptions) bridge.openDeveloperOptions(KEY);
+    });
   });
   document.getElementById("connect-adb").addEventListener("click", function () {
-    input.value = "127.0.0.1:3100";
-    if (bridge && bridge.haptic) bridge.haptic("tick");
+    input.value = LOCAL;
+    haptic("tick");
     connect(input.value);
   });
 
@@ -173,7 +254,7 @@
       remove.setAttribute("aria-label", "Forget " + url);
       remove.textContent = "×";
       remove.addEventListener("click", function () {
-        bridge.forgetServer(url);
+        bridge.forgetServer(KEY, url);
         renderRecent(list.filter(function (entry) { return entry !== url; }));
       });
       item.appendChild(open);
@@ -192,7 +273,7 @@
 
   function readAuthState() {
     if (!bridge || !bridge.getAuthState) return { enabled: false, user: null };
-    try { return JSON.parse(bridge.getAuthState()) || { enabled: false, user: null }; } catch (e) { return { enabled: false, user: null }; }
+    try { return JSON.parse(bridge.getAuthState(KEY)) || { enabled: false, user: null }; } catch (e) { return { enabled: false, user: null }; }
   }
 
   function renderAccount(state) {
@@ -215,27 +296,24 @@
     signinError.hidden = true;
     googleButton.disabled = true;
     googleLabel.textContent = "Signing in…";
-    if (bridge.haptic) bridge.haptic("tick");
-    counter += 1;
-    var callId = "google-" + counter;
-    pending[callId] = function (reply) {
+    haptic("tick");
+    bridge.signInWithGoogle(KEY, nextCall("google", function (reply) {
       googleButton.disabled = false;
       googleLabel.textContent = "Continue with Google";
       if (!reply || reply.ok === false) {
         signinError.textContent = (reply && reply.error) || "Google sign-in did not finish.";
         signinError.hidden = false;
-        if (bridge.haptic) bridge.haptic("warning");
+        haptic("warning");
         return;
       }
-      if (bridge.haptic) bridge.haptic("success");
+      haptic("success");
       renderAccount(readAuthState());
       if (recentSection.hidden && !input.value) input.focus();
-    };
-    bridge.signInWithGoogle(callId);
+    }));
   });
 
   document.getElementById("signout").addEventListener("click", function () {
-    if (bridge && bridge.signOut) bridge.signOut();
+    if (bridge && bridge.signOut) bridge.signOut(KEY);
     renderAccount(readAuthState());
   });
 
@@ -244,22 +322,22 @@
   var params = new URLSearchParams(location.search);
   if (params.get("error")) { showError(params.get("error")); setPose("confused"); }
 
+  var state = null;
   if (bridge && bridge.getConnectState) {
-    try {
-      var state = JSON.parse(bridge.getConnectState());
-      if (state) {
-        if (state.serverUrl) input.value = state.serverUrl;
-        renderRecent(state.recent || []);
-        document.getElementById("version").textContent = "Automa for Android " + state.appVersion;
-        if (state.phoneAddress) {
-          document.querySelectorAll(".phone-ip").forEach(function (el) { el.textContent = state.phoneAddress; });
-        }
-      }
-    } catch (e) { /* first run */ }
+    try { state = JSON.parse(bridge.getConnectState(KEY)); } catch (e) { /* first run */ }
+  }
+  if (state) {
+    if (state.serverUrl) input.value = state.serverUrl;
+    renderRecent(state.recent || []);
+    document.getElementById("version").textContent = "Automa for Android " + state.appVersion;
+    if (state.phoneAddress) {
+      document.querySelectorAll(".phone-ip").forEach(function (el) { el.textContent = state.phoneAddress; });
+    }
+    if (state.requested) renderRequested(state.requested);
   }
 
   // First run: put the cursor in the address field so typing can start at
   // once. With saved servers, leave the keyboard down: one tap on a recent
   // server connects.
-  if (!serverStep.hidden && recentSection.hidden && !input.value) input.focus();
+  if (!serverStep.hidden && recentSection.hidden && !input.value && requested.hidden) input.focus();
 })();

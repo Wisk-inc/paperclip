@@ -77,36 +77,66 @@ else
 fi
 
 say "Adding the automa command"
+mkdir -p "$automa_home/bin"
+cp "$here/automa-adb-link.sh" "$automa_home/bin/automa-adb-link"
+chmod 700 "$automa_home/bin/automa-adb-link"
+# The app key: on a phone every app can reach 127.0.0.1, so Automa only answers
+# the Automa app, which gets this key (PAPERCLIP_LOCAL_TRUSTED_SECRET) from the
+# launcher. Made once, kept readable by Termux alone.
+secret_file="$automa_home/app-secret"
+if [ ! -s "$secret_file" ]; then
+  (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$secret_file")
+fi
 cat > "$PREFIX/bin/automa" <<LAUNCHER
 #!$PREFIX/bin/bash
 # Starts the Automa database when it is not running, then the Automa server CLI.
-# Usage: automa run    (or any paperclipai command: automa doctor, automa onboard)
-#        automa adb pair PAIRING-PORT CODE / automa adb connect PORT
-#          links this phone's own Wireless debugging, so agents can run adb shell.
+# Usage: automa run        (or any paperclipai command: automa doctor, automa onboard)
+#        automa link       hands the app key to the Automa app again (prints it too)
+#        automa adb link   links this phone's own Wireless debugging, so agents can run adb shell
 set -e
-if [ "\${1:-}" = "adb" ]; then
-  shift
-  command -v adb >/dev/null 2>&1 || pkg install -y android-tools
-  case "\${1:-}" in
-    pair) exec adb pair "127.0.0.1:\${2:?usage: automa adb pair PAIRING-PORT CODE}" "\${3:?usage: automa adb pair PAIRING-PORT CODE}" ;;
-    connect) exec adb connect "127.0.0.1:\${2:?usage: automa adb connect PORT}" ;;
-    *) exec adb "\$@" ;;
-  esac
-fi
+export PAPERCLIP_LOCAL_TRUSTED_SECRET="\$(cat "$secret_file")"
+# Opens the Automa app on this phone's Automa with the app key. The first time
+# (and after a new key) the app asks for one tap on Connect.
+link_app() {
+  command -v am >/dev/null 2>&1 || return 1
+  am start -n com.corxlabs.automa/.MainActivity \\
+    --es com.corxlabs.automa.CONNECT http://127.0.0.1:3100 \\
+    --es com.corxlabs.automa.SECRET "\$PAPERCLIP_LOCAL_TRUSTED_SECRET" >/dev/null 2>&1
+}
+case "\${1:-}" in
+  adb)
+    shift
+    command -v adb >/dev/null 2>&1 || pkg install -y android-tools
+    case "\${1:-}" in
+      link|"") exec "$automa_home/bin/automa-adb-link" ;;
+      pair) exec adb pair "127.0.0.1:\${2:?usage: automa adb pair PAIRING-PORT CODE}" "\${3:?usage: automa adb pair PAIRING-PORT CODE}" ;;
+      connect) exec adb connect "127.0.0.1:\${2:?usage: automa adb connect PORT}" ;;
+      *) exec adb "\$@" ;;
+    esac
+    ;;
+  link)
+    echo "App key for the Automa app (Run Automa on this phone -> paste the app key):"
+    echo "\$PAPERCLIP_LOCAL_TRUSTED_SECRET"
+    if link_app; then echo "Opened the Automa app: tap Connect there."; else echo "Could not open the Automa app from here; paste the key in the app instead."; fi
+    exit 0
+    ;;
+esac
 if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
   pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
 fi
 export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un)@127.0.0.1:5432/automa}"
-# A running server holds a wake lock so Android does not pause it.
+# A running server holds a wake lock so Android does not pause it, and the app
+# is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then
   command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
+  link_app || true
 fi
 exec node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@"
 LAUNCHER
 chmod 700 "$PREFIX/bin/automa"
 
-say "Installed. Starting Automa on http://127.0.0.1:3100"
-say "Next time, open Termux and run: automa run"
+say "Installed. Starting Automa on http://127.0.0.1:3100 (locked to the Automa app)"
+say "The Automa app opens by itself: tap Connect there. Next time, open Termux and run: automa run"
 if [ "${AUTOMA_INSTALL_NO_START:-0}" = "1" ]; then
   exit 0
 fi

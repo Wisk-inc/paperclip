@@ -72,6 +72,15 @@
       </div>
     </div>
 
+    <div id="requested" class="note requested" role="status" hidden>
+      <strong>Termux asked to connect to <span id="requested-url"></span></strong>
+      <span id="requested-detail"></span>
+      <div class="row">
+        <button type="button" id="requested-connect" class="primary">Connect</button>
+        <button type="button" id="requested-dismiss" class="secondary">Dismiss</button>
+      </div>
+    </div>
+
     <form id="connect-form" class="form" novalidate>
       <label for="server" class="label">Server address</label>
       <input id="server" name="server" type="url" inputmode="url" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="192.168.1.20:3100" required>
@@ -125,8 +134,14 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
           <div>
             <strong>Connect</strong>
-            <span>When Termux says Automa is running, come back here. Keep Termux open while you use Automa; next time, start it in Termux with <code>automa run</code>.</span>
+            <span>When Termux starts Automa it opens this screen by itself: tap <b>Connect</b> there. Automa on this phone only answers this app (Termux hands it the app key), so nothing else on the phone can use it. Keep Termux open while you use Automa; next time, start it with <code>automa run</code>.</span>
             <button type="button" id="connect-local" class="primary">Connect to this phone</button>
+            <details class="sub" id="app-key-section">
+              <summary>Automa says it only answers the app? Paste the app key</summary>
+              <p>If Termux could not open this app by itself, run <code>automa link</code> in Termux and paste the key it prints.</p>
+              <input id="app-key" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="App key from automa link">
+              <button type="button" id="connect-with-key" class="secondary">Connect with this key</button>
+            </details>
           </div>
         </li>
       </ul>
@@ -134,11 +149,16 @@
         <summary>Optional: let agents control this phone (Wireless debugging)</summary>
         <p>Agents already have a terminal in Termux. With Wireless debugging they also get this phone's shell: tap and type (<code>input</code>), take screenshots (<code>screencap</code>), list apps (<code>pm</code>), and change settings.</p>
         <ol>
-          <li>Open <b>Developer options → Wireless debugging</b>, turn it on, and tap <b>Pair device with pairing code</b>. Use split screen so Termux stays visible.</li>
-          <li>In Termux: <code>automa adb pair PAIRING-PORT CODE</code></li>
-          <li>Then: <code>automa adb connect PORT</code> (the port on the Wireless debugging screen). Agents can now run <code>adb shell …</code>.</li>
+          <li>Turn on <b>Developer options → Wireless debugging</b>. Use split screen so Termux stays visible.</li>
+          <li>In Termux, run <code>automa adb link</code>. It walks you through the two steps below and checks every number you type.</li>
         </ol>
-        <button type="button" class="secondary dev-options">Open Developer options</button>
+        <p>Two different numbers are involved, and they look alike:</p>
+        <ul class="plain">
+          <li><b>Pairing:</b> tap <b>Pair device with pairing code</b>. The dialog shows a <b>6-digit code</b> and an address ending in a <b>port</b> (5 digits). The wizard asks for both.</li>
+          <li><b>Connecting:</b> after pairing, close that dialog. <b>IP address &amp; Port</b> on the Wireless debugging screen shows a <em>different</em> port. The wizard asks for that one next.</li>
+        </ul>
+        <p>Both change every time the screen is opened, so do it in one go. No <code>adb reverse</code> is needed here: Automa and this app are already on the same phone.</p>
+        <button type="button" class="secondary wireless-debugging">Open Wireless debugging</button>
       </details>
       <p class="fine">Your agents run on this phone too, so the agent tools you use (for example Claude Code) must be installed in Termux, and the phone should stay on charge. A computer is faster for heavy work.</p>
     </details>
@@ -146,7 +166,7 @@
     <details class="this-phone" id="adb">
       <summary>
         <svg class="summary-icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="4" width="20" height="36" rx="4"/><path d="M21 34h6M24 40v5M17 44h14"/><path d="M30 15c2 2 2 6 0 8M34 12c4 4 4 10 0 14"/></svg>
-        <span class="this-phone-title"><strong>Link a computer with ADB</strong><span>USB cable or Wireless debugging. No Wi-Fi address needed.</span></span>
+        <span class="this-phone-title"><strong>Link a computer with ADB</strong><span>Automa runs on your computer; the phone reaches it over USB or Wireless debugging.</span></span>
         <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </summary>
       <ul class="setup">
@@ -168,14 +188,12 @@
         <li>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
           <div>
-            <strong>Link the phone</strong>
-            <span><b>Cable:</b> plug it in and allow the prompt. <b>Wireless:</b> tap <b>Pair device with pairing code</b>, then on the computer:</span>
-            <pre id="adb-pair">adb pair <span class="phone-ip">PHONE-IP</span>:PAIRING-PORT CODE
-adb connect <span class="phone-ip">PHONE-IP</span>:PORT</pre>
-            <span>Then, for cable or wireless:</span>
-            <pre id="adb-cmd">adb reverse tcp:3100 tcp:3100</pre>
+            <strong>Link the phone, from the computer</strong>
+            <span>These commands run <b>on the computer</b>, not in Termux (in Termux they would only link the phone to itself). In the Automa source folder:</span>
+            <pre id="adb-cmd">node mobile/adb/automa-adb.mjs</pre>
             <button type="button" id="copy-adb" class="secondary">Copy command</button>
-            <span>Or run <code>node mobile/adb/automa-adb.mjs</code> in the source folder (add <code>--pair PHONE-IP:PORT --code CODE</code> for wireless). It links the phone, keeps the link alive, installs app updates over this app, and opens Automa connected.</span>
+            <span><b>Cable:</b> plug the phone in and allow the prompt. <b>Wireless:</b> tap <b>Pair device with pairing code</b> and add <code>--pair <span class="phone-ip">PHONE-IP</span>:PAIRING-PORT --code CODE</code> (the 6-digit code; the port is the 5-digit number after the colon). It finds the connection port itself, links the phone, keeps the link alive, installs app updates, and opens Automa connected.</span>
+            <span>By hand instead: <code>adb pair <span class="phone-ip">PHONE-IP</span>:PAIRING-PORT CODE</code>, <code>adb connect <span class="phone-ip">PHONE-IP</span>:PORT</code> (the port under IP address &amp; Port, a different number), then <code>adb reverse tcp:3100 tcp:3100</code>.</span>
           </div>
         </li>
         <li>
@@ -191,8 +209,8 @@ adb connect <span class="phone-ip">PHONE-IP</span>:PORT</pre>
     </details>
 
     <div class="note">
-      <strong>The Wireless debugging address is this phone.</strong>
-      Don't type it above. Use it to link your computer in <b>Link a computer with ADB</b>, or as the server only when Automa runs on this phone. Automa on a computer prints its own address, usually ending in <code>:3100</code>.
+      <strong>The Wireless debugging address is this phone, not a server.</strong>
+      Don't type it above: it is for <code>adb</code> (see <b>Link a computer with ADB</b>). Automa on a computer prints its own address, usually ending in <code>:3100</code>; Automa on this phone is <code>127.0.0.1:3100</code>.
     </div>
 
     <details class="help">
