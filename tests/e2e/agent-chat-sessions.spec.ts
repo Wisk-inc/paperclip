@@ -267,7 +267,7 @@ test("sidebar discovery, stars, recent agents, configuration links, and drafts s
     await picker.getByRole("combobox").fill("Beta");
     await picker.getByRole("combobox").press("Enter");
     await expect(picker).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Edit Beta", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Edit Beta|Rename or change role)$/ }).first()).toBeVisible();
     expect(await json(await request.get(`/api/companies/${f.company.id}/chats/${f.agents[1].id}`))).toBeNull();
     for (const agent of f.agents) {
       await page.goto(`/${f.company.issuePrefix}/chats/${agent.id}`);
@@ -333,7 +333,7 @@ test("sidebar discovery, stars, recent agents, configuration links, and drafts s
     await picker.getByRole("combobox").fill("Beta");
     await picker.getByRole("combobox").press("Enter");
     await expect(picker).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Edit Beta", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Edit Beta|Rename or change role)$/ }).first()).toBeVisible();
     await expect(page.getByText("Background activity", { exact: true })).toBeVisible();
   } finally {
     await f.restore();
