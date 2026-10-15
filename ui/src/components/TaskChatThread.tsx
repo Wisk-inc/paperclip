@@ -1680,6 +1680,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? `Workspace setup failed before the agent started. ${retryDetail}`
             : isModelSessionFailure(code)
             ? `${failedAgentName} couldn't start a session with its model (${code}). Almost always the API key is missing, wrong, or out of credit. Add or check it under Settings → API keys, then send again.`
+            : code === "acpx_turn_failed"
+            ? `${failedAgentName}'s model call failed (${code}). ${retryDetail} If it keeps happening, check the API key and the provider under Settings → API keys.`
             : `The run failed (${code}). ${retryDetail}`;
         const id = `${source.id}:failure`;
         entriesWithFailures.push({
@@ -1696,7 +1698,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
               retryable: meta?.resultJson?.workspaceRestoreFailure !== "restore_unsafe_archive",
               collapsible: true,
               runHref: meta?.agentId ? `/agents/${encodeURIComponent(agentMap?.get(meta.agentId)?.urlKey ?? meta.agentId)}/runs/${encodeURIComponent(source.id)}` : undefined,
-              ...(isModelSessionFailure(code) ? { helpHref: "/company/settings/api-keys", helpLabel: "Open API keys" } : {}),
+              ...(isModelSessionFailure(code) || code === "acpx_turn_failed" ? { helpHref: "/company/settings/api-keys", helpLabel: "Open API keys" } : {}),
               planHref: savedPlan ? "#document-plan" : undefined,
             } : {}),
             tone: source.status === "cancelled" ? "neutral" : "error",

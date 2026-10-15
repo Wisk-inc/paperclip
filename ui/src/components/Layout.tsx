@@ -216,6 +216,13 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     <SkillsContextualSidebar />
   ) : sharedSecondarySidebar;
   const hasSecondarySidebar = secondarySidebar != null;
+  // The Apps area (Connectors, an app's or a chat connection's pages) has no
+  // navigation of its own on the page, so on a phone its rail rides along at
+  // the top of the drawer; every other page keeps its navigation on the page.
+  const phoneSecondarySidebar =
+    isAppsRoute || isToolsRoute || appDetailConnectionId || appDetailApplicationId
+      ? sharedSecondarySidebar
+      : null;
   const keepsPrimarySidebar = streamlinedUiEnabled && hasSecondarySidebar && (
     shellRoute.builtInContextualSurface === "skills"
     || shellRoute.builtInContextualSurface === "agent"
@@ -647,12 +654,21 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
             )}
           >
             <div className="flex flex-1 min-h-0 overflow-hidden">
-              <div className="w-60 shrink-0 overflow-hidden">
+              <div className="flex w-60 shrink-0 flex-col overflow-hidden">
                 {/* A phone's menu is always the same menu. A page's own
                     navigation (an agent's tabs, the Skills sections, the
                     settings pages) stays on the page, so opening the drawer
-                    never lands somewhere unexpected. */}
-                <Sidebar>{sidebarSections}</Sidebar>
+                    never lands somewhere unexpected. The Apps rail is the one
+                    exception: it sits above the menu because nothing on those
+                    pages leads to their sections otherwise. */}
+                {phoneSecondarySidebar ? (
+                  <div className="max-h-1/2 shrink-0 overflow-y-auto border-b border-border">
+                    <SecondarySidebar className="h-auto">{phoneSecondarySidebar}</SecondarySidebar>
+                  </div>
+                ) : null}
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <Sidebar>{sidebarSections}</Sidebar>
+                </div>
               </div>
             </div>
             <SidebarAccountMenu

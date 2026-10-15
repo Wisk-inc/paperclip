@@ -245,17 +245,24 @@ can send them push notifications (an agent needs a file, an approval is
 waiting) through Firebase Cloud Messaging. Both switch on when the pieces
 below are in place; without them the app still works and skips sign-in.
 
-**In the Firebase console (project `automa-agent`):**
+**In the Firebase console (any project; the app reads the project from the file):**
 
 1. Project settings → *Your apps* → *Add app* → Android, package name
-   `com.corxlabs.automa`. Add the SHA-1 fingerprint of the key that signs the
-   app (`keytool -list -v -keystore automa-upload.jks -alias automa-upload`).
-   After you enable Play App Signing, also add the *App signing key* SHA-1 from
-   Play Console → Setup → App integrity.
+   **`com.corxlabs.automa`** (exactly; a file for another package stops the
+   build with "No matching client found for package name"). Add the SHA-1 of
+   the key that signs the app. For the shipped release key it is
+   `18:E2:32:34:67:3C:4E:58:AF:ED:56:4D:58:9A:2A:68:F8:99:FB:CA`; for debug
+   builds, `keytool -list -v -keystore ~/.android/debug.keystore -storepass
+   android`. After you enable Play App Signing, also add the *App signing key*
+   SHA-1 from Play Console → Setup → App integrity.
 2. Authentication → *Get started* → Sign-in method → **Google** → Enable.
-3. Download `google-services.json` from Project settings and put it at
-   `mobile/android/app/google-services.json`, then rebuild. The build turns
-   Firebase on when that file exists.
+   This is what puts an OAuth web client into the file; without it the app
+   builds but "Continue with Google" stays off.
+3. Download `google-services.json` again (after steps 1 and 2) and put it at
+   `mobile/android/app/google-services.json` (git-ignored), then rebuild.
+   The build turns Firebase on when that file exists.
+4. Check it before building: `pnpm mobile:check-firebase` says whether the
+   package matches and whether sign-in will be on, and what to fix if not.
 
 **On your Automa server** (environment variables; never put the service
 account in the app or in git):

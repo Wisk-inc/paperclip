@@ -969,7 +969,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   agent_view:
-    agent_description: "Work with a Paperclip agent in a task-backed conversation."
+    agent_description: "Work with an Automa agent in a task-backed conversation."
   bot_user:
     display_name: "maya"
   slash_commands:

@@ -11,12 +11,32 @@ import {
   agentTaskSessions,
   agentWakeupRequests,
   activityLog,
+  approvalComments,
+  approvals,
+  assets,
+  chatEndpoints,
+  companySkillTestRuns,
   costEvents,
+  decisionArchiveNotificationOutbox,
+  decisionBundles,
+  decisionQueueItems,
+  decisionQueues,
+  decisionRetention,
+  decisionTriage,
+  decisionTriageEvents,
+  decisions,
+  financeEvents,
+  goals,
   heartbeatRunEvents,
   heartbeatRuns,
   issueExecutionDecisions,
+  issueThreadInteractions,
+  issueWatchdogs,
   issues,
   issueComments,
+  joinRequests,
+  projects,
+  routines,
 } from "@paperclipai/db";
 import {
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
@@ -1056,12 +1076,47 @@ export function agentService(db: Db) {
         });
       }
 
+      // Deleting an agent mid-run would pull its heartbeat rows out from under
+      // the executor (every later write fails with a foreign-key error), so
+      // ask the operator to stop the run first.
+      const activeRuns = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.agentId, id),
+            inArray(heartbeatRuns.status, ["queued", "scheduled_retry", "running"]),
+          ),
+        );
+      if (activeRuns.length > 0) {
+        throw conflict(`${existing.name} is still working. Stop its run before removing it.`, {
+          code: "agent_has_active_runs",
+          activeRunIds: activeRuns.map((run) => run.id),
+        });
+      }
+      // A chat endpoint cannot exist without an assigned agent, so refuse
+      // rather than silently tearing the endpoint down.
+      const assignedEndpoints = await db
+        .select({ id: chatEndpoints.id })
+        .from(chatEndpoints)
+        .where(eq(chatEndpoints.assignedAgentId, id));
+      if (assignedEndpoints.length > 0) {
+        throw conflict(`${existing.name} is assigned to a chat connection. Reassign that connection first.`, {
+          code: "agent_assigned_to_chat_endpoint",
+          chatEndpointIds: assignedEndpoints.map((endpoint) => endpoint.id),
+        });
+      }
+
       return db.transaction(async (tx) => {
         await tx
           .select({ id: agents.id })
           .from(agents)
           .where(eq(agents.id, id))
           .for("update");
+        const agentRunIds = sql`(select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.agentId} = ${id})`;
+        const agentCostEventIds = sql`(select ${costEvents.id} from ${costEvents} where ${costEvents.agentId} = ${id} or ${costEvents.heartbeatRunId} in ${agentRunIds})`;
+        const agentKeyIds = sql`(select ${agentApiKeys.id} from ${agentApiKeys} where ${agentApiKeys.agentId} = ${id})`;
+
         await issueThreadInteractionService(tx as unknown as Db)
           .cancelPendingForDeletedAddressee(existing.companyId, id);
         await tx.update(agents).set({ reportsTo: null }).where(eq(agents.reportsTo, id));
@@ -1069,12 +1124,133 @@ export function agentService(db: Db) {
           .update(issues)
           .set({ assigneeAgentId: null, createdByAgentId: null })
           .where(or(eq(issues.assigneeAgentId, id), eq(issues.createdByAgentId, id)));
-        await tx.delete(heartbeatRunEvents).where(eq(heartbeatRunEvents.agentId, id));
+        await tx
+          .update(issues)
+          .set({ conversationAgentId: null })
+          .where(eq(issues.conversationAgentId, id));
+
+        // Ownership and authorship references survive the agent as blanks.
+        await tx.update(projects).set({ leadAgentId: null }).where(eq(projects.leadAgentId, id));
+        await tx.update(goals).set({ ownerAgentId: null }).where(eq(goals.ownerAgentId, id));
+        // An active routine needs a default agent; park it instead of leaving it broken.
+        await tx
+          .update(routines)
+          .set({ assigneeAgentId: null, status: "paused" })
+          .where(and(eq(routines.assigneeAgentId, id), eq(routines.status, "active")));
+        await tx.update(routines).set({ assigneeAgentId: null }).where(eq(routines.assigneeAgentId, id));
+        await tx.update(approvals).set({ requestedByAgentId: null }).where(eq(approvals.requestedByAgentId, id));
+        await tx.update(approvalComments).set({ authorAgentId: null }).where(eq(approvalComments.authorAgentId, id));
+        await tx.update(assets).set({ createdByAgentId: null }).where(eq(assets.createdByAgentId, id));
+        await tx.update(joinRequests).set({ createdAgentId: null }).where(eq(joinRequests.createdAgentId, id));
+        await tx
+          .update(issueThreadInteractions)
+          .set({ createdByAgentId: null })
+          .where(eq(issueThreadInteractions.createdByAgentId, id));
+        await tx
+          .update(issueThreadInteractions)
+          .set({ resolvedByAgentId: null })
+          .where(eq(issueThreadInteractions.resolvedByAgentId, id));
+        await tx.delete(issueWatchdogs).where(eq(issueWatchdogs.watchdogAgentId, id));
+        await tx.delete(companySkillTestRuns).where(eq(companySkillTestRuns.agentId, id));
+
+        // Decisions are owned by their origin agent and run; their queues keep
+        // the record but drop the attribution.
+        await tx
+          .delete(decisions)
+          .where(or(eq(decisions.originAgentId, id), sql`${decisions.originRunId} in ${agentRunIds}`));
+        await tx
+          .delete(decisionBundles)
+          .where(or(eq(decisionBundles.originAgentId, id), sql`${decisionBundles.originRunId} in ${agentRunIds}`));
+        await tx.delete(decisionArchiveNotificationOutbox).where(eq(decisionArchiveNotificationOutbox.originAgentId, id));
+        // Queue attribution keeps the record but the actor becomes "system":
+        // the check constraints require a named agent for an "agent" actor.
+        await tx
+          .update(decisionQueues)
+          .set({ createdByType: "system", createdByAgentId: null, createdByRunId: null, createdByAgentApiKeyId: null })
+          .where(eq(decisionQueues.createdByAgentId, id));
+        await tx
+          .update(decisionQueues)
+          .set({ createdByRunId: null, createdByAgentApiKeyId: null })
+          .where(
+            or(
+              sql`${decisionQueues.createdByRunId} in ${agentRunIds}`,
+              sql`${decisionQueues.createdByAgentApiKeyId} in ${agentKeyIds}`,
+            ),
+          );
+        await tx
+          .update(decisionQueueItems)
+          .set({ addedByType: "system", addedByAgentId: null, addedByRunId: null, addedByAgentApiKeyId: null })
+          .where(eq(decisionQueueItems.addedByAgentId, id));
+        await tx
+          .update(decisionQueueItems)
+          .set({ addedByRunId: null, addedByAgentApiKeyId: null })
+          .where(
+            or(
+              sql`${decisionQueueItems.addedByRunId} in ${agentRunIds}`,
+              sql`${decisionQueueItems.addedByAgentApiKeyId} in ${agentKeyIds}`,
+            ),
+          );
+        // Triage has no "system" actor, so triage the agent set goes with it.
+        await tx.delete(decisionTriage).where(eq(decisionTriage.setByAgentId, id));
+        await tx
+          .update(decisionTriage)
+          .set({ setByRunId: null, setByAgentApiKeyId: null })
+          .where(
+            or(
+              sql`${decisionTriage.setByRunId} in ${agentRunIds}`,
+              sql`${decisionTriage.setByAgentApiKeyId} in ${agentKeyIds}`,
+            ),
+          );
+        await tx
+          .update(decisionTriageEvents)
+          .set({ actorType: "system", actorAgentId: null, actorRunId: null, agentApiKeyId: null })
+          .where(eq(decisionTriageEvents.actorAgentId, id));
+        await tx
+          .update(decisionTriageEvents)
+          .set({ actorRunId: null, agentApiKeyId: null })
+          .where(
+            or(
+              sql`${decisionTriageEvents.actorRunId} in ${agentRunIds}`,
+              sql`${decisionTriageEvents.agentApiKeyId} in ${agentKeyIds}`,
+            ),
+          );
+        await tx
+          .update(decisionRetention)
+          .set({ archivedByType: "system", archivedByAgentId: null, archivedByRunId: null })
+          .where(eq(decisionRetention.archivedByAgentId, id));
+        await tx
+          .update(decisionRetention)
+          .set({ archivedByRunId: null })
+          .where(sql`${decisionRetention.archivedByRunId} in ${agentRunIds}`);
+
+        // Money already spent stays on the company ledger; only the per-run
+        // cost detail (which must name an agent) goes with the agent.
+        await tx
+          .update(financeEvents)
+          .set({ agentId: null, heartbeatRunId: null, costEventId: null })
+          .where(
+            or(
+              eq(financeEvents.agentId, id),
+              sql`${financeEvents.heartbeatRunId} in ${agentRunIds}`,
+              sql`${financeEvents.costEventId} in ${agentCostEventIds}`,
+            ),
+          );
+        await tx
+          .delete(costEvents)
+          .where(or(eq(costEvents.agentId, id), sql`${costEvents.heartbeatRunId} in ${agentRunIds}`));
+
+        await tx
+          .delete(heartbeatRunEvents)
+          .where(or(eq(heartbeatRunEvents.agentId, id), sql`${heartbeatRunEvents.runId} in ${agentRunIds}`));
+        await tx
+          .update(agentTaskSessions)
+          .set({ lastRunId: null })
+          .where(sql`${agentTaskSessions.lastRunId} in ${agentRunIds}`);
         await tx.delete(agentTaskSessions).where(eq(agentTaskSessions.agentId, id));
         await tx.delete(activityLog).where(
           or(
             eq(activityLog.agentId, id),
-            sql`${activityLog.runId} in (select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.agentId} = ${id})`,
+            sql`${activityLog.runId} in ${agentRunIds}`,
           ),
         );
         await tx.delete(issueExecutionDecisions).where(eq(issueExecutionDecisions.actorAgentId, id));

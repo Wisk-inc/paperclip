@@ -15,6 +15,7 @@
     "dev:mobile": "pnpm --filter @paperclipai/ui build && pnpm --filter @paperclipai/ui preview",
     "mobile:bundle-ui": "pnpm --filter @paperclipai/ui build && node scripts/bundle-mobile-ui.mjs",
     "mobile:bundle-server": "node scripts/build-mobile-server-bundle.mjs",
+    "mobile:check-firebase": "node scripts/check-google-services.mjs",
     "dev:both": "node scripts/dev-both.mjs",
     "storybook": "pnpm --filter @paperclipai/ui storybook",
     "build-storybook": "pnpm --filter @paperclipai/ui build-storybook",
