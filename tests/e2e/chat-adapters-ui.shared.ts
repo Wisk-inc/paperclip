@@ -149,9 +149,9 @@ export const PROVIDER_LIFECYCLE_COPY: Record<
   },
   telegram: {
     reconnect:
-      "Reconnect verifies this same BotFather bot and automatically refreshes its Paperclip webhook and command menu.",
+      "Reconnect verifies this same BotFather bot and automatically refreshes its Automa webhook and command menu.",
     remove:
-      "queues durable removal of its Telegram webhook and command menu. After Telegram confirms that cleanup, Paperclip retires the saved token",
+      "queues durable removal of its Telegram webhook and command menu. After Telegram confirms that cleanup, Automa retires the saved token",
   },
 };
 

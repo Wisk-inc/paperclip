@@ -304,7 +304,10 @@ test("sidebar discovery, stars, recent agents, configuration links, and drafts s
         ),
       ),
     );
-    await page.getByRole("link", { name: /Configure Alpha/ }).click();
+    // The agent's settings open from its edit control: the pill on a fresh
+    // chat, the icon once the chat has history; "All settings" leads on.
+    await page.getByRole("button", { name: /^(Edit Alpha|Rename or change role)$/ }).first().click();
+    await page.getByRole("link", { name: "All settings", exact: true }).click();
     await expect(page).toHaveURL(/\/agents\/.*\/runtime/);
     const backgroundPath = `/api/companies/${f.company.id}/chats/${f.agents[1].id}`;
     const background = await json(
