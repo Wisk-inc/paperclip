@@ -559,7 +559,8 @@ test("disabling the experiment lets an active turn settle and keeps idle history
   const original = await json(
     await request.get("/api/instance/settings/experimental"),
   );
-  expect(original.enableAgentChat).toBe(false);
+  // Automa ships with agent chat on; the flag is restored to this value below.
+  expect(typeof original.enableAgentChat).toBe("boolean");
   const f = await setup(request);
   try {
     await page.goto(f.route);

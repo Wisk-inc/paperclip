@@ -67,7 +67,24 @@ shell than the preinstalled `/opt/pw-browsers`, so the run points at the
 preinstalled Chromium; and specs write screenshots to a repo-root
 `test-results/` directory that must exist and be writable.
 
-Result: (filled in below once the run completes).
+First pass (whole suite, 38.8 min, while the server suite shared the machine):
+119 passed, 23 failed, 78 skipped, 4 did not run. The 23 failures sorted into
+three groups:
+
+- **Sandbox.** The specs that boot their own Paperclip instance
+  (`execution-recovery`, `connection-reviews`) run the UI through Vite's dev
+  middleware, which must write `ui/node_modules/.vite`; the non-root user
+  could not, so pages never finished loading. Fixed by opening that cache.
+- **Stale wording after the rebrand.** Five expectations still said Paperclip
+  where the product says Automa or used controls the fork replaced: the Slack
+  manifest description, the first task's title (two specs), the "Automa
+  couldn't start" heading, the chat header's Configure link (now an Edit
+  button), the phone "Add project" action, and the assumption that agent chat
+  is off by default (Automa ships with it on). Updated in the specs.
+- **A real phone gap.** `iMessage Photon` at 390 px could not reach the chat
+  connection's Settings/Activity pages (see §6, item 4). Fixed.
+
+Second pass (the failed specs only, after those fixes): (filled in below).
 
 ## 3. Phone browser suites (Playwright, 412×915, touch, DPR 2)
 
