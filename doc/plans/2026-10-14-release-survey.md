@@ -84,7 +84,22 @@ three groups:
 - **A real phone gap.** `iMessage Photon` at 390 px could not reach the chat
   connection's Settings/Activity pages (see §6, item 4). Fixed.
 
-Second pass (the failed specs only, after those fixes): (filled in below).
+Second pass (the failed specs only, after those fixes, 21.9 min): 42 passed,
+10 failed, 4 did not run. Everything that had failed on wording or on the
+drawer gap passed: attachment receipts, composer Stop, first-task launch,
+connection reviews (approve, decline, always, failure), iMessage Photon at
+390 px, task reload, agent-chat projects; Slack and Telegram passed in a
+separate run once their last Paperclip-era strings were updated, and the chat
+sidebar spec passed once it reached agent settings the way the fork's header
+does (edit pill, then "All settings"). The remaining failures were the
+sandbox again: the 1.4.3 APK build emptied `server/ui-dist` while the e2e
+server was serving from it (the server log shows `ENOENT …/ui-dist/index.html`
+from 00:50), which took down planning-mode, project-repositories and smoke-lab,
+and the execution-recovery journeys wait for a plain "Paperclip is ready at
+http://…" line while the nested server printed it with terminal colours.
+
+Third pass (those specs, with ui-dist rebuilt and colours off): (filled in
+below).
 
 ## 3. Phone browser suites (Playwright, 412×915, touch, DPR 2)
 
