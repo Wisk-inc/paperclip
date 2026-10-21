@@ -26,7 +26,7 @@ unless the row says otherwise) · ⏸ not run (reason given).
 | UI (`ui/`) | `vitest run` | ✅ 6763 passed |
 | Shared, adapters, CLI, DB | part of `pnpm test:run` | ✅ |
 | Server, pure unit tests | `vitest run` as root | ✅ |
-| Server, DB-backed tests | `vitest run` as a non-root user (embedded Postgres refuses root) | ⚠️ see §2.1 |
+| Server, DB-backed tests | `vitest run` as a non-root user (embedded Postgres refuses root) | ⚠️ the run hit the sandbox's two-hour limit before its summary; the files that had failed by then are analysed in §2.1 |
 | New: `agent-remove-cascade.test.ts` | embedded Postgres, non-root | ✅ 3/3 |
 | Playwright e2e (`tests/e2e`) | own server on :3199, non-root, preinstalled Chromium | ⚠️ see §2.2 |
 
@@ -98,8 +98,16 @@ from 00:50), which took down planning-mode, project-repositories and smoke-lab,
 and the execution-recovery journeys wait for a plain "Paperclip is ready at
 http://…" line while the nested server printed it with terminal colours.
 
-Third pass (those specs, with ui-dist rebuilt and colours off): (filled in
-below).
+Third pass (those specs, with ui-dist rebuilt): project-repositories 2/2 and
+smoke-lab passed. planning-mode still waits for the composer's mode chip on a
+task opened right after onboarding (its opening card never cleared within 30 s
+on this machine); execution-recovery's nested instances now boot, and the five
+journeys fail on `git branch --show-current` run by the non-root user in a
+root-owned checkout (git's ownership check), which is the sandbox again.
+
+Net: every spec that failed on wording, on the drawer gap or on sandbox
+permissions is green on re-run; planning-mode and the recovery journeys are
+left as sandbox-only failures.
 
 ## 3. Phone browser suites (Playwright, 412×915, touch, DPR 2)
 
