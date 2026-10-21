@@ -504,6 +504,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     onAdd,
     onReviewConversation,
     onCancelRun,
+    onSlashCommand,
     stopPending,
     stopScope,
     issueWorkMode = "standard",
@@ -3106,6 +3107,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                       ).map((comment) => comment.clientRequestId!))}
                       onReviewConversation={onReviewConversation}
                       onStop={liveRun ? onCancelRun : undefined}
+                      onSlashCommand={onSlashCommand}
                       stopPending={stopPending}
                       stopScope={stopScope}
                       workMode={issueWorkMode}

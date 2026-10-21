@@ -29,6 +29,8 @@
   function showError(message) {
     errorBox.textContent = message || "";
     errorBox.hidden = !message;
+    // The message sits under the form; with the keyboard up it can be off screen.
+    if (message && errorBox.scrollIntoView) errorBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   function setBusy(busy, label) {
@@ -127,20 +129,49 @@
   // only when Connect is tapped here. Automa in Termux can take a minute to
   // start, so that tap keeps trying until it answers.
   var requested = document.getElementById("requested");
+  var waitBox = document.getElementById("wait");
+  var waitNext = document.getElementById("wait-next");
+  var waitElapsed = document.getElementById("wait-elapsed");
+  var waitTries = document.getElementById("wait-tries");
   var waitTimer = null;
-  var waitTries = 0;
+  var tickTimer = null;
+  var tries = 0;
+  var waitStarted = 0;
+  var RETRY_MS = 3000;
+  var MAX_TRIES = 100;
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
   function stopWaiting() {
     if (waitTimer) clearTimeout(waitTimer);
+    if (tickTimer) clearInterval(tickTimer);
     waitTimer = null;
-    waitTries = 0;
+    tickTimer = null;
+    tries = 0;
+    waitBox.hidden = true;
     setBusy(false);
+  }
+  // The visible timer: how long we have waited, and when the next try fires.
+  // The board opens by itself the moment Automa answers.
+  function showWaitTimer(nextAt) {
+    waitBox.hidden = false;
+    function tick() {
+      var now = Date.now();
+      var elapsed = Math.max(0, Math.round((now - waitStarted) / 1000));
+      waitElapsed.textContent = Math.floor(elapsed / 60) + ":" + pad(elapsed % 60);
+      waitNext.textContent = nextAt ? String(Math.max(0, Math.ceil((nextAt - now) / 1000))) : "…";
+      waitTries.textContent = String(tries);
+    }
+    tick();
+    if (tickTimer) clearInterval(tickTimer);
+    tickTimer = setInterval(tick, 250);
   }
   function connectWaiting(address) {
     if (!bridge) return;
     showError("");
     setPose("thinking");
-    waitTries += 1;
-    setBusy(true, "Waiting for Automa to start in Termux… (" + waitTries + ")");
+    if (tries === 0) waitStarted = Date.now();
+    tries += 1;
+    setBusy(true, "Waiting for Automa…");
+    showWaitTimer(null);
     connectOnce(address, null, function (reply) {
       if (reply && reply.ok !== false) {
         stopWaiting();
@@ -151,8 +182,10 @@
       }
       var message = (reply && reply.error) || "Could not connect.";
       // Not up yet (refused, still starting): try again shortly, for a while.
-      if (waitTries < 40 && /not running|nothing answers|still starting|try again|refused/i.test(message)) {
-        waitTimer = setTimeout(function () { connectWaiting(address); }, 3000);
+      if (tries < MAX_TRIES && /not running|nothing answers|still starting|try again|refused|closed the connection/i.test(message)) {
+        var nextAt = Date.now() + RETRY_MS;
+        showWaitTimer(nextAt);
+        waitTimer = setTimeout(function () { connectWaiting(address); }, RETRY_MS);
         return;
       }
       stopWaiting();
@@ -161,6 +194,11 @@
       showError(message);
     });
   }
+  document.getElementById("wait-stop").addEventListener("click", function () {
+    haptic("tick");
+    stopWaiting();
+    setPose("listening");
+  });
   function renderRequested(request) {
     requested.hidden = !request;
     if (!request) return;
@@ -170,6 +208,9 @@
       : "Tap Connect if you expected this (for example, you just linked a computer over ADB); otherwise dismiss it.";
     input.value = request.url.replace(/^https?:\/\//, "");
     requested.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // The server this phone already uses: no tap, the page waits for it and
+    // opens Automa by itself (the timer below says when the next try is).
+    if (request.autoStart) connectWaiting(request.url);
   }
   document.getElementById("requested-connect").addEventListener("click", function () {
     haptic("tick");
@@ -368,6 +409,13 @@
       document.querySelectorAll(".phone-ip").forEach(function (el) { el.textContent = state.phoneAddress; });
     }
     if (state.requested) renderRequested(state.requested);
+    // Automa on this phone is not answering (Termux closed, or still starting):
+    // wait for it here with the timer, and open the board by itself.
+    if (!state.requested && params.get("wait") === "1" && state.waitFor) {
+      input.value = state.waitFor.replace(/^https?:\/\//, "");
+      showError("");
+      connectWaiting(state.waitFor);
+    }
   }
 
   // First run: put the cursor in the address field so typing can start at

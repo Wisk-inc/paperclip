@@ -4,6 +4,9 @@ import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
 import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
 import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
+import { ModelPickerSheet } from "@/components/agent-chat/ModelPickerSheet";
+import { ChatContextSheet, SlashHelpSheet } from "@/components/agent-chat/ChatCommandSheets";
+import type { ChatSlashCommand } from "@/components/task-chat/slash-commands";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
 import { agentChatDraft } from "@/lib/agent-chat-draft";
@@ -1437,6 +1440,30 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   const scrollLocation = useLocation();
   const scrollNavigationType = useNavigationType();
   const { pushToast } = useToastActions();
+  const slashNavigate = useNavigate();
+  // Slash commands the composer hands up: the model picker, the context and
+  // help sheets open here; /skills leaves for the Skills page.
+  const [slashSheet, setSlashSheet] = useState<"model" | "context" | "help" | null>(null);
+  const handleSlashCommand = useCallback(
+    async (command: ChatSlashCommand): Promise<boolean> => {
+      switch (command.name) {
+        case "model":
+        case "context":
+          if (!conversationAgent) return false;
+          setSlashSheet(command.name);
+          return true;
+        case "help":
+          setSlashSheet("help");
+          return true;
+        case "skills":
+          slashNavigate("/skills");
+          return true;
+        default:
+          return false;
+      }
+    },
+    [conversationAgent, slashNavigate],
+  );
   const {
     data: activity,
     isPending: activityPending,
@@ -2317,8 +2344,23 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           }}
         >
           <EmailThreadProvider companyId={companyId} issueId={issueId}>
+          {conversationAgent ? (
+            <>
+              <ModelPickerSheet agent={conversationAgent} open={slashSheet === "model"} onOpenChange={(next) => { if (!next) setSlashSheet(null); }} />
+              <ChatContextSheet
+                agent={conversationAgent}
+                issue={null}
+                workMode={issueWorkMode}
+                messageCount={commentsForThread.length}
+                open={slashSheet === "context"}
+                onOpenChange={(next) => { if (!next) setSlashSheet(null); }}
+              />
+            </>
+          ) : null}
+          <SlashHelpSheet conversationMode={Boolean(conversationMode)} open={slashSheet === "help"} onOpenChange={(next) => { if (!next) setSlashSheet(null); }} />
           <ThreadComponent
             key={conversationMode ? draftKey : issueId}
+            onSlashCommand={handleSlashCommand}
             {...(conversationAgent ? { emptyMessage: <ChatWelcome agent={conversationAgent} /> } : {})}
             {...(!classicTaskInterfaceEnabled ? { creationActivity: resolvedActivity } : {})}
             onOpenSkill={onOpenSkill}

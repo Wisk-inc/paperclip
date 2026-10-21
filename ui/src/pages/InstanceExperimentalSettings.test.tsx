@@ -604,7 +604,7 @@ describe("InstanceExperimentalSettings — Conference Room Chat card (PAP-11233)
     await renderPage();
 
     expect(container.textContent).toContain("Built-in Agents");
-    expect(container.textContent).toContain("Show Paperclip-managed built-in agent surfaces");
+    expect(container.textContent).toContain("Show Automa-managed built-in agent surfaces");
 
     const toggle = container.querySelector<HTMLButtonElement>(BUILT_IN_AGENTS_TOGGLE_SELECTOR);
     expect(toggle?.getAttribute("aria-checked")).toBe("false");

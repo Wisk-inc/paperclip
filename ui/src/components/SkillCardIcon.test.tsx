@@ -3,7 +3,7 @@ import { skillAuthorLine, skillBrandAssets, skillDisplayName } from "./SkillCard
 
 describe("skillDisplayName", () => {
   it("turns a slug into a sentence and keeps brand capitalisation", () => {
-    expect(skillDisplayName("paperclip-create-agent")).toBe("Paperclip create agent");
+    expect(skillDisplayName("paperclip-create-agent")).toBe("Automa create agent");
     expect(skillDisplayName("para-memory-files")).toBe("PARA memory files");
     expect(skillDisplayName("agentmail")).toBe("AgentMail");
     expect(skillDisplayName("github-pr-review")).toBe("GitHub pr review");

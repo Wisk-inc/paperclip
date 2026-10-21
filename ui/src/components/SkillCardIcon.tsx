@@ -97,7 +97,7 @@ const PROPER: Record<string, string> = {
   pdf: "PDF", pdfs: "PDFs", csv: "CSV", json: "JSON", sql: "SQL", html: "HTML", css: "CSS", js: "JS", ts: "TS", mcp: "MCP", url: "URL",
   seo: "SEO", ui: "UI", ux: "UX", ios: "iOS", imessage: "iMessage", posthog: "PostHog", clickhouse: "ClickHouse", pagerduty: "PagerDuty",
   planetscale: "PlanetScale", openrouter: "OpenRouter", huggingface: "Hugging Face", linkedin: "LinkedIn", youtube: "YouTube", tiktok: "TikTok",
-  oauth: "OAuth", sdk: "SDK", cli: "CLI", slack: "Slack", notion: "Notion", jira: "Jira", linear: "Linear", stripe: "Stripe", paperclip: "Paperclip",
+  oauth: "OAuth", sdk: "SDK", cli: "CLI", slack: "Slack", notion: "Notion", jira: "Jira", linear: "Linear", stripe: "Stripe", paperclip: "Automa",
 };
 
 /** "paperclip-create-agent" → "Paperclip create agent"; names with spaces are left as they are. */

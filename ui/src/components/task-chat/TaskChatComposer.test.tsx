@@ -883,6 +883,72 @@ describe("TaskChatComposer", () => {
     expect(onAdd).toHaveBeenCalledWith("do the plan", undefined, undefined, undefined, expect.any(String));
   });
 
+  it("runs /plan as a mode change without posting a message", async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    const onWorkModeChange = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TaskChatComposer
+        onAdd={onAdd}
+        workMode="standard"
+        onWorkModeChange={onWorkModeChange}
+      />,
+    );
+
+    typeText("/plan");
+    pressKey("Enter", { metaKey: true });
+    await flushAsync();
+    await flushAsync();
+
+    expect(onWorkModeChange).toHaveBeenCalledWith("planning");
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(editable().textContent).toBe("");
+  });
+
+  it("hands /model and /context to the page and keeps the text when nothing handles them", async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    const onSlashCommand = vi.fn().mockResolvedValue(true);
+    render(
+      <TaskChatComposer
+        onAdd={onAdd}
+        workMode="standard"
+        conversationMode
+        onSlashCommand={onSlashCommand}
+      />,
+    );
+
+    typeText("/model opus");
+    pressKey("Enter", { metaKey: true });
+    await flushAsync();
+    await flushAsync();
+    expect(onSlashCommand).toHaveBeenCalledWith({ name: "model", query: "opus" });
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(editable().textContent).toBe("");
+
+    onSlashCommand.mockResolvedValue(false);
+    typeText("/context");
+    pressKey("Enter", { metaKey: true });
+    await flushAsync();
+    await flushAsync();
+    expect(onSlashCommand).toHaveBeenLastCalledWith({ name: "context" });
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(editable().textContent).toBe("/context");
+    expect(container.textContent).toContain("/context isn't available here");
+  });
+
+  it("sends a message that merely starts with a slash path", async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    const onSlashCommand = vi.fn().mockResolvedValue(true);
+    render(<TaskChatComposer onAdd={onAdd} workMode="standard" onSlashCommand={onSlashCommand} />);
+
+    typeText("/tmp/notes.md has the details");
+    pressKey("Enter", { metaKey: true });
+    await flushAsync();
+    await flushAsync();
+
+    expect(onSlashCommand).not.toHaveBeenCalled();
+    expect(onAdd).toHaveBeenCalledWith("/tmp/notes.md has the details", undefined, undefined, undefined, expect.any(String));
+  });
+
   it("cycles Auto, Plan, and Ask modes with Cmd+Period while focused", () => {
     const onWorkModeChange = vi.fn().mockResolvedValue(undefined);
     render(

@@ -470,6 +470,7 @@ export function computeMentionMenuPosition(
   anchor: Pick<MentionState, "viewportTop" | "viewportBottom" | "viewportLeft">,
   viewport: MentionMenuViewport,
   menuSize: MentionMenuSize = { width: MENTION_MENU_WIDTH, height: MENTION_MENU_HEIGHT },
+  options: { preferAbove?: boolean } = {},
 ) {
   const minLeft = viewport.offsetLeft + MENTION_MENU_PADDING;
   const maxLeft = viewport.offsetLeft + viewport.width - menuSize.width;
@@ -478,9 +479,15 @@ export function computeMentionMenuPosition(
 
   // Place the menu's top edge on the current line so it sits next to the caret.
   // If it would overflow below, flip above so the menu's bottom hugs the line.
+  // On a touch screen the menu goes above whenever it fits: the composer's
+  // buttons sit right under the line there, and a short menu on the line
+  // itself would cover Send.
   const desiredTop = viewport.offsetTop + anchor.viewportTop;
+  const above = viewport.offsetTop + anchor.viewportTop - menuSize.height - MENTION_MENU_PADDING;
   let top: number;
-  if (desiredTop > maxTop) {
+  if (options.preferAbove && above >= minTop) {
+    top = Math.min(above, maxTop);
+  } else if (desiredTop > maxTop) {
     const flipped = viewport.offsetTop + anchor.viewportBottom - menuSize.height;
     top = Math.max(minTop, Math.min(flipped, maxTop));
   } else {
@@ -493,6 +500,13 @@ export function computeMentionMenuPosition(
   const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
 
   return { top, left };
+}
+
+/** A touch screen (phone, tablet): no hover, and a composer under the thumb. */
+function isCoarsePointer(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
 }
 
 function getMentionMenuSize(optionCount: number): MentionMenuSize {
@@ -1297,6 +1311,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         mentionState,
         getMentionMenuViewport(),
         getMentionMenuSize(filteredMentions.length),
+        { preferAbove: isCoarsePointer() },
       )
     : null;
 

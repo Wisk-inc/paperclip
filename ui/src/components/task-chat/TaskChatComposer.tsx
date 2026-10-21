@@ -73,6 +73,8 @@ import type { MentionOption } from "@/components/MarkdownEditor";
 import type { IssueAttachment, IssueWorkMode } from "@paperclipai/shared";
 import type { RunnerGoalCapability } from "@paperclipai/shared";
 import type { ActionCommandOption } from "@/context/EditorAutocompleteContext";
+import { useOptionalToastActions } from "@/context/ToastContext";
+import { chatSlashCommandOptions, parseChatSlashCommand, type ChatSlashCommand } from "./slash-commands";
 import { TaskChatComposerTakeoverActionsContext } from "./TaskChatComposerTakeoverContext";
 
 import { TaskChatPausedTakeover, type TaskComposerPause } from "./TaskChatPausedTakeover";
@@ -149,6 +151,11 @@ interface TaskChatComposerProps {
     label?: string;
     onOpen: () => void;
   } | null;
+  /**
+   * A slash command the composer does not run itself (`/model`, `/context`,
+   * `/help`, `/skills`); return true once handled, false to show "not here".
+   */
+  onSlashCommand?: (command: ChatSlashCommand) => Promise<boolean> | boolean;
   runnerGoalCapability?: RunnerGoalCapability | null;
   onRunnerGoalCommand?: (
     command: RunnerGoalComposerCommand,
@@ -413,8 +420,10 @@ export function TaskChatComposer({
   runnerGoalCapability = null,
   onRunnerGoalCommand,
   onRunnerGoalReassign,
+  onSlashCommand,
 }: TaskChatComposerProps) {
   const streamlined = useStreamlinedTaskChatPresentation();
+  const pushToast = useOptionalToastActions()?.pushToast ?? null;
   const stopControl = useComposerStop(onStop, stopPending);
   const [body, setBody] = useState(() => (draftKey ? loadDraft(draftKey) : ""));
   const [submitting, setSubmitting] = useState(false);
@@ -855,6 +864,75 @@ export function TaskChatComposer({
 
   const canResetPausedConversation = conversationMode && !queuedEdit && body.trim() === "/new" && attachments.length === 0;
 
+  /** Empties the editor and its saved draft after a command ran without posting a message. */
+  function resetComposerText() {
+    bodyRef.current = "";
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    if (draftKey) clearDraft(draftKey);
+    setBody("");
+    editorRef.current?.clear();
+  }
+
+  /**
+   * Runs a slash command. Modes, stop and clear are the composer's own; the
+   * rest goes to the page through `onSlashCommand`. Returns "send-new" when
+   * the message to post is `/new` (the server's session reset), and
+   * "rejected" when the command could not run here: the error stays up and
+   * the text stays in the editor.
+   */
+  async function runSlashCommand(command: ChatSlashCommand): Promise<"handled" | "send-new" | "rejected"> {
+    switch (command.name) {
+      case "mode": {
+        if (!onWorkModeChange) {
+          setActionError("The mode can't be changed from here.");
+          return "rejected";
+        }
+        setPendingMode(command.mode);
+        try {
+          await onWorkModeChange(command.mode);
+          const meta = workModeMetaFor(command.mode);
+          pushToast?.({ title: meta.label, body: MODE_DESCRIPTION[command.mode] ?? "", tone: "success" });
+          haptic("tick");
+        } catch (error) {
+          setActionError(error instanceof Error ? error.message : "The mode could not be changed.");
+          return "rejected";
+        }
+        return "handled";
+      }
+      case "clear": {
+        if (!conversationMode) {
+          setActionError("/clear starts a fresh session in an agent chat; on a task, say what to drop instead.");
+          return "rejected";
+        }
+        return "send-new";
+      }
+      case "stop": {
+        if (!onStop) {
+          setActionError("Nothing is running right now.");
+          return "rejected";
+        }
+        try {
+          await onStop();
+          haptic("thud");
+        } catch (error) {
+          setActionError(error instanceof Error ? error.message : "The run could not be stopped.");
+          return "rejected";
+        }
+        return "handled";
+      }
+      default: {
+        const handled = onSlashCommand ? await onSlashCommand(command) : false;
+        if (!handled) {
+          setActionError(`/${command.name} isn't available here. Type /help for what is.`);
+          return "rejected";
+        }
+        haptic("tick");
+        return "handled";
+      }
+    }
+  }
+
   async function submit() {
     if (disabled || (pause && !canResetPausedConversation)) return;
     const retained =
@@ -863,9 +941,26 @@ export function TaskChatComposer({
       setUncertainSubmission(retained);
       return;
     }
-    const submittedBody = bodyRef.current;
+    let submittedBody = bodyRef.current;
     const submittedAttachments = attachmentsRef.current;
     const submittedAssignee = pendingAssigneeRef.current;
+    const slashCommand = queuedEdit ? null : parseChatSlashCommand(submittedBody);
+    if (slashCommand) {
+      if (submittedAttachments.length > 0) {
+        setActionError("Remove attachments before using a slash command.");
+        return;
+      }
+      setActionError(null);
+      const outcome = await runSlashCommand(slashCommand);
+      if (outcome === "rejected") return;
+      if (outcome === "handled") {
+        resetComposerText();
+        return;
+      }
+      // `/clear` is `/new` for the server: fall through and send that.
+      submittedBody = "/new";
+      bodyRef.current = submittedBody;
+    }
     const trimmed = submittedBody.trim();
     const goalCommand = queuedEdit
       ? ({ matched: false } as const)
@@ -1338,7 +1433,7 @@ export function TaskChatComposer({
                 id: "action:new", kind: "action", command: "new", name: "New session",
                 description: "Start fresh context here, preserving conversation history.", aliases: ["new"],
                 disabled,
-              }] : [goalCommandOption]}
+              }, ...chatSlashCommandOptions(true)] : [goalCommandOption, ...chatSlashCommandOptions(false)]}
               onSubmit={() => void submit()}
               imageUploadHandler={
                 canAcceptFiles ? uploadInlineImage : undefined

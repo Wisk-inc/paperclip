@@ -3,9 +3,12 @@ package com.corxlabs.automa
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -97,6 +100,23 @@ class MainActivity : ComponentActivity() {
         private const val SUCCESS_BEAT_GAP_MS = 70L
         /** How long the connect screen's success panel shows before Automa opens. */
         const val CONNECTED_SCREEN_MS = 1900L
+        /** Asks the board to close an open drawer, sheet or dialog; "true" when it did (see Layout.tsx). */
+        private const val CLOSE_OVERLAY_SCRIPT =
+            "(function(){try{return window.__automaCloseOverlay?String(window.__automaCloseOverlay()):'false'}catch(e){return 'false'}})()"
+        /** Shown on the connect screen when the board reported the key missing and nothing the app holds works. */
+        const val LOCKED_WITHOUT_KEY = "Automa on this phone is locked to the app, and the app does not have its key. In Termux, run: automa link (it opens Automa here). You can also paste the key it prints."
+
+        /**
+         * The part of a board URL worth coming back to: path, query and hash.
+         * Transient pages (the onboarding wizard, sign-in) are not remembered.
+         */
+        fun rememberablePath(uri: Uri): String? {
+            val path = uri.path?.takeIf { it.isNotEmpty() && it != "/" } ?: return null
+            if (path.endsWith("/onboarding") || path.startsWith("/login") || path.startsWith("/auth")) return null
+            val query = uri.encodedQuery?.let { "?$it" } ?: ""
+            val fragment = uri.encodedFragment?.let { "#$it" } ?: ""
+            return uri.encodedPath + query + fragment
+        }
 
         /** Saves `<a download>` blob links (exports) through the bridge; they have no URL a native download could fetch. */
         private const val DOWNLOAD_HOOK = """
@@ -142,6 +162,27 @@ class MainActivity : ComponentActivity() {
     private var pageKeyOrigins: Set<String> = emptySet()
     private var pendingFolderCall: String? = null
     private var downloadHookInstalled = false
+    /** How many times the board reported a missing key since the last successful connect. */
+    private var keyRecoveryAttempts = 0
+    /** True while the connect screen is waiting for this phone's Automa to answer (see showConnect). */
+    var waitingForServer = false
+        private set
+    private var offlineOverlay: ConnectionOverlay? = null
+    private var mainFrameFailures = 0
+    private val connectivity: ConnectivityManager? by lazy { getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager }
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            runOnUiThread { if (offlineOverlay?.reason == ConnectionOverlay.Reason.OFFLINE) retryServer() }
+        }
+        override fun onLost(network: Network) {
+            runOnUiThread {
+                val server = config.serverUrl ?: return@runOnUiThread
+                // A server on this phone does not need the network; only a remote one goes offline.
+                if (ServerConfig.isLoopback(server) || !onServerPage()) return@runOnUiThread
+                if (connectivity?.activeNetwork == null) showOffline(ConnectionOverlay.Reason.OFFLINE, null)
+            }
+        }
+    }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) Push.refreshToken(this)
@@ -217,12 +258,18 @@ class MainActivity : ComponentActivity() {
         installServiceWorkerInterception()
 
         onBackPressedDispatcher.addCallback(this) {
-            if (webView.canGoBack()) {
-                webView.goBack()
-            } else {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
-                isEnabled = true
+            // Whatever is on top of the page (the drawer, a sheet, a dialog)
+            // closes first; only a bare page goes back in history.
+            val callback = this
+            webView.evaluateJavascript(CLOSE_OVERLAY_SCRIPT) { result ->
+                if (result == "\"true\"") return@evaluateJavascript
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    callback.isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    callback.isEnabled = true
+                }
             }
         }
 
@@ -244,6 +291,16 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        runCatching { connectivity?.registerDefaultNetworkCallback(networkCallback) }
+    }
+
+    override fun onStop() {
+        runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
+        super.onStop()
     }
 
     override fun onResume() {
@@ -307,7 +364,58 @@ class MainActivity : ComponentActivity() {
         val knownKey = appKey == null || (origin != null && config.secretFor(origin) == appKey)
         if (knownServer && knownKey) return loadServer()
         config.pendingConnect = ServerConfig.PendingConnect(url, appKey)
+        if (knownServer && appKey != null && origin != null) {
+            // A new key for the server this phone already uses (Termux reinstalled,
+            // or the key never reached the app): taken as soon as Automa accepts
+            // it, with no tap. Not up yet: the connect screen waits for it and
+            // opens Automa by itself, keeping the key for when it answers.
+            executor.execute {
+                val accepted = ServerConfig.companyCount(url, appKey) != null
+                runOnUiThread {
+                    if (accepted) {
+                        config.rememberSecret(origin, appKey)
+                        config.pendingConnect = null
+                        loadServer()
+                    } else {
+                        showConnect(null, wait = true)
+                    }
+                }
+            }
+            return
+        }
         showConnect(null)
+    }
+
+    /**
+     * The board says this Automa is locked and its page arrived without the
+     * key (LocalSecretNotice). Try the keys the app holds against the server
+     * first: the cookie may simply not have been applied, or Termux handed a
+     * key over that was never confirmed. Only when none works does the connect
+     * screen ask for `automa link`.
+     */
+    fun recoverAppKey() {
+        val url = config.serverUrl ?: return showConnect(null)
+        val origin = ServerConfig.originOf(Uri.parse(url)) ?: return showConnect(null)
+        val pending = config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
+        val candidates = listOfNotNull(pending, config.secretFor(origin)).distinct()
+        if (candidates.isEmpty() || keyRecoveryAttempts >= 2) {
+            keyRecoveryAttempts = 0
+            return showConnect(LOCKED_WITHOUT_KEY)
+        }
+        keyRecoveryAttempts += 1
+        executor.execute {
+            val working = candidates.firstOrNull { ServerConfig.companyCount(url, it) != null }
+            runOnUiThread {
+                if (working == null) {
+                    keyRecoveryAttempts = 0
+                    showConnect(LOCKED_WITHOUT_KEY)
+                } else {
+                    config.rememberSecret(origin, working)
+                    if (working == pending) config.pendingConnect = null
+                    loadServer()
+                }
+            }
+        }
     }
 
     /**
@@ -324,6 +432,8 @@ class MainActivity : ComponentActivity() {
             if (secret != null) config.rememberSecret(origin, secret)
             if (pending != null) config.pendingConnect = null
         }
+        keyRecoveryAttempts = 0
+        mainFrameFailures = 0
         if (delayMs > 0) webView.postDelayed({ loadServer() }, delayMs) else loadServer()
     }
 
@@ -338,9 +448,45 @@ class MainActivity : ComponentActivity() {
     fun loadServer() {
         val url = config.serverUrl
         if (url == null || googleSignIn.needsSignIn) return showConnect(null)
+        waitingForServer = false
+        hideOffline()
         installPageKey()
         applyServerCookie()
-        webView.loadUrl(url)
+        // Land where the person left off; a fresh server opens on its own start page.
+        webView.loadUrl(lastPageUrl() ?: url)
+    }
+
+    /** The page this phone was last on, as a full URL; the remembered path already carries any base path. */
+    private fun lastPageUrl(): String? {
+        val path = config.lastPath ?: return null
+        val origin = config.serverOrigin() ?: return null
+        return origin + path
+    }
+
+    /** Reloads the server page after a connection came back, keeping the current page. */
+    private fun retryServer() {
+        val url = config.serverUrl ?: return showConnect(null)
+        hideOffline()
+        installPageKey()
+        applyServerCookie()
+        val current = webView.url?.let(Uri::parse)
+        if (current != null && config.isServerUrl(current)) webView.reload() else webView.loadUrl(lastPageUrl() ?: url)
+    }
+
+    private fun onServerPage(): Boolean = webView.url?.let { config.isServerUrl(Uri.parse(it)) } == true
+
+    /** The native "no connection" / "can't reach Automa" sheet over the page, with its retry countdown. */
+    private fun showOffline(reason: ConnectionOverlay.Reason, detail: String?) {
+        val overlay = offlineOverlay ?: ConnectionOverlay(this, onRetry = { retryServer() }).also {
+            offlineOverlay = it
+            root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        overlay.show(reason, detail, retryInSeconds = if (reason == ConnectionOverlay.Reason.OFFLINE) 0 else listOf(5, 10, 20).getOrElse(mainFrameFailures - 1) { 20 })
+    }
+
+    private fun hideOffline() {
+        offlineOverlay?.let { root.removeView(it) }
+        offlineOverlay = null
     }
 
     private fun openPath(path: String) {
@@ -352,8 +498,17 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(server + safePath)
     }
 
-    fun showConnect(error: String?) {
-        val suffix = error?.let { "?error=" + Uri.encode(it) } ?: ""
+    /**
+     * The connect screen. With [wait], it waits for this phone's own Automa
+     * (Termux still starting, or stopped) with a visible countdown and opens
+     * the board by itself when it answers.
+     */
+    fun showConnect(error: String?, wait: Boolean = false) {
+        keyRecoveryAttempts = 0
+        waitingForServer = wait && config.serverUrl?.let(ServerConfig::isLoopback) == true
+        hideOffline()
+        val query = listOfNotNull(error?.let { "error=" + Uri.encode(it) }, if (waitingForServer) "wait=1" else null)
+        val suffix = if (query.isEmpty()) "" else "?" + query.joinToString("&")
         installPageKey()
         webView.loadUrl(CONNECT_URL + suffix)
     }
@@ -649,7 +804,12 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
-                bridge.pageOrigin = ServerConfig.originOf(Uri.parse(url))
+                val uri = Uri.parse(url)
+                bridge.pageOrigin = ServerConfig.originOf(uri)
+                if (config.isServerUrl(uri)) {
+                    mainFrameFailures = 0
+                    config.lastPath = rememberablePath(uri)
+                }
             }
 
             override fun onPageFinished(view: WebView, url: String) {
@@ -662,8 +822,16 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame && config.isServerUrl(request.url)) {
-                    showConnect("Could not reach ${request.url.host}. ${error.description}")
+                if (!request.isForMainFrame || !config.isServerUrl(request.url)) return
+                val server = config.serverUrl ?: return
+                mainFrameFailures += 1
+                when {
+                    // Automa on this phone stopped (Termux closed) or is still starting:
+                    // the connect screen waits for it and opens the board by itself.
+                    ServerConfig.isLoopback(server) -> showConnect(null, wait = true)
+                    mainFrameFailures > 3 -> showConnect("Could not reach ${request.url.host}. ${error.description}")
+                    connectivity?.activeNetwork == null -> showOffline(ConnectionOverlay.Reason.OFFLINE, null)
+                    else -> showOffline(ConnectionOverlay.Reason.UNREACHABLE, "${request.url.host}: ${error.description}")
                 }
             }
 

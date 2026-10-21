@@ -12,6 +12,7 @@ vi.mock("@/lib/router", () => ({
   Link: ({ children, className, to }: { children: ReactNode; className?: string; to: string }) => (
     <a className={className} href={to}>{children}</a>
   ),
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock("../context/SidebarContext", () => ({
@@ -163,7 +164,8 @@ describe("BreadcrumbBar", () => {
     expect(identifier?.textContent).toBe("TES-3");
     expect(identifier?.previousElementSibling?.textContent).toBe("Hire your first engineer and create a hiring plan");
     expect(identifier?.previousElementSibling?.className).toContain("truncate");
-    expect(container.querySelector('button[aria-label="Open sidebar"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Back"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Open sidebar"]')).toBeNull();
   });
 
   it("renders a page toolbar in the same persistent row as the task breadcrumb", async () => {

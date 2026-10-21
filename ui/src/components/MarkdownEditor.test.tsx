@@ -1059,6 +1059,32 @@ describe("MarkdownEditor", () => {
     });
   });
 
+  it("puts the menu above the caret line on a touch screen so it never covers the composer's buttons", () => {
+    expect(
+      computeMentionMenuPosition(
+        { viewportTop: 700, viewportBottom: 718, viewportLeft: 40 },
+        { offsetLeft: 0, offsetTop: 0, width: 412, height: 915 },
+        { width: 188, height: 42 },
+        { preferAbove: true },
+      ),
+    ).toEqual({
+      top: 650,
+      left: 50,
+    });
+    // Nothing fits above: it falls back to the line itself.
+    expect(
+      computeMentionMenuPosition(
+        { viewportTop: 20, viewportBottom: 38, viewportLeft: 40 },
+        { offsetLeft: 0, offsetTop: 0, width: 412, height: 915 },
+        { width: 188, height: 42 },
+        { preferAbove: true },
+      ),
+    ).toEqual({
+      top: 20,
+      left: 50,
+    });
+  });
+
   it("keeps mention queries active across spaces", () => {
     expect(findMentionMatch("Ping @Paperclip App", "Ping @Paperclip App".length)).toEqual({
       trigger: "mention",

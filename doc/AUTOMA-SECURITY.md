@@ -51,7 +51,11 @@ sign-in?** A connect intent counts only for a loopback address, and a new
 address or key is never applied by itself: it waits on the connect screen with
 "Termux asked to connect to …", and takes effect after a tap on Connect. An
 address and key the app already has pass silently (that is the launcher
-restarting). The same screen shows where you are connecting, the server's
+restarting). A new key for the loopback server the app is already using is
+applied only after the app has checked it against that server (the server
+must list its organizations with it); a key the server rejects waits on the
+connect screen like a new address would. A page that finds its key missing
+asks the app for it once and waits a few seconds before showing guidance. The same screen shows where you are connecting, the server's
 version, and whether it is locked.
 
 **What if an app sends Automa a path to open, or a file to share?** A path

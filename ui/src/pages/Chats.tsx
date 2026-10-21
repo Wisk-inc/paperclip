@@ -71,8 +71,8 @@ function ChatRow({ agent, pinned, onMoveUp, onMoveDown }: ChatRowProps) {
         <AgentStatusAvatar agent={agent} size={40} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{agent.name}</span>
-            {pinned ? <Pin className="size-3 shrink-0 self-center fill-current text-primary" aria-label="Pinned" /> : null}
+            <span className="min-w-0 shrink truncate text-sm font-semibold text-foreground">{agent.name}</span>
+            {pinned ? <Pin className="reaction-ring size-3 shrink-0 self-center rounded-full fill-current text-primary" aria-label="Pinned" /> : null}
             <span className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
               <RoleIcon className="size-3 shrink-0 self-center" aria-hidden="true" />
               <span className="truncate">{agent.title || roleLabel}</span>
@@ -175,7 +175,7 @@ export function Chats() {
       />
     ));
 
-  if (!selectedCompanyId || agents.isPending || !loaded) return <PageSkeleton variant="list" />;
+  if (!selectedCompanyId || agents.isPending || !loaded || memberships.isPending) return <PageSkeleton variant="list" />;
   if (agents.error) return <p className="text-sm text-destructive">{agents.error.message}</p>;
 
   if (!enabled) {

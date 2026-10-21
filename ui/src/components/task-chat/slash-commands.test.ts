@@ -1,0 +1,35 @@
+import { describe, expect, it } from "vitest";
+import { chatSlashCommandOptions, parseChatSlashCommand } from "./slash-commands";
+
+describe("parseChatSlashCommand", () => {
+  it("reads modes, their aliases and the model query", () => {
+    expect(parseChatSlashCommand("/plan")).toEqual({ name: "mode", mode: "planning" });
+    expect(parseChatSlashCommand("/ASK ")).toEqual({ name: "mode", mode: "ask" });
+    expect(parseChatSlashCommand("/build")).toEqual({ name: "mode", mode: "standard" });
+    expect(parseChatSlashCommand("/model opus 4.7")).toEqual({ name: "model", query: "opus 4.7" });
+    expect(parseChatSlashCommand("/models")).toEqual({ name: "model", query: "" });
+    expect(parseChatSlashCommand("/?")).toEqual({ name: "help" });
+    expect(parseChatSlashCommand("/usage")).toEqual({ name: "context" });
+    expect(parseChatSlashCommand("/reset")).toEqual({ name: "clear" });
+    expect(parseChatSlashCommand("/cancel")).toEqual({ name: "stop" });
+  });
+
+  it("leaves ordinary messages, paths and the server's own commands alone", () => {
+    expect(parseChatSlashCommand("plan the launch")).toBeNull();
+    expect(parseChatSlashCommand("/tmp/notes.md has it")).toBeNull();
+    expect(parseChatSlashCommand("/new")).toBeNull();
+    expect(parseChatSlashCommand("/goal ship it")).toBeNull();
+    expect(parseChatSlashCommand("/unknown")).toBeNull();
+    expect(parseChatSlashCommand("")).toBeNull();
+  });
+});
+
+describe("chatSlashCommandOptions", () => {
+  it("offers model, context and clear only in an agent chat", () => {
+    const chat = chatSlashCommandOptions(true).map((option) => option.command);
+    const task = chatSlashCommandOptions(false).map((option) => option.command);
+    expect(chat).toEqual(["plan", "ask", "auto", "model", "context", "stop", "clear", "skills", "help"]);
+    expect(task).toEqual(["plan", "ask", "auto", "stop", "skills", "help"]);
+    expect(chatSlashCommandOptions(true).every((option) => option.kind === "action" && option.id === `action:${option.command}`)).toBe(true);
+  });
+});

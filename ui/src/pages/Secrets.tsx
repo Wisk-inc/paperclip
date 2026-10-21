@@ -346,7 +346,7 @@ function normalizeUserSecretKeyForPreview(input: string) {
 
 
 function modeLabel(managedMode: SecretManagedMode) {
-  return managedMode === "paperclip_managed" ? "Paperclip-managed" : "Linked external";
+  return managedMode === "paperclip_managed" ? "Automa-managed" : "Linked external";
 }
 
 function modeDescription(managedMode: SecretManagedMode, canWriteExternalValue = false) {
@@ -474,7 +474,7 @@ export function getCreateProviderBlockReason(
 ) {
   if (!provider) return "Select a provider.";
   if (mode === "managed" && provider.supportsManagedValues === false) {
-    return `${provider.label} does not support Paperclip-managed secret values.`;
+    return `${provider.label} does not support Automa-managed secret values.`;
   }
   if (mode === "external" && provider.supportsExternalReferences === false) {
     return `${provider.label} does not support linked external references.`;

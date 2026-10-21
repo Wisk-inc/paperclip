@@ -42,7 +42,7 @@ html, body {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: 32px 20px 24px;
+  padding: 32px 20px calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 .brand { padding-top: 4vh; }
@@ -88,7 +88,7 @@ input:focus-visible { border-color: var(--fg); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -232,7 +232,7 @@ input:focus-visible { border-color: var(--fg); }
 .sub p, .sub ol { margin: 8px 0; }
 .sub ol { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .sub code { color: var(--fg); font-size: 12px; word-break: break-word; }
-.sub .secondary { height: 40px; font-size: 14px; width: 100%; }
+.sub .secondary { height: 44px; font-size: 14px; width: 100%; }
 .this-phone-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .this-phone-title strong { font-size: 15px; font-weight: 600; }
 .this-phone-title span { font-size: 13px; color: var(--muted); }
@@ -282,3 +282,10 @@ input:focus-visible { border-color: var(--fg); }
 @keyframes connected-fill { from { width: 0; } to { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .connected, .connected-mascot, .connected-progress span { animation: none; } .connected-progress span { width: 100%; } }
 .connected-warning { margin-top: 6px !important; color: var(--danger) !important; font-size: 13px !important; }
+
+/* The waiting card: a live timer for when the next try fires and how long we have waited. */
+.wait { border-color: var(--fg); }
+.wait-timer { display: flex; gap: 8px; margin: 12px 0 4px; }
+.wait-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 6px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); }
+.wait-cell b { font-size: 24px; font-variant-numeric: tabular-nums; line-height: 1; color: var(--fg); }
+.wait-cell small { margin-top: 6px; font-size: 11px; color: var(--muted); }

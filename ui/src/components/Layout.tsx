@@ -518,6 +518,27 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     };
   }, [isMobile, sidebarOpen, setSidebarOpen]);
 
+  // The Android app asks the page to close whatever is on top (the drawer, a
+  // sheet, a dialog) before it treats Back as "go to the previous page".
+  useEffect(() => {
+    const closeOverlay = () => {
+      if (sidebarOpen && isMobile) {
+        setSidebarOpen(false);
+        return true;
+      }
+      const open = document.querySelector('[data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"], [data-state="open"][data-slot="dropdown-menu-content"]');
+      if (open) {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+        return true;
+      }
+      return false;
+    };
+    (window as Window & { __automaCloseOverlay?: () => boolean }).__automaCloseOverlay = closeOverlay;
+    return () => {
+      delete (window as Window & { __automaCloseOverlay?: () => boolean }).__automaCloseOverlay;
+    };
+  }, [isMobile, sidebarOpen, setSidebarOpen]);
+
   // The tab bar stays where it is while the page scrolls. A bar that slid
   // away on every swipe moved the composer and the page padding with it, so
   // the first swipe after a direction change looked ignored. It steps aside
@@ -649,7 +670,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
         {isMobile ? (
           <div
             className={cn(
-              "fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden pt-(--sz-safe-top) transition-transform duration-100 ease-out",
+              "fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden pt-(--sz-safe-top) transition-transform duration-(--motion-duration-base) ease-(--motion-ease-out-expo)",
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
             )}
           >

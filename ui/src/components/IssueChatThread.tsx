@@ -1,4 +1,5 @@
 import { DispositionRecoveryNotice, useDispositionRecoverySnapshot } from "./DispositionRecoveryNotice";
+import type { ChatSlashCommand } from "./task-chat/slash-commands";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { TaskChatPausedTakeover, type TaskComposerPause } from "./task-chat/TaskChatPausedTakeover";
 import { useEmailComment } from "./EmailMessageCard";
@@ -609,6 +610,8 @@ interface IssueChatThreadProps {
   ) => Promise<void>;
   onReviewConversation?: () => Promise<void>;
   onCancelRun?: () => Promise<void>;
+  /** A chat slash command the composer hands up (`/model`, `/context`, `/help`, `/skills`). */
+  onSlashCommand?: (command: ChatSlashCommand) => Promise<boolean> | boolean;
   stopPending?: boolean;
   stopScope?: "leaf" | "subtree";
   onStopRun?: (runId: string) => Promise<void>;

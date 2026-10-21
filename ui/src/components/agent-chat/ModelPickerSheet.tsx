@@ -10,6 +10,7 @@ import { ByokKeysCard, connectKeyHref } from "./ByokKeysCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
@@ -307,7 +308,9 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
             </section>
           ) : null}
           {!runsOnOpenRouter && runtimeModels.isPending && open ? (
-            <p className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading {getAdapterLabel(agent.adapterType)} models…</p>
+            <div className="space-y-2 px-3 py-2" aria-busy="true" aria-label="Loading models">
+              {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-12 w-full rounded-lg" />)}
+            </div>
           ) : null}
 
           {!searching && filter === "all" && newest.length > 0 ? (

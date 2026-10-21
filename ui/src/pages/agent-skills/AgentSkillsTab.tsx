@@ -28,7 +28,7 @@ import { buildAgentSkillSourceMeta } from "./agent-skill-source";
 import { AgentSkillReleasePicker, releaseShortLabel } from "./AgentSkillReleasePicker";
 
 const MATERIALIZATION_NOTE =
-  "Enabled skills are materialized into the stable Paperclip-managed prompt bundle on the agent's next run.";
+  "Enabled skills are materialized into the stable Automa-managed prompt bundle on the agent's next run.";
 
 /** Company skill key of the Paperclip core skill that carries beta releases. */
 const PAPERCLIP_CORE_SKILL_KEY = "paperclipai/paperclip/paperclip";

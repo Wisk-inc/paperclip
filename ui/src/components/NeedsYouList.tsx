@@ -66,11 +66,11 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
           {lastTask ? (
             <Link
               to={`/issues/${lastTask.id}`}
-              className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-medium text-foreground no-underline"
+              className="mt-1 flex min-w-0 max-w-full items-center gap-1 text-sm font-medium text-foreground no-underline"
               data-testid="home-continue"
             >
               <span className="shrink-0 text-muted-foreground">Pick up:</span>
-              <span className="truncate">{lastTask.title}</span>
+              <span className="min-w-0 truncate">{lastTask.title}</span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </Link>
           ) : null}

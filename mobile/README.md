@@ -37,7 +37,19 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   fails before its model session says so and links there.
 - **Tour**: after onboarding, one card per section (what it is, why it
   matters), with Skip at every step; again any time from the account sheet.
-- **Launcher shortcuts**: Files, New task, Change server.
+- **Picks up where you left off**: the app reopens on the page you were on,
+  signed in, with the same server; the agent's own session survives restarts
+  on the server side.
+- **No connection, no dead page**: when the phone goes offline, or the server
+  stops answering, a sheet over the page says so and counts down to the next
+  try (the page underneath keeps what you typed). When Automa runs in Termux
+  on the phone, the connect screen waits for it with a visible countdown and
+  opens the board by itself the moment it answers.
+- **Launcher shortcuts** (long-press the app icon): New chat, New task, App
+  Studio, Change server, Files, each with its own tinted tile.
+- **Slash commands in chat**: type `/` in any agent chat for `/plan`, `/ask`,
+  `/auto`, `/model`, `/context`, `/stop`, `/clear`, `/skills`, `/help`
+  (plus `/new`), with suggestions as you type.
 - **Feel**: primary actions sit in the thumb zone, destructive actions have
   Undo, and taps, sends, limits, and successes use Android's own haptics
   (they follow the phone's touch-feedback setting; no vibrate permission).

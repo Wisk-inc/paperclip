@@ -2,6 +2,10 @@
 <resources>
     <string name="app_name">Automa</string>
     <string name="share_label">Send to Automa</string>
+    <string name="shortcut_new_chat_short">New chat</string>
+    <string name="shortcut_new_chat_long">Chat with an agent</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Build and run an app</string>
     <string name="shortcut_files_short">Files</string>
     <string name="shortcut_files_long">Files and requests</string>
     <string name="shortcut_new_task_short">New task</string>
@@ -21,6 +25,17 @@
     <string name="notification_channel_name">Agent updates</string>
     <string name="notification_channel_description">Approvals, file requests, and other things your agents need from you</string>
     <string name="copied">Copied</string>
+    <string name="offline_title">No connection</string>
+    <string name="offline_message">Your phone is offline. Automa reconnects by itself the moment the network is back; nothing on the page is lost.</string>
+    <string name="offline_waiting">Waiting for the network…</string>
+    <string name="unreachable_title">Can\'t reach Automa</string>
+    <string name="unreachable_message">The server did not answer. It may be restarting, or the phone may have switched networks.</string>
+    <string name="offline_retry">Try now</string>
+    <string name="retrying_now">Trying again…</string>
+    <plurals name="retry_in_seconds">
+        <item quantity="one">Trying again in %d second</item>
+        <item quantity="other">Trying again in %d seconds</item>
+    </plurals>
     <string name="sign_in_unavailable">Google sign-in is not set up in this build</string>
     <string name="sign_in_cancelled">Sign-in was cancelled</string>
     <string name="sign_in_no_account">No Google account is available on this phone. Add one in Settings, then try again.</string>

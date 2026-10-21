@@ -24,7 +24,7 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
           setOpen(true);
         }}
         className={cn(
-          "inline-flex h-8 max-w-40 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card pr-2 pl-1.5 text-xs font-medium text-foreground transition-colors md:max-w-56",
+          "inline-flex h-8 max-w-28 shrink-0 items-center sm:max-w-40 gap-1.5 rounded-full border border-border bg-card pr-2 pl-1.5 text-xs font-medium text-foreground transition-colors md:max-w-56",
           "hover:bg-accent active:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
           className,
         )}

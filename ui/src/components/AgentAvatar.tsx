@@ -28,7 +28,7 @@ export function AgentAvatar({ agent, appearance, size = 24, name, label, pose = 
       role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
       {failedUrl === src ? <span className="text-xs text-muted-foreground">{deriveInitials(name ?? agent?.name ?? "Agent")}</span> :
         <img src={src} srcSet={`${agentAvatarUrl(identity, size, 2, pose, muted)} 2x`} alt="" width={size} height={size}
-          decoding="async" loading="lazy" className="size-full object-contain" onError={() => setFailedUrl(src)} />}
+          decoding="async" loading={size >= 40 ? "eager" : "lazy"} className="size-full object-contain" onError={() => setFailedUrl(src)} />}
     </span>
   );
 }

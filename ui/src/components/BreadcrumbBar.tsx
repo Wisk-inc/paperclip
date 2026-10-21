@@ -1,5 +1,6 @@
-import { Link } from "@/lib/router";
-import { Menu, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Link, useNavigate } from "@/lib/router";
+import { ChevronLeft, Menu, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { haptic } from "@/lib/haptics";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
@@ -62,6 +63,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
     mobileToolbar,
   } = useBreadcrumbs();
   const { toggleSidebar, isMobile } = useSidebar();
+  const navigate = useNavigate();
   const { panelVisible, togglePanelVisible } = usePanel();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const taskPanelOpen = breadcrumbPanelControl?.open ?? panelVisible;
@@ -102,16 +104,35 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
     );
   }
 
+  // A phone shows Back on any page below the top of its section: the drawer
+  // stays one edge swipe away, and Back is what a thumb looks for there.
   const menuButton = isMobile && (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="mr-2 shrink-0"
-      onClick={toggleSidebar}
-      aria-label="Open sidebar"
-    >
-      <Menu className="h-5 w-5" />
-    </Button>
+    breadcrumbs.length > 1 ? (
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="mr-1 shrink-0"
+        onClick={() => {
+          haptic("tick");
+          if (window.history.length > 1) navigate(-1);
+          else navigate(breadcrumbs[0]?.href ?? "/dashboard");
+        }}
+        aria-label="Back"
+        data-testid="phone-back"
+      >
+        <ChevronLeft className="h-5 w-5" />
+      </Button>
+    ) : (
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="mr-2 shrink-0"
+        onClick={toggleSidebar}
+        aria-label="Open sidebar"
+      >
+        <Menu className="h-5 w-5" />
+      </Button>
+    )
   );
 
   const currentCrumb = breadcrumbs[breadcrumbs.length - 1];
@@ -207,7 +228,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
                 <span className="flex shrink-0 items-center self-center">{breadcrumbs[0].leading}</span>
               )}
               <CrumbIdentifier identifier={breadcrumbs[0].identifier} />
-              <span className="truncate">{breadcrumbs[0].label}</span>
+              <span className="min-w-0 truncate">{breadcrumbs[0].label}</span>
             </h1>
           ) : (
             <h1 className="truncate font-display text-lg font-semibold tracking-tight">

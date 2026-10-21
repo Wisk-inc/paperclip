@@ -3751,3 +3751,60 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.03); }
 }
+
+/* Reactions: the small "that worked" beats (a like, a star, a pin, a check).
+   The pop is the YouTube-style like; the ring spreads from a glyph that just
+   appeared. Reduced motion zeroes both. */
+:root {
+  --motion-reaction-pop: var(--motion-duration-slow);
+  --motion-reaction-ring: var(--motion-duration-deliberate);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-reaction-pop: 0s;
+    --motion-reaction-ring: 0s;
+  }
+}
+@keyframes reaction-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.35) rotate(-8deg); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+@keyframes reaction-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 45%, transparent); }
+  100% { box-shadow: 0 0 0 calc(var(--spacing) * 3) transparent; }
+}
+.reaction-pop > svg {
+  animation: reaction-pop var(--motion-reaction-pop) var(--motion-ease-out-expo) both;
+}
+.reaction-ring {
+  animation: reaction-ring var(--motion-reaction-ring) var(--motion-ease-out-expo) both;
+}
+/* Phones: every control a thumb lands on is at least 44px, and presses show. */
+@media (hover: none) and (pointer: coarse) {
+  [data-slot="tabs-trigger"],
+  [data-slot="dropdown-menu-item"],
+  [data-slot="dropdown-menu-radio-item"],
+  [data-slot="dropdown-menu-checkbox-item"] {
+    min-height: var(--sz-44px);
+  }
+  [data-slot="chat-options"],
+  [data-slot="edit-agent"],
+  [data-slot="sheet-close"],
+  [data-slot="message-action"],
+  [data-testid="task-chat-composer-attach"] {
+    min-height: var(--sz-44px);
+    min-width: var(--sz-44px);
+  }
+  [data-testid="task-chat-composer-mode"] {
+    min-height: var(--sz-36px);
+  }
+  [data-slot="message-action"]:active,
+  [data-slot="chat-options"]:active,
+  [data-slot="tabs-trigger"]:active,
+  [data-slot="edit-agent"]:active,
+  [data-slot="sheet-close"]:active {
+    background-color: var(--accent);
+  }
+}

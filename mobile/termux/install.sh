@@ -114,7 +114,8 @@ cat > "$PREFIX/bin/automa" <<LAUNCHER
 set -e
 export PAPERCLIP_LOCAL_TRUSTED_SECRET="\$(cat "$secret_file")"
 # Opens the Automa app on this phone's Automa with the app key. The first time
-# (and after a new key) the app asks for one tap on Connect.
+# the app asks for one tap on Connect; after that it checks the key against
+# this server and connects by itself, counting down while the server starts.
 link_app() {
   command -v am >/dev/null 2>&1 || return 1
   am start -n com.corxlabs.automa/.MainActivity \\
@@ -135,7 +136,7 @@ case "\${1:-}" in
   link)
     echo "App key for the Automa app (Run Automa on this phone -> paste the app key):"
     echo "\$PAPERCLIP_LOCAL_TRUSTED_SECRET"
-    if link_app; then echo "Opened the Automa app: tap Connect there."; else echo "Could not open the Automa app from here; paste the key in the app instead."; fi
+    if link_app; then echo "Opened the Automa app (the first time, tap Connect there)."; else echo "Could not open the Automa app from here; paste the key in the app instead."; fi
     exit 0
     ;;
 esac

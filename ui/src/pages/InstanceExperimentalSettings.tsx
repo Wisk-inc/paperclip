@@ -331,7 +331,7 @@ export function InstanceExperimentalSettings() {
 
         <ExperimentalToggleCard
           title="Built-in Agents"
-          description="Show Paperclip-managed built-in agent surfaces, including built-in roster badges, the Built-in agents tab, and built-in agent setup controls."
+          description="Show Automa-managed built-in agent surfaces, including built-in roster badges, the Built-in agents tab, and built-in agent setup controls."
           checked={enableBuiltInAgents}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableBuiltInAgents: checked })}
           disabled={toggleMutation.isPending}

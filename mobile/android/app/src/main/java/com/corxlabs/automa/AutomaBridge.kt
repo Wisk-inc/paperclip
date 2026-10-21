@@ -213,9 +213,27 @@ class AutomaBridge(
             // A connect request another app sent (Termux's launcher): shown, never applied without a tap.
             .put(
                 "requested",
-                pending?.let { JSONObject().put("url", it.url).put("withKey", it.secret != null) } ?: JSONObject.NULL,
+                pending?.let {
+                    JSONObject()
+                        .put("url", it.url)
+                        .put("withKey", it.secret != null)
+                        // The server this phone already uses: no tap needed, the
+                        // page waits for it and opens Automa by itself.
+                        .put("autoStart", it.url == config.serverUrl)
+                } ?: JSONObject.NULL,
             )
+            .put("waitFor", if (activity.waitingForServer) config.serverUrl ?: JSONObject.NULL else JSONObject.NULL)
             .toString()
+    }
+
+    /**
+     * The board found this Automa locked and its own page without the key
+     * (see LocalSecretNotice): the app re-applies the keys it holds, and
+     * falls back to the connect screen with instructions.
+     */
+    @JavascriptInterface
+    fun appKeyMissing(key: String?) {
+        if (onServerPage(key)) activity.runOnUiThread { activity.recoverAppKey() }
     }
 
     @JavascriptInterface

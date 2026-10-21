@@ -45,7 +45,7 @@ export function ChatWelcome({ agent }: { agent: Agent }) {
   const lastActive = agent.lastHeartbeatAt ? `active ${relativeTime(agent.lastHeartbeatAt)}` : "not started yet";
 
   return (
-    <div data-slot="chat-welcome" className="mx-auto flex w-full max-w-md flex-col items-center gap-4 px-4 pt-4 pb-6 text-center text-foreground motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+    <div data-slot="chat-welcome" className="mx-auto flex w-full max-w-md flex-col items-center gap-4 px-4 pt-4 pb-6 text-center text-foreground hero-enter">
       <div className="relative mascot-float">
         <AgentAvatar agent={agent} size={96} pose={live ? "working" : "listening"} label={`${agent.name}'s character`} />
         <span
@@ -68,9 +68,9 @@ export function ChatWelcome({ agent }: { agent: Agent }) {
             <span className="inline-flex h-6 items-center rounded-full border border-border bg-card px-2 text-muted-foreground">{agent.title}</span>
           ) : null}
           {manager ? (
-            <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-card pr-2 pl-0.5 text-muted-foreground">
+            <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border border-border bg-card pr-2 pl-0.5 text-muted-foreground">
               <AgentAvatar agent={manager} size={20} />
-              Reports to {manager.name}
+              <span className="min-w-0 truncate">Reports to {manager.name}</span>
             </span>
           ) : null}
         </div>

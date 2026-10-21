@@ -828,7 +828,7 @@ function ConnectedTaskComposer({
             <p className="text-xs text-muted-foreground">
               {binding.provider === "slack"
                 ? "Your message is posted to Slack with your name and starts the agent."
-                : "Ordinary board comments remain Paperclip-only."}
+                : "Ordinary board comments remain Automa-only."}
             </p>
             <Button
               size="sm"

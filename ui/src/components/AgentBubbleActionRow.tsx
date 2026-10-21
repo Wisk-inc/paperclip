@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Check, Copy, MoreHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { haptic } from "@/lib/haptics";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -225,10 +226,12 @@ export function IssueChatFeedbackButtons({
   }
 
   function handleThumbsUp() {
+    haptic("tick");
     handleVote("up");
   }
 
   function handleThumbsDown() {
+    haptic("tick");
     setOptimisticVote("down");
     setReasonOpen(true);
     // Submit the initial down vote right away
@@ -256,34 +259,38 @@ export function IssueChatFeedbackButtons({
       <button
         type="button"
         disabled={isSaving}
+        data-slot="message-action"
         className={cn(
           "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
           visibleVote === "up"
-            ? "text-green-600 dark:text-green-400"
+            ? "reaction-pop text-green-600 dark:text-green-400"
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         title="Helpful"
         aria-label="Helpful"
+        aria-pressed={visibleVote === "up"}
         onClick={handleThumbsUp}
       >
-        <ThumbsUp className="h-3.5 w-3.5" />
+        <ThumbsUp className={cn("h-3.5 w-3.5", visibleVote === "up" && "fill-current")} />
       </button>
       <Popover open={reasonOpen} onOpenChange={setReasonOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             disabled={isSaving}
+            data-slot="message-action"
             className={cn(
               "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
               visibleVote === "down"
-                ? "text-amber-600 dark:text-amber-400"
+                ? "reaction-pop text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
             title="Needs work"
             aria-label="Needs work"
+            aria-pressed={visibleVote === "down"}
             onClick={handleThumbsDown}
           >
-            <ThumbsDown className="h-3.5 w-3.5" />
+            <ThumbsDown className={cn("h-3.5 w-3.5", visibleVote === "down" && "fill-current")} />
           </button>
         </PopoverTrigger>
         <PopoverContent side="top" align="start" className="w-80 p-3">

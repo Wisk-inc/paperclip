@@ -49,7 +49,18 @@ class ServerConfig(context: Context) {
         return originOf(uri) == origin
     }
 
+    /**
+     * The board page this phone was last on (path, query and hash), reopened
+     * on the next launch so a restart lands where the person left off.
+     */
+    var lastPath: String?
+        get() = prefs.getString(KEY_LAST_PATH, null)
+        set(value) {
+            prefs.edit().apply { if (value == null) remove(KEY_LAST_PATH) else putString(KEY_LAST_PATH, value) }.apply()
+        }
+
     fun remember(url: String) {
+        if (serverUrl != url) lastPath = null
         serverUrl = url
         val recent = (listOf(url) + recentServers.filter { it != url }).take(5)
         prefs.edit().putString(KEY_RECENT, JSONArray(recent).toString()).apply()
@@ -105,6 +116,7 @@ class ServerConfig(context: Context) {
         private const val KEY_CLIENT = "client_key"
         private const val KEY_SECRET_PREFIX = "secret:"
         private const val KEY_PENDING = "pending_connect"
+        private const val KEY_LAST_PATH = "last_path"
         /** Bounds for an app key typed by hand; the server needs 16+ characters. */
         const val MIN_SECRET_LENGTH = 16
         const val MAX_SECRET_LENGTH = 256

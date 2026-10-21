@@ -57,6 +57,8 @@ interface AutomaNativeRaw {
   setDarkTheme?(key: string, dark: boolean): void;
   /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
   haptic?(key: string, kind: string): void;
+  /** The board found this Automa locked and itself without the key: the app re-applies the keys it holds. */
+  appKeyMissing?(key: string): void;
   /** `{ enabled, user }` for the app's Firebase "Continue with Google" account. */
   getAuthState?(key: string): string;
   /** Resolves `{ ok, idToken }` with a Firebase ID token, signing in with Google first when needed. */
@@ -208,6 +210,18 @@ export const automaNative = {
     const raw = rawBridge();
     if (!raw?.signOut) return false;
     raw.signOut(pageKey());
+    return true;
+  },
+  /**
+   * Tells the app this Automa is locked and the page has no key. The app
+   * re-applies a key it holds (or one Termux handed over) and reloads, or
+   * opens its connect screen with instructions. False outside the app or in
+   * an app too old to know the call.
+   */
+  appKeyMissing(): boolean {
+    const raw = rawBridge();
+    if (!raw?.appKeyMissing) return false;
+    raw.appKeyMissing(pageKey());
     return true;
   },
   /** Leaves this server for the app's connect screen. False outside the app. */

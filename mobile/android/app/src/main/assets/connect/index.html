@@ -91,6 +91,19 @@
       </div>
     </div>
 
+    <div id="wait" class="note wait" role="status" aria-live="polite" hidden>
+      <strong>Waiting for Automa on this phone</strong>
+      <span>If Termux is closed, open it and run <code>automa run</code>. This screen opens Automa by itself when it answers.</span>
+      <div class="wait-timer">
+        <div class="wait-cell"><b id="wait-next">…</b><small>s to next try</small></div>
+        <div class="wait-cell"><b id="wait-elapsed">0:00</b><small>waited</small></div>
+        <div class="wait-cell"><b id="wait-tries">1</b><small>tries</small></div>
+      </div>
+      <div class="row">
+        <button type="button" id="wait-stop" class="secondary">Stop waiting</button>
+      </div>
+    </div>
+
     <form id="connect-form" class="form" novalidate>
       <label for="server" class="label">Server address</label>
       <input id="server" name="server" type="url" inputmode="url" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="192.168.1.20:3100" required>

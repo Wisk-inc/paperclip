@@ -85,9 +85,9 @@ export function ChatOptionsMenu({ agent, chatIssueId, onMoveUp, onMoveDown, afte
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem
             onSelect={() => {
-              haptic("tick");
+              haptic(pinned ? "tick" : "success");
               star.mutate({ resourceType: "agent", resourceId: agent.id, resourceName: agent.name, starred: !pinned });
-              pushToast({ title: pinned ? `Unpinned ${agent.name}` : `Pinned ${agent.name} to the top`, tone: "info" });
+              pushToast({ title: pinned ? `Unpinned ${agent.name}` : `Pinned ${agent.name} to the top`, tone: pinned ? "info" : "success" });
             }}
           >
             {pinned ? <PinOff className="size-4" aria-hidden="true" /> : <Pin className="size-4" aria-hidden="true" />}

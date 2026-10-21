@@ -10,6 +10,8 @@ import { cn } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { ShieldCheck } from "lucide-react";
+import { haptic } from "@/lib/haptics";
+import { EmptyState } from "@/components/EmptyState";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +48,7 @@ export function Approvals() {
     mutationFn: (id: string) => approvalsApi.approve(id),
     onSuccess: (_approval, id) => {
       setActionError(null);
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(selectedCompanyId!) });
       navigate(`/approvals/${id}?resolved=approved`);
     },
@@ -105,12 +108,16 @@ export function Approvals() {
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
       {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <ShieldCheck className="h-8 w-8 text-muted-foreground/30 mb-3" />
-          <p className="text-sm text-muted-foreground">
-            {statusFilter === "pending" ? "No pending approvals." : "No approvals yet."}
-          </p>
-        </div>
+        <EmptyState
+          icon={ShieldCheck}
+          tone={statusFilter === "pending" ? "success" : "empty"}
+          title={statusFilter === "pending" ? "Nothing waiting on you" : "No approvals yet"}
+          message={
+            statusFilter === "pending"
+              ? "When an agent needs a yes from you, it shows up here first."
+              : "Approvals are the moments your agents stop and ask: hiring, spending past a budget, or anything you asked to sign off on."
+          }
+        />
       )}
 
       {filtered.length > 0 && (
