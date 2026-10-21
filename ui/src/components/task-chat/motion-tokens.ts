@@ -58,6 +58,9 @@ export const MOTION_TOKENS: MotionTokenDef[] = [
   { name: "--motion-question-page-enter", group: "States", kind: "time", min: 0, max: 1000, step: 10 },
   { name: "--motion-count-tween", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-streaming-cursor-blink", group: "States", kind: "time", min: 0, max: 3000, step: 20 },
+  // Reactions (like/star): the icon's pop and the ring that bursts from it.
+  { name: "--motion-reaction-pop", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
+  { name: "--motion-reaction-ring", group: "States", kind: "time", min: 0, max: 2000, step: 10 },
   { name: "--motion-turn-fold", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-turn-meta", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-line-scroll", group: "States", kind: "time", min: 0, max: 1500, step: 10 },
