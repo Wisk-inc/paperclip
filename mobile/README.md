@@ -29,9 +29,28 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 - **Screens**: edge-to-edge on Android 15/16, safe around camera cutouts and
   the gesture bar, keyboard-aware, portrait and landscape, phones, tablets,
   foldables, and Chromebooks (`resizeableActivity`, no orientation lock).
+- **Claude agents answer on the phone**: Claude Code can't run in Termux, so
+  on a phone (or when an agent's engine is set to "Anthropic API (no Claude
+  Code)") a Claude agent answers chats straight through the Anthropic API
+  with the agent's `ANTHROPIC_API_KEY`. It reads the chat history and image
+  attachments but has no tools: it can't edit files or run commands. Agents
+  that need tools still run on a computer.
+- **Replies stream live, thinking included**: the reply appears token by
+  token with a caret, and the model's thinking shows in its own panel while
+  it works, folding away when the answer starts. Pick how hard it thinks
+  (Auto, Quick, Balanced, Deep, Deeper, Max) at the top of the model sheet
+  or with `/think deep`.
 - **App Studio, full screen**: on a phone the IDE takes the whole screen; the
   AI panel takes images and text files along with a message, and uses the
-  organization's API key when none is saved in Studio.
+  organization's API key when none is saved in Studio. One sheet picks the
+  provider (with its key status) and the model; a sent message stays on
+  screen while the reply streams, with its thinking, steps, and a token and
+  cost line. The file tree shows each file's kind, size, and age, and what
+  each folder holds.
+- **Every token counted**: agent runs and App Studio replies and code
+  suggestions all land on the Costs page; App Studio has its own row.
+- **Uploads take any file**: the picker offers every type the page accepts
+  (images, PDFs, code, archives), not just the first one.
 - **API keys in one place**: Settings → API keys adds, copies, defaults and
   removes the keys that agents, chats and App Studio run on. A run that
   fails before its model session says so and links there.
@@ -48,8 +67,8 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
 - **Launcher shortcuts** (long-press the app icon): New chat, New task, App
   Studio, Change server, Files, each with its own tinted tile.
 - **Slash commands in chat**: type `/` in any agent chat for `/plan`, `/ask`,
-  `/auto`, `/model`, `/context`, `/stop`, `/clear`, `/skills`, `/help`
-  (plus `/new`), with suggestions as you type.
+  `/auto`, `/model`, `/think`, `/context`, `/stop`, `/clear`, `/skills`,
+  `/help` (plus `/new`), with suggestions as you type.
 - **Feel**: primary actions sit in the thumb zone, destructive actions have
   Undo, and taps, sends, limits, and successes use Android's own haptics
   (they follow the phone's touch-feedback setting; no vibrate permission).
@@ -141,9 +160,12 @@ download cache. The first install downloads about 380 packages and took 46
 minutes on one phone's connection; the installer holds a Termux wake lock so
 Android does not pause it.
 
-Agents run on the phone too, so their runtimes (Claude Code, Codex, OpenCode
-for OpenRouter models, …) must also be installed in Termux; that part is not
-covered by the test above. A computer is faster for heavy agent work.
+Agents run on the phone too. Claude agents need nothing extra: Claude Code
+can't run in Termux, so they answer through the Anthropic API with the
+agent's `ANTHROPIC_API_KEY` (Settings → API keys), without tools. Other
+runtimes (Codex, OpenCode for OpenRouter models, …) must be installed in
+Termux; that part is not covered by the test above. A computer is faster for
+heavy agent work, and needed for agents that edit files or run commands.
 
 **Letting agents control the phone (optional).** Agents in Termux get the
 phone's shell (`adb shell`: `input`, `screencap`, `pm`, `settings`) through
