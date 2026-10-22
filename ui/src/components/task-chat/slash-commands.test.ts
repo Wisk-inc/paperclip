@@ -12,6 +12,8 @@ describe("parseChatSlashCommand", () => {
     expect(parseChatSlashCommand("/usage")).toEqual({ name: "context" });
     expect(parseChatSlashCommand("/reset")).toEqual({ name: "clear" });
     expect(parseChatSlashCommand("/cancel")).toEqual({ name: "stop" });
+    expect(parseChatSlashCommand("/think deep")).toEqual({ name: "think", level: "deep" });
+    expect(parseChatSlashCommand("/think")).toEqual({ name: "think", level: "" });
   });
 
   it("leaves ordinary messages, paths and the server's own commands alone", () => {
@@ -28,7 +30,7 @@ describe("chatSlashCommandOptions", () => {
   it("offers model, context and clear only in an agent chat", () => {
     const chat = chatSlashCommandOptions(true).map((option) => option.command);
     const task = chatSlashCommandOptions(false).map((option) => option.command);
-    expect(chat).toEqual(["plan", "ask", "auto", "model", "context", "stop", "clear", "skills", "help"]);
+    expect(chat).toEqual(["plan", "ask", "auto", "model", "think", "context", "stop", "clear", "skills", "help"]);
     expect(task).toEqual(["plan", "ask", "auto", "stop", "skills", "help"]);
     expect(chatSlashCommandOptions(true).every((option) => option.kind === "action" && option.id === `action:${option.command}`)).toBe(true);
   });

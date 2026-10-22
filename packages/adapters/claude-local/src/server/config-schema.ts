@@ -19,8 +19,9 @@ export function getConfigSchema(): AdapterConfigSchema {
           { value: "auto", label: "Default (ACP)" },
           { value: "cli", label: "Claude CLI" },
           { value: "acp", label: "ACP" },
+          { value: "api", label: "Anthropic API (no Claude Code)" },
         ],
-        hint: "Default uses ACP. If ACP is unavailable, the run fails with a setup error. Choose CLI explicitly to use it.",
+        hint: "Default uses ACP; when Claude Code can't run and an API key is set, it answers through the Anthropic API. On a phone it always answers through the API. Choose CLI explicitly to use it.",
       },
       {
         key: "agentCommand",
@@ -57,7 +58,7 @@ export function getConfigSchema(): AdapterConfigSchema {
         key: "stateDir",
         label: "ACP state directory",
         type: "text",
-        hint: "Optional ACP session state directory. Defaults to Paperclip-managed company/agent scoped storage.",
+        hint: "Optional ACP session state directory. Defaults to Automa-managed company/agent scoped storage.",
         meta: acpVisible,
       },
       {

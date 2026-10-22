@@ -7,6 +7,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { ModelLogo } from "@/components/ModelLogo";
 import { ByokKeysCard, connectKeyHref } from "./ByokKeysCard";
+import { ThinkingDepthControl } from "./ThinkingDepthControl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -269,6 +270,8 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
             {" · "}{getAdapterLabel(agent.adapterType)}
           </SheetDescription>
         </SheetHeader>
+
+        <ThinkingDepthControl agent={agent} className="px-4 pb-3" />
 
         <div className="space-y-2 px-4 pb-2">
           <div className="relative">

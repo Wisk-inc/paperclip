@@ -97,6 +97,12 @@ import {
   createClaudeAcpExecutor,
   resolveClaudeExecutionEngineForRun,
 } from "./acp.js";
+import {
+  claudeDirectApiConfigured,
+  claudeDirectApiCredentials,
+  executeClaudeDirectApi,
+  runningOnPhone,
+} from "./direct-api.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const executeClaudeAcp = createClaudeAcpExecutor();
@@ -397,7 +403,18 @@ export async function runClaudeLogin(input: {
 }
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
+  // Claude Code cannot run on a phone; there, and wherever the agent is set to
+  // answer through the API, the direct engine replies with the API key.
+  if (claudeDirectApiConfigured(ctx.config)) return executeClaudeDirectApi(ctx, "configured");
+  if (runningOnPhone()) return executeClaudeDirectApi(ctx, "phone");
   const engineSelection = await resolveClaudeExecutionEngineForRun(ctx);
+  if (engineSelection.unavailableReason && claudeDirectApiCredentials(ctx.config)) {
+    await ctx.onLog(
+      "stdout",
+      `[paperclip] ${engineSelection.unavailableReason} Answering through the Anthropic API with the agent's API key instead.\n`,
+    );
+    return executeClaudeDirectApi(ctx, "engine_unavailable");
+  }
   if (engineSelection.unavailableReason) {
     return {
       exitCode: 1,

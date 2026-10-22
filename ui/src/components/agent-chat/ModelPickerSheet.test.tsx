@@ -13,7 +13,7 @@ const mockPushToast = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
-vi.mock("@/context/ToastContext", () => ({ useToastActions: () => ({ pushToast: mockPushToast }) }));
+vi.mock("@/context/ToastContext", () => ({ useToastActions: () => ({ pushToast: mockPushToast }), useOptionalToastActions: () => ({ pushToast: mockPushToast }) }));
 vi.mock("@/lib/router", () => ({
   Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => <a href={to} {...rest}>{children}</a>,
 }));

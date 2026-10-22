@@ -20,7 +20,13 @@ export function TaskChatThinking({
   /** Whether this reasoning block is the runner's current activity. */
   active?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
+  // While the model is thinking, its thoughts show live (newest at the
+  // bottom, older lines fading out above), the way Claude shows them; once the
+  // reply starts the panel folds to one line unless the person opened it.
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? (defaultOpen ?? false);
+  const setOpen = (update: (value: boolean) => boolean) => setToggled(update(open));
+  const liveOpen = active && toggled !== false;
   const body = item.lines.join("\n").trim();
   const preview = flattenSelfTalk(body);
   const baseLabel = item.channel === "detail" ? "Reasoning detail" : "Reasoning";
@@ -67,9 +73,9 @@ export function TaskChatThinking({
     <div className="flex min-w-0 max-w-full flex-col overflow-hidden text-xs font-normal" data-testid="task-chat-thinking">
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={open || liveOpen}
         aria-label={`${open ? "Collapse" : "Expand"} ${baseLabel.toLowerCase()}: ${preview}`}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => (liveOpen && !open ? setToggled(false) : setOpen((value) => !value))}
         className={cn("group/thinking -mx-1.5 flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-sm px-1.5 py-0.5 text-left font-normal text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", rowClassName)}
       >
         <span className="flex w-5 shrink-0 items-center justify-center">
@@ -78,16 +84,27 @@ export function TaskChatThinking({
         {active ? (
           <span className="shimmer-text shimmer-text-muted shrink-0">{label}</span>
         ) : null}
-        {!open ? (
+        {!open && !liveOpen ? (
           <span
             className="task-chat-collapsed-line-fade min-w-0 flex-1"
             data-testid="task-chat-thinking-preview"
           >
             {preview}
           </span>
-        ) : null}
-        <ChevronRight className={cn("tc-hover-disclosure-caret h-3 w-3 shrink-0 transition-[opacity,transform] group-hover/thinking:opacity-80 group-focus-visible/thinking:opacity-80", open ? "rotate-90 opacity-80" : "opacity-0")} aria-hidden />
+        ) : (
+          <span className="min-w-0 flex-1" />
+        )}
+        <ChevronRight className={cn("tc-hover-disclosure-caret h-3 w-3 shrink-0 transition-[opacity,transform] group-hover/thinking:opacity-80 group-focus-visible/thinking:opacity-80", open || liveOpen ? "rotate-90 opacity-80" : "opacity-0")} aria-hidden />
       </button>
+      {liveOpen && !open ? (
+        <div
+          className="thinking-live ml-2.5 mt-1 flex max-h-32 min-w-0 max-w-full flex-col justify-end overflow-hidden border-l-2 border-border pl-2.5 text-xs font-normal text-muted-foreground"
+          data-testid="task-chat-thinking-live"
+          data-streaming="true"
+        >
+          <MarkdownBody className="task-chat-reasoning-markdown" softBreaks linkIssueReferences>{body}</MarkdownBody>
+        </div>
+      ) : null}
       {open ? (
         <div className="task-chat-expanded-line-wrap ml-2.5 mt-1 min-w-0 max-w-full overflow-hidden border-l-2 border-border pl-2.5 text-xs font-normal text-muted-foreground">
           <MarkdownBody className="task-chat-reasoning-markdown" softBreaks linkIssueReferences>{body}</MarkdownBody>

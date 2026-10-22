@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { MarkdownBody } from "@/components/MarkdownBody";
+import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import type { TaskChatItem, TaskChatRuntimeRequestDecision, TaskChatRuntimeRequestItem } from "./task-chat-model";
 import { TaskChatToolCard } from "./TaskChatToolCard";
 import { TaskChatUsageReadout } from "./TaskChatUsageReadout";
@@ -69,9 +70,10 @@ function renderTailRow(
           key={item.id}
           className="px-1 text-sm text-foreground/90"
           data-testid="task-chat-live-text"
+          data-streaming="true"
         >
           <MarkdownBody softBreaks linkIssueReferences>
-            {item.text}
+            {settleStreamingMarkdown(item.text)}
           </MarkdownBody>
         </div>
       );

@@ -3808,3 +3808,26 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
     background-color: var(--accent);
   }
 }
+
+/* The live reply ends in a blinking caret while it is being written, like a
+   person typing; it goes away when the finished message replaces it. */
+[data-streaming="true"] .paperclip-markdown > :last-child:not(ul):not(ol):not(pre):not(table)::after,
+[data-streaming="true"] .paperclip-markdown > :last-child:is(ul, ol) > li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 0.15em;
+  vertical-align: -0.17em;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.65;
+  animation: tc-cursor-blink var(--motion-streaming-cursor-blink) step-end infinite;
+}
+
+/* Live thinking: the newest thoughts at the bottom, older lines fading out. */
+.thinking-live {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 45%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 45%);
+}
+.thinking-live .paperclip-markdown { overflow: visible; }

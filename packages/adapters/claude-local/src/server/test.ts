@@ -36,6 +36,12 @@ import { buildClaudeProbePermissionArgs, claudeSandboxPermissionEnv } from "./pe
 import { prepareSandboxClaudeProbeRuntime } from "./claude-config.js";
 import { resolveClaudeModel, SANDBOX_INSTALL_COMMAND } from "../index.js";
 import { resolveClaudeExecutionEngineForRun, testClaudeAcpEnvironment } from "./acp.js";
+import {
+  claudeDirectApiConfigured,
+  claudeDirectApiCredentials,
+  runningOnPhone,
+  testClaudeDirectApiEnvironment,
+} from "./direct-api.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 import {
   buildAdapterTestTargetCheck,
@@ -65,10 +71,16 @@ function localExecutablesMatch(
 export async function testEnvironment(
   ctx: AdapterEnvironmentTestContext,
 ): Promise<AdapterEnvironmentTestResult> {
+  const directConfig = parseObject(ctx.config);
+  if (claudeDirectApiConfigured(directConfig)) return testClaudeDirectApiEnvironment(directConfig, "configured");
+  if (runningOnPhone()) return testClaudeDirectApiEnvironment(directConfig, "phone");
   const engineSelection = await resolveClaudeExecutionEngineForRun({
     config: parseObject(ctx.config),
     executionTarget: ctx.executionTarget,
   });
+  if (engineSelection.unavailableReason && claudeDirectApiCredentials(directConfig)) {
+    return testClaudeDirectApiEnvironment(directConfig, "engine_unavailable");
+  }
   if (engineSelection.unavailableReason) {
     return {
       adapterType: "claude_local",

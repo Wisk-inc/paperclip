@@ -357,6 +357,28 @@ const codexLocalAdapter: ServerAdapterModule = {
   loginCapability: codexLoginCapability,
 };
 
+type PaperclipRunnerLiveModule = typeof import("@paperclipai/paperclip-runner/live");
+
+/**
+ * The runner's live helpers. A built server carries the runner in
+ * dist/vendor/paperclip-runner (the package itself is a dev dependency and is
+ * never installed with a published or phone server); a source checkout
+ * resolves the workspace package instead.
+ */
+async function loadPaperclipRunnerLive(): Promise<PaperclipRunnerLiveModule> {
+  const vendored = "../vendor/paperclip-runner/live/index.js";
+  try {
+    return (await import(/* @vite-ignore */ vendored)) as PaperclipRunnerLiveModule;
+  } catch (vendorError) {
+    try {
+      return await import("@paperclipai/paperclip-runner/live");
+    } catch {
+      const detail = vendorError instanceof Error ? vendorError.message : String(vendorError);
+      throw new Error(`The native runner isn't installed with this Automa server (${detail}).`);
+    }
+  }
+}
+
 const paperclipRunnerAdapter: ServerAdapterModule = {
   type: "paperclip_runner",
   runtimeToolDelivery: "environment",
@@ -423,7 +445,12 @@ const paperclipRunnerAdapter: ServerAdapterModule = {
               message: "The remote platform is supported. Runtime package integrity and readiness must still be verified by the remote runner before launch." }],
           };
         }
-        const { probeAcpxClaudeInstallation } = await import("@paperclipai/paperclip-runner/live");
+        if (process.platform === "android") {
+          throw new Error(
+            "The native runner can't run on a phone. Use the Claude adapter instead: on a phone it answers with your Anthropic API key directly, with live replies and thinking.",
+          );
+        }
+        const { probeAcpxClaudeInstallation } = await loadPaperclipRunnerLive();
         await probeAcpxClaudeInstallation(profile.model);
         return {
           adapterType: "paperclip_runner", status: "pass" as const, testedAt: new Date().toISOString(),

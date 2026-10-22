@@ -4,6 +4,7 @@ import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
 import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
 import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
+import { THINKING_LEVELS, resolveThinkingLevel, thinkingLevelsFor } from "../components/agent-chat/ThinkingDepthControl";
 import { ModelPickerSheet } from "@/components/agent-chat/ModelPickerSheet";
 import { ChatContextSheet, SlashHelpSheet } from "@/components/agent-chat/ChatCommandSheets";
 import type { ChatSlashCommand } from "@/components/task-chat/slash-commands";
@@ -1452,6 +1453,30 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           if (!conversationAgent) return false;
           setSlashSheet(command.name);
           return true;
+        case "think": {
+          if (!conversationAgent) return false;
+          if (!command.level) {
+            setSlashSheet("model");
+            return true;
+          }
+          const level = resolveThinkingLevel(conversationAgent, command.level);
+          if (level === null) {
+            const options = thinkingLevelsFor(conversationAgent).map((value) => THINKING_LEVELS[value]?.label ?? value);
+            pushToast({
+              title: `"${command.level}" isn't a thinking level here`,
+              body: options.length ? `Try one of: ${options.join(", ")}.` : `${conversationAgent.name}'s model doesn't take a thinking level.`,
+              tone: "info",
+            });
+            return true;
+          }
+          await agentsApi.update(conversationAgent.id, { adapterConfig: { effort: level } }, conversationAgent.companyId);
+          pushToast({ title: `Thinking: ${THINKING_LEVELS[level]?.label ?? level}`, body: THINKING_LEVELS[level]?.hint, tone: "success" });
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(conversationAgent.companyId) }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(conversationAgent.id) }),
+          ]);
+          return true;
+        }
         case "help":
           setSlashSheet("help");
           return true;
@@ -1462,7 +1487,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           return false;
       }
     },
-    [conversationAgent, slashNavigate],
+    [conversationAgent, slashNavigate, pushToast, queryClient],
   );
   const {
     data: activity,

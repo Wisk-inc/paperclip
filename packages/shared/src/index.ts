@@ -2825,3 +2825,10 @@ export * from "./connection-routing.js";
 
 export { WORKSPACE_RESTORE_FAILURE_CODES, hasWorkspaceRestoreFailure, safeWorkspaceRestorePath } from "./workspace-restore.js";
 export * from "./studio/index.js";
+
+export {
+  claudeModelPrice,
+  estimateClaudeCostUsd,
+  type ClaudeModelPrice,
+  type ClaudeUsageForPricing,
+} from "./model-pricing.js";

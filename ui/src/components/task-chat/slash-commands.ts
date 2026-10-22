@@ -12,6 +12,7 @@ import type { ActionCommandOption } from "@/context/EditorAutocompleteContext";
 export type ChatSlashCommand =
   | { name: "mode"; mode: IssueWorkMode }
   | { name: "model"; query: string }
+  | { name: "think"; level: string }
   | { name: "context" }
   | { name: "help" }
   | { name: "skills" }
@@ -34,6 +35,7 @@ export const CHAT_SLASH_COMMANDS: readonly ChatSlashCommandSpec[] = [
   { command: "ask", name: "Ask mode", description: "Questions and answers only; no changes.", aliases: ["ask", "question"] },
   { command: "auto", name: "Auto mode", description: "Work and act without asking first.", aliases: ["auto", "build", "standard"] },
   { command: "model", name: "Model", description: "Switch the model this agent answers with.", aliases: ["model", "models"], conversationOnly: true, example: "/model opus" },
+  { command: "think", name: "Thinking", description: "How long it thinks first: quick, balanced, deep, max.", aliases: ["think", "thinking", "effort"], conversationOnly: true, example: "/think deep" },
   { command: "context", name: "Context", description: "Model, mode, and how much this chat has used.", aliases: ["context", "usage", "tokens"], conversationOnly: true },
   { command: "stop", name: "Stop", description: "Interrupt the run in progress.", aliases: ["stop", "cancel", "interrupt"] },
   { command: "clear", name: "Clear", description: "Start a fresh session; history stays visible.", aliases: ["clear", "reset"], conversationOnly: true },
@@ -78,6 +80,10 @@ export function parseChatSlashCommand(body: string): ChatSlashCommand | null {
     case "model":
     case "models":
       return { name: "model", query: argument };
+    case "think":
+    case "thinking":
+    case "effort":
+      return { name: "think", level: argument };
     case "context":
     case "usage":
     case "tokens":

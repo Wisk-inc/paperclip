@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { MarkdownBody } from "@/components/MarkdownBody";
+import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import { cn } from "@/lib/utils";
 import { useTaskChatExpansion } from "./expansion-state";
 import type { TaskChatActivityPhaseItem } from "./task-chat-model";
@@ -337,7 +338,7 @@ export function TaskChatRunnerActivityGroup({
           data-testid="task-chat-phase-interstitial"
         >
           <MarkdownBody softBreaks linkIssueReferences>
-            {item.interstitial.text}
+            {settleStreamingMarkdown(item.interstitial.text)}
           </MarkdownBody>
         </div>
       ) : null}

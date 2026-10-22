@@ -3,6 +3,7 @@ import { useContext, useEffect, type ReactNode } from "react";
 import { Brain, ChevronRight, CircleEllipsis } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownBody } from "@/components/MarkdownBody";
+import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import type { TaskChatActivityPhaseItem } from "./task-chat-model";
 import { protocolActivityPresentation } from "./task-chat-activity-presentation";
 import { toolTaxonomy, type ToolIcon } from "./tool-taxonomy";
@@ -85,7 +86,7 @@ export function TaskChatActivityPhase({
           data-testid="task-chat-phase-interstitial"
         >
           <MarkdownBody softBreaks linkIssueReferences>
-            {item.interstitial.text}
+            {settleStreamingMarkdown(item.interstitial.text)}
           </MarkdownBody>
         </div>
       ) : null}
