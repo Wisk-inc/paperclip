@@ -1,5 +1,5 @@
 import { usePageVisibility } from "../../lib/page-visibility";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readTranscriptRequest } from "./read-transcript-request";
 import { useQuery } from "@tanstack/react-query";
 import type { LiveEvent } from "@paperclipai/shared";
@@ -127,12 +127,30 @@ export function useLiveRunTranscripts({
     [runs],
   );
   const normalizedRuns = useMemo(() => runs.map((run) => ({ ...run })), [runsKey]);
+  // The byte counts grow on every refetch while a run writes. The log reader
+  // and the live socket only care which runs exist and their status, so they
+  // follow this key: a refetch no longer re-reads every log or reconnects.
+  const runShapeKey = useMemo(
+    () =>
+      normalizedRuns
+        .map((run) => `${run.id}:${run.status}:${run.adapterType}:${run.hasStoredOutput === true ? "1" : "0"}`)
+        .sort((a, b) => a.localeCompare(b))
+        .join(","),
+    [normalizedRuns],
+  );
+  const latestRunsRef = useRef(normalizedRuns);
+  latestRunsRef.current = normalizedRuns;
+  const shapedRuns = useMemo(() => latestRunsRef.current, [runShapeKey]);
+  // Finished runs whose whole log has been read; reading them again only
+  // returns nothing.
+  const fullyReadRunIdsRef = useRef(new Set<string>());
   const [chunksByRun, setChunksByRun] = useState<Map<string, RunLogChunk[]>>(new Map());
   const [hydratedRunIds, setHydratedRunIds] = useState<Set<string>>(new Set());
   const [errorsByRun, setErrorsByRun] = useState<ReadonlyMap<string, Error>>(new Map());
   const [retryGeneration, setRetryGeneration] = useState(0);
   const retry = useCallback(() => {
     missingTerminalLogRunIdsRef.current.clear();
+    fullyReadRunIdsRef.current.clear();
     setRetryGeneration((value) => value + 1);
   }, []);
   const seenChunkKeysRef = useRef(new Set<string>());
@@ -173,9 +191,10 @@ export function useLiveRunTranscripts({
   });
 
   const runById = useMemo(() => new Map(normalizedRuns.map((run) => [run.id, run])), [normalizedRuns]);
+  const knownRunIds = useMemo(() => new Set(shapedRuns.map((run) => run.id)), [shapedRuns]);
   const activeRunIds = useMemo(
-    () => new Set(normalizedRuns.filter((run) => run.status === "running").map((run) => run.id)),
-    [normalizedRuns],
+    () => new Set(shapedRuns.filter((run) => run.status === "running").map((run) => run.id)),
+    [shapedRuns],
   );
   const runIdsKey = useMemo(
     () => normalizedRuns.map((run) => run.id).sort((a, b) => a.localeCompare(b)).join(","),
@@ -280,6 +299,11 @@ export function useLiveRunTranscripts({
         missingTerminalLogRunIdsRef.current.delete(runId);
       }
     }
+    for (const runId of fullyReadRunIdsRef.current.keys()) {
+      if (!retainedRunIds.has(runId)) {
+        fullyReadRunIdsRef.current.delete(runId);
+      }
+    }
     for (const runId of transcriptCacheRef.current.keys()) {
       if (!retainedRunIds.has(runId)) {
         transcriptCacheRef.current.delete(runId);
@@ -299,7 +323,9 @@ export function useLiveRunTranscripts({
 
   useEffect(() => {
     if (!visible) return;
-    const readableRuns = normalizedRuns.filter(canReadPersistedLog);
+    const readableRuns = shapedRuns.filter(
+      (run) => canReadPersistedLog(run) && !fullyReadRunIdsRef.current.has(run.id),
+    );
     if (readableRuns.length === 0) return;
 
     let cancelled = false;
@@ -311,7 +337,8 @@ export function useLiveRunTranscripts({
         return;
       }
       inFlightRunIds.add(run.id);
-      const offset = logOffsetByRunRef.current.get(run.id) ?? resolveInitialLogOffset(run, logReadLimitBytes);
+      const offset = logOffsetByRunRef.current.get(run.id)
+        ?? resolveInitialLogOffset(latestRunsRef.current.find((latest) => latest.id === run.id) ?? run, logReadLimitBytes);
       try {
         const result = await readTranscriptRequest(
           (signal) => heartbeatsApi.log(run.id, offset, logReadLimitBytes, { signal }),
@@ -326,6 +353,9 @@ export function useLiveRunTranscripts({
           return next;
         });
         appendChunks(run.id, parsePersistedLogContent(run.id, result.content, pendingLogRowsByRunRef.current));
+        if (isTerminalStatus(run.status) && result.nextOffset === undefined && result.content.length < logReadLimitBytes) {
+          fullyReadRunIdsRef.current.add(run.id);
+        }
 
         if (result.nextOffset !== undefined) {
           logOffsetByRunRef.current.set(run.id, result.nextOffset);
@@ -389,7 +419,7 @@ export function useLiveRunTranscripts({
       controller.abort();
       if (interval !== null) window.clearInterval(interval);
     };
-  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, normalizedRuns, runIdsKey, retryGeneration]);
+  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration]);
 
   useEffect(() => {
     if (!visible || !enableRealtimeUpdates) return;
@@ -449,7 +479,7 @@ export function useLiveRunTranscripts({
         const payload = event.payload ?? {};
         const runId = readString(payload["runId"]);
         if (!runId || !activeRunIds.has(runId)) return;
-        if (!runById.has(runId)) return;
+        if (!knownRunIds.has(runId)) return;
 
         if (event.type === "heartbeat.run.log") {
           const chunk = readString(payload["chunk"]);
@@ -461,13 +491,18 @@ export function useLiveRunTranscripts({
               : readString(payload["stream"]) === "system"
                 ? "system"
                 : "stdout";
-          appendChunks(runId, [{
-            ts,
-            stream,
-            chunk,
-            seq: readChunkSeq(payload["seq"]),
-            dedupeKey: `log:${runId}:${ts}:${stream}:${chunk}`,
-          }]);
+          // Streamed output arrives many times a second; as a transition React
+          // merges these redraws and lets taps and scrolling go first, so a
+          // reply that is still writing never freezes the page.
+          startTransition(() => {
+            appendChunks(runId, [{
+              ts,
+              stream,
+              chunk,
+              seq: readChunkSeq(payload["seq"]),
+              dedupeKey: `log:${runId}:${ts}:${stream}:${chunk}`,
+            }]);
+          });
           return;
         }
 
@@ -525,7 +560,7 @@ export function useLiveRunTranscripts({
         }
       }
     };
-  }, [visible, activeRunIds, companyId, enableRealtimeUpdates, runById]);
+  }, [visible, activeRunIds, companyId, enableRealtimeUpdates, knownRunIds]);
 
   const transcriptByRun = useMemo(() => {
     const next = new Map<string, TranscriptEntry[]>();

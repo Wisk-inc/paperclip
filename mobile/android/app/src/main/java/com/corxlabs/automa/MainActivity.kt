@@ -16,6 +16,7 @@ import android.provider.MediaStore
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -489,6 +490,35 @@ class MainActivity : ComponentActivity() {
         offlineOverlay = null
     }
 
+    /**
+     * The system file picker for an `<input type="file" accept="...">`.
+     * WebView's own intent keeps only the first accepted type, so a picker
+     * that accepts images and text files opened showing PNGs alone; this one
+     * passes every type, and a list with an extension Android doesn't know
+     * (like .env) opens the picker on all files (the page checks the files).
+     */
+    private fun filePickerIntent(acceptTypes: Array<String>?): Intent {
+        val accepted = (acceptTypes ?: emptyArray())
+            .flatMap { it.split(',') }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+        val mimeTypes = accepted.mapNotNull { type ->
+            when {
+                type.contains('/') -> type
+                type.startsWith('.') -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(type.drop(1))
+                else -> null
+            }
+        }.distinct()
+        val intent = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE)
+        val allKnown = accepted.isNotEmpty() && mimeTypes.size >= accepted.distinct().size
+        when {
+            !allKnown || mimeTypes.isEmpty() -> intent.setType("*/*")
+            mimeTypes.size == 1 -> intent.setType(mimeTypes.first())
+            else -> intent.setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+        }
+        return intent
+    }
+
     private fun openPath(path: String) {
         val server = config.serverUrl ?: return showConnect(null)
         if (googleSignIn.needsSignIn) return showConnect(null)
@@ -853,9 +883,7 @@ class MainActivity : ComponentActivity() {
             ): Boolean {
                 fileCallback?.onReceiveValue(null)
                 fileCallback = filePathCallback
-                val pick = runCatching { fileChooserParams.createIntent() }.getOrNull()
-                    ?: Intent(Intent.ACTION_GET_CONTENT).setType("*/*")
-                pick.addCategory(Intent.CATEGORY_OPENABLE)
+                val pick = filePickerIntent(fileChooserParams.acceptTypes)
                 if (fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE) pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 val chooser = Intent.createChooser(pick, getString(R.string.choose_file))
                 cameraCaptureIntent(fileChooserParams)?.let { chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(it)) }

@@ -2003,6 +2003,13 @@
       "when": 1791601827768,
       "tag": "0287_tiny_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 288,
+      "version": "7",
+      "when": 1792629865948,
+      "tag": "0288_tidy_slapstick",
+      "breakpoints": true
     }
   ]
 }

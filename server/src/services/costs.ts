@@ -54,15 +54,20 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
   const budgets = budgetService(db, budgetHooks);
   return {
     createEvent: async (companyId: string, data: Omit<typeof costEvents.$inferInsert, "companyId">) => {
-      const agent = await db
-        .select()
-        .from(agents)
-        .where(eq(agents.id, data.agentId))
-        .then((rows) => rows[0] ?? null);
+      // Agent spend names its agent; App Studio spend has none.
+      if (data.agentId) {
+        const agent = await db
+          .select()
+          .from(agents)
+          .where(eq(agents.id, data.agentId))
+          .then((rows) => rows[0] ?? null);
 
-      if (!agent) throw notFound("Agent not found");
-      if (agent.companyId !== companyId) {
-        throw unprocessable("Agent does not belong to company");
+        if (!agent) throw notFound("Agent not found");
+        if (agent.companyId !== companyId) {
+          throw unprocessable("Agent does not belong to company");
+        }
+      } else if ((data.source ?? "agent") === "agent") {
+        throw unprocessable("An agent cost needs its agent");
       }
 
       const event = await db
@@ -78,17 +83,19 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         .then((rows) => rows[0]);
 
       const [agentMonthSpend, companyMonthSpend] = await Promise.all([
-        getMonthlySpendTotal(db, { companyId, agentId: event.agentId }),
+        event.agentId ? getMonthlySpendTotal(db, { companyId, agentId: event.agentId }) : Promise.resolve(null),
         getMonthlySpendTotal(db, { companyId }),
       ]);
 
-      await db
-        .update(agents)
-        .set({
-          spentMonthlyCents: agentMonthSpend,
-          updatedAt: new Date(),
-        })
-        .where(eq(agents.id, event.agentId));
+      if (event.agentId && agentMonthSpend !== null) {
+        await db
+          .update(agents)
+          .set({
+            spentMonthlyCents: agentMonthSpend,
+            updatedAt: new Date(),
+          })
+          .where(eq(agents.id, event.agentId));
+      }
 
       await db
         .update(companies)
@@ -120,6 +127,7 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
       if (range?.from) runConditions.push(gte(heartbeatRuns.startedAt, range.from));
       if (range?.to) runConditions.push(lte(heartbeatRuns.startedAt, range.to));
 
+      const studioOnly = sql`${costEvents.source} = 'studio'`;
       const [[costRow], [runRow]] = await Promise.all([
         db
           .select({
@@ -127,6 +135,10 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
             inputTokens: sumAsNumber(costEvents.inputTokens),
             cachedInputTokens: sumAsNumber(costEvents.cachedInputTokens),
             outputTokens: sumAsNumber(costEvents.outputTokens),
+            studioCents: sql<number>`coalesce(sum(case when ${studioOnly} then ${costEvents.costCents} else 0 end), 0)::double precision`,
+            studioInputTokens: sql<number>`coalesce(sum(case when ${studioOnly} then ${costEvents.inputTokens} + ${costEvents.cachedInputTokens} else 0 end), 0)::double precision`,
+            studioOutputTokens: sql<number>`coalesce(sum(case when ${studioOnly} then ${costEvents.outputTokens} else 0 end), 0)::double precision`,
+            studioCalls: sql<number>`count(*) filter (where ${studioOnly})::int`,
           })
           .from(costEvents)
           .where(and(...conditions)),
@@ -155,6 +167,12 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         outputTokens: Number(costRow?.outputTokens ?? 0),
         runCount: Number(runRow?.runCount ?? 0),
         runtimeMs: Number(runRow?.runtimeMs ?? 0),
+        studio: {
+          costCents: Number(costRow?.studioCents ?? 0),
+          inputTokens: Number(costRow?.studioInputTokens ?? 0),
+          outputTokens: Number(costRow?.studioOutputTokens ?? 0),
+          calls: Number(costRow?.studioCalls ?? 0),
+        },
       };
     },
 
@@ -327,11 +345,11 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         })
         .from(costEvents)
         .leftJoin(agents, eq(costEvents.agentId, agents.id))
-        .where(and(...conditions))
+        .where(and(...conditions, isNotNull(costEvents.agentId)))
         .groupBy(costEvents.agentId, agents.name, agents.appearance, agents.status)
         .orderBy(desc(sumAsNumber(costEvents.costCents)));
       return rows.map(row => {
-        const appearance = resolveAgentAppearance(row.agentAppearance, row.agentId);
+        const appearance = resolveAgentAppearance(row.agentAppearance, row.agentId ?? undefined);
         return { ...row, agentAppearance: appearance, avatarUrl: agentAvatarUrl(appearance, 512) };
       });
     },
@@ -474,7 +492,7 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         })
         .from(costEvents)
         .leftJoin(agents, eq(costEvents.agentId, agents.id))
-        .where(and(...conditions))
+        .where(and(...conditions, isNotNull(costEvents.agentId)))
         .groupBy(
           costEvents.agentId,
           agents.name,
@@ -486,7 +504,7 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         )
         .orderBy(costEvents.provider, costEvents.biller, costEvents.billingType, costEvents.model);
       return rows.map(row => {
-        const appearance = resolveAgentAppearance(row.agentAppearance, row.agentId);
+        const appearance = resolveAgentAppearance(row.agentAppearance, row.agentId ?? undefined);
         return { ...row, agentAppearance: appearance, avatarUrl: agentAvatarUrl(appearance, 512) };
       });
     },

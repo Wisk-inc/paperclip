@@ -3831,3 +3831,10 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 45%);
 }
 .thinking-live .paperclip-markdown { overflow: visible; }
+
+/* Studio console: blocks of output that are off screen are not laid out or
+   painted, so a program that prints nonstop doesn't stall the phone. */
+[data-console-chunk] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 50lh;
+}

@@ -10,7 +10,7 @@ import type {
   FinanceEvent,
   QuotaWindow,
 } from "@paperclipai/shared";
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSign, ReceiptText } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSign, ReceiptText, Code2 } from "lucide-react";
 import { budgetsApi } from "../api/budgets";
 import { costsApi } from "../api/costs";
 import { BillerSpendCard } from "../components/BillerSpendCard";
@@ -518,7 +518,7 @@ export function Costs() {
     (spendData?.byAgent ?? []).reduce(
       (sum, row) => sum + row.inputTokens + row.cachedInputTokens + row.outputTokens,
       0,
-    );
+    ) + (spendData?.summary.studio ? spendData.summary.studio.inputTokens + spendData.summary.studio.outputTokens : 0);
 
   const topFinanceEvents = (financeData?.events ?? []) as FinanceEvent[];
   const budgetPolicies = budgetData?.policies ?? [];
@@ -800,6 +800,27 @@ export function Costs() {
                         );
                       })
                     )}
+                    {spendData?.summary.studio && spendData.summary.studio.calls > 0 ? (
+                      <div className="flex items-center justify-between gap-3 border border-border px-4 py-3" data-testid="costs-studio-row">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-card">
+                            <Code2 className="size-4" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">App Studio</div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              AI helper and code suggestions · {spendData.summary.studio.calls} {spendData.summary.studio.calls === 1 ? "record" : "records"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right tabular-nums">
+                          <div className="text-sm font-medium">{formatCents(spendData.summary.studio.costCents)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatTokens(spendData.summary.studio.inputTokens + spendData.summary.studio.outputTokens)} tok
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
 

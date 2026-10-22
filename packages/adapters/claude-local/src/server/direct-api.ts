@@ -31,7 +31,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_INSTRUCTIONS_CHARS = 60_000;
 const MAX_HISTORY_MESSAGES = 40;
 /** Live output is sent in small batches so the chat updates smoothly without a log line per token. */
-const FLUSH_MS = 60;
+const FLUSH_MS = 100;
 
 export type ClaudeDirectApiReason = "configured" | "phone" | "engine_unavailable";
 

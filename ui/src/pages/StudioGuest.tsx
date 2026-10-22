@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { CodeEditor } from "../components/studio/CodeEditor";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
 import { StudioConsole } from "../components/studio/StudioConsole";
+import { createStudioConsoleStore } from "../components/studio/console-store";
 import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioChat } from "../components/studio/StudioChat";
 import { StudioDiffView } from "../components/studio/StudioDiffView";
@@ -198,7 +199,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
   const [participants, setParticipants] = useState<StudioParticipant[]>([]);
   const [me, setMe] = useState<StudioParticipant | null>(null);
   const [run, setRun] = useState<StudioRunState | null>(null);
-  const [consoleLines, setConsoleLines] = useState<StudioConsoleLine[]>([]);
+  const consoleStore = useMemo(() => createStudioConsoleStore(), [token]);
   const [messages, setMessages] = useState<StudioMessage[]>([]);
   const [changes, setChanges] = useState<StudioChangeRequest[]>([]);
   const [file, setFile] = useState<OpenGuestFile | null>(null);
@@ -233,7 +234,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
       })
       .catch(handleAuthError);
     refreshTree();
-    void studioGuestApi.console(token).then((result) => setConsoleLines(result.lines)).catch(() => undefined);
+    void studioGuestApi.console(token).then((result) => consoleStore.merge(result.lines)).catch(() => undefined);
     void studioGuestApi.messages(token).then((result) => setMessages(result.messages)).catch(() => undefined);
     void studioGuestApi.changes(token).then((result) => setChanges(result.changeRequests)).catch(() => undefined);
   }, [handleAuthError, refreshTree, token]);
@@ -299,10 +300,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
           }
           break;
         case "console":
-          setConsoleLines((current) => {
-            const last = current.at(-1)?.seq ?? 0;
-            return [...current, ...event.lines.filter((line) => line.seq > last)].slice(-2000);
-          });
+          consoleStore.push(event.lines);
           break;
         case "run":
           setRun(event.state);
@@ -440,7 +438,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
   );
 
   const sidePanes = {
-    console: <StudioConsole lines={consoleLines} run={run} />,
+    console: <StudioConsole store={consoleStore} run={run} />,
     preview: <StudioPreview run={run} consoleApp={false} onShowConsole={() => setPane("console")} />,
     chat: (
       <StudioChat

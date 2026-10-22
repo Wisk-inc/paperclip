@@ -51,6 +51,7 @@ import {
   writeStudioFile,
 } from "../services/studio/files.js";
 import { studioService } from "../services/studio/service.js";
+import { studioUsageRecorder } from "../services/studio/usage.js";
 import { existingStudioRuntime, stopAllStudioRuntimes, studioRuntime, studioRuntimeByPreviewToken } from "../services/studio/runner.js";
 import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
@@ -61,6 +62,7 @@ import { createCheckpoint, deleteCheckpoint, listCheckpoints, restoreCheckpoint,
 import {
   clearAssistantConversation,
   completeCode,
+  currentAssistantTurn,
   isAssistantRunning,
   readAssistantTranscript,
   runAssistantTurn,
@@ -222,6 +224,7 @@ let expirySweep: ReturnType<typeof setInterval> | null = null;
 
 /** Owner routes: board users with access to the project's company. */
 export function studioRoutes(db: Db) {
+  const studioUsage = studioUsageRecorder(db);
   const router = Router();
   const svc = studioService(db);
 
@@ -476,6 +479,7 @@ export function studioRoutes(db: Db) {
         prefix: req.body.prefix.slice(-6000),
         suffix: req.body.suffix.slice(0, 2000),
         signal: controller.signal,
+        onUsage: (usage) => studioUsage.recordSuggestion(workspace.companyId, usage),
       });
       res.json({ completion, model });
     } catch (error) {
@@ -759,7 +763,10 @@ export function studioRoutes(db: Db) {
 
   router.get("/studio/workspaces/:id/assistant", async (req, res) => {
     const workspace = await workspaceFor(req);
-    res.json({ turns: await readAssistantTranscript(workspace.companyId, workspace.id), running: isAssistantRunning(workspace.id) });
+    const turns = await readAssistantTranscript(workspace.companyId, workspace.id);
+    // The reply being written right now, so a reload mid-turn still shows it.
+    const live = currentAssistantTurn(workspace.id);
+    res.json({ turns: live && !turns.some((turn) => turn.id === live.id) ? [...turns, live] : turns, running: isAssistantRunning(workspace.id) });
   });
 
   router.post("/studio/workspaces/:id/assistant", validate(studioAssistantMessageSchema), async (req, res) => {
@@ -783,6 +790,7 @@ export function studioRoutes(db: Db) {
         runCommand: runCommandFor(workspace).command,
         startApp: () => startApp(workspace),
         onFileChanged: (relative) => broadcastFile(workspace, relative, "assistant"),
+        onUsage: (usage) => studioUsage.recordReply(workspace.companyId, usage),
       },
       message: req.body.message,
       provider: req.body.provider,

@@ -52,6 +52,7 @@ import { StudioCheckpointsSheet } from "../components/studio/StudioCheckpointsSh
 import { STUDIO_AI_PROVIDERS, STUDIO_AI_PROVIDER_INFO, type StudioAiProvider } from "@paperclipai/shared";
 import { CodeEditor } from "../components/studio/CodeEditor";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
+import { createStudioConsoleStore } from "@/components/studio/console-store";
 import { StudioConsole } from "../components/studio/StudioConsole";
 import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioAssistant } from "../components/studio/StudioAssistant";
@@ -102,12 +103,16 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
-function mergeLines(current: StudioConsoleLine[], incoming: StudioConsoleLine[]) {
-  if (!incoming.length) return current;
-  const last = current.at(-1)?.seq ?? 0;
-  const fresh = incoming.filter((line) => line.seq > last);
-  if (!fresh.length) return current;
-  return [...current, ...fresh].slice(-2000);
+
+/**
+ * Merges the transcript the server returned into what is on screen: the
+ * server's copy wins for every turn it has, and turns it doesn't have yet (a
+ * message that just went out) stay, so a reload never wipes them.
+ */
+function mergeTurns(current: StudioAssistantTurn[], server: StudioAssistantTurn[]) {
+  const known = new Set(server.map((turn) => turn.id));
+  const extra = current.filter((turn) => !known.has(turn.id));
+  return extra.length ? [...server, ...extra] : server;
 }
 
 function upsertTurn(turns: StudioAssistantTurn[], turn: StudioAssistantTurn) {
@@ -138,7 +143,7 @@ export function StudioWorkspace() {
   const [pane, setPane] = useState<Pane>("code");
   const [sideTab, setSideTab] = useState<SideTab>("console");
   const [run, setRun] = useState<StudioRunState | null>(null);
-  const [consoleLines, setConsoleLines] = useState<StudioConsoleLine[]>([]);
+  const consoleStore = useMemo(() => createStudioConsoleStore(), [workspaceId]);
   const [participants, setParticipants] = useState<StudioParticipant[]>([]);
   const [me, setMe] = useState<StudioParticipant | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RemoteDraft>>({});
@@ -196,11 +201,14 @@ export function StudioWorkspace() {
     enabled: !!workspaceId,
   });
   const aiKeys = useQuery({ queryKey: queryKeys.studio.aiKeys(companyId), queryFn: () => studioApi.aiKeys(companyId), enabled: !!selectedCompanyId });
+  // While the live socket is up it carries every update; the transcript is
+  // only polled when the socket is down, so a poll never undoes live text.
+  const [socketLive, setSocketLive] = useState(false);
   const assistant = useQuery({
     queryKey: queryKeys.studio.assistant(workspaceId),
     queryFn: () => studioApi.assistant(workspaceId),
     enabled: !!workspaceId,
-    refetchInterval: assistantRunning ? 4000 : false,
+    refetchInterval: assistantRunning && !socketLive ? 2500 : false,
   });
 
   const language = useMemo(() => catalog.data?.languages.find((item) => item.id === workspace?.language) ?? null, [catalog.data, workspace?.language]);
@@ -216,7 +224,7 @@ export function StudioWorkspace() {
 
   useEffect(() => {
     if (assistant.data) {
-      setTurns(assistant.data.turns);
+      setTurns((current) => mergeTurns(current, assistant.data!.turns));
       setAssistantRunning(assistant.data.running);
     }
   }, [assistant.data]);
@@ -225,7 +233,7 @@ export function StudioWorkspace() {
     if (!workspaceId) return;
     let cancelled = false;
     void studioApi.console(workspaceId).then((result) => {
-      if (!cancelled) setConsoleLines((current) => mergeLines(current, result.lines));
+      if (!cancelled) consoleStore.merge(result.lines);
     });
     return () => {
       cancelled = true;
@@ -310,7 +318,7 @@ export function StudioWorkspace() {
           }
           break;
         case "console":
-          setConsoleLines((current) => mergeLines(current, event.lines));
+          consoleStore.push(event.lines);
           break;
         case "run":
           setRun(event.state);
@@ -343,6 +351,7 @@ export function StudioWorkspace() {
   );
   const socketUrl = useMemo(() => (workspaceId ? studioSocketUrl({ workspaceId }) : null), [workspaceId]);
   const { status: socketStatus, send } = useStudioSocket(socketUrl, handleEvent);
+  useEffect(() => setSocketLive(socketStatus === "open"), [socketStatus]);
 
   // ── Files ─────────────────────────────────────────────────────────────
   const save = useCallback(
@@ -760,10 +769,10 @@ export function StudioWorkspace() {
       ) : null}
       <div className="min-h-0 flex-1">
         <StudioConsole
-          lines={consoleLines}
+          store={consoleStore}
           run={run}
           onClear={() => {
-            setConsoleLines([]);
+            consoleStore.clear();
             void studioApi.clearConsole(workspaceId);
           }}
           onInput={async (text) => {
@@ -834,7 +843,9 @@ export function StudioWorkspace() {
       }}
       onSend={async (message, provider, model, attachments) => {
         await save();
-        await studioApi.askAssistant(workspaceId, { message, provider, model, ...(attachments?.length ? { attachments } : {}) });
+        const sent = await studioApi.askAssistant(workspaceId, { message, provider, model, ...(attachments?.length ? { attachments } : {}) });
+        // Shown at once, whether or not the live socket is connected.
+        setTurns((current) => upsertTurn(current, sent.turn));
         setAssistantRunning(true);
       }}
       onStop={async () => {

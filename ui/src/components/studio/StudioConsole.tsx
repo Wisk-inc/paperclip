@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { memo, useEffect, useRef, useState, type FormEvent } from "react";
 import { Eraser, LoaderCircle, Send, SquareTerminal } from "lucide-react";
 import type { StudioConsoleLine, StudioRunState } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { SHOWN_LINES, useStudioConsoleLines, type StudioConsoleStore } from "./console-store";
 
 interface StudioConsoleProps {
-  lines: StudioConsoleLine[];
+  /** The project's live console output (only this panel redraws when it changes). */
+  store: StudioConsoleStore;
   run: StudioRunState | null;
   onClear?: () => void;
   /** Types a line into the running program (its standard input). */
@@ -22,12 +24,58 @@ const LINE_TONE: Record<StudioConsoleLine["stream"], string> = {
   command: "text-studio-console-input",
 };
 
+/** Lines are drawn in blocks by sequence number, so new output redraws only the newest block. */
+const CHUNK_LINES = 50;
+
+function chunkLines(lines: StudioConsoleLine[]) {
+  const chunks: Array<{ id: number; lines: StudioConsoleLine[] }> = [];
+  for (const line of lines) {
+    const id = Math.floor(line.seq / CHUNK_LINES);
+    const last = chunks.at(-1);
+    if (last && last.id === id) last.lines.push(line);
+    else chunks.push({ id, lines: [line] });
+  }
+  return chunks;
+}
+
+const ConsoleChunk = memo(
+  function ConsoleChunk({ lines }: { lines: StudioConsoleLine[] }) {
+    // Consecutive lines of the same kind are one text block: far fewer
+    // elements for the phone to lay out than one per line.
+    const runs: Array<{ stream: StudioConsoleLine["stream"]; seq: number; text: string }> = [];
+    for (const line of lines) {
+      const text = line.stream === "command" ? `$ ${line.text}` : line.text;
+      const last = runs.at(-1);
+      if (last && last.stream === line.stream) last.text += `\n${text}`;
+      else runs.push({ stream: line.stream, seq: line.seq, text });
+    }
+    return (
+      <div data-console-chunk="">
+        {runs.map((run) => (
+          <div key={run.seq} className={cn("whitespace-pre-wrap break-words", LINE_TONE[run.stream])} data-console-run="">
+            {run.text}
+          </div>
+        ))}
+      </div>
+    );
+  },
+  // Same first and last line: nothing in this block changed.
+  (before, after) =>
+    before.lines.length === after.lines.length &&
+    before.lines[0]?.seq === after.lines[0]?.seq &&
+    before.lines.at(-1)?.seq === after.lines.at(-1)?.seq,
+);
+
 /**
  * What the app printed, live: its output, its errors (red), Automa's notes,
  * and the commands that ran. While the app runs, the box types into it;
  * otherwise it runs a shell command in the project folder.
  */
-export function StudioConsole({ lines, run, onClear, onInput, onExec }: StudioConsoleProps) {
+export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioConsoleProps) {
+  const allLines = useStudioConsoleLines(store);
+  // Only the newest lines are drawn; a long-running program can print thousands.
+  const lines = allLines.length > SHOWN_LINES ? allLines.slice(-SHOWN_LINES) : allLines;
+  const hidden = allLines.length - lines.length;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [text, setText] = useState("");
@@ -83,14 +131,15 @@ export function StudioConsole({ lines, run, onClear, onInput, onExec }: StudioCo
         aria-label="Console output"
         data-testid="studio-console"
       >
+        {hidden > 0 ? (
+          <p className="pb-1 opacity-60" data-testid="studio-console-trimmed">
+            {hidden.toLocaleString()} earlier {hidden === 1 ? "line" : "lines"} not shown
+          </p>
+        ) : null}
         {lines.length === 0 ? (
           <p className="opacity-60">Nothing yet. Tap Run, and what your app prints shows up here.</p>
         ) : (
-          lines.map((line) => (
-            <div key={line.seq} className={cn("whitespace-pre-wrap break-words", LINE_TONE[line.stream])}>
-              {line.stream === "command" ? `$ ${line.text}` : line.text}
-            </div>
-          ))
+          chunkLines(lines).map((chunk) => <ConsoleChunk key={chunk.id} lines={chunk.lines} />)
         )}
       </div>
       {mode ? (

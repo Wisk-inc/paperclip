@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { changedAgo, fileKind, folderStats, formatBytes } from "./file-kinds";
 
 interface StudioFileTreeProps {
   tree: StudioFileNode[];
@@ -46,6 +47,43 @@ interface StudioFileTreeProps {
 }
 
 type Draft = { kind: "create"; type: "file" | "folder"; folder: string | null } | { kind: "rename"; path: string };
+
+/** The file's language logo, or an icon for its kind. */
+function FileIcon({ name }: { name: string }) {
+  const kind = fileKind(name);
+  const [failed, setFailed] = useState(false);
+  if (kind.logo && !failed) {
+    return (
+      <span className="ml-5 flex size-4 shrink-0 items-center justify-center" title={kind.label}>
+        <img src={kind.logo} alt="" className="size-4 object-contain" onError={() => setFailed(true)} />
+      </span>
+    );
+  }
+  const Icon = kind.icon;
+  return (
+    <span className="ml-5 flex shrink-0" title={kind.label}>
+      <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+    </span>
+  );
+}
+
+function fileMeta(node: StudioFileNode) {
+  const kind = fileKind(node.name);
+  const parts = [kind.label, formatBytes(node.size ?? 0)];
+  const ago = changedAgo(node.modifiedAt);
+  if (ago) parts.push(ago);
+  return parts.join(" · ");
+}
+
+function folderMeta(node: StudioFileNode) {
+  if (node.unlisted) return "Installed packages (not listed)";
+  const stats = folderStats(node.children ?? []);
+  if (stats.files === 0 && stats.folders === 0) return "Empty";
+  const parts = [`${stats.files} ${stats.files === 1 ? "file" : "files"}`];
+  if (stats.folders) parts.push(`${stats.folders} ${stats.folders === 1 ? "folder" : "folders"}`);
+  parts.push(formatBytes(stats.bytes));
+  return parts.join(" · ");
+}
 
 function parentOf(path: string): string | null {
   const index = path.lastIndexOf("/");
@@ -176,13 +214,20 @@ export function StudioFileTree({
               {isFolder ? (
                 <>
                   {isOpen ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
-                  {isOpen ? <FolderOpen className="size-4 shrink-0 text-muted-foreground" /> : <Folder className="size-4 shrink-0 text-muted-foreground" />}
+                  {isOpen ? <FolderOpen className="size-4 shrink-0 text-primary/80" /> : <Folder className="size-4 shrink-0 text-primary/80" />}
                 </>
               ) : (
-                <File className="ml-5 size-4 shrink-0 text-muted-foreground" />
+                <FileIcon name={node.name} />
               )}
-              <span className="truncate font-mono text-(length:--text-compact)">{node.name}</span>
-              {editedPaths?.has(node.path) ? <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label="edited" /> : null}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate font-mono text-(length:--text-compact)">{node.name}</span>
+                  {editedPaths?.has(node.path) ? <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label="edited" /> : null}
+                </span>
+                <span className="truncate text-(length:--text-micro) text-muted-foreground" data-testid="studio-tree-meta">
+                  {isFolder ? folderMeta(node) : fileMeta(node)}
+                </span>
+              </span>
               {here.length ? (
                 <span className="ml-auto flex shrink-0 -space-x-1 pl-1">
                   {here.slice(0, 3).map((participant) => (
@@ -277,7 +322,15 @@ export function StudioFileTree({
     <div className="flex h-full min-h-0 flex-col">
       {onCreate || onUpload ? (
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-          <span className="mr-auto text-xs font-medium uppercase tracking-wide text-muted-foreground">Files</span>
+          <span className="mr-auto flex min-w-0 flex-col">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Files</span>
+            <span className="truncate text-(length:--text-micro) text-muted-foreground tabular-nums" data-testid="studio-tree-summary">
+              {(() => {
+                const stats = folderStats(tree);
+                return `${stats.files} ${stats.files === 1 ? "file" : "files"} · ${stats.folders} ${stats.folders === 1 ? "folder" : "folders"} · ${formatBytes(stats.bytes)}`;
+              })()}
+            </span>
+          </span>
           {onCreate ? (
             <>
               <Button variant="ghost" size="icon-sm" aria-label="New file" title="New file" onClick={() => startCreate("file", null)}>

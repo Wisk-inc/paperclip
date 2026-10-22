@@ -12,6 +12,7 @@ import {
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
+import { estimateClaudeCostUsd } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -24,6 +25,18 @@ import {
 import { studioHub } from "./hub.js";
 import { studioRuntime } from "./runner.js";
 
+/** Tokens one model call used, for Costs. */
+export interface StudioAiUsage {
+  provider: StudioAiProvider;
+  model: string;
+  /** Uncached input tokens (including prompt-cache writes). */
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  /** Provider-reported or list-price cost; null when unknown. */
+  costUsd: number | null;
+}
+
 /** What the assistant needs about the project it works in. */
 export interface StudioAssistantContext {
   workspaceId: string;
@@ -35,6 +48,8 @@ export interface StudioAssistantContext {
   startApp: () => Promise<void>;
   /** Tells everyone a file changed. */
   onFileChanged: (relativePath: string) => Promise<void>;
+  /** Records what each model call used (Costs counts App Studio too). */
+  onUsage?: (usage: StudioAiUsage) => Promise<void> | void;
 }
 
 const MAX_STEPS = 30;
@@ -268,6 +283,12 @@ export async function clearAssistantConversation(companyId: string, workspaceId:
 // ── Running a turn ─────────────────────────────────────────────────────────
 
 const running = new Map<string, AbortController>();
+/** The reply being written, so a page that reloads mid-turn still shows it. */
+const liveTurns = new Map<string, StudioAssistantTurn>();
+
+export function currentAssistantTurn(workspaceId: string): StudioAssistantTurn | null {
+  return liveTurns.get(workspaceId) ?? null;
+}
 
 export function isAssistantRunning(workspaceId: string) {
   return running.has(workspaceId);
@@ -331,12 +352,54 @@ export async function runAssistantTurn(input: {
     id: randomUUID(), role: "assistant", text: "", steps: [], provider: input.provider, model: input.model, error: null, createdAt: new Date().toISOString(),
   };
   transcript.push(userTurn);
-  const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, { type: "assistant", turn: { ...turn, steps: [...turn.steps] }, done });
+  // Saved before the model starts: the page reloads the transcript while the
+  // assistant works, and a message that only lived in memory vanished.
+  await writeJson(transcriptFile, transcript.slice(-200));
+  liveTurns.set(context.workspaceId, turn);
+  let liveThinking = "";
+  let live = "";
+  const snapshot = (): StudioAssistantTurn => ({
+    ...turn,
+    steps: [...turn.steps],
+    ...(live ? { live: live.trimStart() } : {}),
+    ...(liveThinking ? { liveThinking } : {}),
+  });
+  const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, { type: "assistant", turn: done ? { ...turn, steps: [...turn.steps] } : snapshot(), done });
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
-  publish(false);
+
+  // Every model call in the turn adds up; the turn is recorded once, so
+  // fractions of a cent are not lost to rounding call by call.
+  const usageTotals = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 as number | null, model: input.model };
+  const onUsage = async (usage: StudioAiUsage) => {
+    usageTotals.inputTokens += usage.inputTokens;
+    usageTotals.cachedInputTokens += usage.cachedInputTokens;
+    usageTotals.outputTokens += usage.outputTokens;
+    usageTotals.model = usage.model || usageTotals.model;
+    usageTotals.costUsd = usage.costUsd === null || usageTotals.costUsd === null ? null : usageTotals.costUsd + usage.costUsd;
+  };
 
   const finish = async () => {
     running.delete(context.workspaceId);
+    liveTurns.delete(context.workspaceId);
+    if (usageTotals.inputTokens || usageTotals.cachedInputTokens || usageTotals.outputTokens) {
+      turn.usage = {
+        inputTokens: usageTotals.inputTokens + usageTotals.cachedInputTokens,
+        outputTokens: usageTotals.outputTokens,
+        costUsd: usageTotals.costUsd,
+      };
+      try {
+        await context.onUsage?.({
+          provider: input.provider,
+          model: usageTotals.model,
+          inputTokens: usageTotals.inputTokens,
+          cachedInputTokens: usageTotals.cachedInputTokens,
+          outputTokens: usageTotals.outputTokens,
+          costUsd: usageTotals.costUsd,
+        });
+      } catch (error) {
+        logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant usage not recorded");
+      }
+    }
     transcript.push(turn);
     await writeJson(transcriptFile, transcript.slice(-200));
     publish(true);
@@ -346,16 +409,36 @@ export async function runAssistantTurn(input: {
     turn.steps.push(step);
     publish(false);
   };
-  // Text the model is still writing; shown live, then replaced by the
-  // finished reply.
-  let live = "";
+  // Text the model is still writing (and its thinking); shown live, then
+  // replaced by the finished reply. Updates go out in small batches so the
+  // panel redraws smoothly.
   let lastLivePublish = 0;
+  let pendingLive: NodeJS.Timeout | null = null;
+  const publishLive = () => {
+    const now = Date.now();
+    const wait = 60 - (now - lastLivePublish);
+    if (wait > 0) {
+      if (!pendingLive) pendingLive = setTimeout(() => { pendingLive = null; publishLive(); }, wait);
+      return;
+    }
+    lastLivePublish = now;
+    publish(false);
+  };
   const onDelta = (delta: string) => {
     live += delta;
-    const now = Date.now();
-    if (now - lastLivePublish < 120) return;
-    lastLivePublish = now;
-    studioHub.broadcast(context.workspaceId, { type: "assistant", turn: { ...turn, steps: [...turn.steps], live: live.trimStart() }, done: false });
+    publishLive();
+  };
+  const onThinkingDelta = (delta: string) => {
+    liveThinking += delta;
+    publishLive();
+  };
+  const onThought = (text: string) => {
+    liveThinking = "";
+    const thought = text.trim();
+    if (!thought) return;
+    const firstLine = thought.split("\n").find((line) => line.trim())?.replace(/^[#*\s]+/, "").slice(0, 140) ?? "Thought";
+    turn.steps.push({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000) });
+    publish(false);
   };
   const onText = (text: string) => {
     live = "";
@@ -372,17 +455,19 @@ export async function runAssistantTurn(input: {
       const message = input.message || (images.length ? "Look at the attached image." : "See the attached files.");
       const prompt = `${message}${attachedText}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
       if (input.provider === "anthropic") {
-        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onText, onDelta });
+        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onText, onDelta, onThinkingDelta, onThought, onUsage });
       } else {
-        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onText });
+        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onText, onUsage });
       }
     } catch (error) {
       turn.error = describeProviderError(error, controller.signal.aborted);
       logger.warn({ error: turn.error, workspaceId: context.workspaceId }, "studio assistant turn failed");
     } finally {
+      if (pendingLive) clearTimeout(pendingLive);
       await finish();
     }
   })();
+  publish(false);
   return { userTurn, turn };
 }
 
@@ -417,6 +502,9 @@ async function runAnthropic(input: {
   onStep: (step: StudioAssistantStep) => void;
   onText: (text: string) => void;
   onDelta: (delta: string) => void;
+  onThinkingDelta: (delta: string) => void;
+  onThought: (text: string) => void;
+  onUsage: (usage: StudioAiUsage) => Promise<void>;
 }) {
   const { context } = input;
   const baseURL = input.credentials.baseUrl || process.env.PAPERCLIP_STUDIO_ANTHROPIC_BASE_URL || undefined;
@@ -462,13 +550,15 @@ async function runAnthropic(input: {
         system: [{ type: "text", text: systemPrompt(context), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
-        ...(supportsAdaptiveThinking(input.model) ? { thinking: { type: "adaptive" as const } } : {}),
+        // Thinking is shown in the panel as it happens (summarized).
+        ...(supportsAdaptiveThinking(input.model) ? { thinking: { type: "adaptive" as const, display: "summarized" as const } } : {}),
         ...(supportsEffort(input.model) ? { output_config: { effort: "high" as const } } : {}),
         ...(useFallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
       },
       { signal: input.signal },
     );
     stream.on("text", (delta) => input.onDelta(delta));
+    stream.on("thinking", (delta) => input.onThinkingDelta(delta));
     let response: Anthropic.Beta.BetaMessage;
     try {
       response = await stream.finalMessage();
@@ -482,8 +572,25 @@ async function runAnthropic(input: {
     // Keep every block (thinking, fallback markers) exactly as returned.
     messages.push({ role: "assistant", content: response.content as Anthropic.Beta.BetaContentBlockParam[] });
     await writeJson(historyFile, withoutImages(messages));
+    const usage = response.usage;
+    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    await input.onUsage({
+      provider: "anthropic",
+      model: response.model || input.model,
+      inputTokens: usage.input_tokens + cacheWrite,
+      cachedInputTokens: cacheRead,
+      outputTokens: usage.output_tokens,
+      costUsd: estimateClaudeCostUsd(response.model || input.model, {
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadInputTokens: cacheRead,
+        cacheCreationInputTokens: cacheWrite,
+      }),
+    });
 
     for (const block of response.content) {
+      if (block.type === "thinking") input.onThought(block.thinking);
       if (block.type === "text") input.onText(block.text);
     }
     if (response.stop_reason === "refusal") {
@@ -529,6 +636,7 @@ async function runOpenAiCompatible(input: {
   signal: AbortSignal;
   onStep: (step: StudioAssistantStep) => void;
   onText: (text: string) => void;
+  onUsage: (usage: StudioAiUsage) => Promise<void>;
 }) {
   const { context } = input;
   const info = STUDIO_AI_PROVIDER_INFO[input.provider];
@@ -563,6 +671,8 @@ async function runOpenAiCompatible(input: {
         messages: [{ role: "system", content: systemPrompt(context) }, ...messages],
         tools,
         tool_choice: "auto",
+        // OpenRouter adds the call's cost to its usage report when asked.
+        ...(input.provider === "openrouter" ? { usage: { include: true } } : {}),
       }),
     });
     const text = await response.text();
@@ -577,7 +687,22 @@ async function runOpenAiCompatible(input: {
       if (response.status === 401 || response.status === 403) throw new Error(`${info.name} rejected the API key (${response.status}). ${detail}`.trim());
       throw new Error(`${info.name} error ${response.status}: ${detail}`);
     }
-    const data = JSON.parse(text) as { choices?: Array<{ message?: ChatMessage; finish_reason?: string }> };
+    const data = JSON.parse(text) as {
+      model?: string;
+      choices?: Array<{ message?: ChatMessage; finish_reason?: string }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number; prompt_tokens_details?: { cached_tokens?: number } };
+    };
+    if (data.usage) {
+      const cached = data.usage.prompt_tokens_details?.cached_tokens ?? 0;
+      await input.onUsage({
+        provider: input.provider,
+        model: data.model || input.model,
+        inputTokens: Math.max(0, (data.usage.prompt_tokens ?? 0) - cached),
+        cachedInputTokens: cached,
+        outputTokens: data.usage.completion_tokens ?? 0,
+        costUsd: typeof data.usage.cost === "number" ? data.usage.cost : null,
+      });
+    }
     const message = data.choices?.[0]?.message;
     if (!message) throw new Error(`${info.name} sent an empty reply.`);
     const assistant: ChatMessage = { role: "assistant", content: message.content ?? "", ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) };
@@ -632,6 +757,8 @@ export async function completeCode(input: {
   prefix: string;
   suffix: string;
   signal?: AbortSignal;
+  /** Tokens the suggestion used, for Costs. */
+  onUsage?: (usage: StudioAiUsage) => void;
 }): Promise<string> {
   const prompt = `File: ${input.path}\n\n${input.prefix}<CURSOR>${input.suffix}`;
   if (input.provider === "anthropic") {
@@ -655,6 +782,21 @@ export async function completeCode(input: {
       },
       { signal: input.signal },
     );
+    const cacheRead = response.usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = response.usage.cache_creation_input_tokens ?? 0;
+    input.onUsage?.({
+      provider: input.provider,
+      model: response.model || input.model,
+      inputTokens: response.usage.input_tokens + cacheWrite,
+      cachedInputTokens: cacheRead,
+      outputTokens: response.usage.output_tokens,
+      costUsd: estimateClaudeCostUsd(response.model || input.model, {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheReadInputTokens: cacheRead,
+        cacheCreationInputTokens: cacheWrite,
+      }),
+    });
     if (response.stop_reason === "refusal") return "";
     const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
     return cleanCompletion(text, input.prefix);
@@ -677,9 +819,24 @@ export async function completeCode(input: {
         { role: "user", content: prompt },
       ],
       max_tokens: 200,
+      ...(input.provider === "openrouter" ? { usage: { include: true } } : {}),
     }),
   });
   if (!response.ok) throw new Error(`${info.name} error ${response.status}`);
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+  const data = (await response.json()) as {
+    model?: string;
+    choices?: Array<{ message?: { content?: string | null } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+  };
+  if (data.usage) {
+    input.onUsage?.({
+      provider: input.provider,
+      model: data.model || input.model,
+      inputTokens: data.usage.prompt_tokens ?? 0,
+      cachedInputTokens: 0,
+      outputTokens: data.usage.completion_tokens ?? 0,
+      costUsd: typeof data.usage.cost === "number" ? data.usage.cost : null,
+    });
+  }
   return cleanCompletion(data.choices?.[0]?.message?.content ?? "", input.prefix);
 }

@@ -1,8 +1,9 @@
 import { TaskChatProjectCreatedCard } from "./TaskChatProjectCreatedCard";
 import { TaskChatSkillCreatedCard } from "./TaskChatSkillCreatedCard";
-import { useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
+import { useStableEntries, useStableValue } from "@/lib/stable-value";
 import { useStreamlinedTaskChatPresentation } from "./presentation-mode";
 import type {
   TaskChatInteractionItem,
@@ -283,6 +284,103 @@ export function taskChatItemSpacingClass(
   return "mt-6";
 }
 
+interface ThreadItemRowProps {
+  item: TaskChatItem;
+  className?: string;
+  onApprovalDecision?: (statusItemId: string, optionId: string) => void;
+  onRuntimeRequestDecision?: TaskChatThreadViewProps["onRuntimeRequestDecision"];
+  renderInteraction?: (item: TaskChatInteractionItem) => ReactNode;
+  renderBrief?: () => ReactNode;
+  renderMessageActions?: (item: TaskChatMessageItem) => ReactNode;
+  renderQueuedAction?: (item: TaskChatMessageItem) => ReactNode;
+  onTryAgainNoLiveExecutionPath?: () => Promise<void> | void;
+  tryAgainNoLiveExecutionPathPending: boolean;
+  retryableMarkerId?: string;
+  onRetryFailedRun?: (runId: string) => Promise<void> | void;
+  retryFailedRunId: string | null;
+  attachments: IssueAttachment[];
+  onOpenSkill?: (skillId: string, name: string) => void;
+  streamlined: boolean;
+}
+
+function threadItemKey(item: TaskChatItem) {
+  return item.kind === "message" ? (item.renderKey ?? item.id) : item.id;
+}
+
+/** The handlers a row of this kind actually uses; the others can change freely. */
+function rowInputs(props: ThreadItemRowProps): unknown[] {
+  const shared = [props.className, props.streamlined, props.onApprovalDecision, props.onRuntimeRequestDecision, props.attachments, props.onOpenSkill];
+  switch (props.item.kind) {
+    case "message":
+      return [
+        ...shared,
+        props.renderMessageActions,
+        props.renderQueuedAction,
+        props.onTryAgainNoLiveExecutionPath,
+        props.tryAgainNoLiveExecutionPathPending,
+      ];
+    case "marker":
+      return [
+        ...shared,
+        props.retryableMarkerId === props.item.id,
+        props.onRetryFailedRun,
+        props.retryFailedRunId,
+        props.onTryAgainNoLiveExecutionPath,
+        props.tryAgainNoLiveExecutionPathPending,
+      ];
+    case "interaction":
+      return [...shared, props.renderInteraction];
+    case "brief":
+      return [...shared, props.renderBrief];
+    default:
+      return shared;
+  }
+}
+
+/**
+ * One thread entry. While a reply streams the list is rebuilt many times a
+ * second; a settled entry whose content and handlers did not change skips
+ * its redraw, so only the growing reply does work.
+ */
+const ThreadItemRow = memo(
+  function ThreadItemRow(props: ThreadItemRowProps) {
+    const { item } = props;
+    const key = threadItemKey(item);
+    return (
+      <div
+        data-thread-anchor={key}
+        id={item.kind === "message" ? `comment-${item.id}` : undefined}
+        className={props.className}
+        data-thread-item-kind={props.streamlined ? (item.kind === "message" ? item.author : item.kind) : undefined}
+      >
+        {renderItem(
+          item,
+          props.onApprovalDecision,
+          props.renderInteraction,
+          props.renderBrief,
+          props.renderMessageActions,
+          props.renderQueuedAction,
+          props.onRuntimeRequestDecision,
+          "classic",
+          props.onTryAgainNoLiveExecutionPath,
+          props.tryAgainNoLiveExecutionPathPending,
+          props.retryableMarkerId,
+          props.onRetryFailedRun,
+          props.retryFailedRunId,
+          props.attachments,
+          props.streamlined ? props.onOpenSkill : undefined,
+        )}
+      </div>
+    );
+  },
+  (previous, next) => {
+    if (previous.item !== next.item) return false;
+    const before = rowInputs(previous);
+    const after = rowInputs(next);
+    return before.length === after.length && before.every((value, index) => Object.is(value, after[index]));
+  },
+);
+
 /**
  * Presentational render layer for the redesigned task thread. Consumed by both
  * the live thread (adapter over comment/run props) and the dev harness
@@ -322,96 +420,58 @@ export function TaskChatThreadView({
                 item.label === "Usage limit reached"),
           )?.id
       : undefined;
-  // Streaming tail and header updates must not rebuild settled markdown/tool trees.
+  // Streaming tail and header updates must not rebuild settled markdown/tool
+  // trees, and a rebuilt list keeps the old object for every unchanged entry.
+  const stableItems = useStableEntries(items, threadItemKey);
+  const stableAttachments = useStableValue(attachments);
   const history = useMemo(() => {
-    const renderedItems = streamlined
-      ? items
-          .map((item) => ({
-            item,
-            content: renderItem(
-              item,
-              onApprovalDecision,
-              renderInteraction,
-              renderBrief,
-              renderMessageActions,
-              renderQueuedAction,
-              onRuntimeRequestDecision,
-              "classic",
-              onTryAgainNoLiveExecutionPath,
-              tryAgainNoLiveExecutionPathPending,
-              retryableMarkerId,
-              onRetryFailedRun,
-              retryFailedRunId,
-              attachments,
-              onOpenSkill,
-            ),
-          }))
-          .filter((entry) => entry.content !== null)
-      : [];
+    // Entries that draw nothing are left out, so spacing follows what shows.
+    const shownItems = streamlined
+      ? stableItems.filter((item) => {
+          if (item.kind === "interaction") return renderInteraction ? renderInteraction(item) != null : false;
+          if (item.kind === "brief") return renderBrief ? renderBrief() != null : false;
+          return true;
+        })
+      : stableItems;
     return (
       <>
-        {streamlined
-          ? renderedItems.map(({ item, content }, index) => (
-              <div
-                key={
-                  item.kind === "message" ? (item.renderKey ?? item.id) : item.id
-                }
-                data-thread-anchor={
-                  item.kind === "message" ? (item.renderKey ?? item.id) : item.id
-                }
-                id={item.kind === "message" ? `comment-${item.id}` : undefined}
-                className={taskChatItemSpacingClass(
-                  item,
-                  renderedItems[index - 1]?.item ?? null,
-                )}
-                data-thread-item-kind={
-                  item.kind === "message" ? item.author : item.kind
-                }
-              >
-                {content}
-              </div>
-            ))
-          : items.map((item, index) => (
-              <div
-                key={
-                  item.kind === "message" ? (item.renderKey ?? item.id) : item.id
-                }
-                data-thread-anchor={
-                  item.kind === "message" ? (item.renderKey ?? item.id) : item.id
-                }
-                id={item.kind === "message" ? `comment-${item.id}` : undefined}
-                className={cn(
-                  index > 0 &&
-                    item.kind === "interaction" &&
-                    item.interaction.status !== "pending" &&
-                    "-mt-3",
-                )}
-              >
-                {renderItem(
-                  item,
-                  onApprovalDecision,
-                  renderInteraction,
-                  renderBrief,
-                  renderMessageActions,
-                  renderQueuedAction,
-                  onRuntimeRequestDecision,
-                  "classic",
-                  onTryAgainNoLiveExecutionPath,
-                  tryAgainNoLiveExecutionPathPending,
-                  retryableMarkerId,
-                  onRetryFailedRun,
-                  retryFailedRunId,
-                  attachments,
-                )}
-              </div>
-            ))}
+        {shownItems.map((item, index) => (
+          <ThreadItemRow
+            key={threadItemKey(item)}
+            item={item}
+            className={
+              streamlined
+                ? taskChatItemSpacingClass(item, shownItems[index - 1] ?? null)
+                : cn(
+                    index > 0 &&
+                      item.kind === "interaction" &&
+                      item.interaction.status !== "pending" &&
+                      "-mt-3",
+                  ) || undefined
+            }
+            streamlined={streamlined}
+            onApprovalDecision={onApprovalDecision}
+            onRuntimeRequestDecision={onRuntimeRequestDecision}
+            renderInteraction={renderInteraction}
+            renderBrief={renderBrief}
+            renderMessageActions={renderMessageActions}
+            renderQueuedAction={renderQueuedAction}
+            onTryAgainNoLiveExecutionPath={onTryAgainNoLiveExecutionPath}
+            tryAgainNoLiveExecutionPathPending={tryAgainNoLiveExecutionPathPending}
+            retryableMarkerId={retryableMarkerId}
+            onRetryFailedRun={onRetryFailedRun}
+            retryFailedRunId={retryFailedRunId}
+            attachments={stableAttachments}
+            onOpenSkill={onOpenSkill}
+          />
+        ))}
       </>
     );
   }, [
-    items, streamlined, onApprovalDecision, onRuntimeRequestDecision,
+    stableItems, streamlined, onApprovalDecision, onRuntimeRequestDecision,
     renderInteraction, renderBrief, renderMessageActions, renderQueuedAction,
     onTryAgainNoLiveExecutionPath, tryAgainNoLiveExecutionPathPending,
-    retryableMarkerId, onRetryFailedRun, retryFailedRunId, attachments, onOpenSkill,
+    retryableMarkerId, onRetryFailedRun, retryFailedRunId, stableAttachments, onOpenSkill,
   ]);
   const body = (
     <div

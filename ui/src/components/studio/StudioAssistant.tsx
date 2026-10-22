@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Brain, Check, ChevronRight, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
@@ -18,6 +18,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelLogo } from "@/components/ModelLogo";
+import { MarkdownBody } from "@/components/MarkdownBody";
+import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
+import { StudioModelSheet } from "./StudioModelSheet";
 import { modelDisplayName } from "@/lib/model-brand";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
@@ -146,6 +149,62 @@ function StepRow({ step }: { step: StudioAssistantStep }) {
   );
 }
 
+/** A thought the model had before acting; tap to read all of it. */
+function ThoughtRow({ step }: { step: StudioAssistantStep }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex min-w-0 flex-col gap-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-8 min-w-0 items-center gap-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
+        data-testid="studio-thought"
+      >
+        <Brain className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className={cn("min-w-0 flex-1", open ? "" : "truncate")}>{open ? "Thought" : step.summary}</span>
+        <ChevronRight className={cn("size-3 shrink-0 transition-transform duration-(--motion-duration-fast)", open && "rotate-90")} aria-hidden="true" />
+      </button>
+      {open && step.detail ? (
+        <div className="ml-5 min-w-0 border-l-2 border-border pl-2 text-xs text-muted-foreground">
+          <MarkdownBody softBreaks>{step.detail}</MarkdownBody>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/** What the model is thinking right now: newest lines at the bottom, older ones fading. */
+function LiveThinking({ text }: { text: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-testid="studio-live-thinking">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Brain className="size-3.5 text-(--status-agent-running)" aria-hidden="true" />
+        <span className="shimmer-text shimmer-text-muted">Thinking…</span>
+      </span>
+      <div className="thinking-live ml-1.5 flex max-h-28 min-w-0 flex-col justify-end overflow-hidden border-l-2 border-border pl-2.5 text-xs text-muted-foreground" data-streaming="true">
+        <MarkdownBody softBreaks>{settleStreamingMarkdown(text)}</MarkdownBody>
+      </div>
+    </div>
+  );
+}
+
+function formatTokens(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  return String(value);
+}
+
+/** Tokens and cost of one reply, the way they count in Costs. */
+function UsageLine({ usage }: { usage: NonNullable<StudioAssistantTurn["usage"]> }) {
+  const cost = usage.costUsd === null ? null : usage.costUsd < 0.01 ? "under 1¢" : `$${usage.costUsd.toFixed(2)}`;
+  return (
+    <span className="text-xs text-muted-foreground tabular-nums" data-testid="studio-turn-usage">
+      {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out{cost ? ` · ${cost}` : ""}
+    </span>
+  );
+}
+
 /**
  * Studio's AI helper, using your own API key: describe what to build or fix
  * and it reads the files, writes code, runs commands, starts the app, and
@@ -202,12 +261,6 @@ export function StudioAssistant({
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
-
-  const modelOptions = useMemo(() => {
-    const list = [...info.models];
-    if (choice.model && !list.includes(choice.model)) list.unshift(choice.model);
-    return list;
-  }, [info.models, choice.model]);
 
   const addFiles = async (files: File[]) => {
     setError(null);
@@ -279,47 +332,15 @@ export function StudioAssistant({
     <div className="flex h-full min-h-0 flex-col">
       {/* Provider and model */}
       <div className="flex flex-col gap-2 border-b border-border p-3">
-        <div className="flex items-center gap-2">
-          <ModelLogo modelId={choice.provider === "anthropic" ? choice.model : choice.model || choice.provider} size="sm" />
-          <select
-            aria-label="AI provider"
-            value={choice.provider}
-            onChange={(event) => {
-              const provider = event.target.value as StudioAiProvider;
-              setChoice({ provider, model: STUDIO_AI_PROVIDER_INFO[provider].defaultModel });
-              setEditingKey(false);
-            }}
-            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            {STUDIO_AI_PROVIDERS.map((provider) => (
-              <option key={provider} value={provider}>
-                {STUDIO_AI_PROVIDER_INFO[provider].name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {modelOptions.length ? (
-          <select
-            aria-label="Model"
-            value={choice.model}
-            onChange={(event) => setChoice((current) => ({ ...current, model: event.target.value }))}
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            {modelOptions.map((model) => (
-              <option key={model} value={model}>
-                {modelDisplayName(model)}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <Input
-            aria-label="Model name"
-            placeholder="Model name, e.g. llama-3.3-70b"
-            value={choice.model}
-            onChange={(event) => setChoice((current) => ({ ...current, model: event.target.value }))}
-            className="h-9 font-mono text-sm"
-          />
-        )}
+        <StudioModelSheet
+          provider={choice.provider}
+          model={choice.model}
+          keys={keys}
+          onChange={(next) => {
+            if (next.provider !== choice.provider) setEditingKey(false);
+            setChoice(next);
+          }}
+        />
         {choice.provider === "anthropic" && FALLBACK_MODELS.has(choice.model) ? (
           <p className="text-xs text-muted-foreground">Fallbacks are on: if Claude declines a request, Anthropic retries it on another Claude model.</p>
         ) : null}
@@ -457,28 +478,38 @@ export function StudioAssistant({
                   ) : null}
                 </li>
               ) : (
-                <li key={turn.id} className="flex flex-col gap-2">
+                <li key={turn.id} className="flex min-w-0 flex-col gap-2">
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <ModelLogo modelId={turn.model ?? "claude"} size="xs" />
                     {modelDisplayName(turn.model)}
                   </span>
                   {groupSteps(turn.steps).map((group, index) =>
                     group.kind === "say" ? (
-                      <div key={index} className="text-sm whitespace-pre-wrap break-words">
-                        {group.text}
+                      <div key={index} className="min-w-0 text-sm break-words">
+                        <MarkdownBody softBreaks>{group.text}</MarkdownBody>
                       </div>
                     ) : (
                       <ul key={index} className="flex flex-col gap-1 border-l-2 border-border pl-2">
-                        {group.steps.map((step, stepIndex) => (
-                          <StepRow key={stepIndex} step={step} />
-                        ))}
+                        {group.steps.map((step, stepIndex) =>
+                          step.tool === "think" ? <ThoughtRow key={stepIndex} step={step} /> : <StepRow key={stepIndex} step={step} />,
+                        )}
                       </ul>
                     ),
                   )}
                   {/* Transcripts from before steps carried the text. */}
-                  {turn.text && !turn.steps.some((step) => step.tool === "say") ? <div className="text-sm whitespace-pre-wrap break-words">{turn.text}</div> : null}
-                  {turn.live ? <div className="text-sm whitespace-pre-wrap break-words">{turn.live}</div> : null}
+                  {turn.text && !turn.steps.some((step) => step.tool === "say") ? (
+                    <div className="min-w-0 text-sm break-words">
+                      <MarkdownBody softBreaks>{turn.text}</MarkdownBody>
+                    </div>
+                  ) : null}
+                  {turn.liveThinking ? <LiveThinking text={turn.liveThinking} /> : null}
+                  {turn.live ? (
+                    <div className="min-w-0 text-sm break-words" data-streaming="true" data-testid="studio-live-text">
+                      <MarkdownBody softBreaks>{settleStreamingMarkdown(turn.live)}</MarkdownBody>
+                    </div>
+                  ) : null}
                   {turn.error ? <p className="text-sm text-destructive">{turn.error}</p> : null}
+                  {turn.usage ? <UsageLine usage={turn.usage} /> : null}
                 </li>
               ),
             )}

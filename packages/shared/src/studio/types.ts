@@ -28,6 +28,10 @@ export interface StudioFileNode {
   path: string;
   type: "file" | "folder";
   size?: number;
+  /** When the file last changed (ISO time). */
+  modifiedAt?: string;
+  /** A dependency folder (node_modules and the like) whose contents are not listed. */
+  unlisted?: boolean;
   children?: StudioFileNode[];
 }
 
@@ -287,6 +291,10 @@ export interface StudioAssistantTurn {
   steps: StudioAssistantStep[];
   /** Text still being written (live updates only). */
   live?: string;
+  /** What the model is thinking right now, summarized (live updates only). */
+  liveThinking?: string;
+  /** Tokens and list-price cost of this reply, once it is done. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd: number | null };
   /** On your message: the checkpoint saved just before the assistant started. */
   checkpointId?: string | null;
   /** On your message: the files that went with it. */

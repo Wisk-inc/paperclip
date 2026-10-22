@@ -11,7 +11,10 @@ export const costEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id),
-    agentId: uuid("agent_id").notNull().references(() => agents.id),
+    /** Null for usage outside an agent run, such as App Studio's AI helper. */
+    agentId: uuid("agent_id").references(() => agents.id),
+    /** Where the spend came from: an agent run, or App Studio (its assistant and code suggestions). */
+    source: text("source").notNull().default("agent"),
     issueId: uuid("issue_id").references(() => issues.id, { onDelete: "set null" }),
     projectId: uuid("project_id").references(() => projects.id),
     goalId: uuid("goal_id").references(() => goals.id),

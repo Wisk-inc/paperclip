@@ -553,16 +553,33 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       node.matches(
         'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])',
       );
+    // The bar comes back a moment after a field loses focus, not at once:
+    // focus leaves on the finger's down, the tap lands on its up, and a bar
+    // that slid in between pushed the composer up under the finger, so the
+    // first tap missed and people had to tap twice.
+    let showTimer: ReturnType<typeof setTimeout> | null = null;
+    const cancelShow = () => {
+      if (showTimer !== null) clearTimeout(showTimer);
+      showTimer = null;
+    };
     const onFocusIn = (event: FocusEvent) => {
-      if (editable(event.target)) setMobileNavVisible(false);
+      if (!editable(event.target)) return;
+      cancelShow();
+      setMobileNavVisible(false);
     };
     const onFocusOut = (event: FocusEvent) => {
-      if (editable(event.target)) setMobileNavVisible(true);
+      if (!editable(event.target)) return;
+      cancelShow();
+      showTimer = setTimeout(() => {
+        showTimer = null;
+        if (!editable(document.activeElement)) setMobileNavVisible(true);
+      }, 350);
     };
     setMobileNavVisible(!editable(document.activeElement));
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
+      cancelShow();
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };

@@ -596,6 +596,9 @@ function applyRunLiveStatusPatchToArray<T extends LiveRunForIssue>(
   return changed ? nextRuns : runs;
 }
 
+const LOG_ACTIVITY_PATCH_INTERVAL_MS = 4000;
+const lastLogActivityPatchAt = new Map<string, number>();
+
 function readRunLiveStatusPatchFromPayload(
   payload: Record<string, unknown>,
   eventCreatedAt: string,
@@ -620,6 +623,15 @@ function readRunLiveStatusPatchFromPayload(
   }
 
   if (eventType === "heartbeat.run.log") {
+    // A streaming reply logs many times a second. Each patch replaced the
+    // live-runs cache and redrew everything that watches it (the sidebar, the
+    // top bar, avatars), which froze phones; the activity time only needs to
+    // move every few seconds.
+    const now = Date.now();
+    const lastPatched = lastLogActivityPatchAt.get(runId) ?? 0;
+    if (now - lastPatched < LOG_ACTIVITY_PATCH_INTERVAL_MS) return null;
+    if (lastLogActivityPatchAt.size > 500) lastLogActivityPatchAt.clear();
+    lastLogActivityPatchAt.set(runId, now);
     patch.lastEventAt = readString(payload.ts) ?? eventCreatedAt;
     return patch;
   }

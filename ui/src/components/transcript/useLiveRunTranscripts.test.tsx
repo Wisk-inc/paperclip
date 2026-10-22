@@ -130,6 +130,34 @@ describe("useLiveRunTranscripts", () => {
     }
   });
 
+  it("does not re-read logs or reconnect when a refetch only grows the byte counts", async () => {
+    logMock.mockImplementation(async () => ({ runId: "run-1", store: "memory", logRef: "log-1", content: "", nextOffset: undefined as unknown as number }));
+    function Harness({ bytes }: { bytes: number }) {
+      useLiveRunTranscripts({
+        companyId: "company-1",
+        runs: [
+          { id: "run-1", status: "running", adapterType: "codex_local", lastOutputBytes: bytes },
+          { id: "run-0", status: "succeeded", adapterType: "codex_local", logBytes: 40 },
+        ],
+      });
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<Harness bytes={10} />));
+      expect(logMock).toHaveBeenCalledTimes(2);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      for (const bytes of [20, 30, 40]) {
+        await act(async () => root.render(<Harness bytes={bytes} />));
+      }
+      expect(logMock).toHaveBeenCalledTimes(2);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("waits for a connecting socket to open before closing it during cleanup", async () => {
     function Harness() {
       useLiveRunTranscripts({
@@ -770,10 +798,13 @@ describe("useLiveRunTranscripts", () => {
   it("backs off exponentially when the live event socket keeps failing", async () => {
     vi.useFakeTimers();
     try {
-      function Harness({ lastOutputBytes }: { lastOutputBytes?: number }) {
+      function Harness({ secondRun = false }: { secondRun?: boolean }) {
         useLiveRunTranscripts({
           companyId: "company-1",
-          runs: [{ id: "run-1", status: "running", adapterType: "codex_local", lastOutputBytes }],
+          runs: [
+            { id: "run-1", status: "running", adapterType: "codex_local" },
+            ...(secondRun ? [{ id: "run-2", status: "running", adapterType: "codex_local" }] : []),
+          ],
         });
         return null;
       }
@@ -820,10 +851,10 @@ describe("useLiveRunTranscripts", () => {
       });
       expect(FakeWebSocket.instances).toHaveLength(4);
 
-      // Run-metadata changes restart the socket effect; the progressed delay
-      // must survive the restart instead of resetting to the base delay.
+      // A new run restarts the socket effect; the progressed delay must
+      // survive the restart instead of resetting to the base delay.
       await act(async () => {
-        root.render(<Harness lastOutputBytes={512} />);
+        root.render(<Harness secondRun />);
         await Promise.resolve();
       });
       expect(FakeWebSocket.instances).toHaveLength(5);

@@ -35,6 +35,8 @@ export interface CostSummary {
   /** Agent runs started in the period, and the time they spent (running ones count up to now). */
   runCount: number;
   runtimeMs: number;
+  /** App Studio's AI (its assistant and code suggestions), part of the totals above. */
+  studio?: { costCents: number; inputTokens: number; outputTokens: number; calls: number };
 }
 
 export interface IssueCostSummary {

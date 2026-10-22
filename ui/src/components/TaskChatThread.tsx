@@ -96,6 +96,7 @@ import { TaskChatWindowScroll } from "@/components/task-chat/useWindowAutoFollow
 import { useSidebar } from "@/context/SidebarContext";
 import { useStreamlinedUiEnabled } from "@/hooks/useStreamlinedUiEnabled";
 import { cn } from "@/lib/utils";
+import { useLatestCallback } from "@/lib/stable-value";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useIssuePlanDocument } from "@/hooks/useIssuePlanDocument";
@@ -540,15 +541,15 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     feedbackVotes,
     feedbackDataSharingPreference = "prompt",
     feedbackTermsUrl = null,
-    onVote,
-    onDeleteComment,
+    onVote: onVoteProp,
+    onDeleteComment: onDeleteCommentProp,
     draftKey,
-    onInterruptQueued,
+    onInterruptQueued: onInterruptQueuedProp,
     onCancelQueued,
     interruptingQueuedRunId,
-    onTryAgainNoLiveExecutionPath,
+    onTryAgainNoLiveExecutionPath: onTryAgainNoLiveExecutionPathProp,
     tryAgainNoLiveExecutionPathPending = false,
-    onRetryFailedRun,
+    onRetryFailedRun: onRetryFailedRunProp,
     retryFailedRunId = null,
     queuedCommentQueue,
     onEditQueuedComment,
@@ -562,6 +563,14 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     resumeAssigneePending = false,
     onOpenSkill,
   } = props;
+  // The page hands down fresh handler functions on most redraws. Keeping one
+  // identity per handler lets settled messages skip redrawing while a reply
+  // streams; each still calls the newest handler.
+  const onVote = useLatestCallback(onVoteProp);
+  const onDeleteComment = useLatestCallback(onDeleteCommentProp);
+  const onInterruptQueued = useLatestCallback(onInterruptQueuedProp);
+  const onTryAgainNoLiveExecutionPath = useLatestCallback(onTryAgainNoLiveExecutionPathProp);
+  const onRetryFailedRun = useLatestCallback(onRetryFailedRunProp);
   const retryFailedRunHandler =
     isTerminalIssueStatus(issueStatus) ||
     interactions?.some((interaction) => interaction.status === "pending") ||

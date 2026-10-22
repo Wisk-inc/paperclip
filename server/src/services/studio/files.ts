@@ -94,10 +94,17 @@ export async function listTree(root: string): Promise<StudioFileNode[]> {
           path: childPath,
           type: "folder",
           children: heavy ? [] : await walk(path.join(dir, entry.name), childPath, depth + 1),
+          ...(heavy ? { unlisted: true } : {}),
         });
       } else if (entry.isFile()) {
         const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
-        nodes.push({ name: entry.name, path: childPath, type: "file", size: stat?.size ?? 0 });
+        nodes.push({
+          name: entry.name,
+          path: childPath,
+          type: "file",
+          size: stat?.size ?? 0,
+          ...(stat ? { modifiedAt: stat.mtime.toISOString() } : {}),
+        });
       }
     }
     return nodes;
