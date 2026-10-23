@@ -239,7 +239,11 @@ describeEmbeddedPostgres("agentService.remove referential integrity", () => {
     expect(await db.select().from(agents).where(eq(agents.id, agentId))).toHaveLength(0);
     expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId))).toHaveLength(0);
     expect(await db.select().from(heartbeatRunEvents).where(eq(heartbeatRunEvents.runId, runId))).toHaveLength(0);
-    expect(await db.select().from(costEvents).where(eq(costEvents.id, costEventId))).toHaveLength(0);
+    // Its spend stays on the ledger without the agent, so Costs and budgets
+    // still count it.
+    expect(await db.select().from(costEvents).where(eq(costEvents.id, costEventId))).toEqual([
+      expect.objectContaining({ id: costEventId, agentId: null, heartbeatRunId: null }),
+    ]);
     expect(await db.select().from(decisions).where(eq(decisions.id, decisionId))).toHaveLength(0);
     expect(await db.select().from(decisionBundles).where(eq(decisionBundles.id, bundleId))).toHaveLength(0);
     expect(await db.select().from(agentApiKeys).where(eq(agentApiKeys.id, keyId))).toHaveLength(0);
@@ -250,7 +254,7 @@ describeEmbeddedPostgres("agentService.remove referential integrity", () => {
     expect(financeRows).toHaveLength(1);
     expect(financeRows[0]?.agentId).toBeNull();
     expect(financeRows[0]?.heartbeatRunId).toBeNull();
-    expect(financeRows[0]?.costEventId).toBeNull();
+    expect(financeRows[0]?.costEventId).toBe(costEventId);
 
     const issueRows = await db.select().from(issues).where(eq(issues.id, issueId));
     expect(issueRows).toHaveLength(1);
