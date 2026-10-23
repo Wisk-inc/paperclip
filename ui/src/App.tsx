@@ -1,6 +1,6 @@
-import { lazy, Suspense, type ReactNode, useContext } from "react";
+import { lazy, Suspense, type ReactNode, useContext, useEffect } from "react";
 import type { ToolConnectionCredentialSource } from "@paperclipai/shared";
-import { Navigate, Outlet, Route, Routes, useActiveCompanyPrefix, useLocation, useParams } from "@/lib/router";
+import { Navigate, Outlet, Route, Routes, useActiveCompanyPrefix, useLocation, useNavigate, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/i18n";
 import { Layout } from "./components/Layout";
@@ -320,6 +320,7 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="issues/recent" element={<Navigate to="/issues" replace />} />
       <Route path="chats" element={<Chats />} />
       <Route path="chats/:agentRef" element={<AgentChat />} />
+      <Route path="issues/new" element={<OpenNewTask />} />
       <Route path="issues/:issueId" element={<IssueDetail />} />
       {import.meta.env.DEV ? (
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
@@ -683,6 +684,19 @@ function AuditCompatibilityRedirect({
   return <Navigate to={`${to}${search ? `?${search}` : ""}${location.hash}`} replace />;
 }
 
+/** "New task" from the launcher: opens the new-task sheet over the task list. */
+function OpenNewTask() {
+  const { openNewIssue } = useDialogActions();
+  const navigate = useNavigate();
+  useEffect(() => {
+    navigate("/issues", { replace: true });
+    openNewIssue();
+    // Once per visit to this path.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 function UnprefixedBoardRedirect() {
   const location = useLocation();
   const { companies, selectedCompany, loading } = useCompany();
@@ -787,6 +801,14 @@ export function App() {
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="tasks" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
+          {/* Paths the Android app opens (launcher shortcuts, shares, notifications) without an organization. */}
+          <Route path="chats" element={<UnprefixedBoardRedirect />} />
+          <Route path="chats/:agentRef" element={<UnprefixedBoardRedirect />} />
+          <Route path="device-files" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals/*" element={<UnprefixedBoardRedirect />} />
+          <Route path="inbox" element={<UnprefixedBoardRedirect />} />
+          <Route path="inbox/*" element={<UnprefixedBoardRedirect />} />
           <Route path="routines" element={<UnprefixedBoardRedirect />} />
           <Route path="routines/:routineId" element={<UnprefixedBoardRedirect />} />
           <Route path="review-queue" element={<UnprefixedBoardRedirect />} />

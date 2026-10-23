@@ -103,6 +103,8 @@ interface MarkdownBodyProps {
 
 let mermaidLoaderPromise: Promise<typeof import("mermaid").default> | null = null;
 
+const COARSE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
+
 function MarkdownIssueLink({
   issuePathId,
   children,
@@ -110,10 +112,14 @@ function MarkdownIssueLink({
   issuePathId: string;
   children: ReactNode;
 }) {
+  // On a phone a reference shows what is already cached and fetches nothing,
+  // and gets no hover preview (there is no hover): agent replies list dozens
+  // of tasks, and one request plus one popover per link froze the page.
   const { data } = useQuery({
     queryKey: queryKeys.issues.detail(issuePathId),
     queryFn: () => issuesApi.get(issuePathId),
     staleTime: 60_000,
+    enabled: !COARSE_POINTER,
   });
 
   const identifier = data?.identifier ?? issuePathId;
@@ -124,6 +130,7 @@ function MarkdownIssueLink({
   return (
     <Link
       to={`/issues/${identifier}`}
+      disableIssueQuicklook={COARSE_POINTER}
       data-mention-kind="issue"
       // Boxless inline mention: the unified status glyph + a regular-weight
       // underlined link, optically centered with the body text.

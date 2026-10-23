@@ -3834,6 +3834,13 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
 
 /* Studio console: blocks of output that are off screen are not laid out or
    painted, so a program that prints nonstop doesn't stall the phone. */
+/* Chat rows off screen are skipped by layout and paint until scrolled near:
+   a long thread laid out every row on each update and froze taps on phones. */
+[data-thread-anchor] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6rem;
+}
+
 [data-console-chunk] {
   content-visibility: auto;
   contain-intrinsic-size: auto 50lh;

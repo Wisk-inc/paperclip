@@ -451,6 +451,19 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await act(async () => root.unmount());
     });
 
+    it("leaves on Escape, which is also what Android Back sends", async () => {
+      mockDialog.closeOnboarding.mockClear();
+      const { root } = await openStepOne();
+      const wizard = document.querySelector('[data-testid="onboarding-wizard"]');
+      expect(wizard?.getAttribute("role")).toBe("dialog");
+      expect(wizard?.getAttribute("data-state")).toBe("open");
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(mockDialog.closeOnboarding).toHaveBeenCalledTimes(1);
+      await act(async () => root.unmount());
+    });
+
     it("shows no environment-check card on the model step, and no Mission row on review", async () => {
       // Round-3 walk feedback: the adapter environment check still runs —
       // Connect probes before hiring and blocks on a fail — but its idle card

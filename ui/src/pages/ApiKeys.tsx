@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Star, Trash2 } from "lucide-react";
-import type { AiManagedConnectionSummary, AiProvider } from "@paperclipai/shared";
+import { cleanPastedApiKey, type AiManagedConnectionSummary, type AiProvider } from "@paperclipai/shared";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { toolsApi } from "@/api/tools";
 import { ModelLogo } from "@/components/ModelLogo";
@@ -70,22 +70,36 @@ export function ApiKeys() {
   const refresh = () => client.invalidateQueries({ queryKey: ["ai-connections"] });
 
   const add = useMutation({
-    mutationFn: async () =>
-      aiConnectionsApi.create(companyId!, {
+    mutationFn: async () => {
+      const apiKey = cleanPastedApiKey(keyInput);
+      const created = await aiConnectionsApi.create(companyId!, {
         provider,
         method: "api_key",
-        name: `${info.name} key`,
+        // The last characters tell two keys for the same provider apart.
+        name: `${info.name} key ··${apiKey.slice(-4)}`,
         ownership: "personal",
-        apiKey: keyInput.trim(),
+        apiKey,
         agentIds: [],
         allAgents: true,
-      }),
-    onSuccess: async () => {
+      });
+      // The server keeps an earlier default, so a replaced key went on being
+      // used (or, once removed, none was). The key added here is the one the
+      // toast promises everything will use.
+      const madeDefault = await aiConnectionsApi.setDefault(companyId!, created.grantId).then(() => true, () => false);
+      return { ...created, madeDefault };
+    },
+    onSuccess: async ({ madeDefault }) => {
       haptic("success");
       setKeyInput("");
       setShowKey(false);
       await refresh();
-      pushToast({ title: `${info.name} key saved`, body: "Agents, chats, and App Studio can use it now.", tone: "success" });
+      pushToast({
+        title: `${info.name} key saved`,
+        body: madeDefault
+          ? "Agents, chats, and App Studio can use it now."
+          : "Saved, but it isn't your default yet. Tap Make default to use it.",
+        tone: madeDefault ? "success" : "warn",
+      });
     },
     onError: (error) => {
       haptic("warning");

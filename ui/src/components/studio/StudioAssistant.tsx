@@ -251,9 +251,12 @@ export function StudioAssistant({
     }
   }, [choice, storageKey]);
 
+  // Follow a streaming reply only while the reader is at the bottom, so they
+  // can scroll up to read earlier messages without being pulled back down.
+  const stickRef = useRef(true);
   useEffect(() => {
     const node = scrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    if (node && stickRef.current) node.scrollTop = node.scrollHeight;
   }, [turns]);
 
   useEffect(() => {
@@ -292,6 +295,7 @@ export function StudioAssistant({
   };
 
   const send = async (text: string) => {
+    stickRef.current = true;
     const trimmed = text.trim();
     if ((!trimmed && attachments.length === 0) || !choice.model.trim()) return;
     setSending(true);
@@ -409,7 +413,15 @@ export function StudioAssistant({
       </div>
 
       {/* Conversation */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="studio-assistant-log">
+      <div
+        ref={scrollRef}
+        onScroll={(event) => {
+          const node = event.currentTarget;
+          stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto p-3"
+        data-testid="studio-assistant-log"
+      >
         {turns.length === 0 ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">

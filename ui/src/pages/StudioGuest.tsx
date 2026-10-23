@@ -302,6 +302,9 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
         case "console":
           consoleStore.push(event.lines);
           break;
+        case "console:clear":
+          consoleStore.clear();
+          break;
         case "run":
           setRun(event.state);
           break;

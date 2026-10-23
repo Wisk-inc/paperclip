@@ -7,7 +7,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { ModelLogo } from "@/components/ModelLogo";
 import { ByokKeysCard, connectKeyHref } from "./ByokKeysCard";
-import { ThinkingDepthControl } from "./ThinkingDepthControl";
+import { ThinkingDepthControl, currentThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "./ThinkingDepthControl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -200,7 +200,14 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
   const select = useMutation({
     mutationFn: async (entry: ModelEntry) => {
       if (entry.source === "runtime" || runsOnOpenRouter) {
-        return agentsApi.update(agent.id, { adapterConfig: { model: entry.id } }, companyId);
+        // A thinking level the new model doesn't take is cleared with the switch.
+        const level = currentThinkingLevel(agent);
+        const keepsLevel = !level || thinkingLevelsFor({ ...agent, adapterConfig: { ...agent.adapterConfig, model: entry.id } }).includes(level);
+        return agentsApi.update(
+          agent.id,
+          { adapterConfig: { model: entry.id, ...(keepsLevel ? {} : thinkingLevelPatch(agent, "")) } },
+          companyId,
+        );
       }
       // Any model through your own OpenRouter key runs on the OpenCode runtime.
       return agentsApi.update(agent.id, {

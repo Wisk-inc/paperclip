@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@/lib/router";
+import { Link, useLocation, useNavigate } from "@/lib/router";
 import { ChevronLeft, Menu, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { haptic } from "@/lib/haptics";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -64,6 +64,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
   } = useBreadcrumbs();
   const { toggleSidebar, isMobile } = useSidebar();
   const navigate = useNavigate();
+  const location = useLocation();
   const { panelVisible, togglePanelVisible } = usePanel();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const taskPanelOpen = breadcrumbPanelControl?.open ?? panelVisible;
@@ -114,8 +115,11 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
         className="mr-1 shrink-0"
         onClick={() => {
           haptic("tick");
-          if (window.history.length > 1) navigate(-1);
-          else navigate(breadcrumbs[0]?.href ?? "/dashboard");
+          // Only go back within the app. `history.length` also counts pages
+          // from before the app opened (a deep link, a notification, the
+          // Android app restoring the last page), and Back left the app.
+          if (location.key !== "default") navigate(-1);
+          else navigate([...breadcrumbs].reverse().slice(1).find((crumb) => crumb.href)?.href ?? breadcrumbs[0]?.href ?? "/dashboard");
         }}
         aria-label="Back"
         data-testid="phone-back"

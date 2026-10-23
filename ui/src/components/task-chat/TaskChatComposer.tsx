@@ -339,6 +339,11 @@ type ComposerAttachment = {
   contentPath?: string;
 };
 
+/** An uploaded inline image whose markdown is no longer in the message. */
+function isDroppedInlineImage(item: ComposerAttachment, body: string) {
+  return Boolean(item.inline && item.status === "attached" && item.contentPath && !body.includes(item.contentPath));
+}
+
 type QueuedEditBackup = {
   body: string;
   attachments: ComposerAttachment[];
@@ -840,6 +845,12 @@ export function TaskChatComposer({
   const visibleAttachments = attachments.filter(
     (item) => !item.inline || item.status !== "attached",
   );
+  // An inline image deleted from the text still has its upload receipt, but
+  // no chip to remove it by. Counting it kept Stop hidden and blocked slash
+  // commands with nothing on screen to clear.
+  const liveAttachments = attachments.filter(
+    (item) => !isDroppedInlineImage(item, body),
+  );
   // Sending mid-upload would silently drop the pending file from the comment;
   // sending past a failed chip would discard the file the user selected and
   // clear its error state, so both hold submission until resolved or removed.
@@ -847,7 +858,7 @@ export function TaskChatComposer({
     !queuedEdit &&
     !submitting &&
     body.trim().length === 0 &&
-    attachments.length === 0 &&
+    liveAttachments.length === 0 &&
     Boolean(onStop || stopControl.stopping);
   const uploadPending = attachments.some((item) => item.status === "uploading");
   const uploadFailed = attachments.some((item) => item.status === "error");
@@ -946,7 +957,7 @@ export function TaskChatComposer({
     const submittedAssignee = pendingAssigneeRef.current;
     const slashCommand = queuedEdit ? null : parseChatSlashCommand(submittedBody);
     if (slashCommand) {
-      if (submittedAttachments.length > 0) {
+      if (submittedAttachments.some((item) => !isDroppedInlineImage(item, submittedBody))) {
         setActionError("Remove attachments before using a slash command.");
         return;
       }
@@ -1678,6 +1689,10 @@ export function TaskChatComposer({
 
             <button
               type="button"
+              // Keep focus in the message box: a tap that moved focus to the
+              // button closed the phone keyboard, and the composer jumped
+              // when the tab bar came back.
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => void (showStop ? stopControl.stop() : submit())}
               disabled={
                 showStop

@@ -336,11 +336,25 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     };
   }, []);
 
-  // Center the chart on first load
+  // Center the chart on first load, and again only when agents are added or
+  // removed. The tree is rebuilt on every refetch (every 15 s); re-fitting on
+  // each one reset the zoom under a dragging finger and dropped the card on
+  // whichever agent was then beneath it.
   const hasInitialized = useRef(false);
+  const orgMembersKey = useMemo(() => {
+    const ids: string[] = [];
+    const visit = (nodes: OrgNode[]) => {
+      for (const node of nodes) {
+        ids.push(node.id);
+        visit(node.reports ?? []);
+      }
+    };
+    visit(orgTree ?? []);
+    return ids.sort().join(",");
+  }, [orgTree]);
   useEffect(() => {
     hasInitialized.current = false;
-  }, [orgTree]);
+  }, [orgMembersKey]);
 
   useEffect(() => {
     if (hasInitialized.current || allNodes.length === 0 || !containerRef.current) return;

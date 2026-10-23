@@ -130,7 +130,7 @@ export function StudioModelSheet({
             </div>
 
             <h3 className="pt-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model</h3>
-            {models.length ? (
+            {info.models.length ? (
               <ul className="flex flex-col divide-y divide-border rounded-lg border border-border" role="radiogroup" aria-label="Model">
                 {models.map((id) => {
                   const selected = id === model;

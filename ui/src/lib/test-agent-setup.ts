@@ -32,6 +32,9 @@ export async function testAgentSetup(input: {
       (check) => check.code === ADAPTER_AUTH_MISSING_CHECK_CODE,
     ) ||
     runtime.checks.some((check) => check.code.includes("hello_probe")) ||
+    // The direct API engine's own check already proved the key with a call;
+    // a second probe through Claude Code would test a program it never uses.
+    runtime.checks.some((check) => check.code.startsWith("claude_api_")) ||
     !["claude_local", "codex_local"].includes(input.providerAdapter)
   )
     return runtime;

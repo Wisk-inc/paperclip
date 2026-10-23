@@ -149,3 +149,17 @@ export async function fetchCompanyListForCurrentAccount(
     staleTime: 0,
   });
 }
+
+/**
+ * Puts a company that was just created into every cached company list, so it
+ * can be selected at once. Selecting it before the list refetched used to fail
+ * the "does this company exist" check, and the fallback opened whichever
+ * company sorts first — someone else's, on a shared server.
+ */
+export function rememberCreatedCompany(queryClient: QueryClient, company: Company) {
+  queryClient.setQueriesData<CompanyListResult>({ queryKey: ["companies", "list"] }, (old) => {
+    if (!old || !Array.isArray(old.companies)) return old;
+    if (old.companies.some((existing) => existing.id === company.id)) return old;
+    return { ...old, companies: [...old.companies, company] };
+  });
+}

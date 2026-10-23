@@ -148,6 +148,9 @@ export function useLiveRunTranscripts({
   const [hydratedRunIds, setHydratedRunIds] = useState<Set<string>>(new Set());
   const [errorsByRun, setErrorsByRun] = useState<ReadonlyMap<string, Error>>(new Map());
   const [retryGeneration, setRetryGeneration] = useState(0);
+  // Bumped when the live socket (re)opens: output written while it was down
+  // is read from the log right away instead of on the slow safety poll.
+  const [socketOpenGeneration, setSocketOpenGeneration] = useState(0);
   const retry = useCallback(() => {
     missingTerminalLogRunIdsRef.current.clear();
     fullyReadRunIdsRef.current.clear();
@@ -419,7 +422,7 @@ export function useLiveRunTranscripts({
       controller.abort();
       if (interval !== null) window.clearInterval(interval);
     };
-  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration]);
+  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration, socketOpenGeneration]);
 
   useEffect(() => {
     if (!visible || !enableRealtimeUpdates) return;
@@ -462,6 +465,7 @@ export function useLiveRunTranscripts({
       socket.onopen = () => {
         if (closed) return;
         reconnectState.attempt = 0;
+        setSocketOpenGeneration((value) => value + 1);
       };
 
       socket.onmessage = (message) => {

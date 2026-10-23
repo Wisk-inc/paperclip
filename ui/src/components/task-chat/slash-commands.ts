@@ -75,6 +75,11 @@ export function parseChatSlashCommand(body: string): ChatSlashCommand | null {
   if (!match) return null;
   const word = match[1]!.toLowerCase();
   const argument = (match[2] ?? "").trim();
+  // Only /model and /think take words after them. "/ask what is 2+2?" or
+  // "/reset my password flow is broken" is a message, not a command: run as a
+  // command it threw the text away (and reset the session).
+  const takesArgument = ["model", "models", "think", "thinking", "effort"].includes(word);
+  if (argument && !takesArgument) return null;
   if (word in MODE_BY_COMMAND) return { name: "mode", mode: MODE_BY_COMMAND[word]! };
   switch (word) {
     case "model":

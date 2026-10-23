@@ -27,3 +27,15 @@ describe("settleStreamingMarkdown", () => {
     expect(settleStreamingMarkdown("Steps:\n- one\n- ")).toBe("Steps:\n- one\n- ");
   });
 });
+
+describe("settleStreamingMarkdown on split markers", () => {
+  it("treats a trailing asterisk after an open bold as half of the closer", () => {
+    expect(settleStreamingMarkdown("Plan for **launch day*")).toBe("Plan for **launch day**");
+    expect(settleStreamingMarkdown("a **done** and *ital*")).toBe("a **done** and *ital*");
+  });
+
+  it("leaves link-looking text inside inline code alone", () => {
+    expect(settleStreamingMarkdown("Call `foo[0](x` and then")).toBe("Call `foo[0](x` and then");
+    expect(settleStreamingMarkdown("See [the docs](https://exa")).toBe("See the docs");
+  });
+});

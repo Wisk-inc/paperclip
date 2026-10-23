@@ -320,6 +320,14 @@ export function StudioWorkspace() {
         case "console":
           consoleStore.push(event.lines);
           break;
+        case "console:clear":
+          consoleStore.clear();
+          break;
+        case "assistant:cleared":
+          setTurns([]);
+          setAssistantRunning(false);
+          void queryClient.invalidateQueries({ queryKey: queryKeys.studio.assistant(workspaceId) });
+          break;
         case "run":
           setRun(event.state);
           break;
@@ -352,6 +360,19 @@ export function StudioWorkspace() {
   const socketUrl = useMemo(() => (workspaceId ? studioSocketUrl({ workspaceId }) : null), [workspaceId]);
   const { status: socketStatus, send } = useStudioSocket(socketUrl, handleEvent);
   useEffect(() => setSocketLive(socketStatus === "open"), [socketStatus]);
+  // Whatever happened while the socket was down (a reply finishing, console
+  // output, a cleared chat) is read again as soon as it reconnects.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (socketStatus !== "open") return;
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: queryKeys.studio.assistant(workspaceId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) });
+    void studioApi.console(workspaceId).then((result) => consoleStore.merge(result.lines)).catch(() => undefined);
+  }, [socketStatus, queryClient, workspaceId, consoleStore]);
 
   // ── Files ─────────────────────────────────────────────────────────────
   const save = useCallback(
@@ -616,10 +637,16 @@ export function StudioWorkspace() {
       }}
       onRename={async (from, to) => {
         try {
-          if (fileRef.current?.path === from) await save();
+          // The open file moves with its folder too: re-opened only on an exact
+          // match, its next autosave wrote the old path and brought the old
+          // folder back.
+          const openPath = fileRef.current?.path;
+          const movedTo =
+            openPath === from ? to : openPath?.startsWith(`${from}/`) ? `${to}${openPath.slice(from.length)}` : null;
+          if (movedTo) await save();
           await studioApi.move(workspaceId, { from, to });
           await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
-          if (fileRef.current?.path === from) await openFile(to);
+          if (movedTo) await openFile(movedTo);
         } catch (error) {
           pushToast({ title: "Couldn't rename", body: errorText(error), tone: "error" });
         }

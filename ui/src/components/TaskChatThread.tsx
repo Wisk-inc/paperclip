@@ -250,6 +250,38 @@ const SETTLING_TAIL_MAX_MS = 15_000;
 const EMPTY_LIVE_ISSUE_IDS: ReadonlySet<string> = new Set<string>();
 const LONG_THREAD_BLOCKER_REPEAT_COUNT = 4;
 
+/** Failures of the direct Anthropic API engine that a different key or model fixes. */
+const DIRECT_API_KEY_FAILURES = new Set([
+  "claude_api_auth_failed",
+  "claude_api_key_missing",
+  "claude_api_permission_denied",
+  "claude_api_model_not_found",
+]);
+
+/** What a direct Anthropic API engine failure means, in words (the code alone says nothing). */
+function directApiFailureDetail(code: string, agentName: string, retryDetail: string): string | null {
+  switch (code) {
+    case "claude_api_auth_failed":
+      return `Anthropic rejected ${agentName}'s API key. Check it under Settings → API keys, then send again.`;
+    case "claude_api_key_missing":
+      return `${agentName} has no Anthropic API key yet. Add one under Settings → API keys, then send again.`;
+    case "claude_api_permission_denied":
+      return `This API key can't use ${agentName}'s model. Pick another model, or check the key under Settings → API keys.`;
+    case "claude_api_model_not_found":
+      return `Anthropic doesn't know ${agentName}'s model name. Pick another model for this chat.`;
+    case "claude_api_rate_limited":
+      return `Anthropic is rate limiting this key. Wait a moment, then send again.`;
+    case "claude_api_refusal":
+      return `Claude declined to answer this message.`;
+    case "claude_transient_upstream":
+      return `Anthropic was overloaded or had a server error. ${retryDetail}`;
+    case "claude_api_error":
+      return `${agentName}'s call to Anthropic failed. ${retryDetail} If it keeps happening, check the key under Settings → API keys.`;
+    default:
+      return null;
+  }
+}
+
 export function shouldRepeatTaskChatBlockers(items: TaskChatItem[]): boolean {
   const conversationItems = items.filter(
     (item) =>
@@ -1692,7 +1724,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? `${failedAgentName} couldn't start a session with its model (${code}). Almost always the API key is missing, wrong, or out of credit. Add or check it under Settings → API keys, then send again.`
             : code === "acpx_turn_failed"
             ? `${failedAgentName}'s model call failed (${code}). ${retryDetail} If it keeps happening, check the API key and the provider under Settings → API keys.`
-            : `The run failed (${code}). ${retryDetail}`;
+            : directApiFailureDetail(code, failedAgentName, retryDetail) ?? `The run failed (${code}). ${retryDetail}`;
         const id = `${source.id}:failure`;
         entriesWithFailures.push({
           ms: toMs(meta?.finishedAt ?? meta?.startedAt ?? meta?.createdAt),
@@ -1708,9 +1740,12 @@ export function TaskChatThread(props: TaskChatThreadProps) {
               retryable: meta?.resultJson?.workspaceRestoreFailure !== "restore_unsafe_archive",
               collapsible: true,
               runHref: meta?.agentId ? `/agents/${encodeURIComponent(agentMap?.get(meta.agentId)?.urlKey ?? meta.agentId)}/runs/${encodeURIComponent(source.id)}` : undefined,
-              ...(isModelSessionFailure(code) || code === "acpx_turn_failed" ? { helpHref: "/company/settings/api-keys", helpLabel: "Open API keys" } : {}),
               planHref: savedPlan ? "#document-plan" : undefined,
             } : {}),
+            // A key problem links straight to where keys are fixed.
+            ...(isModelSessionFailure(code) || code === "acpx_turn_failed" || DIRECT_API_KEY_FAILURES.has(code)
+              ? { helpHref: "/company/settings/api-keys", helpLabel: "Open API keys" }
+              : {}),
             tone: source.status === "cancelled" ? "neutral" : "error",
             detail,
           },

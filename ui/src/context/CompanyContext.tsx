@@ -13,6 +13,7 @@ import type { Company } from "@paperclipai/shared";
 import { companiesApi } from "../api/companies";
 import {
   fetchCompanyListForCurrentAccount,
+  rememberCreatedCompany,
   useAccountIdentity,
   useCompanyListQuery,
 } from "../api/companies-query";
@@ -232,6 +233,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     }) =>
       companiesApi.create(data),
     onSuccess: (company) => {
+      rememberCreatedCompany(queryClient, company);
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       setSelectedCompanyId(company.id);
     },

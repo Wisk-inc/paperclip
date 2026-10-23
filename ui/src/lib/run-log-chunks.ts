@@ -199,6 +199,9 @@ export function parsePersistedLogContent(
  *   text deltas, which legitimately repeat) and act as an ordering barrier for
  *   subsequent sequenced inserts.
  */
+/** Each kept chunk's dedupe key, without changing the chunk's own shape. */
+const CHUNK_DEDUPE_KEYS = new WeakMap<RunLogChunk, string>();
+
 export function mergeRunLogChunks(
   runId: string,
   prevChunks: RunLogChunk[],
@@ -210,6 +213,16 @@ export function mergeRunLogChunks(
 
   const existing = [...prevChunks];
   let changed = false;
+  // Whether a record is a repeat is decided from the chunks already kept, not
+  // only from the shared "seen" set: React may run this updater twice (a
+  // streamed update rebased under an urgent one), and the second run must
+  // not drop a chunk the first run marked as seen.
+  let presentKeys: Set<string> | null = null;
+  const keptKeys = (): Set<string> =>
+    (presentKeys ??= new Set(existing.flatMap((item) => {
+      const itemKey = CHUNK_DEDUPE_KEYS.get(item);
+      return itemKey ? [itemKey] : [];
+    })));
 
   for (const chunk of incoming) {
     if (typeof chunk.seq === "number") {
@@ -241,10 +254,17 @@ export function mergeRunLogChunks(
     }
 
     if (!isStructuredStreamingTextDelta(chunk.chunk)) {
-      if (refs.seenChunkKeys.has(chunk.dedupeKey)) continue;
+      if (keptKeys().has(chunk.dedupeKey)) continue;
+      // Seen before but no longer kept: it was trimmed out of the window, so
+      // an older copy arriving again stays out.
+      const oldest = existing[0];
+      if (refs.seenChunkKeys.has(chunk.dedupeKey) && oldest && chunk.ts < oldest.ts) continue;
       refs.seenChunkKeys.add(chunk.dedupeKey);
+      keptKeys().add(chunk.dedupeKey);
     }
-    existing.push({ ts: chunk.ts, stream: chunk.stream, chunk: chunk.chunk });
+    const stored: RunLogChunk = { ts: chunk.ts, stream: chunk.stream, chunk: chunk.chunk };
+    CHUNK_DEDUPE_KEYS.set(stored, chunk.dedupeKey);
+    existing.push(stored);
     changed = true;
   }
 

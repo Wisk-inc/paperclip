@@ -136,8 +136,10 @@ export function TaskChatMarker({
   return (
     <div
       className="tc-enter-marker flex items-center gap-2 py-1 text-xs text-muted-foreground"
-      role={streamlined ? "separator" : undefined}
-      aria-label={streamlined ? item.label : undefined}
+      // A separator hides its children from screen readers, so a marker with
+      // a Try again button stays a plain group.
+      role={streamlined && !onTryAgain ? "separator" : undefined}
+      aria-label={streamlined && !onTryAgain ? item.label : undefined}
     >
       <span
         className={cn(

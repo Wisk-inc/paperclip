@@ -526,7 +526,16 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
         setSidebarOpen(false);
         return true;
       }
-      const open = document.querySelector('[data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"], [data-state="open"][data-slot="dropdown-menu-content"]');
+      const open = document.querySelector([
+        '[data-state="open"][role="dialog"]',
+        '[data-state="open"][role="alertdialog"]',
+        '[data-state="open"][role="listbox"]',
+        '[data-state="open"][role="menu"]',
+        '[data-state="open"][data-slot="dropdown-menu-content"]',
+        '[data-state="open"][data-slot="select-content"]',
+        '[data-state="open"][data-slot="context-menu-content"]',
+        '[data-state="open"][data-slot="popover-content"]',
+      ].join(", "));
       if (open) {
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
         return true;

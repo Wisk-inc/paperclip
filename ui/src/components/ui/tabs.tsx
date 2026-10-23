@@ -7,8 +7,27 @@ import { cn } from "@/lib/utils"
 function Tabs({
   className,
   orientation = "horizontal",
+  onValueChange,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Root>) {
+  // One tap reports the new tab twice (on press, then again on focus) before a
+  // value held in the URL has caught up, and handlers that navigate pushed the
+  // page twice, so Back seemed to do nothing. Repeats in the same task are
+  // dropped.
+  const lastChange = React.useRef<string | null>(null)
+  const handleValueChange = React.useMemo(
+    () =>
+      onValueChange &&
+      ((next: string) => {
+        if (lastChange.current === next) return
+        lastChange.current = next
+        setTimeout(() => {
+          lastChange.current = null
+        }, 0)
+        onValueChange(next)
+      }),
+    [onValueChange]
+  )
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
@@ -18,6 +37,7 @@ function Tabs({
         "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
         className
       )}
+      onValueChange={handleValueChange}
       {...props}
     />
   )

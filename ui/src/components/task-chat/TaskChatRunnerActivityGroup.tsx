@@ -172,39 +172,46 @@ function RollingActivity({
   if (frame.current.id !== item.id)
     setFrame({ current: item, previous: reducedMotion ? null : frame.current });
   else if (frame.current !== item) setFrame({ ...frame, current: item });
+  // Screen readers hear the phase ("Thinking", "Reading a file"), once per
+  // change. The visible row streams the thought itself, and announcing it
+  // made a reader start the whole thought over on every chunk.
+  const announcement = presentation(item, active)?.label ?? "";
   return (
-    <span
-      className="relative flex h-8 min-w-0 flex-1 items-center overflow-hidden"
-      aria-live="polite"
-      aria-atomic="true"
-      data-testid="task-chat-activity-viewport"
-    >
-      {frame.previous && !reducedMotion ? (
-        <span
-          key={`exit-${item.id}`}
-          className="runner-activity-roll-out absolute inset-0 flex items-center"
-          aria-hidden="true"
-          onAnimationEnd={() =>
-            setFrame((current) =>
-              current.current.id === item.id
-                ? { ...current, previous: null }
-                : current,
-            )
-          }
-        >
-          <ActivityContent item={frame.previous} active={false} />
-        </span>
-      ) : null}
-      <span
-        key={item.id}
-        className={cn(
-          "relative flex w-full min-w-0 items-center",
-          frame.previous && !reducedMotion && "runner-activity-roll-in",
-        )}
-      >
-        <ActivityContent item={item} active={active} />
+    <>
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
       </span>
-    </span>
+      <span
+        className="relative flex h-8 min-w-0 flex-1 items-center overflow-hidden"
+        data-testid="task-chat-activity-viewport"
+      >
+        {frame.previous && !reducedMotion ? (
+          <span
+            key={`exit-${item.id}`}
+            className="runner-activity-roll-out absolute inset-0 flex items-center"
+            aria-hidden="true"
+            onAnimationEnd={() =>
+              setFrame((current) =>
+                current.current.id === item.id
+                  ? { ...current, previous: null }
+                  : current,
+              )
+            }
+          >
+            <ActivityContent item={frame.previous} active={false} />
+          </span>
+        ) : null}
+        <span
+          key={item.id}
+          className={cn(
+            "relative flex w-full min-w-0 items-center",
+            frame.previous && !reducedMotion && "runner-activity-roll-in",
+          )}
+        >
+          <ActivityContent item={item} active={active} />
+        </span>
+      </span>
+    </>
   );
 }
 

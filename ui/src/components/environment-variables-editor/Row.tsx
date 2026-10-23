@@ -67,6 +67,12 @@ export interface EnvironmentVariableRowProps {
   onFocusConsumed: () => void;
 }
 
+
+const REDACTED_PLACEHOLDER = "***REDACTED***";
+function isRedactedPlaceholder(value: string) {
+  return value.trim() === REDACTED_PLACEHOLDER;
+}
+
 export function EnvironmentVariableRow({
   row,
   isLast,
@@ -143,7 +149,8 @@ export function EnvironmentVariableRow({
         // `interactOutside` on the just-opened popover, which Radix would
         // immediately dismiss — the same nested open-while-closing race as the
         // ⋯ path and the picker's + Create item (PAP-12476/12477/12478).
-        const { name, value } = plan;
+        const { name } = plan;
+        const value = isRedactedPlaceholder(plan.value) ? "" : plan.value;
         window.setTimeout(() => setSecretPopover({ mode: "store", name, value }), 0);
         return;
       }
@@ -178,7 +185,9 @@ export function EnvironmentVariableRow({
 
   function openStoreAsSecret() {
     const name = secretNameFromKey(row.name) || "secret";
-    const { textValue } = row;
+    // A saved value comes back hidden; storing the placeholder would replace
+    // the real key, so the person types the value instead.
+    const textValue = isRedactedPlaceholder(row.textValue) ? "" : row.textValue;
     window.setTimeout(() => setSecretPopover({ mode: "store", name, value: textValue }), 0);
   }
 

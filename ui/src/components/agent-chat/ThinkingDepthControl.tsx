@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Brain } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
@@ -18,7 +19,31 @@ export const THINKING_LEVELS: Record<string, { label: string; hint: string }> = 
   high: { label: "Deep", hint: "Thinks things through." },
   xhigh: { label: "Deeper", hint: "Longer thinking for hard problems." },
   max: { label: "Max", hint: "As much thinking as it needs. Slowest and priciest." },
+  ultra: { label: "Ultra", hint: "Codex's deepest level. Slowest and priciest." },
 };
+
+/**
+ * The setting each runtime reads its thinking level from. Writing "effort"
+ * everywhere looked saved but never reached Codex, Grok or Pi.
+ */
+export function thinkingConfigKey(adapterType: string): string {
+  switch (adapterType) {
+    case "codex_local":
+      return "modelReasoningEffort";
+    case "grok_local":
+      return "reasoningEffort";
+    case "pi_local":
+      return "thinking";
+    default:
+      return "effort";
+  }
+}
+
+/** The change that sets a level, clearing the generic key where another one is read. */
+export function thinkingLevelPatch(agent: Pick<Agent, "adapterType">, level: string): Record<string, string> {
+  const key = thinkingConfigKey(agent.adapterType);
+  return key === "effort" ? { effort: level } : { [key]: level, effort: "" };
+}
 
 export function thinkingLevelsFor(agent: Pick<Agent, "adapterType" | "adapterConfig">): string[] {
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
@@ -26,7 +51,9 @@ export function thinkingLevelsFor(agent: Pick<Agent, "adapterType" | "adapterCon
   return efforts.length ? ["", ...efforts] : [];
 }
 
-export function currentThinkingLevel(agent: Pick<Agent, "adapterConfig">): string {
+export function currentThinkingLevel(agent: Pick<Agent, "adapterType" | "adapterConfig">): string {
+  const own = agent.adapterConfig?.[thinkingConfigKey(agent.adapterType)];
+  if (typeof own === "string" && own) return own;
   const effort = agent.adapterConfig?.effort;
   return typeof effort === "string" ? effort : "";
 }
@@ -43,12 +70,13 @@ export function resolveThinkingLevel(agent: Pick<Agent, "adapterType" | "adapter
   return null;
 }
 
-export function useSetThinkingLevel(agent: Agent) {
+export function useSetThinkingLevel(agent: Agent, onSaved?: (level: string) => void) {
   const client = useQueryClient();
   const toast = useOptionalToastActions();
   return useMutation({
-    mutationFn: (effort: string) => agentsApi.update(agent.id, { adapterConfig: { effort } }, agent.companyId),
+    mutationFn: (effort: string) => agentsApi.update(agent.id, { adapterConfig: thinkingLevelPatch(agent, effort) }, agent.companyId),
     onSuccess: async (_updated, effort) => {
+      onSaved?.(effort);
       haptic("success");
       const level = THINKING_LEVELS[effort] ?? { label: effort, hint: "" };
       toast?.pushToast({ title: `Thinking: ${level.label}`, body: level.hint, tone: "success" });
@@ -70,8 +98,13 @@ export function useSetThinkingLevel(agent: Agent) {
  */
 export function ThinkingDepthControl({ agent, className }: { agent: Agent; className?: string }) {
   const levels = thinkingLevelsFor(agent);
-  const current = currentThinkingLevel(agent);
-  const setLevel = useSetThinkingLevel(agent);
+  const saved = currentThinkingLevel(agent);
+  // The agent passed in can be a snapshot from when the page opened; the last
+  // level saved here is shown (and compared against) until it catches up.
+  const [chosen, setChosen] = useState<string | null>(null);
+  useEffect(() => setChosen(null), [saved]);
+  const current = chosen ?? saved;
+  const setLevel = useSetThinkingLevel(agent, setChosen);
   if (levels.length === 0) return null;
   const pending = setLevel.isPending ? setLevel.variables : null;
   const active = pending ?? current;

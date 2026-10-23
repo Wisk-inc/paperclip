@@ -119,11 +119,11 @@ function findCodeSpanEnd(text: string, contentStart: number, runLength: number):
  * `rest` starts at the `<`. `emitted` is the output so far, whose tail is what
  * identifies a link destination.
  */
-function matchProtectedConstruct(rest: string, emitted: string): string | null {
+function matchProtectedConstruct(rest: string, emittedTail: string): string | null {
   const autolink = AUTOLINK_URI_RE.exec(rest) ?? AUTOLINK_EMAIL_RE.exec(rest);
   if (autolink) return autolink[0];
 
-  if (emitted.endsWith("](")) {
+  if (emittedTail.endsWith("](")) {
     const destination = POINTED_DESTINATION_RE.exec(rest);
     if (destination) return destination[0];
   }
@@ -137,6 +137,14 @@ function matchProtectedConstruct(rest: string, emitted: string): string | null {
  */
 function transformInlineChunk(text: string, mode: Mode): string {
   let out = "";
+  // Only the last two characters written matter for the "](" check; asking
+  // the growing output string itself flattened it every time (quadratic on
+  // text with many tags).
+  let tail = "";
+  const emit = (piece: string) => {
+    out += piece;
+    tail = (tail + piece).slice(-2);
+  };
   let i = 0;
 
   while (i < text.length) {
@@ -148,12 +156,12 @@ function transformInlineChunk(text: string, mode: Mode): string {
       const end = findCodeSpanEnd(text, i + run, run);
       if (end !== -1) {
         // A matched code span: its contents are literal, copy them through.
-        out += text.slice(i, end);
+        emit(text.slice(i, end));
         i = end;
         continue;
       }
       // An unmatched run is ordinary text and protects nothing after it.
-      out += text.slice(i, i + run);
+      emit(text.slice(i, i + run));
       i += run;
       continue;
     }
@@ -163,9 +171,9 @@ function transformInlineChunk(text: string, mode: Mode): string {
         mode === "unescape"
         && text[i + 1] === "<"
         && isHtmlOpener(text[i + 2])
-        && matchProtectedConstruct(text.slice(i + 1), out) === null
+        && matchProtectedConstruct(text.slice(i + 1), tail) === null
       ) {
-        out += "<";
+        emit("<");
         i += 2;
         continue;
       }
@@ -173,25 +181,25 @@ function transformInlineChunk(text: string, mode: Mode): string {
       // parity intact: `\\<name>` is a literal backslash followed by markup, so
       // the `<` after it is still eligible for escaping, while the `<` in an
       // already-escaped `\<name>` is skipped.
-      out += text.slice(i, i + 2);
+      emit(text.slice(i, i + 2));
       i += 2;
       continue;
     }
 
     if (mode === "escape" && char === "<" && isHtmlOpener(text[i + 1])) {
-      const protectedConstruct = matchProtectedConstruct(text.slice(i), out);
+      const protectedConstruct = matchProtectedConstruct(text.slice(i), tail);
       if (protectedConstruct) {
-        out += protectedConstruct;
+        emit(protectedConstruct);
         i += protectedConstruct.length;
         continue;
       }
 
-      out += "\\<";
+      emit("\\<");
       i += 1;
       continue;
     }
 
-    out += char;
+    emit(char);
     i += 1;
   }
 

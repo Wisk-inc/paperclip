@@ -715,7 +715,7 @@ export function Costs() {
                 />
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-(--gtc-32)">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-(--gtc-32)">
                 <Card>
                   <CardHeader className="px-5 pt-5 pb-2">
                     <CardTitle className="text-base">By agent</CardTitle>
@@ -723,7 +723,7 @@ export function Costs() {
                   </CardHeader>
                   <CardContent className="space-y-2 px-5 pb-5 pt-2">
                     {(spendData?.byAgent.length ?? 0) === 0 ? (
-                      <p className="text-sm text-muted-foreground">No cost events yet.</p>
+                      (spendData?.summary.studio?.calls ?? 0) > 0 ? null : <p className="text-sm text-muted-foreground">No cost events yet.</p>
                     ) : (
                       spendData?.byAgent.map((row) => {
                         const modelRows = agentModelRows.get(row.agentId) ?? [];
@@ -802,7 +802,7 @@ export function Costs() {
                     )}
                     {spendData?.summary.studio && spendData.summary.studio.calls > 0 ? (
                       <div className="flex items-center justify-between gap-3 border border-border px-4 py-3" data-testid="costs-studio-row">
-                        <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                           <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-card">
                             <Code2 className="size-4" aria-hidden="true" />
                           </span>
@@ -813,7 +813,7 @@ export function Costs() {
                             </div>
                           </div>
                         </div>
-                        <div className="text-right tabular-nums">
+                        <div className="shrink-0 text-right tabular-nums">
                           <div className="text-sm font-medium">{formatCents(spendData.summary.studio.costCents)}</div>
                           <div className="text-xs text-muted-foreground">
                             {formatTokens(spendData.summary.studio.inputTokens + spendData.summary.studio.outputTokens)} tok

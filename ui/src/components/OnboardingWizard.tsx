@@ -63,7 +63,7 @@ import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { ApiError } from "../api/client";
 import { companiesApi } from "../api/companies";
-import { useCompanyListQuery } from "../api/companies-query";
+import { rememberCreatedCompany, useCompanyListQuery } from "../api/companies-query";
 import { goalsApi } from "../api/goals";
 import { agentsApi } from "../api/agents";
 import { approvalsApi } from "../api/approvals";
@@ -2000,6 +2000,7 @@ function OnboardingWizardInner({
     const companyIdAtStart = createdCompanyIdRef.current;
     try {
       const company = await companiesApi.create({ name: companyName.trim() });
+      rememberCreatedCompany(queryClient, company);
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       // Nothing was in hand when this started, so "unchanged" means still
       // nothing. A route that supplied a company while the request was open has
@@ -2309,6 +2310,24 @@ function OnboardingWizardInner({
     }
   }
 
+  // Escape, and Android Back (which the app turns into Escape for whatever
+  // dialog is on top), leave the wizard. It is a full-screen layer without
+  // Radix's dismissable content, so nothing else hears the key, and a phone
+  // has no other way out before an agent exists. A menu open inside the
+  // wizard handles the key first and marks it handled.
+  const closeOnEscapeRef = useRef(handleClose);
+  closeOnEscapeRef.current = handleClose;
+  useEffect(() => {
+    if (!effectiveOnboardingOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      closeOnEscapeRef.current();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [effectiveOnboardingOpen]);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     // Something nearer the key already dealt with it. The company-name field
     // handles Enter itself and does not check for a modifier, so Cmd+Enter in
@@ -2413,6 +2432,10 @@ function OnboardingWizardInner({
             mean rather than depending on whatever happens to render. */}
         <div
           data-testid="onboarding-wizard"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Set up your organization"
+          data-state="open"
           className="fixed inset-0 z-50 flex"
           onKeyDown={handleKeyDown}
         >

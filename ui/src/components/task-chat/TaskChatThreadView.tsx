@@ -1,6 +1,6 @@
 import { TaskChatProjectCreatedCard } from "./TaskChatProjectCreatedCard";
 import { TaskChatSkillCreatedCard } from "./TaskChatSkillCreatedCard";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
 import { useStableEntries, useStableValue } from "@/lib/stable-value";
@@ -301,6 +301,18 @@ interface ThreadItemRowProps {
   attachments: IssueAttachment[];
   onOpenSkill?: (skillId: string, name: string) => void;
   streamlined: boolean;
+  /** Changes once a minute so "5m ago" labels in settled rows keep up. */
+  minute: number;
+}
+
+/** A number that changes every minute while the thread is on screen. */
+function useMinuteTick() {
+  const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60_000));
+  useEffect(() => {
+    const timer = window.setInterval(() => setMinute(Math.floor(Date.now() / 60_000)), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return minute;
 }
 
 function threadItemKey(item: TaskChatItem) {
@@ -309,7 +321,7 @@ function threadItemKey(item: TaskChatItem) {
 
 /** The handlers a row of this kind actually uses; the others can change freely. */
 function rowInputs(props: ThreadItemRowProps): unknown[] {
-  const shared = [props.className, props.streamlined, props.onApprovalDecision, props.onRuntimeRequestDecision, props.attachments, props.onOpenSkill];
+  const shared = [props.className, props.streamlined, props.minute, props.onApprovalDecision, props.onRuntimeRequestDecision, props.attachments, props.onOpenSkill];
   switch (props.item.kind) {
     case "message":
       return [
@@ -423,6 +435,7 @@ export function TaskChatThreadView({
   // Streaming tail and header updates must not rebuild settled markdown/tool
   // trees, and a rebuilt list keeps the old object for every unchanged entry.
   const stableItems = useStableEntries(items, threadItemKey);
+  const minute = useMinuteTick();
   const stableAttachments = useStableValue(attachments);
   const history = useMemo(() => {
     // Entries that draw nothing are left out, so spacing follows what shows.
@@ -450,6 +463,7 @@ export function TaskChatThreadView({
                   ) || undefined
             }
             streamlined={streamlined}
+            minute={minute}
             onApprovalDecision={onApprovalDecision}
             onRuntimeRequestDecision={onRuntimeRequestDecision}
             renderInteraction={renderInteraction}
@@ -468,7 +482,7 @@ export function TaskChatThreadView({
       </>
     );
   }, [
-    stableItems, streamlined, onApprovalDecision, onRuntimeRequestDecision,
+    stableItems, streamlined, minute, onApprovalDecision, onRuntimeRequestDecision,
     renderInteraction, renderBrief, renderMessageActions, renderQueuedAction,
     onTryAgainNoLiveExecutionPath, tryAgainNoLiveExecutionPathPending,
     retryableMarkerId, onRetryFailedRun, retryFailedRunId, stableAttachments, onOpenSkill,

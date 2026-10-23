@@ -183,7 +183,23 @@ function prepareMarkdownForEditor(value: string): string {
  * feed agent prompts and must stay in the clean, human-authored form.
  */
 function toStoredMarkdown(markdown: string): string {
-  return unescapeAngleBracketEscapes(unescapeBlockquoteMarkers(markdown));
+  return unescapeIntrawordUnderscores(unescapeAngleBracketEscapes(unescapeBlockquoteMarkers(markdown)));
+}
+
+const CODE_SEGMENT_RE = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/;
+const INTRAWORD_ESCAPED_UNDERSCORE_RE = /(?<=[\p{L}\p{N}])\\_(?=[\p{L}\p{N}])/gu;
+
+/**
+ * The exporter writes `user_id` as `user\_id`. An underscore inside a word
+ * never starts emphasis, so the escape only changed what the agent read.
+ * Code is left exactly as typed.
+ */
+export function unescapeIntrawordUnderscores(markdown: string): string {
+  if (!markdown.includes("\\_")) return markdown;
+  return markdown
+    .split(CODE_SEGMENT_RE)
+    .map((part, index) => (index % 2 === 1 ? part : part.replace(INTRAWORD_ESCAPED_UNDERSCORE_RE, "_")))
+    .join("");
 }
 
 function escapeRegExp(value: string): string {
@@ -705,11 +721,37 @@ export function placeCaretAtEditableEnd(target: HTMLElement): boolean {
   return true;
 }
 
-/** Replace the active autocomplete token in the markdown string with the selected token. */
-function applyMention(markdown: string, state: MentionState, option: AutocompleteOption): string {
+/** Where `search` starts a token (at the start, or after a space or bracket), in order. */
+function tokenStarts(text: string, search: string): number[] {
+  const starts: number[] = [];
+  for (let index = text.indexOf(search); index !== -1; index = text.indexOf(search, index + 1)) {
+    if (index === 0 || /[\s([]/.test(text[index - 1]!)) starts.push(index);
+  }
+  return starts;
+}
+
+/**
+ * Replace the active autocomplete token in the markdown string with the
+ * selected token: the one at the caret, found by counting token starts before
+ * it on screen. The last match in the text was used before, so "@" typed
+ * before "bob@example.com" replaced the email's "@".
+ */
+function applyMention(markdown: string, state: MentionState, option: AutocompleteOption, root?: Element | null): string {
   const search = `${state.marker}${state.query}`;
   const replacement = autocompleteMarkdown(option);
-  const idx = markdown.lastIndexOf(search);
+  let idx = -1;
+  if (root) {
+    try {
+      const range = document.createRange();
+      range.setStart(root, 0);
+      range.setEnd(state.textNode, state.atPos);
+      const before = tokenStarts(range.toString(), search).length;
+      idx = tokenStarts(markdown, search)[before] ?? -1;
+    } catch {
+      idx = -1;
+    }
+  }
+  if (idx === -1) idx = markdown.lastIndexOf(search);
   if (idx === -1) return markdown;
   return markdown.slice(0, idx) + replacement + markdown.slice(idx + search.length);
 }
@@ -1185,7 +1227,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       if (!state) return false;
       if (option.kind === "action" && option.disabled) return false;
       const current = latestValueRef.current;
-      const next = applyMention(current, state, option);
+      const next = applyMention(current, state, option, containerRef.current?.querySelector('[contenteditable="true"]'));
       if (next !== current) {
         latestValueRef.current = next;
         echoIgnoreMarkdownRef.current = next;

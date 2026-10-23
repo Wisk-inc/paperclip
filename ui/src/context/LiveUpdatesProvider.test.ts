@@ -1354,11 +1354,32 @@ describe("applyRunLifecycleToCompanyLiveRuns", () => {
         const current = cache.get(cacheKey);
         cache.set(cacheKey, typeof updater === "function" ? updater(current) : updater);
       },
+      // Prefix match, like TanStack's: ["live-runs", c] covers ["live-runs", c, "dashboard", …].
+      setQueriesData: (filters: { queryKey: readonly unknown[] }, updater: unknown) => {
+        for (const [cacheKey, current] of [...cache.entries()]) {
+          const key = JSON.parse(cacheKey) as unknown[];
+          if (!filters.queryKey.every((part, index) => JSON.stringify(part) === JSON.stringify(key[index]))) continue;
+          cache.set(cacheKey, typeof updater === "function" ? updater(current) : updater);
+        }
+      },
+      seed: (key: readonly unknown[], value: unknown) => cache.set(JSON.stringify(key), value),
+      readKey: (key: readonly unknown[]) => cache.get(JSON.stringify(key)),
     };
     const read = () => cache.get(JSON.stringify(queryKeys.liveRuns("company-1")));
     const readDetail = () => cache.get(JSON.stringify(queryKeys.runDetail("run-1")));
     return { client, read, readDetail };
   }
+
+  it("drops a finished run from the dashboard's own copy of the live runs too", () => {
+    const { client } = makeClient([{ id: "run-1", status: "running" }]);
+    const dashboardKey = [...queryKeys.liveRuns("company-1"), "dashboard", { limit: 8 }] as const;
+    client.seed(dashboardKey, [{ id: "run-1", status: "running" }, { id: "run-3", status: "running" }]);
+    __liveUpdatesTestUtils.applyRunLifecycleToCompanyLiveRuns(client as never, "company-1", {
+      runId: "run-1",
+      status: "succeeded",
+    });
+    expect(client.readKey(dashboardKey)).toEqual([{ id: "run-3", status: "running" }]);
+  });
 
   it("removes a run on a terminal status (patched, no refetch needed)", () => {
     const { client, read, readDetail } = makeClient([{ id: "run-1", status: "running" }, { id: "run-2", status: "running" }]);

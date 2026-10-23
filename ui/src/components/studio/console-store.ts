@@ -7,12 +7,21 @@ export const SHOWN_LINES = 500;
 /** Output that arrives faster than this is drawn in one go. */
 const FLUSH_MS = 200;
 
+/**
+ * Adds lines this console doesn't have yet, in line-number order: history
+ * read after reconnecting fills the gap before live lines that arrived
+ * first, instead of being dropped as old.
+ */
 export function mergeConsoleLines(current: StudioConsoleLine[], incoming: StudioConsoleLine[]) {
   if (!incoming.length) return current;
-  const last = current.at(-1)?.seq ?? 0;
-  const fresh = incoming.filter((line) => line.seq > last);
+  const last = current.at(-1)?.seq ?? Number.NEGATIVE_INFINITY;
+  if (incoming.every((line) => line.seq > last)) {
+    return [...current, ...[...incoming].sort((a, b) => a.seq - b.seq)].slice(-KEEP_LINES);
+  }
+  const known = new Set(current.map((line) => line.seq));
+  const fresh = incoming.filter((line) => !known.has(line.seq));
   if (!fresh.length) return current;
-  return [...current, ...fresh].slice(-KEEP_LINES);
+  return [...current, ...fresh].sort((a, b) => a.seq - b.seq).slice(-KEEP_LINES);
 }
 
 /**

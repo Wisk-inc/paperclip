@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@paperclipai/shared";
-import { resolveThinkingLevel, thinkingLevelsFor } from "./ThinkingDepthControl";
+import { currentThinkingLevel, resolveThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "./ThinkingDepthControl";
 
 const agent = (model: string, adapterType = "claude_local") =>
   ({ adapterType, adapterConfig: { model } }) as unknown as Pick<Agent, "adapterType" | "adapterConfig">;
@@ -17,5 +17,18 @@ describe("thinking levels", () => {
     expect(resolveThinkingLevel(agent("claude-opus-5-5"), "quick")).toBe("low");
     expect(resolveThinkingLevel(agent("claude-opus-5-5"), "auto")).toBe("");
     expect(resolveThinkingLevel(agent("claude-opus-5-5"), "turbo")).toBeNull();
+  });
+});
+
+describe("thinking level keys", () => {
+  it("writes the key each runtime reads", () => {
+    expect(thinkingLevelPatch({ adapterType: "claude_local" }, "high")).toEqual({ effort: "high" });
+    expect(thinkingLevelPatch({ adapterType: "codex_local" }, "high")).toEqual({ modelReasoningEffort: "high", effort: "" });
+    expect(thinkingLevelPatch({ adapterType: "pi_local" }, "low")).toEqual({ thinking: "low", effort: "" });
+  });
+
+  it("reads the runtime's own key first", () => {
+    expect(currentThinkingLevel({ adapterType: "codex_local", adapterConfig: { modelReasoningEffort: "high" } } as never)).toBe("high");
+    expect(currentThinkingLevel({ adapterType: "claude_local", adapterConfig: { effort: "max" } } as never)).toBe("max");
   });
 });

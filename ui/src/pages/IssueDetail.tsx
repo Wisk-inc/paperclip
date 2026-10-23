@@ -1,10 +1,11 @@
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
+import { useLiveUpdatesConnected } from "../context/LiveUpdatesProvider";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
 import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
 import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
-import { THINKING_LEVELS, resolveThinkingLevel, thinkingLevelsFor } from "../components/agent-chat/ThinkingDepthControl";
+import { THINKING_LEVELS, currentThinkingLevel, resolveThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "../components/agent-chat/ThinkingDepthControl";
 import { ModelPickerSheet } from "@/components/agent-chat/ModelPickerSheet";
 import { ChatContextSheet, SlashHelpSheet } from "@/components/agent-chat/ChatCommandSheets";
 import type { ChatSlashCommand } from "@/components/task-chat/slash-commands";
@@ -437,7 +438,11 @@ function buildPlanDecisionResponseText(
 const FEEDBACK_TERMS_URL =
   import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() ||
   "https://paperclip.ing/tos";
-const ISSUE_COMMENT_AUTOLOAD_LIMIT = ISSUE_COMMENT_PAGE_SIZE * 3;
+// Phones open on the newest page only; older ones load as you scroll up.
+// Three pages at once (150 messages) blocked taps for seconds on a phone.
+const ISSUE_COMMENT_AUTOLOAD_LIMIT =
+  ISSUE_COMMENT_PAGE_SIZE *
+  (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? 1 : 3);
 const JUMP_TO_LATEST_MAX_COMMENT_PAGES = 10;
 function treeControlPreviewErrorCopy(error: unknown): string {
   if (error instanceof ApiError) {
@@ -1469,7 +1474,12 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
             });
             return true;
           }
-          await agentsApi.update(conversationAgent.id, { adapterConfig: { effort: level } }, conversationAgent.companyId);
+          try {
+            await agentsApi.update(conversationAgent.id, { adapterConfig: thinkingLevelPatch(conversationAgent, level) }, conversationAgent.companyId);
+          } catch (error) {
+            pushToast({ title: "Couldn’t change thinking", body: error instanceof Error ? error.message : String(error), tone: "error" });
+            return true;
+          }
           pushToast({ title: `Thinking: ${THINKING_LEVELS[level]?.label ?? level}`, body: THINKING_LEVELS[level]?.hint, tone: "success" });
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(conversationAgent.companyId) }),
@@ -1500,6 +1510,10 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     enabled: !!issueId,
     placeholderData: keepPreviousDataForSameQueryTail<ActivityEvent[]>(issueId),
   });
+  // Live events refresh these while the socket is open; the fast poll is the
+  // fallback for when it is down (it used to run every second regardless).
+  const liveUpdatesConnected = useLiveUpdatesConnected();
+  const fastPollMs = liveUpdatesConnected ? 15_000 : 1000;
   const {
     data: liveRuns,
     isFetched: liveRunsFetched,
@@ -1509,7 +1523,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryKey: queryKeys.issues.liveRuns(issueId),
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId),
     enabled: !!issueId,
-    refetchInterval: 1000,
+    refetchInterval: fastPollMs,
     placeholderData:
       keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
@@ -1526,7 +1540,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryKey: queryKeys.issues.activeRun(issueId),
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId),
     enabled: activeRunQueryEnabled,
-    refetchInterval: liveRunCount > 0 ? false : 1000,
+    refetchInterval: liveRunCount > 0 ? false : fastPollMs,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(
       issueId,
     ),
@@ -1565,7 +1579,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
       ),
     enabled: queuedCommentQueueEnabled,
     refetchInterval: (query) => queuedCommentQueueEnabled &&
-      (liveRuntimeRun || query.state.data?.entries.length) ? 1000 : false,
+      (liveRuntimeRun || query.state.data?.entries.length) ? fastPollMs : false,
   });
   const [consumedQueuedCommentIds, setConsumedQueuedCommentIds] = useState<
     ReadonlySet<string>
@@ -1597,7 +1611,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     queryFn: () => activityApi.runsForIssue(issueId),
     enabled: !!issueId,
     refetchInterval:
-      hasLiveRuns || issueStatus === "in_progress" ? 1000 : false,
+      hasLiveRuns || issueStatus === "in_progress" ? fastPollMs : false,
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
   const resolvedActivity = activity ?? [];
@@ -3251,12 +3265,13 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     void refetchWorkProducts();
   }, [issueId, workProducts, refetchWorkProducts]);
 
+  const pageLiveUpdatesConnected = useLiveUpdatesConnected();
   const { data: liveRunCount = 0 } = useQuery<LiveRunForIssue[], Error, number>(
     {
       queryKey: queryKeys.issues.liveRuns(issueId!),
       queryFn: () => heartbeatsApi.liveRunsForIssue(issueId!),
       enabled: !!issueId,
-      refetchInterval: 3000,
+      refetchInterval: pageLiveUpdatesConnected ? 15_000 : 3000,
       select: (runs) => runs.length,
       placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(
         issueId ?? "pending",
@@ -3273,7 +3288,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId!),
     enabled:
       !!issueId && (!!issue?.executionRunId || issue?.status === "in_progress"),
-    refetchInterval: liveRunCount > 0 ? false : 3000,
+    refetchInterval: liveRunCount > 0 ? false : pageLiveUpdatesConnected ? 15_000 : 3000,
     select: (run) => !!run,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(
       issueId ?? "pending",
@@ -3327,7 +3342,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       createdFromIssueId: issue!.id,
       includeRoutineExecutions: true,
     }),
-    enabled: streamlinedTaskDetailEnabled && !!resolvedCompanyId && !!issue?.id && !tasksTab,
+    // A chat that has no task yet carries a placeholder "chat:<agent>" id,
+    // which the server rejects as not a UUID.
+    enabled:
+      streamlinedTaskDetailEnabled && !!resolvedCompanyId && !!issue?.id && !issue.id.startsWith("chat:") && !tasksTab,
   });
 
   const {
@@ -5461,7 +5479,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
             <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
           </span>
         ),
-        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
+        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${currentThinkingLevel(conversationAgent)}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }

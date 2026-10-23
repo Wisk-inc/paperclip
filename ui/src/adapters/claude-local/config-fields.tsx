@@ -85,7 +85,7 @@ export function ClaudeLocalAdvancedFields({
   const rawEngine = isCreate
     ? values!.claudeEngine ?? "auto"
     : eff("adapterConfig", "engine", String(config.engine ?? "auto"));
-  const engine = rawEngine === "acp" || rawEngine === "cli" ? rawEngine : "auto";
+  const engine = rawEngine === "acp" || rawEngine === "cli" || rawEngine === "api" ? rawEngine : "auto";
   const acpSelected = engine === "acp";
 
   return configFieldsForSection(section, (
@@ -96,12 +96,13 @@ export function ClaudeLocalAdvancedFields({
         environment owns both, so the managed-sandbox-only policy hides them,
         the same way `runnerManaged` hides them for the Paperclip Runner.
       */}
-      {!managedSandboxOnly && <Field label="Execution engine" hint="Default uses ACP. If ACP is unavailable, the run fails with a setup error. Choose CLI explicitly to use it.">
+      {!managedSandboxOnly && <Field label="Execution engine" hint="Default uses ACP; if it is unavailable and the agent has an Anthropic API key, replies come straight from the API. Anthropic API answers chats without Claude Code (and without tools), which is what runs on a phone.">
         <select
           className={inputClass}
           value={engine}
           onChange={(e) => {
-            const value = e.target.value === "acp" ? "acp" : e.target.value === "cli" ? "cli" : "auto";
+            const value =
+              e.target.value === "acp" ? "acp" : e.target.value === "cli" ? "cli" : e.target.value === "api" ? "api" : "auto";
             isCreate
               ? set!({ claudeEngine: value })
               : mark("adapterConfig", "engine", value === "auto" ? undefined : value);
@@ -110,6 +111,7 @@ export function ClaudeLocalAdvancedFields({
           <option value="auto">Default (ACP)</option>
           <option value="cli">Claude CLI</option>
           <option value="acp">ACP</option>
+          <option value="api">Anthropic API (no Claude Code)</option>
         </select>
       </Field>}
       {acpSelected && (

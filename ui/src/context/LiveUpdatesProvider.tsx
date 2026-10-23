@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import {
@@ -84,6 +85,18 @@ interface LiveEventSubscription {
 
 const LiveEventSubscriptionContext =
   createContext<LiveEventSubscription | null>(null);
+
+/** Whether the shared live socket is open right now (false outside the provider). */
+const LiveUpdatesConnectedContext = createContext(false);
+
+/**
+ * True while live events are arriving. Pages poll fast only when this is
+ * false: with the socket open the events already refresh their data, and a
+ * once-a-second poll on top kept phones busy.
+ */
+export function useLiveUpdatesConnected(): boolean {
+  return useContext(LiveUpdatesConnectedContext);
+}
 
 function dispatchLiveEventToSubscribers(
   subscribers: Set<CompanyLiveEventHandler>,
@@ -1193,11 +1206,14 @@ function applyRunLifecycleToCompanyLiveRuns(
     },
   );
 
+  // Every live-runs list of the company (the dashboard and agents pages keep
+  // their own filtered copies) follows the run, not only the main one: those
+  // copies don't poll, so a finished run stayed "running" there.
   if (TERMINAL_RUN_STATUSES.has(status)) {
-    queryClient.setQueryData(
-      queryKeys.liveRuns(companyId),
-      (current: LiveRunForIssue[] | undefined) =>
-        removeRunFromList(current, runId),
+    queryClient.setQueriesData(
+      { queryKey: queryKeys.liveRuns(companyId) },
+      (current: unknown) =>
+        Array.isArray(current) ? removeRunFromList(current as LiveRunForIssue[], runId) : current,
     );
     // Always "handled": a terminal run must never be in the live list, so if it
     // wasn't present there is deliberately nothing to refetch (removeRunFromList
@@ -1206,11 +1222,12 @@ function applyRunLifecycleToCompanyLiveRuns(
   }
 
   let present = false;
-  queryClient.setQueryData(
-    queryKeys.liveRuns(companyId),
-    (current: LiveRunForIssue[] | undefined) => {
-      const result = patchRunStatusInList(current, runId, status);
-      present = result.present;
+  queryClient.setQueriesData(
+    { queryKey: queryKeys.liveRuns(companyId) },
+    (current: unknown) => {
+      if (!Array.isArray(current)) return current;
+      const result = patchRunStatusInList(current as LiveRunForIssue[], runId, status);
+      present ||= result.present;
       return result.next;
     },
   );
@@ -1227,7 +1244,7 @@ function invalidateHeartbeatQueries(
   queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(companyId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.costs(companyId) });
+  queryClient.invalidateQueries({ queryKey: ["costs", companyId] });
   queryClient.invalidateQueries({
     queryKey: queryKeys.sidebarBadges(companyId),
   });
@@ -1498,7 +1515,7 @@ function invalidateActivityQueries(
   }
 
   if (entityType === "cost_event") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.costs(companyId) });
+    queryClient.invalidateQueries({ queryKey: ["costs", companyId] });
     queryClient.invalidateQueries({
       queryKey: queryKeys.usageByProvider(companyId),
     });
@@ -1719,8 +1736,10 @@ function handleLiveEvent(
   }
 
   if (event.type === "heartbeat.run.progress") {
+    // Progress arrives every few seconds while a run writes; the patch above
+    // is all it changes. Refetching the open task's detail, activity and runs
+    // on each one kept phones busy for nothing.
     invalidateHeartbeatProgressQueries(queryClient, expectedCompanyId, payload);
-    invalidateVisibleIssueRunQueries(queryClient, pathname, payload);
     return;
   }
 
@@ -1893,6 +1912,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     agentId: null,
   });
   const subscribersRef = useRef<Set<CompanyLiveEventHandler>>(new Set());
+  const [socketConnected, setSocketConnected] = useState(false);
   const subscribe = useCallback((handler: CompanyLiveEventHandler) => {
     subscribersRef.current.add(handler);
     return () => {
@@ -2001,6 +2021,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
           return;
         }
         stopPolling();
+        setSocketConnected(true);
         if (reconnectAttempt > 0) {
           gateRef.current.suppressUntil = Date.now() + RECONNECT_SUPPRESS_MS;
         }
@@ -2049,6 +2070,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       nextSocket.onclose = () => {
         if (socket !== nextSocket) return;
         socket = null;
+        setSocketConnected(false);
         if (closed) return;
         startPolling();
         scheduleReconnect();
@@ -2067,6 +2089,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       stopPolling();
       const activeSocket = socket;
       socket = null;
+      setSocketConnected(false);
       closeSocketQuietly(activeSocket, "provider_unmount");
     };
   }, [
@@ -2082,7 +2105,9 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
   return (
     <LiveEventSubscriptionContext.Provider value={subscriptionValue}>
-      {children}
+      <LiveUpdatesConnectedContext.Provider value={socketConnected}>
+        {children}
+      </LiveUpdatesConnectedContext.Provider>
     </LiveEventSubscriptionContext.Provider>
   );
 }

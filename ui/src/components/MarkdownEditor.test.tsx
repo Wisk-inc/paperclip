@@ -16,6 +16,7 @@ import {
   placeCaretAfterMentionAnchor,
   placeCaretAtEditableEnd,
   shouldAcceptAutocompleteKey,
+  unescapeIntrawordUnderscores,
 } from "./MarkdownEditor";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 
@@ -1578,5 +1579,15 @@ describe("MarkdownEditor", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+});
+
+describe("unescapeIntrawordUnderscores", () => {
+  it("gives the agent user_id, not user\\_id, and leaves code and emphasis alone", () => {
+    expect(unescapeIntrawordUnderscores("rename user\\_id to account\\_id\\_v2")).toBe("rename user_id to account_id_v2");
+    expect(unescapeIntrawordUnderscores("keep \\_emphasis\\_ escaped")).toBe("keep \\_emphasis\\_ escaped");
+    expect(unescapeIntrawordUnderscores("code `a\\_b` and\n```\nx\\_y\n```\nsnake\\_case")).toBe(
+      "code `a\\_b` and\n```\nx\\_y\n```\nsnake_case",
+    );
   });
 });

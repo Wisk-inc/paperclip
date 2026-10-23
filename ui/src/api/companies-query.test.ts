@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import { companyDirectoryQueryOptions, companyListQueryOptions, resolveAccountUserId } from "./companies-query";
+import { companyDirectoryQueryOptions, companyListQueryOptions, rememberCreatedCompany, resolveAccountUserId } from "./companies-query";
 import { ApiError } from "./client";
 import { queryKeys } from "../lib/queryKeys";
 
@@ -135,5 +135,20 @@ describe("an invalidated session is not a current identity", () => {
     mockAuthApi.getSession.mockResolvedValueOnce({ user: { id: "user-2" } });
 
     await expect(resolveAccountUserId(queryClient)).resolves.toBe("user-2");
+  });
+});
+
+describe("rememberCreatedCompany", () => {
+  it("adds a new company to every cached list once, so selecting it does not fall back to another", () => {
+    const queryClient = new QueryClient();
+    const existing = { id: "c-1", name: "Northwind" } as never;
+    const created = { id: "c-2", name: "New Org" } as never;
+    queryClient.setQueryData(queryKeys.companies.list("user-a"), { companies: [existing], unauthorized: false });
+    rememberCreatedCompany(queryClient, created);
+    rememberCreatedCompany(queryClient, created);
+    expect(queryClient.getQueryData(queryKeys.companies.list("user-a"))).toEqual({
+      companies: [existing, created],
+      unauthorized: false,
+    });
   });
 });

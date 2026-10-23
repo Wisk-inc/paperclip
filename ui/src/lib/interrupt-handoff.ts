@@ -85,7 +85,7 @@ export function resolveRunStatusPresentation(
 
 // --- Structured mention vs plain text -----------------------------------------
 
-const MARKDOWN_LINK_RE = /\[[^\]]*\]\(([^)]*)\)/g;
+const MARKDOWN_LINK_RE = /\[[^\][]*\]\(([^)]*)\)/g;
 
 /** Ordered list of agent ids referenced via structured `agent://` mentions. */
 export function extractAgentMentionIds(body: string): string[] {

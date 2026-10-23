@@ -13,6 +13,7 @@ vi.mock("@/lib/router", () => ({
     <a className={className} href={to}>{children}</a>
   ),
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ key: "default", pathname: "/" }),
 }));
 
 vi.mock("../context/SidebarContext", () => ({
