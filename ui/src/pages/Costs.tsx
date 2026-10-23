@@ -744,6 +744,14 @@ export function Costs({
                 />
               </div>
 
+              {(spendData?.summary.unpriced?.calls ?? 0) > 0 ? (
+                <p className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground" data-testid="costs-unpriced-note">
+                  {spendData!.summary.unpriced!.calls} paid {spendData!.summary.unpriced!.calls === 1 ? "call has" : "calls have"} no known
+                  price ({formatTokens(spendData!.summary.unpriced!.tokens)} tokens). Their tokens are counted, but their cost shows as $0 and
+                  doesn't count toward budgets. This happens with a gateway model name or a provider Automa has no price list for.
+                </p>
+              ) : null}
+
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-(--gtc-32)">
                 <Card>
                   <CardHeader className="px-5 pt-5 pb-2">

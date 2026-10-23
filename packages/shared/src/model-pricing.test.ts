@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeModelPrice, estimateClaudeCostUsd } from "./model-pricing.js";
+import { claudeBilledSpend, claudeModelPrice, estimateClaudeCostUsd } from "./model-pricing.js";
 
 describe("claudeModelPrice", () => {
   it("prices the same model however its id is written", () => {
@@ -40,5 +40,23 @@ describe("claudeModelPrice", () => {
       cacheCreationInputTokens: 1_000_000,
     });
     expect(cost).toBeCloseTo(4 + 20 + 0.2 + 5, 6);
+  });
+});
+
+describe("claudeBilledSpend", () => {
+  it("bills every attempt when the reply was retried or fell back", () => {
+    const top = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    const single = claudeBilledSpend("claude-opus-5-5", top);
+    expect(single).toMatchObject({ inputTokens: 100, outputTokens: 50 });
+    const withFallback = claudeBilledSpend("claude-opus-5-5", {
+      ...top,
+      iterations: [
+        { model: "claude-fable-5-1", input_tokens: 100, output_tokens: 20 },
+        { model: "claude-opus-5-5", input_tokens: 100, output_tokens: 50 },
+      ],
+    });
+    expect(withFallback).toMatchObject({ inputTokens: 200, outputTokens: 70 });
+    expect(withFallback.costUsd!).toBeGreaterThan(single.costUsd!);
+    expect(claudeBilledSpend("my-gateway-model", top).costUsd).toBeNull();
   });
 });

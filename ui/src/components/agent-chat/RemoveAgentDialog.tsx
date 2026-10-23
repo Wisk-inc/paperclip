@@ -59,7 +59,8 @@ export function RemoveAgentDialog({ agent, open, onOpenChange, onRemoved }: {
           <AlertDialogTitle>Remove {agent.name}?</AlertDialogTitle>
           <AlertDialogDescription>
             {agent.name} stops working and leaves your organization for good. Their tasks stay but are unassigned, and anyone
-            who reports to {agent.name} moves to the top of the org. This can&apos;t be undone.
+            who reports to {agent.name} moves to the top of the org. Their replies, chats and run history are deleted; what they
+            spent stays in Costs. This can&apos;t be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

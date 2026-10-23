@@ -2827,8 +2827,10 @@ export { WORKSPACE_RESTORE_FAILURE_CODES, hasWorkspaceRestoreFailure, safeWorksp
 export * from "./studio/index.js";
 
 export {
+  claudeBilledSpend,
   claudeModelPrice,
   estimateClaudeCostUsd,
+  type ClaudeApiUsage,
   type ClaudeModelPrice,
   type ClaudeUsageForPricing,
 } from "./model-pricing.js";

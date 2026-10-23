@@ -13,7 +13,7 @@ import {
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
-import { estimateClaudeCostUsd } from "@paperclipai/shared";
+import { claudeBilledSpend, type ClaudeApiUsage } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -621,20 +621,10 @@ async function runAnthropic(input: {
       // A stopped or failed call was still billed for what it used so far.
       const partial = (stream as unknown as { currentMessage?: Anthropic.Beta.BetaMessage }).currentMessage;
       if (partial?.usage) {
-        const cacheWrite = partial.usage.cache_creation_input_tokens ?? 0;
-        const cacheRead = partial.usage.cache_read_input_tokens ?? 0;
         await input.onUsage({
           provider: "anthropic",
           model: partial.model || input.model,
-          inputTokens: partial.usage.input_tokens + cacheWrite,
-          cachedInputTokens: cacheRead,
-          outputTokens: partial.usage.output_tokens,
-          costUsd: estimateClaudeCostUsd(partial.model || input.model, {
-            inputTokens: partial.usage.input_tokens,
-            outputTokens: partial.usage.output_tokens,
-            cacheReadInputTokens: cacheRead,
-            cacheCreationInputTokens: cacheWrite,
-          }),
+          ...claudeBilledSpend(partial.model || input.model, partial.usage as ClaudeApiUsage),
         }).catch(() => undefined);
       }
       // A streamed tool input that isn't JSON at all: ask again (a few times).
@@ -645,21 +635,11 @@ async function runAnthropic(input: {
     // Keep every block (thinking, fallback markers) exactly as returned.
     messages.push({ role: "assistant", content: response.content as Anthropic.Beta.BetaContentBlockParam[] });
     await writeJson(historyFile, withoutImages(messages));
-    const usage = response.usage;
-    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
-    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    // Every attempt is billed (a declined one and a fallback model's too).
     await input.onUsage({
       provider: "anthropic",
       model: response.model || input.model,
-      inputTokens: usage.input_tokens + cacheWrite,
-      cachedInputTokens: cacheRead,
-      outputTokens: usage.output_tokens,
-      costUsd: estimateClaudeCostUsd(response.model || input.model, {
-        inputTokens: usage.input_tokens,
-        outputTokens: usage.output_tokens,
-        cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite,
-      }),
+      ...claudeBilledSpend(response.model || input.model, response.usage as ClaudeApiUsage),
     });
 
     for (const block of response.content) {
@@ -864,20 +844,10 @@ export async function completeCode(input: {
       },
       { signal: input.signal },
     );
-    const cacheRead = response.usage.cache_read_input_tokens ?? 0;
-    const cacheWrite = response.usage.cache_creation_input_tokens ?? 0;
     input.onUsage?.({
       provider: input.provider,
       model: response.model || input.model,
-      inputTokens: response.usage.input_tokens + cacheWrite,
-      cachedInputTokens: cacheRead,
-      outputTokens: response.usage.output_tokens,
-      costUsd: estimateClaudeCostUsd(response.model || input.model, {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite,
-      }),
+      ...claudeBilledSpend(response.model || input.model, response.usage as ClaudeApiUsage),
     });
     if (response.stop_reason === "refusal") return "";
     const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");

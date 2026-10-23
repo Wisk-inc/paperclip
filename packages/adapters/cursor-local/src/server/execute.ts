@@ -741,6 +741,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       // code; every other result carries no code here.
       errorCode: attempt.proc.errorCode ?? null,
       usage: attempt.parsed.usage,
+      // Usage is added up from this run's own events, so it is per run:
+      // the server must not subtract the previous run in the same session.
+      usageBasis: "per_run",
       sessionId: resolvedSessionId,
       sessionParams: resolvedSessionParams,
       sessionDisplayId: resolvedSessionId,

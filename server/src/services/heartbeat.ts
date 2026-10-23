@@ -6,7 +6,7 @@ import { publicChatTaskUrl } from "./chat-task-url.js";
 import { toolActionDeliveryService } from "./tool-action-delivery.js";
 import { githubBotConnectionIdsForRun } from "./chat-github-tools.js";
 import { readQueuedInteractionResponse } from "./queued-interaction-response.js";
-import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
+import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn, taskCommentHistory } from "./agent-conversations.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
 import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
@@ -5213,6 +5213,16 @@ function normalizeBilledCostCents(
   if (billingType === "subscription_included") return 0;
   if (typeof costUsd !== "number" || !Number.isFinite(costUsd)) return 0;
   return Math.max(0, Math.round(costUsd * 100));
+}
+
+/** The exact billed cost in millionths of a dollar, or null when there is none. */
+function normalizeBilledCostMicros(
+  costUsd: number | null | undefined,
+  billingType: BillingType,
+): number | null {
+  if (billingType === "subscription_included") return null;
+  if (typeof costUsd !== "number" || !Number.isFinite(costUsd)) return null;
+  return Math.max(0, Math.round(costUsd * 1_000_000));
 }
 
 export function resolveLedgerCostStatus(input: {
@@ -19740,6 +19750,7 @@ export function heartbeatService(
       billedCostUsd,
       billingType,
     );
+    const billedCostMicros = normalizeBilledCostMicros(billedCostUsd, billingType);
     const hasTokenUsage =
       inputTokens > 0 || outputTokens > 0 || cachedInputTokens > 0;
     const costStatus = resolveLedgerCostStatus({
@@ -19767,14 +19778,16 @@ export function heartbeatService(
         totalInputTokens: sql`${agentRuntimeState.totalInputTokens} + ${inputTokens}`,
         totalOutputTokens: sql`${agentRuntimeState.totalOutputTokens} + ${outputTokens}`,
         totalCachedInputTokens: sql`${agentRuntimeState.totalCachedInputTokens} + ${cachedInputTokens}`,
-        totalCostCents: sql`${agentRuntimeState.totalCostCents} + ${additionalCostCents}`,
         updatedAt: new Date(),
       })
       .where(eq(agentRuntimeState.agentId, agent.id));
 
-    if (additionalCostCents > 0 || hasTokenUsage) {
+    // The ledger decides the cents (it carries sub-cent remainders), and the
+    // agent's lifetime total adds what it recorded.
+    let recordedCostCents = additionalCostCents;
+    if (additionalCostCents > 0 || hasTokenUsage || (billedCostMicros ?? 0) > 0) {
       const costs = costService(db, budgetHooks);
-      await costs.createEvent(agent.companyId, {
+      const event = await costs.createEvent(agent.companyId, {
         heartbeatRunId: run.id,
         agentId: agent.id,
         issueId: ledgerScope.issueId,
@@ -19789,8 +19802,16 @@ export function heartbeatService(
         cachedInputTokens,
         outputTokens,
         costCents: additionalCostCents,
+        costMicros: billedCostMicros,
         occurredAt: new Date(),
       });
+      recordedCostCents = event.costCents;
+    }
+    if (recordedCostCents > 0) {
+      await db
+        .update(agentRuntimeState)
+        .set({ totalCostCents: sql`${agentRuntimeState.totalCostCents} + ${recordedCostCents}` })
+        .where(eq(agentRuntimeState.agentId, agent.id));
     }
   }
 
@@ -20881,9 +20902,22 @@ export function heartbeatService(
           })
         : null;
       let taskMarkdown = buildPaperclipTaskMarkdown({ ...taskMarkdownInput, taskPlan });
-      if (isConversation(issueContext) && !taskSession && issueId) {
-        const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId);
-        if (replay) taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
+      // The Claude adapter may answer through the Anthropic API, which never
+      // resumes a session and has no tools to read the thread: it always gets
+      // the earlier messages, even after a Claude Code turn left a session.
+      const commentHistory =
+        issueId && ((isConversation(issueContext) && !taskSession) || agent.adapterType === "claude_local")
+          ? isConversation(issueContext)
+            ? await conversationReplay(db, agent.companyId, issueId, wakeCommentId)
+            : await taskCommentHistory(db, agent.companyId, issueId, wakeCommentId)
+          : "";
+      if (isConversation(issueContext) && !taskSession && commentHistory) {
+        taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${commentHistory}`;
+      }
+      if (commentHistory && agent.adapterType === "claude_local") {
+        context.paperclipCommentHistory = commentHistory;
+      } else {
+        delete context.paperclipCommentHistory;
       }
       const taskMarkdownCompact = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
@@ -20925,8 +20959,12 @@ export function heartbeatService(
           paperclipTaskCommunicationGuidance: context.paperclipTaskCommunicationGuidance,
           paperclipTaskMarkdown: context.paperclipTaskMarkdown,
           paperclipTaskMarkdownCompact: context.paperclipTaskMarkdownCompact,
+          paperclipCommentHistory: context.paperclipCommentHistory,
         });
         context.paperclipIssue = redactedWakeContext.paperclipIssue;
+        if (redactedWakeContext.paperclipCommentHistory) {
+          context.paperclipCommentHistory = redactedWakeContext.paperclipCommentHistory;
+        }
         context.paperclipTaskCommunicationGuidance = redactedWakeContext.paperclipTaskCommunicationGuidance;
         if (redactedWakeContext.paperclipWakeComment) {
           context.paperclipWakeComment =

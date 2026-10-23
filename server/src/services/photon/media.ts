@@ -1,9 +1,19 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import sharp from "sharp";
 import { MAX_ATTACHMENT_BYTES } from "../../attachment-types.js";
 
 const require = createRequire(import.meta.url);
+
+/**
+ * sharp is loaded the first time an image is checked, not when the server
+ * starts: on a phone it runs from a WebAssembly copy that a later package
+ * install can remove, and a missing image library must not stop the server.
+ */
+let sharpLoader: Promise<typeof import("sharp")["default"]> | null = null;
+function loadSharp() {
+  sharpLoader ??= import("sharp").then((module) => module.default);
+  return sharpLoader;
+}
 const MAX_PIXELS = 50_000_000;
 export const HEIF_CONTENT_TYPES = new Set([
   "image/heic",
@@ -76,6 +86,7 @@ export async function validatePhotonImage(
 ): Promise<void> {
   if (!contentType.startsWith("image/")) return;
   if (HEIF_CONTENT_TYPES.has(contentType)) return validateHeifDimensions(body);
+  const sharp = await loadSharp();
   const metadata = await sharp(body, {
     limitInputPixels: MAX_PIXELS,
     failOn: "error",

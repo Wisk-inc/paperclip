@@ -50,6 +50,43 @@ async function getMonthlySpendTotal(
   return Number(row?.total ?? 0);
 }
 
+/**
+ * The whole cents to record for an event whose exact cost is known, so the
+ * month's running total for its agent (or App Studio) rounds to the exact
+ * sum. Per-event rounding recorded every sub-cent call as 0¢ and overstated
+ * others; carrying the remainder keeps totals and budgets within half a cent.
+ */
+async function carriedCents(
+  tx: Pick<Db, "select" | "execute">,
+  companyId: string,
+  data: { agentId?: string | null; source?: string | null; occurredAt: Date },
+  costMicros: number,
+) {
+  const at = data.occurredAt;
+  const start = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
+  const bucket = data.agentId
+    ? eq(costEvents.agentId, data.agentId)
+    : and(isNull(costEvents.agentId), eq(costEvents.source, data.source ?? "agent"));
+  const [row] = await tx
+    .select({
+      micros: sql<string>`coalesce(sum(${costEvents.costMicros}), 0)`,
+      cents: sql<string>`coalesce(sum(${costEvents.costCents}), 0)`,
+    })
+    .from(costEvents)
+    .where(
+      and(
+        eq(costEvents.companyId, companyId),
+        bucket,
+        isNotNull(costEvents.costMicros),
+        gte(costEvents.occurredAt, start),
+        lt(costEvents.occurredAt, end),
+      ),
+    );
+  const totalMicros = Number(row?.micros ?? 0) + costMicros;
+  return Math.max(0, Math.round(totalMicros / 10_000) - Number(row?.cents ?? 0));
+}
+
 export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
   const budgets = budgetService(db, budgetHooks);
   return {
@@ -70,17 +107,42 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         throw unprocessable("An agent cost needs its agent");
       }
 
-      const event = await db
-        .insert(costEvents)
-        .values({
-          ...data,
-          companyId,
-          biller: data.biller ?? data.provider,
-          billingType: data.billingType ?? "unknown",
-          cachedInputTokens: data.cachedInputTokens ?? 0,
-        })
-        .returning()
-        .then((rows) => rows[0]);
+      const values = {
+        ...data,
+        companyId,
+        biller: data.biller ?? data.provider,
+        billingType: data.billingType ?? "unknown",
+        cachedInputTokens: data.cachedInputTokens ?? 0,
+      };
+      const costMicros =
+        typeof data.costMicros === "number" && Number.isFinite(data.costMicros) && data.costMicros >= 0
+          ? Math.round(data.costMicros)
+          : null;
+      const event =
+        costMicros === null
+          ? await db
+              .insert(costEvents)
+              .values({ ...values, costMicros: null })
+              .returning()
+              .then((rows) => rows[0])
+          : await db.transaction(async (tx) => {
+              // One writer per bucket at a time, so two events can't both
+              // claim the same carried cent.
+              await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtext(${`cost-carry:${companyId}:${data.agentId ?? `source:${data.source ?? "agent"}`}`}))`,
+              );
+              const costCents = await carriedCents(
+                tx,
+                companyId,
+                { agentId: data.agentId, source: data.source, occurredAt: data.occurredAt as Date },
+                costMicros,
+              );
+              return tx
+                .insert(costEvents)
+                .values({ ...values, costMicros, costCents })
+                .returning()
+                .then((rows) => rows[0]);
+            });
 
       const [agentMonthSpend, companyMonthSpend] = await Promise.all([
         event.agentId ? getMonthlySpendTotal(db, { companyId, agentId: event.agentId }) : Promise.resolve(null),
@@ -128,6 +190,9 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
       if (range?.to) runConditions.push(lte(heartbeatRuns.startedAt, range.to));
 
       const studioOnly = sql`${costEvents.source} = 'studio'`;
+      // Paid usage with no known price (an unknown model, a gateway name, a
+      // provider without a price list) is counted at $0; say how much there is.
+      const unpricedPaid = sql`${costEvents.costStatus} = 'unpriced' and ${costEvents.billingType} <> 'subscription_included'`;
       const [[costRow], [runRow]] = await Promise.all([
         db
           .select({
@@ -139,6 +204,8 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
             studioInputTokens: sql<number>`coalesce(sum(case when ${studioOnly} then ${costEvents.inputTokens} + ${costEvents.cachedInputTokens} else 0 end), 0)::double precision`,
             studioOutputTokens: sql<number>`coalesce(sum(case when ${studioOnly} then ${costEvents.outputTokens} else 0 end), 0)::double precision`,
             studioCalls: sql<number>`count(*) filter (where ${studioOnly})::int`,
+            unpricedCalls: sql<number>`count(*) filter (where ${unpricedPaid})::int`,
+            unpricedTokens: sql<number>`coalesce(sum(case when ${unpricedPaid} then ${costEvents.inputTokens} + ${costEvents.cachedInputTokens} + ${costEvents.outputTokens} else 0 end), 0)::double precision`,
           })
           .from(costEvents)
           .where(and(...conditions)),
@@ -172,6 +239,10 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
           inputTokens: Number(costRow?.studioInputTokens ?? 0),
           outputTokens: Number(costRow?.studioOutputTokens ?? 0),
           calls: Number(costRow?.studioCalls ?? 0),
+        },
+        unpriced: {
+          calls: Number(costRow?.unpricedCalls ?? 0),
+          tokens: Number(costRow?.unpricedTokens ?? 0),
         },
       };
     },

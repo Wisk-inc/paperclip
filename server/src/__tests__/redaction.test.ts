@@ -710,6 +710,25 @@ second-line\" status=401`,
     expect(result?.argv).toEqual(["--api-key", REDACTED_EVENT_VALUE]);
   });
 
+  it("shows a plain endpoint address but keeps one with a login or token hidden", () => {
+    const result = redactAgentAdapterConfig({
+      env: {
+        ANTHROPIC_BASE_URL: { type: "plain", value: "https://gateway.example.com/v1" },
+        OPENAI_BASE_URL: "http://127.0.0.1:47011",
+        LOGIN_BASE_URL: { type: "plain", value: "https://user:pass@gateway.example.com" },
+        TOKEN_ENDPOINT: { type: "plain", value: "https://gateway.example.com/?api_key=sk-123" },
+        API_KEY: { type: "plain", value: "https://looks-like-a-url.example.com" },
+      },
+    });
+    expect(result.env).toEqual({
+      ANTHROPIC_BASE_URL: { type: "plain", value: "https://gateway.example.com/v1" },
+      OPENAI_BASE_URL: "http://127.0.0.1:47011",
+      LOGIN_BASE_URL: { type: "plain", value: "***REDACTED***" },
+      TOKEN_ENDPOINT: { type: "plain", value: "***REDACTED***" },
+      API_KEY: { type: "plain", value: "***REDACTED***" },
+    });
+  });
+
   it("redacts every plaintext agent env binding while preserving secret references", () => {
     const plaintextValue = "adapter-env-value-must-not-leak";
 

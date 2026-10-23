@@ -87,10 +87,14 @@ export async function assertAiConnectionCreateAccess(
       userId,
       "tools:manage_connections",
     ));
+  // A personal key may be offered to every agent by anyone: only agents
+  // running for its owner can use it (`select` checks the grant's owner), so
+  // the company-wide install shares nothing. Operators, the default invite
+  // role, could not add a key of their own at all.
   if (
     !input.connectionId &&
     !manager &&
-    (input.ownership === "shared" || input.allAgents)
+    (input.ownership === "shared" || (input.allAgents && input.ownership !== "personal"))
   )
     throw forbidden(
       "A connection manager must authorize company-shared access",

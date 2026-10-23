@@ -76,7 +76,18 @@ function fileMeta(node: StudioFileNode) {
 }
 
 function folderMeta(node: StudioFileNode) {
-  if (node.unlisted) return "Installed packages (not listed)";
+  if (node.unlisted) {
+    switch (node.unlistedReason) {
+      case "git":
+        return "Git history (not listed)";
+      case "large":
+        return "Too many files to list";
+      case "deep":
+        return "Too deep to list";
+      default:
+        return "Installed packages (not listed)";
+    }
+  }
   const stats = folderStats(node.children ?? []);
   if (stats.files === 0 && stats.folders === 0) return "Empty";
   const parts = [`${stats.files} ${stats.files === 1 ? "file" : "files"}`];

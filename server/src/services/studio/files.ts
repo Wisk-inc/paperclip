@@ -7,9 +7,31 @@ import { badRequest, conflict, notFound } from "../../errors.js";
 
 /** Largest file the editor opens as text. */
 export const STUDIO_MAX_TEXT_BYTES = 2 * 1024 * 1024;
-/** Folders shown collapsed and never listed deeply (dependencies, build output). */
-const HEAVY_FOLDERS = new Set(["node_modules", ".git", "target", "build", "dist", ".venv", "venv", "__pycache__", ".gradle", "bin", "obj", ".next", ".cache"]);
+/** Installed dependencies and caches: shown collapsed and never listed. */
+const DEPENDENCY_FOLDERS = new Set(["node_modules", ".venv", "venv", "__pycache__", ".gradle", ".next", ".cache"]);
+/**
+ * Build output. These names are also people's own folders (a `bin/cli.js`, a
+ * `build/build.sh`), so they are listed unless they hold a lot.
+ */
+const OUTPUT_FOLDERS = new Set(["target", "build", "dist", "bin", "obj"]);
+const MAX_OUTPUT_FOLDER_ENTRIES = 200;
 const MAX_TREE_ENTRIES = 5000;
+
+/** True when the folder holds more than `limit` entries (it stops counting there). */
+async function holdsMoreThan(dir: string, limit: number): Promise<boolean> {
+  let seen = 0;
+  const pending = [dir];
+  while (pending.length) {
+    const current = pending.pop()!;
+    const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      seen += 1;
+      if (seen > limit) return true;
+      if (entry.isDirectory()) pending.push(path.join(current, entry.name));
+    }
+  }
+  return false;
+}
 
 export function studioRoot(): string {
   const override = process.env.PAPERCLIP_STUDIO_DIR?.trim();
@@ -88,13 +110,23 @@ export async function listTree(root: string): Promise<StudioFileNode[]> {
       count += 1;
       const childPath = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        const heavy = HEAVY_FOLDERS.has(entry.name) || depth > 12;
+        const full = path.join(dir, entry.name);
+        const reason: StudioFileNode["unlistedReason"] | null =
+          entry.name === ".git"
+            ? "git"
+            : DEPENDENCY_FOLDERS.has(entry.name)
+              ? "dependencies"
+              : depth > 12
+                ? "deep"
+                : OUTPUT_FOLDERS.has(entry.name) && (await holdsMoreThan(full, MAX_OUTPUT_FOLDER_ENTRIES))
+                  ? "large"
+                  : null;
         nodes.push({
           name: entry.name,
           path: childPath,
           type: "folder",
-          children: heavy ? [] : await walk(path.join(dir, entry.name), childPath, depth + 1),
-          ...(heavy ? { unlisted: true } : {}),
+          children: reason ? [] : await walk(full, childPath, depth + 1),
+          ...(reason ? { unlisted: true, unlistedReason: reason } : {}),
         });
       } else if (entry.isFile()) {
         const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
@@ -192,6 +224,26 @@ export async function saveUploadedFile(root: string, folder: string | null, file
   const target = await resolveInside(root, relative);
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, data);
+  return normalizeStudioPath(relative);
+}
+
+/**
+ * Moves an upload that multer wrote to a temporary file into the project.
+ * Uploads used to be held in memory (up to 30 files of 50 MB each), which a
+ * phone can't spare.
+ */
+export async function saveUploadedTempFile(root: string, folder: string | null, fileName: string, tempPath: string): Promise<string> {
+  const name = path.basename(fileName).replace(/[\0/\\]/g, "_").slice(0, 200) || "upload";
+  const relative = folder ? `${normalizeStudioPath(folder)}/${name}` : name;
+  const target = await resolveInside(root, relative);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  try {
+    await fs.rename(tempPath, target);
+  } catch {
+    // The temporary folder can be on another file system.
+    await fs.copyFile(tempPath, target);
+    await fs.rm(tempPath, { force: true });
+  }
   return normalizeStudioPath(relative);
 }
 

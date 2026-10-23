@@ -146,3 +146,47 @@ describe("useLiveRunTranscripts recovery", () => {
     }
   });
 });
+
+describe("useLiveRunTranscripts late output", () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  beforeEach(() => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    FakeWebSocket.instances = [];
+    records = [];
+    logMock.mockReset();
+    logMock.mockImplementation(async (_runId: string, offset: number, limit: number) => {
+      const all = file();
+      const content = all.slice(offset, offset + limit);
+      const end = offset + content.length;
+      return { runId: "run-1", store: "local_file", logRef: "x", content, nextOffset: end < all.length ? end : undefined };
+    });
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  });
+  afterEach(() => {
+    globalThis.WebSocket = OriginalWebSocket;
+    vi.restoreAllMocks();
+  });
+
+  it("reads a line a finished run wrote after its terminal status", async () => {
+    let latest: string[] = [];
+    function Harness({ bytes }: { bytes: number }) {
+      const { transcriptByRun } = useLiveRunTranscripts({
+        companyId: "company-1",
+        runs: [{ id: "run-1", status: "cancelled", adapterType: "claude_local", logBytes: bytes }],
+      });
+      latest = ((transcriptByRun.get("run-1") ?? []) as unknown as Array<{ chunk: string }>).map((chunk) => chunk.chunk);
+      return null;
+    }
+    serverWrites(1);
+    const root = createRoot(document.createElement("div"));
+    try {
+      await act(async () => root.render(<Harness bytes={file().length} />));
+      expect(latest).toEqual(["tok1"]);
+      serverWrites(2);
+      await act(async () => root.render(<Harness bytes={file().length} />));
+      expect(latest).toEqual(["tok1", "tok2"]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

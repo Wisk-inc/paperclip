@@ -412,6 +412,44 @@ export async function conversationReplay(
     .join("\n");
 }
 
+/**
+ * The comments on an ordinary task before the one being answered, oldest
+ * first, as the same quoted JSON lines `conversationReplay` produces. Engines
+ * that can't read the thread themselves (the direct API engine has no tools)
+ * answered a comment without the discussion it belonged to.
+ */
+export async function taskCommentHistory(
+  db: Db,
+  companyId: string,
+  issueId: string,
+  wakeCommentId: string | null,
+) {
+  const rows = await db
+    .select()
+    .from(issueComments)
+    .where(
+      and(
+        eq(issueComments.companyId, companyId),
+        eq(issueComments.issueId, issueId),
+        isNull(issueComments.deletedAt),
+        wakeCommentId
+          ? sql`(${issueComments.createdAt}, ${issueComments.id}) < (select cursor.created_at, cursor.id from issue_comments cursor where cursor.id = ${wakeCommentId}::uuid and cursor.issue_id = ${issueId}::uuid)`
+          : undefined,
+      ),
+    )
+    .orderBy(desc(issueComments.createdAt), desc(issueComments.id))
+    .limit(20);
+  return rows
+    .reverse()
+    .map((row) =>
+      JSON.stringify({
+        author: row.authorAgentId ? "agent" : "user",
+        body: sanitizeQuarantinedCommentForHigherTrust(row).body.slice(0, 4000),
+      }),
+    )
+    .join("\n");
+}
+
 /** Comment rows form a durable outbox for the narrow commit-to-enqueue crash window. */
 export async function undeliveredConversationComments(
   db: Db,

@@ -16,6 +16,14 @@ import {
 import { toolTaxonomy } from "../task-chat/tool-taxonomy";
 
 /** Family glyph for a tool block/row; the taxonomy falls back to Wrench. */
+/**
+ * A run's cost after its tokens. No cost is shown when none was reported (a
+ * subscription, or a model with no known price) rather than "$0.000000".
+ */
+function resultCostLabel(costUsd: number) {
+  return costUsd > 0 ? ` / $${costUsd.toFixed(6)}` : "";
+}
+
 function ToolFamilyIcon({ name, className }: { name: string; className?: string }) {
   const Icon = toolTaxonomy(name).icon;
   return <Icon className={className} />;
@@ -705,7 +713,7 @@ export function normalizeTranscript(entries: TranscriptEntry[], streaming: boole
         text: entry.text.trim() || entry.errors[0] || (entry.isError ? "Run failed" : "Completed"),
         detail:
           !entry.isError && entry.text.trim().length > 0
-            ? `${formatTokens(entry.inputTokens)} / ${formatTokens(entry.outputTokens)} / $${entry.costUsd.toFixed(6)}`
+            ? `${formatTokens(entry.inputTokens)} / ${formatTokens(entry.outputTokens)}${resultCostLabel(entry.costUsd)}`
             : undefined,
       });
       continue;
@@ -1747,7 +1755,7 @@ function rawEntryContent(entry: TranscriptEntry): string {
     return formatToolPayload(entry.content);
   }
   if (entry.kind === "result") {
-    return `${entry.text}\n${formatTokens(entry.inputTokens)} / ${formatTokens(entry.outputTokens)} / $${entry.costUsd.toFixed(6)}`;
+    return `${entry.text}\n${formatTokens(entry.inputTokens)} / ${formatTokens(entry.outputTokens)}${resultCostLabel(entry.costUsd)}`;
   }
   if (entry.kind === "init") {
     return `model=${entry.model}${entry.sessionId ? ` session=${entry.sessionId}` : ""}`;

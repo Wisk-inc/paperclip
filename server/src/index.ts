@@ -3,6 +3,7 @@
 // OTEL_EXPORTER_OTLP_ENDPOINT is set). startServer() awaits
 // instrumentationReady before opening DB connections or constructing the
 // HTTP server, so trace coverage does not depend on incidental timing.
+import { flushStudioUsageForShutdown } from "./services/studio/usage.js";
 import { instrumentationReady, shutdownInstrumentation } from "./instrumentation.js";
 import { sentryReady, shutdownSentry, captureException } from "./sentry.js";
 import { waitForPendingRunFailureReports } from "./services/run-failure-report.js";
@@ -1959,6 +1960,12 @@ async function startServerWithDatabaseTeardown(
       telemetryClient.stop();
       await telemetryClient.flush();
     }
+
+    // App Studio's code-suggestion spend waits in small batches; write them
+    // before the database goes away so a restart doesn't lose them.
+    await flushStudioUsageForShutdown().catch((err) =>
+      logger.warn({ err, signal }, "studio usage flush on shutdown failed"),
+    );
 
     if (!skipHeartbeatDrain && drainHeartbeatRunsForShutdown) {
       try {

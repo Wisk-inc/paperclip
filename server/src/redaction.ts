@@ -960,9 +960,34 @@ export function redactEventPayload(
   return sanitized;
 }
 
-function redactAgentEnvBinding(value: unknown): unknown {
+const ENDPOINT_ENV_KEY_RE = /(?:_BASE_URL|_API_BASE|_ENDPOINT|_API_URL)$/;
+const SECRET_QUERY_PARAM_RE = /(?:key|token|secret|password|sig|signature|auth)/i;
+
+/**
+ * An endpoint address is shown as written, so people can see which server an
+ * agent talks to; it stayed "***REDACTED***" like a key. Only a plain URL
+ * qualifies: one carrying a login, or a query parameter that looks like a
+ * credential, is still hidden.
+ */
+function isPublicEndpointValue(key: string, value: unknown): value is string {
+  if (!ENDPOINT_ENV_KEY_RE.test(key) || typeof value !== "string" || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    if (url.username || url.password) return false;
+    return ![...url.searchParams.keys()].some((name) => SECRET_QUERY_PARAM_RE.test(name));
+  } catch {
+    return false;
+  }
+}
+
+function redactAgentEnvBinding(value: unknown, key = ""): unknown {
   if (isSecretRefBinding(value) || isUserSecretRefBinding(value)) {
     return sanitizeValue(value);
+  }
+  const plainValue = typeof value === "string" ? value : isPlainBinding(value) ? (value as { value?: unknown }).value : undefined;
+  if (isPublicEndpointValue(key, plainValue)) {
+    return value;
   }
   if (typeof value === "string" || isPlainBinding(value)) {
     return { type: "plain", value: REDACTED_EVENT_VALUE };
@@ -983,7 +1008,7 @@ export function redactAgentAdapterConfig(
   // cannot alter entries this function has already redacted.
   const { env, ...rest } = adapterConfig;
   const redactedEnv = Object.fromEntries(
-    Object.entries(env).map(([key, value]) => [key, redactAgentEnvBinding(value)]),
+    Object.entries(env).map(([key, value]) => [key, redactAgentEnvBinding(value, key)]),
   );
 
   return { ...(redactEventPayload(rest) ?? {}), env: redactedEnv };

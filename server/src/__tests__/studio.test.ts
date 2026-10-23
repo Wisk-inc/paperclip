@@ -13,6 +13,7 @@ import {
   readStudioFile,
   resolveInside,
   saveUploadedFile,
+  saveUploadedTempFile,
   writeStudioFile,
 } from "../services/studio/files.js";
 import { detectStudioLanguage, nameIsClaimed, normalizeShareCode, validateGitUrl } from "../services/studio/service.js";
@@ -105,14 +106,29 @@ describe("Studio files", () => {
     await moveStudioEntry(root, "src/app.js", "src/server.js");
     const uploaded = await saveUploadedFile(root, "assets", "logo.png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0]));
     expect(uploaded).toBe("assets/logo.png");
+    // Uploads arrive as temporary files and are moved into the project.
+    const temp = path.join(await mkdtemp(path.join(os.tmpdir(), "studio-upload-")), "part");
+    await writeFile(temp, "hello");
+    expect(await saveUploadedTempFile(root, "docs", "../../notes.txt", temp)).toBe("docs/notes.txt");
+    expect(await readFile(path.join(root, "docs", "notes.txt"), "utf8")).toBe("hello");
+    await expect(readFile(temp)).rejects.toThrow();
     const binary = await readStudioFile(root, "assets/logo.png");
     expect(binary.binary).toBe(true);
     expect(binary.content).toBeNull();
     await mkdir(path.join(root, "node_modules", "pkg"), { recursive: true });
+    await mkdir(path.join(root, "bin"), { recursive: true });
+    await writeFile(path.join(root, "bin", "cli.js"), "#!/usr/bin/env node\n");
+    await mkdir(path.join(root, "dist"), { recursive: true });
+    for (let i = 0; i < 205; i += 1) await writeFile(path.join(root, "dist", `chunk-${i}.js`), "");
     const tree = await listTree(root);
     const names = tree.map((node) => node.name);
     expect(names).toContain("src");
     expect(names).toContain("assets");
+    // People's own bin/ is listed; a big build output and dependencies are not.
+    const byName = new Map(tree.map((node) => [node.name, node]));
+    expect(byName.get("bin")?.children?.map((child) => child.name)).toEqual(["cli.js"]);
+    expect(byName.get("dist")).toMatchObject({ unlisted: true, unlistedReason: "large", children: [] });
+    expect(byName.get("node_modules")).toMatchObject({ unlisted: true, unlistedReason: "dependencies" });
     await deleteStudioEntry(root, "src");
     await expect(readFile(path.join(root, "src", "server.js"))).rejects.toThrow();
   });

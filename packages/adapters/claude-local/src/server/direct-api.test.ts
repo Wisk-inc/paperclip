@@ -8,6 +8,7 @@ import {
   claudeDirectApiCredentials,
   claudeThinkingStyle,
   executeClaudeDirectApi,
+  parseReplayLines,
   readConversationReplay,
 } from "./direct-api.js";
 
@@ -18,6 +19,11 @@ const requests: Array<Record<string, unknown>> = [];
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url?.startsWith("/api/issues/issue-1/comments/")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "c-long", body: `FULL START ${"x".repeat(5000)} FULL END` }));
+      return;
+    }
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
@@ -104,6 +110,75 @@ describe("direct API engine", () => {
       { author: "agent", body: "two" },
     ]);
     expect(readConversationReplay("no history here")).toEqual([]);
+  });
+
+  it("answers a task comment with the task's description and earlier comments", async () => {
+    const { ctx } = context({
+      context: {
+        conversationMode: false,
+        paperclipIssue: { id: "issue-1", title: "Fix login", description: "Users can't log in on Android 15.", workMode: "standard" },
+        paperclipTaskMarkdown: "Paperclip task context: tool instructions",
+        paperclipCommentHistory: '{"author":"user","body":"It started after the update."}\n{"author":"agent","body":"Which update?"}',
+      },
+    });
+    const result = await executeClaudeDirectApi(ctx, "phone");
+    expect(result.exitCode).toBe(0);
+    const request = requests.at(-1)!;
+    expect(JSON.stringify(request.system)).toContain("Users can't log in on Android 15.");
+    const sent = request.messages as Array<{ role: string; content: Array<{ text?: string }> }>;
+    expect(sent.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(sent[0]!.content[0]!.text).toBe("It started after the update.");
+    expect(JSON.stringify(sent.at(-1))).toContain("Plan the launch");
+  });
+
+  it("keeps a chat's history after a Claude Code turn left a session", async () => {
+    // The server sends the history on its own field even when the task
+    // context has no replay (a saved session made it skip that).
+    const { ctx } = context({
+      context: {
+        paperclipTaskMarkdown: "Task",
+        paperclipCommentHistory: '{"author":"user","body":"Earlier question"}\n{"author":"agent","body":"Earlier answer"}',
+      },
+    });
+    await executeClaudeDirectApi(ctx, "phone");
+    const sent = requests.at(-1)!.messages as Array<{ role: string }>;
+    expect(sent.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(parseReplayLines('{"author":"agent","body":"a"}\nnot json')).toEqual([{ author: "agent", body: "a" }]);
+  });
+
+  it("reads the whole of a long message instead of the cut wake copy", async () => {
+    const savedUrl = process.env.PAPERCLIP_API_URL;
+    process.env.PAPERCLIP_API_URL = baseUrl;
+    try {
+      const { ctx } = context({
+        context: {
+          paperclipWake: {
+            reason: "issue_commented",
+            comments: [{ id: "c-long", issueId: "issue-1", body: "FULL START xxxx", bodyTruncated: true, createdAt: null, authorType: "user", authorId: "u1" }],
+            commentIds: ["c-long"],
+          },
+        },
+      });
+      (ctx as { authToken?: string }).authToken = "agent-token";
+      await executeClaudeDirectApi(ctx, "phone");
+      const last = JSON.stringify((requests.at(-1)!.messages as unknown[]).at(-1));
+      expect(last).toContain("FULL END");
+
+      const { ctx: noAccess } = context({
+        context: {
+          paperclipWake: {
+            reason: "issue_commented",
+            comments: [{ id: "c-long", issueId: "issue-1", body: "FULL START xxxx", bodyTruncated: true, createdAt: null, authorType: "user", authorId: "u1" }],
+            commentIds: ["c-long"],
+          },
+        },
+      });
+      await executeClaudeDirectApi(noAccess, "phone");
+      expect(JSON.stringify((requests.at(-1)!.messages as unknown[]).at(-1))).toContain("This message was cut short");
+    } finally {
+      if (savedUrl === undefined) delete process.env.PAPERCLIP_API_URL;
+      else process.env.PAPERCLIP_API_URL = savedUrl;
+    }
   });
 
   it("alternates turns and never opens with the agent", () => {

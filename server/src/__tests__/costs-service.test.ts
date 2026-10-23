@@ -473,6 +473,38 @@ describeEmbeddedPostgres("cost and finance aggregate overflow handling", () => {
     expect(agent?.spentMonthlyCents).toBe(0);
   });
 
+  it("carries fractions of a cent so cheap calls add up instead of recording 0¢", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId, companyId, name: "Haiku Agent", role: "engineer", status: "active",
+      adapterType: "claude_local", adapterConfig: {}, runtimeConfig: {}, permissions: {},
+    });
+    const occurredAt = new Date();
+    const record = (micros: number, overrides: Record<string, unknown> = {}) =>
+      costs.createEvent(companyId, {
+        agentId, provider: "anthropic", biller: "anthropic", billingType: "metered_api", model: "claude-haiku-5-5",
+        inputTokens: 100, outputTokens: 10, costCents: Math.round(micros / 10_000), costMicros: micros, occurredAt,
+        ...overrides,
+      });
+    // Ten calls of 0.4¢ each: $0.04 in all.
+    const events = [];
+    for (let i = 0; i < 10; i += 1) events.push(await record(4_000));
+    expect(events.reduce((sum, event) => sum + event.costCents, 0)).toBe(4);
+    const [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
+    expect(agent?.spentMonthlyCents).toBe(4);
+    // App Studio spend carries separately from the agent's.
+    const studio = [];
+    for (let i = 0; i < 3; i += 1) studio.push(await record(3_000, { agentId: null, source: "studio" }));
+    expect(studio.map((event) => event.costCents)).toEqual([0, 1, 0]);
+  });
+
   it("aggregates cost event sums above int32 without raising Postgres integer overflow", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();

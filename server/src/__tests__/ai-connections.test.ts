@@ -171,6 +171,20 @@ describe("managed AI connections", () => {
     expect((await service.select({ ...input, userId: "alice" })).grant.id).toBe(second.grantId);
     await expect(service.setDefault(companyId, "bob", second.grantId)).rejects.toThrow("owner");
   });
+  it("removing a key deletes its stored secret and clears it as the default", async () => {
+    await db.insert(companyMemberships).values({ companyId, principalId: "carol", principalType: "user", status: "active", membershipRole: "member" });
+    const saved = await create("carol", "Carol key");
+    const [grant] = await db.select().from(connectionGrants).where(eq(connectionGrants.id, saved.grantId));
+    const secretIds = (grant!.credentialSecretRefs ?? []).map((ref) => ref.secretId);
+    expect(secretIds.length).toBeGreaterThan(0);
+    await toolAccessService(db).archiveConnection(saved.connectionId, companyId, { actorType: "user", actorId: "carol" } as never);
+    const left = await db.select().from(companySecrets).where(sql`${companySecrets.id} in (${sql.join(secretIds.map((id) => sql`${id}::uuid`), sql`, `)})`);
+    expect(left).toEqual([]);
+    expect(await db.select().from(aiProviderDefaults).where(eq(aiProviderDefaults.userId, "carol"))).toEqual([]);
+    // A key added afterwards becomes the default again.
+    const next = await create("carol", "Carol second key");
+    expect((await service.select({ ...input, userId: "carol" })).grant.id).toBe(next.grantId);
+  });
   it("uses human access for every selection; an agent delegation cannot override Just me", async () => {
     const personal = await service.select({ ...input, userId: "alice" });
     const delegated = { ...binding, mode: "delegated" as const, connectionId: personal.connection.id, grantId: personal.grant.id };

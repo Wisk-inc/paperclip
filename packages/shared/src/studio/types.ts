@@ -31,8 +31,10 @@ export interface StudioFileNode {
   size?: number;
   /** When the file last changed (ISO time). */
   modifiedAt?: string;
-  /** A dependency folder (node_modules and the like) whose contents are not listed. */
+  /** A folder whose contents are not listed (dependencies, git, very large or very deep). */
   unlisted?: boolean;
+  /** Why the folder isn't listed, for its label. */
+  unlistedReason?: "dependencies" | "git" | "large" | "deep";
   children?: StudioFileNode[];
 }
 

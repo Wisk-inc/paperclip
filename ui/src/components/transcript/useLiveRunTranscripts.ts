@@ -144,6 +144,8 @@ export function useLiveRunTranscripts({
   // Finished runs whose whole log has been read; reading them again only
   // returns nothing.
   const fullyReadRunIdsRef = useRef(new Set<string>());
+  // The run's byte count when it was fully read, to notice later growth.
+  const fullyReadBytesRef = useRef(new Map<string, number>());
   const [chunksByRun, setChunksByRun] = useState<Map<string, RunLogChunk[]>>(new Map());
   const [hydratedRunIds, setHydratedRunIds] = useState<Set<string>>(new Set());
   const [errorsByRun, setErrorsByRun] = useState<ReadonlyMap<string, Error>>(new Map());
@@ -324,6 +326,27 @@ export function useLiveRunTranscripts({
     }
   }, [normalizedRuns, pruneTick]);
 
+  // A finished run marked fully read can still gain a last line (a Stop that
+  // writes after the run's terminal status). When the run list says its log
+  // has grown past what was read, read it again.
+  const [lateOutputGeneration, setLateOutputGeneration] = useState(0);
+  useEffect(() => {
+    let grew = false;
+    for (const run of normalizedRuns) {
+      if (!fullyReadRunIdsRef.current.has(run.id)) continue;
+      const known = runKnownLogBytes(run);
+      const atRead = fullyReadBytesRef.current.get(run.id) ?? null;
+      // Only growth since the full read counts; a byte count that never
+      // matched the readable log must not cause a read on every refetch.
+      if (known !== null && atRead !== null && known > atRead) {
+        fullyReadRunIdsRef.current.delete(run.id);
+        fullyReadBytesRef.current.delete(run.id);
+        grew = true;
+      }
+    }
+    if (grew) setLateOutputGeneration((value) => value + 1);
+  }, [normalizedRuns]);
+
   useEffect(() => {
     if (!visible) return;
     const readableRuns = shapedRuns.filter(
@@ -358,6 +381,8 @@ export function useLiveRunTranscripts({
         appendChunks(run.id, parsePersistedLogContent(run.id, result.content, pendingLogRowsByRunRef.current));
         if (isTerminalStatus(run.status) && result.nextOffset === undefined && result.content.length < logReadLimitBytes) {
           fullyReadRunIdsRef.current.add(run.id);
+          const latest = latestRunsRef.current.find((candidate) => candidate.id === run.id) ?? run;
+          fullyReadBytesRef.current.set(run.id, runKnownLogBytes(latest) ?? 0);
         }
 
         if (result.nextOffset !== undefined) {
@@ -422,7 +447,7 @@ export function useLiveRunTranscripts({
       controller.abort();
       if (interval !== null) window.clearInterval(interval);
     };
-  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration, socketOpenGeneration]);
+  }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration, socketOpenGeneration, lateOutputGeneration]);
 
   useEffect(() => {
     if (!visible || !enableRealtimeUpdates) return;

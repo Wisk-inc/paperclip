@@ -719,6 +719,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           outputTokens: attempt.parsed.usage.outputTokens,
           cachedInputTokens: attempt.parsed.usage.cachedInputTokens,
         },
+        // Usage is added up from this run's own events, so it is per run:
+        // the server must not subtract the previous run in the same session.
+        usageBasis: "per_run",
         sessionId: resolvedSessionId,
         sessionParams: resolvedSessionParams,
         sessionDisplayId: resolvedSessionId,

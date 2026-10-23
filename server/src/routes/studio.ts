@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
+import os from "node:os";
 import { request as httpRequest } from "node:http";
 import path from "node:path";
 import { Router, type Request, type Response } from "express";
@@ -47,6 +48,7 @@ import {
   readStudioFile,
   resolveInside,
   saveUploadedFile,
+  saveUploadedTempFile,
   studioWorkspaceDirs,
   writeStudioFile,
 } from "../services/studio/files.js";
@@ -74,7 +76,9 @@ type WorkspaceRow = typeof studioWorkspaces.$inferSelect;
 /** Ten wrong share codes per client, or forty overall, in ten minutes. */
 const joinLimiter = new AttemptLimiter({ windowMs: 10 * 60_000, perKey: 10, total: 40 });
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
+// Project uploads stream to temporary files instead of memory: thirty 50 MB
+// files at once were held in the server's memory, which a phone can't spare.
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
 const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
 
 /** One gateway for collaborators per server, and its public link. */
@@ -274,6 +278,16 @@ export function studioRoutes(db: Db) {
     return req.actor.userId ?? "board";
   }
 
+  const lastFileSaveLog = new Map<string, number>();
+  function shouldLogFileSave(workspaceId: string, filePath: string) {
+    const key = `${workspaceId}:${filePath}`;
+    const now = Date.now();
+    if (now - (lastFileSaveLog.get(key) ?? 0) < 10 * 60_000) return false;
+    lastFileSaveLog.set(key, now);
+    if (lastFileSaveLog.size > 5_000) lastFileSaveLog.clear();
+    return true;
+  }
+
   async function log(req: Request, workspace: WorkspaceRow, action: string, details: Record<string, unknown> = {}) {
     await logActivity(db, {
       companyId: workspace.companyId,
@@ -358,7 +372,9 @@ export function studioRoutes(db: Db) {
 
   router.patch("/studio/workspaces/:id", validate(updateStudioWorkspaceSchema), async (req, res) => {
     const workspace = await workspaceFor(req);
-    res.json({ workspace: await svc.update(workspace.id, req.body) });
+    const updated = await svc.update(workspace.id, req.body);
+    await log(req, workspace, "studio.workspace_updated", { fields: Object.keys(req.body ?? {}) });
+    res.json({ workspace: updated });
   });
 
   router.delete("/studio/workspaces/:id", async (req, res) => {
@@ -394,6 +410,8 @@ export function studioRoutes(db: Db) {
     const file = await writeStudioFile(dirs.files, req.body.path, req.body.content, req.body.baseVersion);
     await svc.touch(workspace.id);
     studioHub.broadcast(workspace.id, { type: "file:saved", path: file.path, version: file.version, content: file.content, by: actor(req) });
+    // The editor saves as you type; the log gets one line per file per few minutes.
+    if (shouldLogFileSave(workspace.id, file.path)) await log(req, workspace, "studio.file_saved", { path: file.path });
     res.json(file);
   });
 
@@ -401,6 +419,7 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     await createStudioEntry(studioWorkspaceDirs(workspace.companyId, workspace.id).files, req.body.path, req.body.type);
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
+    await log(req, workspace, "studio.entry_created", { path: normalizeStudioPath(req.body.path), entryType: req.body.type });
     res.status(201).json({ ok: true, path: normalizeStudioPath(req.body.path) });
   });
 
@@ -408,6 +427,7 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     await moveStudioEntry(studioWorkspaceDirs(workspace.companyId, workspace.id).files, req.body.from, req.body.to);
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
+    await log(req, workspace, "studio.entry_moved", { from: req.body.from, to: req.body.to });
     res.json({ ok: true });
   });
 
@@ -416,19 +436,26 @@ export function studioRoutes(db: Db) {
     const relative = String(req.query.path ?? "");
     await deleteStudioEntry(studioWorkspaceDirs(workspace.companyId, workspace.id).files, relative);
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
+    await log(req, workspace, "studio.entry_deleted", { path: relative });
     res.json({ ok: true });
   });
 
   router.post("/studio/workspaces/:id/upload", upload.array("files", 30), async (req, res) => {
     const workspace = await workspaceFor(req);
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-    if (files.length === 0) throw badRequest("Choose at least one file");
-    const folder = typeof req.body?.folder === "string" && req.body.folder.trim() ? req.body.folder.trim() : null;
-    const saved: string[] = [];
-    const root = studioWorkspaceDirs(workspace.companyId, workspace.id).files;
-    for (const file of files) saved.push(await saveUploadedFile(root, folder, file.originalname, file.buffer));
-    studioHub.broadcast(workspace.id, { type: "tree:changed" });
-    res.status(201).json({ paths: saved });
+    try {
+      if (files.length === 0) throw badRequest("Choose at least one file");
+      const folder = typeof req.body?.folder === "string" && req.body.folder.trim() ? req.body.folder.trim() : null;
+      const saved: string[] = [];
+      const root = studioWorkspaceDirs(workspace.companyId, workspace.id).files;
+      for (const file of files) saved.push(await saveUploadedTempFile(root, folder, file.originalname, file.path));
+      studioHub.broadcast(workspace.id, { type: "tree:changed" });
+      await log(req, workspace, "studio.files_uploaded", { paths: saved });
+      res.status(201).json({ paths: saved });
+    } finally {
+      // Whatever wasn't moved into the project (an error part-way) is removed.
+      await Promise.all(files.map((file) => fs.rm(file.path, { force: true }).catch(() => undefined)));
+    }
   });
 
   router.get("/studio/workspaces/:id/archive", async (req, res) => {
@@ -473,6 +500,7 @@ export function studioRoutes(db: Db) {
   router.delete("/studio/workspaces/:id/checkpoints/:checkpointId", async (req, res) => {
     const workspace = await workspaceFor(req);
     await deleteCheckpoint(workspace.companyId, workspace.id, String(req.params.checkpointId));
+    await log(req, workspace, "studio.checkpoint_deleted", { checkpointId: String(req.params.checkpointId) });
     res.json({ ok: true });
   });
 
@@ -529,6 +557,7 @@ export function studioRoutes(db: Db) {
     }
     await startApp(workspace);
     await svc.touch(workspace.id, true);
+    await log(req, workspace, "studio.app_started", { command: workspace.runCommand ?? null });
     res.json({ run: studioRuntime(workspace.id).state });
   });
 
@@ -536,6 +565,7 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     const runtime = studioRuntime(workspace.id);
     await runtime.stop();
+    await log(req, workspace, "studio.app_stopped");
     res.json({ run: runtime.state });
   });
 
@@ -547,6 +577,7 @@ export function studioRoutes(db: Db) {
   router.delete("/studio/workspaces/:id/console", async (req, res) => {
     const workspace = await workspaceFor(req);
     studioRuntime(workspace.id).clearConsole();
+    await log(req, workspace, "studio.console_cleared");
     res.json({ ok: true });
   });
 
@@ -558,6 +589,7 @@ export function studioRoutes(db: Db) {
 
   router.post("/studio/workspaces/:id/exec", validate(execStudioCommandSchema), async (req, res) => {
     const workspace = await workspaceFor(req);
+    await log(req, workspace, "studio.command_run", { command: String(req.body.command).slice(0, 500) });
     const result = await studioRuntime(workspace.id).exec(studioWorkspaceDirs(workspace.companyId, workspace.id).files, req.body.command, {
       timeoutMs: 15 * 60_000,
     });
@@ -571,6 +603,7 @@ export function studioRoutes(db: Db) {
     const command = language ? installCommandFor(language) : null;
     if (!command) throw unprocessable("Automa doesn't know how to install this language here. Install it yourself, then tap Run.");
     if (command.startsWith("sudo ")) throw unprocessable(`Run this in a terminal on the server: ${command}`);
+    await log(req, workspace, "studio.toolchain_installed", { command });
     const result = await studioRuntime(workspace.id).exec(studioWorkspaceDirs(workspace.companyId, workspace.id).files, command, { timeoutMs: 20 * 60_000 });
     clearToolchainCache();
     res.json({ ...result, toolchain: toolchainStatus(language!) });

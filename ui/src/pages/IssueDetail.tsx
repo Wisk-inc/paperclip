@@ -5208,11 +5208,12 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       invalidateIssueThreadLazily();
       invalidateIssueCollections();
       invalidateIssueDocumentAnnotationState();
-      pushToast({
-        title: "Comment deleted",
-        body: "The thread now shows a deleted-comment marker.",
-        tone: "success",
-      });
+      // A chat drops deleted messages entirely; only a task thread keeps a marker.
+      pushToast(
+        issue?.conversationAgentId
+          ? { title: "Message deleted", tone: "success" }
+          : { title: "Comment deleted", body: "The thread now shows a deleted-comment marker.", tone: "success" },
+      );
     },
     onError: (err) => {
       pushToast({

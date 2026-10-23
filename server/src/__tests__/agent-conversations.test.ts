@@ -44,6 +44,7 @@ import {
   conversationNativeDecision,
   deliverConversationComments,
   conversationReplay,
+  taskCommentHistory,
   isWaitingConversation,
   isConversationExecutionWake,
   prepareConversationTurn,
@@ -428,6 +429,18 @@ const support = await getEmbeddedPostgresTestSupport();
       expect(
         await conversationReplay(db, companyId, issue.id, next.id),
       ).not.toContain("Following turn");
+    });
+    it("gives an ordinary task's earlier comments, before the one being answered", async () => {
+      const task = await issueService(db).create(companyId, { title: "Ordinary task", status: "todo" });
+      await issueService(db).addComment(task.id, "First note", { userId: "local-board" });
+      await issueService(db).addComment(task.id, "Agent reply", { agentId });
+      const wake = await issueService(db).addComment(task.id, "Please continue", { userId: "local-board" });
+      await issueService(db).addComment(task.id, "Written later", { userId: "local-board" });
+      const lines = (await taskCommentHistory(db, companyId, task.id, wake.id)).split("\n").map((line) => JSON.parse(line));
+      expect(lines).toEqual([
+        { author: "user", body: "First note" },
+        { author: "agent", body: "Agent reply" },
+      ]);
     });
     it("projects the resolved chat plan review into fresh and resumed prompts without replaying old reviews", async () => {
       const issue = await create();

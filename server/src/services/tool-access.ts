@@ -5992,22 +5992,26 @@ export function toolAccessService(
   async function classifyConnectionSecrets(
     connection: typeof toolConnections.$inferSelect,
     secretIds: string[],
-  ): Promise<{ owned: string[]; retained: string[] }> {
+    grantIds: string[] = [],
+  ): Promise<{ owned: string[]; retained: string[]; ownedUserDefinitionIds: string[] }> {
     const unique = [
       ...new Set(
         secretIds.filter((id) => typeof id === "string" && id.length > 0),
       ),
     ];
-    if (unique.length === 0) return { owned: [], retained: [] };
+    if (unique.length === 0) return { owned: [], retained: [], ownedUserDefinitionIds: [] };
 
     const secretRows = await db
       .select({
         id: companySecrets.id,
         key: companySecrets.key,
+        name: companySecrets.name,
         scope: companySecrets.scope,
         userSecretDefinitionId: companySecrets.userSecretDefinitionId,
+        definitionKey: userSecretDefinitions.key,
       })
       .from(companySecrets)
+      .leftJoin(userSecretDefinitions, eq(userSecretDefinitions.id, companySecrets.userSecretDefinitionId))
       .where(
         and(
           eq(companySecrets.companyId, connection.companyId),
@@ -6066,6 +6070,7 @@ export function toolAccessService(
 
     const owned: string[] = [];
     const retained: string[] = [];
+    const ownedUserDefinitionIds: string[] = [];
     for (const secretId of unique) {
       const row = byId.get(secretId);
       // No row means an earlier pass of this same removal already deleted it.
@@ -6075,14 +6080,26 @@ export function toolAccessService(
         owned.push(secretId);
         continue;
       }
+      // An AI key's private slot is made for one grant (`ai-<grant>` shared,
+      // `ai_<grant>` personal) and belongs to it as much as a `tool_app.` key
+      // does; left behind, a removed key stayed stored, encrypted.
+      const aiSlot = grantIds.some(
+        (grantId) =>
+          (row.scope === "company" && row.userSecretDefinitionId === null && row.name === `ai-${grantId}`) ||
+          (row.userSecretDefinitionId !== null && row.definitionKey === `ai_${grantId.replaceAll("-", "_")}`),
+      );
       const dedicated =
-        row.scope === "company" &&
-        row.userSecretDefinitionId === null &&
-        row.key.startsWith(CONNECTION_OWNED_SECRET_KEY_PREFIX);
-      if (dedicated && !referencedElsewhere.has(secretId)) owned.push(secretId);
+        aiSlot ||
+        (row.scope === "company" &&
+          row.userSecretDefinitionId === null &&
+          row.key.startsWith(CONNECTION_OWNED_SECRET_KEY_PREFIX));
+      if (dedicated && !referencedElsewhere.has(secretId)) {
+        owned.push(secretId);
+        if (aiSlot && row.userSecretDefinitionId) ownedUserDefinitionIds.push(row.userSecretDefinitionId);
+      }
       else retained.push(secretId);
     }
-    return { owned, retained };
+    return { owned, retained, ownedUserDefinitionIds: [...new Set(ownedUserDefinitionIds)] };
   }
 
   /**
@@ -6463,14 +6480,19 @@ export function toolAccessService(
         (grant.credentialSecretRefs ?? []).map((ref) => ref.secretId),
       ),
     ];
-    const { owned, retained } = await classifyConnectionSecrets(
+    const { owned, retained, ownedUserDefinitionIds } = await classifyConnectionSecrets(
       connection,
       candidateSecretIds,
+      grantRows.map((grant) => grant.id),
     );
     let secretsRevoked = 0;
     for (const secretId of owned) {
       const removed = await secrets.remove(secretId);
       if (removed) secretsRevoked += 1;
+    }
+    // A personal AI key also has its own named slot on the owner's secrets.
+    for (const definitionId of ownedUserDefinitionIds) {
+      await secrets.removeUserSecretDefinition(connection.companyId, definitionId).catch(() => undefined);
     }
 
     const credentialRefsCleared =

@@ -93,3 +93,49 @@ export function estimateClaudeCostUsd(model: string, usage: ClaudeUsageForPricin
     (input * price.input + cacheWrite * price.input * 1.25 + cacheRead * price.cacheRead + output * price.output) / 1_000_000;
   return Math.round(cost * 1_000_000) / 1_000_000;
 }
+
+/** The token counts of a Messages API `usage` object, as it arrives on the wire. */
+export interface ClaudeApiUsage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  /** Per-attempt usage when the server retried or fell back (each attempt is billed). */
+  iterations?: Array<ClaudeApiUsage & { model?: string | null }> | null;
+}
+
+/**
+ * What a reply really cost: every attempt in `usage.iterations` when there is
+ * one (a declined attempt and a fallback model are billed too, each at its
+ * own model's price), otherwise the top-level counts. Input includes cache
+ * writes; cached input is the cache reads.
+ */
+export function claudeBilledSpend(model: string, usage: ClaudeApiUsage) {
+  const parts = Array.isArray(usage.iterations) && usage.iterations.length > 0 ? usage.iterations : [{ ...usage, model }];
+  let inputTokens = 0;
+  let cachedInputTokens = 0;
+  let outputTokens = 0;
+  let costUsd: number | null = 0;
+  for (const part of parts) {
+    const input = Math.max(0, part.input_tokens ?? 0);
+    const cacheRead = Math.max(0, part.cache_read_input_tokens ?? 0);
+    const cacheWrite = Math.max(0, part.cache_creation_input_tokens ?? 0);
+    const output = Math.max(0, part.output_tokens ?? 0);
+    inputTokens += input + cacheWrite;
+    cachedInputTokens += cacheRead;
+    outputTokens += output;
+    const partCost = estimateClaudeCostUsd(part.model || model, {
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadInputTokens: cacheRead,
+      cacheCreationInputTokens: cacheWrite,
+    });
+    costUsd = costUsd === null || partCost === null ? null : costUsd + partCost;
+  }
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    costUsd: costUsd === null ? null : Math.round(costUsd * 1_000_000) / 1_000_000,
+  };
+}

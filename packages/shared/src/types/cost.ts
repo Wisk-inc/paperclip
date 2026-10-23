@@ -21,7 +21,14 @@ export interface CostEvent {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
+  /**
+   * Whole cents recorded for this event. When the exact cost is known, these
+   * carry the month's fractions of a cent, so a cheap call may record 0¢ and
+   * a later one 1¢; totals match the exact sum.
+   */
   costCents: number;
+  /** The exact cost in millionths of a dollar, when it was known. */
+  costMicros: number | null;
   occurredAt: Date;
   createdAt: Date;
 }
@@ -40,6 +47,8 @@ export interface CostSummary {
   runtimeMs: number;
   /** App Studio's AI (its assistant and code suggestions), part of the totals above. */
   studio?: { costCents: number; inputTokens: number; outputTokens: number; calls: number };
+  /** Paid calls with no known price: their tokens are counted, their cost is not. */
+  unpriced?: { calls: number; tokens: number };
 }
 
 export interface IssueCostSummary {
