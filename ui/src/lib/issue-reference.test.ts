@@ -146,4 +146,11 @@ describe("issue-reference", () => {
       expect(links.map((node) => node.url)).toEqual(["/issues/PAP-1", "/issues/JIRA-2"]);
     });
   });
+
+  it("stays fast on long slash-separated text", () => {
+    const tree = { type: "root", children: [{ type: "paragraph", children: [{ type: "text", value: "/a".repeat(200_000) }] }] };
+    const started = performance.now();
+    remarkLinkIssueReferences()(tree as never);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
 });

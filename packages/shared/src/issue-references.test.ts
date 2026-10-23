@@ -66,4 +66,21 @@ describe("issue references", () => {
 
     expect(extractIssueReferenceIdentifiers(markdown)).toEqual(["PAP-1", "PAP-5"]);
   });
+
+  it("stays fast on long runs with no references", () => {
+    const inputs = [
+      "x".repeat(2 * 1024 * 1024),
+      `/${"]".repeat(200_000)}`,
+      `/a${")".repeat(200_000)}`,
+      `${"ab1".repeat(300_000)} PAP-7`,
+    ];
+    const started = performance.now();
+    const found = inputs.map((input) => extractIssueReferenceIdentifiers(input));
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(found).toEqual([[], [], [], ["PAP-7"]]);
+  });
+
+  it("still finds identifiers at the start of a word only", () => {
+    expect(extractIssueReferenceIdentifiers("see PAP-12, (PAP-3) and xPAP-4 or foo_PAP-5")).toEqual(["PAP-12", "PAP-3", "XPAP-4", "PAP-5"]);
+  });
 });

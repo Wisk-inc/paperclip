@@ -7,7 +7,11 @@ export interface IssueReferenceMatch {
   matchedText: string;
 }
 
-const ISSUE_REFERENCE_TOKEN_RE = /https?:\/\/[^\s<>()]+|\/[^\s<>()]+|[A-Z][A-Z0-9]*-\d+/gi;
+// The identifier branch only starts at the beginning of a letter/digit run:
+// without the lookbehind a long run with no dash (a hash, base64, "xxxx…")
+// is rescanned from every position, which took the server down on a 2 MB
+// comment.
+const ISSUE_REFERENCE_TOKEN_RE = /https?:\/\/[^\s<>()]+|\/[^\s<>()]+|(?<![A-Z0-9])[A-Z][A-Z0-9]*-\d+/gi;
 
 function preserveNewlinesAsWhitespace(value: string) {
   return value.replace(/[^\n]/g, " ");
@@ -72,21 +76,32 @@ function stripMarkdownCode(markdown: string): string {
   return output;
 }
 
+function countChar(value: string, char: string): number {
+  let count = 0;
+  for (let index = value.indexOf(char); index !== -1; index = value.indexOf(char, index + 1)) count += 1;
+  return count;
+}
+
 function trimTrailingPunctuation(token: string): string {
-  let trimmed = token;
-  while (trimmed.length > 0) {
-    const last = trimmed[trimmed.length - 1]!;
+  // Bracket counts are taken once and kept up to date, so a token ending in
+  // thousands of ")" or "]" is trimmed in one pass.
+  let openParens = countChar(token, "(");
+  let closeParens = countChar(token, ")");
+  let openBrackets = countChar(token, "[");
+  let closeBrackets = countChar(token, "]");
+  let end = token.length;
+  while (end > 0) {
+    const last = token[end - 1]!;
     if (!".,!?;:".includes(last) && last !== ")" && last !== "]") break;
 
-    if (
-      (last === ")" && (trimmed.match(/\(/g)?.length ?? 0) >= (trimmed.match(/\)/g)?.length ?? 0))
-      || (last === "]" && (trimmed.match(/\[/g)?.length ?? 0) >= (trimmed.match(/\]/g)?.length ?? 0))
-    ) {
+    if ((last === ")" && openParens >= closeParens) || (last === "]" && openBrackets >= closeBrackets)) {
       break;
     }
-    trimmed = trimmed.slice(0, -1);
+    if (last === ")") closeParens -= 1;
+    if (last === "]") closeBrackets -= 1;
+    end -= 1;
   }
-  return trimmed;
+  return token.slice(0, end);
 }
 
 export function normalizeIssueIdentifier(value: string): string | null {
