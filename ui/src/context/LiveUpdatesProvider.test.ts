@@ -1630,3 +1630,38 @@ describe("task subtree notification context", () => {
     expect(__liveUpdatesTestUtils.shouldSuppressRunStatusToastForVisibleIssue(queryClient as never, "/PAP/agents/alex/runs/child-run", { runId: "child-run" }, { isForegrounded: true })).toBe(true);
   });
 });
+
+describe("throttleLogActivityPatch", () => {
+  it("applies the first line, then the last line of the burst when the window ends", () => {
+    vi.useFakeTimers();
+    try {
+      const applied: string[] = [];
+      const apply = (patch: { lastEventAt?: string | null }) => {
+        applied.push(String(patch.lastEventAt));
+        return true;
+      };
+      for (let i = 0; i < 15; i += 1) {
+        __liveUpdatesTestUtils.throttleLogActivityPatch({ runId: "burst-run", agentId: null, issueId: null, lastEventAt: `t${i}` }, apply);
+        vi.advanceTimersByTime(250);
+      }
+      expect(applied).toEqual(["t0"]);
+      vi.advanceTimersByTime(1000);
+      expect(applied).toEqual(["t0", "t14"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not use up the window when no cache held the run", () => {
+    const seen: string[] = [];
+    let cached = false;
+    const apply = (patch: { lastEventAt?: string | null }) => {
+      seen.push(String(patch.lastEventAt));
+      return cached;
+    };
+    __liveUpdatesTestUtils.throttleLogActivityPatch({ runId: "uncached-run", agentId: null, issueId: null, lastEventAt: "a" }, apply);
+    cached = true;
+    __liveUpdatesTestUtils.throttleLogActivityPatch({ runId: "uncached-run", agentId: null, issueId: null, lastEventAt: "b" }, apply);
+    expect(seen).toEqual(["a", "b"]);
+  });
+});

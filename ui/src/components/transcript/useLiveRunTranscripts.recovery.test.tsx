@@ -190,3 +190,53 @@ describe("useLiveRunTranscripts late output", () => {
     }
   });
 });
+
+describe("useLiveRunTranscripts on the shared socket", () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  beforeEach(() => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    FakeWebSocket.instances = [];
+    records = [];
+    logMock.mockReset();
+    logMock.mockImplementation(async () => ({ runId: "run-1", store: "local_file", logRef: "x", content: "", nextOffset: undefined }));
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  });
+  afterEach(() => {
+    globalThis.WebSocket = OriginalWebSocket;
+    vi.restoreAllMocks();
+  });
+
+  it("opens no socket of its own inside the app and still streams the reply", async () => {
+    const { __liveUpdatesTestUtils } = await import("../../context/LiveUpdatesProvider");
+    const handlers = new Set<(event: unknown) => void>();
+    const subscription = {
+      subscribe: (handler: (event: unknown) => void) => {
+        handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    };
+    let latest: string[] = [];
+    function Harness() {
+      const { transcriptByRun } = useLiveRunTranscripts({
+        companyId: "company-1",
+        runs: [{ id: "run-1", status: "running", adapterType: "claude_local" }],
+      });
+      latest = ((transcriptByRun.get("run-1") ?? []) as unknown as Array<{ chunk: string }>).map((chunk) => chunk.chunk);
+      return null;
+    }
+    const Provider = __liveUpdatesTestUtils.LiveEventSubscriptionContext.Provider;
+    const root = createRoot(document.createElement("div"));
+    try {
+      await act(async () => root.render(<Provider value={subscription as never}><Harness /></Provider>));
+      expect(FakeWebSocket.instances).toHaveLength(0);
+      expect(handlers.size).toBe(1);
+      await act(async () => {
+        for (const handler of handlers) handler(liveLog({ ts: "2026-10-22T00:00:01.000Z", seq: 1, chunk: "tok1" }));
+      });
+      expect(latest).toEqual(["tok1"]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+    expect(handlers.size).toBe(0);
+  });
+});

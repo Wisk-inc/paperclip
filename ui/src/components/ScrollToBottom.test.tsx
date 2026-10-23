@@ -16,6 +16,9 @@ vi.mock("../context/PanelContext", () => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+// The dock is looked up at most once a frame.
+const nextFrame = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
 describe("ScrollToBottom mobile composer docking", () => {
   let host: HTMLDivElement;
   let main: HTMLElement;
@@ -68,7 +71,7 @@ describe("ScrollToBottom mobile composer docking", () => {
 
     await act(async () => {
       dock.remove();
-      await Promise.resolve();
+      await nextFrame();
     });
 
     const fallbackButton = host.querySelector<HTMLButtonElement>(
@@ -81,7 +84,7 @@ describe("ScrollToBottom mobile composer docking", () => {
     replacementDock.dataset.testid = "task-chat-composer-dock";
     await act(async () => {
       main.appendChild(replacementDock);
-      await Promise.resolve();
+      await nextFrame();
     });
 
     const replacementButton = replacementDock.querySelector<HTMLButtonElement>(

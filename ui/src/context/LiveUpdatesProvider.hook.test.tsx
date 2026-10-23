@@ -243,7 +243,10 @@ describe("LiveUpdatesProvider socket run notification scope", () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await vi.waitFor(() => expect(sockets).toHaveLength(2));
-    expect(invalidate).toHaveBeenCalledExactlyOnceWith({ type: "active" }, { cancelRefetch: false });
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: "active", predicate: expect.any(Function) }),
+      { cancelRefetch: false },
+    );
   });
 
   it.each(["parent-agent", "child-agent"])("shows an unrelated retryable failure without issueId for %s", async (agentId) => {
@@ -561,4 +564,60 @@ describe("LiveUpdatesProvider socket run notification scope", () => {
         );
     },
   );
+});
+
+describe("LiveUpdatesProvider repeated run outcomes", () => {
+  it("does not refetch company-wide lists again when a repeat changes nothing", async () => {
+    pushToast.mockClear();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    queryClient.setQueryData(queryKeys.auth.session, { user: { id: "viewer" }, session: { id: "session", userId: "viewer" } });
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const sockets: Array<{ onmessage: ((event: MessageEvent) => void) | null }> = [];
+    vi.stubGlobal("WebSocket", class {
+      readyState = 1;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen = null;
+      onclose = null;
+      onerror = null;
+      constructor() { sockets.push(this); }
+      close() { this.readyState = 3; }
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await reactAct(async () => {
+        root.render(<QueryClientProvider client={queryClient}><LiveUpdatesProvider><span>Chat</span></LiveUpdatesProvider></QueryClientProvider>);
+      });
+      await vi.waitFor(() => expect(sockets[0]?.onmessage).toBeTypeOf("function"));
+      const send = (deliveryId: string) => reactAct(async () => sockets[0]!.onmessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          id: Date.now(), companyId: "company-1", type: "heartbeat.run.status", createdAt: new Date().toISOString(),
+          payload: { runId: "run-9", agentId: "agent-9", status: "succeeded", finishedAt: new Date().toISOString(), deliveryId },
+        }),
+      })));
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+      const heartbeatInvalidations = () =>
+        invalidate.mock.calls.filter(([filters]) => (filters as { queryKey?: unknown[] })?.queryKey?.[0] === "heartbeats").length;
+
+      await send("first");
+      await reactAct(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+      expect(heartbeatInvalidations()).toBeGreaterThan(0);
+
+      // The refetch saw the finished run; the server's repeat adds nothing.
+      queryClient.setQueryData(queryKeys.heartbeats("company-1", "agent-9"), [{ id: "run-9", status: "succeeded" }]);
+      invalidate.mockClear();
+      await send("retry");
+      await reactAct(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+      expect(heartbeatInvalidations()).toBe(0);
+      expect(pushToast).toHaveBeenCalledTimes(0);
+    } finally {
+      await reactAct(async () => root.unmount());
+      container.remove();
+      queryClient.clear();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
 });

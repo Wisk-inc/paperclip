@@ -18,6 +18,8 @@ import {
 import {
   createCoalescingQueryClient,
   createInvalidationBatcher,
+  liveRefetchGapMs,
+  reconcileFilter,
 } from "../lib/query-invalidation-batcher";
 import {
   patchRunStatusInList,
@@ -123,6 +125,11 @@ function dispatchLiveEventToSubscribers(
  * active company. No-ops when rendered outside a LiveUpdatesProvider (e.g. in
  * isolated tests), so callers get graceful degradation for free.
  */
+/** The shared socket's event subscription, or null outside the provider. */
+export function useLiveEventSubscription(): LiveEventSubscription | null {
+  return useContext(LiveEventSubscriptionContext);
+}
+
 export function useCompanyLiveEvent(handler: CompanyLiveEventHandler): void {
   const subscription = useContext(LiveEventSubscriptionContext);
   const handlerRef = useRef(handler);
@@ -611,6 +618,42 @@ function applyRunLiveStatusPatchToArray<T extends LiveRunForIssue>(
 
 const LOG_ACTIVITY_PATCH_INTERVAL_MS = 4000;
 const lastLogActivityPatchAt = new Map<string, number>();
+const trailingLogActivity = new Map<
+  string,
+  { patch: RunLiveStatusPatch; apply: (patch: RunLiveStatusPatch) => boolean }
+>();
+
+/**
+ * A streaming reply logs many times a second. Each patch replaced the
+ * live-runs cache and redrew everything that watches it (the sidebar, the top
+ * bar, avatars), which froze phones; the activity time only needs to move
+ * every few seconds. The last line of a burst is applied when its window ends,
+ * and a line that reached no cache does not use up the window.
+ */
+function throttleLogActivityPatch(
+  patch: RunLiveStatusPatch,
+  apply: (patch: RunLiveStatusPatch) => boolean,
+) {
+  const { runId } = patch;
+  const now = Date.now();
+  const lastPatched = lastLogActivityPatchAt.get(runId);
+  if (lastPatched === undefined || now - lastPatched >= LOG_ACTIVITY_PATCH_INTERVAL_MS) {
+    trailingLogActivity.delete(runId);
+    if (apply(patch)) {
+      if (lastLogActivityPatchAt.size > 500) lastLogActivityPatchAt.clear();
+      lastLogActivityPatchAt.set(runId, now);
+    }
+    return;
+  }
+  const waiting = trailingLogActivity.get(runId);
+  trailingLogActivity.set(runId, { patch, apply });
+  if (waiting) return;
+  setTimeout(() => {
+    const latest = trailingLogActivity.get(runId);
+    trailingLogActivity.delete(runId);
+    if (latest && latest.apply(latest.patch)) lastLogActivityPatchAt.set(runId, Date.now());
+  }, lastPatched + LOG_ACTIVITY_PATCH_INTERVAL_MS - now);
+}
 
 function readRunLiveStatusPatchFromPayload(
   payload: Record<string, unknown>,
@@ -636,15 +679,7 @@ function readRunLiveStatusPatchFromPayload(
   }
 
   if (eventType === "heartbeat.run.log") {
-    // A streaming reply logs many times a second. Each patch replaced the
-    // live-runs cache and redrew everything that watches it (the sidebar, the
-    // top bar, avatars), which froze phones; the activity time only needs to
-    // move every few seconds.
-    const now = Date.now();
-    const lastPatched = lastLogActivityPatchAt.get(runId) ?? 0;
-    if (now - lastPatched < LOG_ACTIVITY_PATCH_INTERVAL_MS) return null;
-    if (lastLogActivityPatchAt.size > 500) lastLogActivityPatchAt.clear();
-    lastLogActivityPatchAt.set(runId, now);
+    // Applied through throttleLogActivityPatch, a few seconds apart.
     patch.lastEventAt = readString(payload.ts) ?? eventCreatedAt;
     return patch;
   }
@@ -1621,6 +1656,37 @@ interface ToastGate {
   observedRunOutcomes: Set<string>;
 }
 
+function hasObservedRunOutcome(gate: ToastGate, event: LiveEvent): boolean {
+  const payload = event.payload ?? {};
+  const runId = readString(payload.runId);
+  const status = readString(payload.status);
+  if (!runId || !status || !TERMINAL_RUN_STATUSES.has(status)) return false;
+  return gate.observedRunOutcomes.has(`${event.companyId}:${runId}:${status}`);
+}
+
+function runMatches(value: unknown, runId: string, status: string) {
+  if (!value || typeof value !== "object") return false;
+  const run = value as { id?: unknown; status?: unknown };
+  return run.id === runId && run.status === status;
+}
+
+/**
+ * Whether a run list read from the server already shows this outcome. (Run
+ * detail is patched from the event itself, so it proves nothing.)
+ */
+function cachesShowRunOutcome(
+  queryClient: QueryClient,
+  companyId: string,
+  payload: Record<string, unknown>,
+): boolean {
+  const runId = readString(payload.runId);
+  const status = readString(payload.status);
+  if (!runId || !status) return false;
+  return queryClient
+    .getQueriesData<unknown>({ queryKey: queryKeys.heartbeats(companyId) })
+    .some(([, data]) => Array.isArray(data) && data.some((run) => runMatches(run, runId, status)));
+}
+
 function observeRunOutcome(gate: ToastGate, event: LiveEvent): boolean {
   const payload = event.payload ?? {};
   const runId = readString(payload.runId);
@@ -1687,6 +1753,9 @@ function handleLiveEvent(
   const nameOf = (id: string) =>
     resolveAgentName(queryClient, expectedCompanyId, id);
   const payload = event.payload ?? {};
+  // The server repeats each final status until it is sure it went out.
+  const repeatedOutcome =
+    event.type === "heartbeat.run.status" && hasObservedRunOutcome(gate, event);
   // Resolve membership before terminal lifecycle patches remove live-run rows.
   const suppressRunToast =
     event.type === "heartbeat.run.status" &&
@@ -1697,6 +1766,14 @@ function handleLiveEvent(
     event.createdAt,
     event.type,
   );
+  if (event.type === "heartbeat.run.log") {
+    if (liveStatusPatch) {
+      throttleLogActivityPatch(liveStatusPatch, (patch) =>
+        applyRunLiveStatusPatchToCaches(queryClient, expectedCompanyId, pathname, patch),
+      );
+    }
+    return;
+  }
   if (liveStatusPatch) {
     applyRunLiveStatusPatchToCaches(
       queryClient,
@@ -1704,9 +1781,6 @@ function handleLiveEvent(
       pathname,
       liveStatusPatch,
     );
-  }
-  if (event.type === "heartbeat.run.log") {
-    return;
   }
 
   if (
@@ -1718,7 +1792,12 @@ function handleLiveEvent(
       expectedCompanyId,
       payload,
     );
-    invalidateHeartbeatQueries(queryClient, expectedCompanyId, payload);
+    // A repeat whose outcome the run lists already show changes nothing in
+    // them; refetching every company-wide list again only kept phones busy.
+    // The open task still refetches below, in case its reply came later.
+    if (!repeatedOutcome || !cachesShowRunOutcome(queryClient, expectedCompanyId, payload)) {
+      invalidateHeartbeatQueries(queryClient, expectedCompanyId, payload);
+    }
     if (!liveRunsPatched) {
       // A new run we couldn't reconstruct from the event — refetch once to add it.
       queryClient.invalidateQueries({
@@ -1871,6 +1950,7 @@ export const __liveUpdatesTestUtils = {
   invalidateHeartbeatProgressQueries,
   invalidateVisibleIssueRunQueries,
   readRunLiveStatusPatchFromPayload,
+  throttleLogActivityPatch,
   resolveLiveCompanyId,
   canUseLiveSession,
   shouldDeferIssueRefetchForVisibleAgentActivity,
@@ -1928,7 +2008,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   // still pass straight through (immediate); only invalidateQueries is batched
   // and flushed at most a few times per second.
   const invalidationBatcher = useMemo(
-    () => createInvalidationBatcher(queryClient),
+    () => createInvalidationBatcher(queryClient, undefined, { minIntervalMs: liveRefetchGapMs }),
     [queryClient],
   );
   const coalescingClient = useMemo(
@@ -1958,7 +2038,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     if (wasHidden.current) {
       wasHidden.current = false;
       // Reconcile events missed while hidden, including completed runs/issues.
-      void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
+      void queryClient.invalidateQueries(reconcileFilter(), { cancelRefetch: false });
     }
 
     let closed = false;
@@ -1985,7 +2065,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       if (closed || pollTimer !== null) return;
       // Visible queries still need fresh state when realtime is unavailable.
       pollTimer = window.setInterval(() => {
-        void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
+        void queryClient.invalidateQueries(reconcileFilter(), { cancelRefetch: false });
       }, DISCONNECTED_POLL_INTERVAL_MS);
     };
 
@@ -2027,7 +2107,8 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
         }
         // The initial page queries can finish before the first subscription,
         // too. Reconcile that gap as well as reconnects: events are not replayed.
-        void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
+        // Anything the resume above is still fetching is not fetched twice.
+        void queryClient.invalidateQueries(reconcileFilter(), { cancelRefetch: false });
         reconnectAttempt = 0;
       };
 

@@ -138,10 +138,12 @@ export interface ComposerDraftAttachment {
 }
 
 function draftAttachments(value: unknown): ComposerDraftAttachment[] {
-  if (!Array.isArray(value) || value.length > 20) return [];
+  if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const result: ComposerDraftAttachment[] = [];
-  for (const item of value) {
+  // A draft keeps its first 20 files (the most one message can send) rather
+  // than dropping every chip when there were more.
+  for (const item of value.slice(0, 20)) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const row = item as Record<string, unknown>;
     if (row.status !== undefined && row.status !== "attached") continue;

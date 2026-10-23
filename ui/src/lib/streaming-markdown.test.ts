@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settleStreamingMarkdown } from "./streaming-markdown";
+import { openBracketStart, openLinkStart, settleStreamingMarkdown } from "./streaming-markdown";
 
 describe("settleStreamingMarkdown", () => {
   it("closes bold and italics that are still open", () => {
@@ -37,5 +37,30 @@ describe("settleStreamingMarkdown on split markers", () => {
   it("leaves link-looking text inside inline code alone", () => {
     expect(settleStreamingMarkdown("Call `foo[0](x` and then")).toBe("Call `foo[0](x` and then");
     expect(settleStreamingMarkdown("See [the docs](https://exa")).toBe("See the docs");
+  });
+});
+
+describe("open link and bracket finders", () => {
+  it("match the patterns they replace", () => {
+    const alphabet = "[]()! a\n";
+    let seed = 7;
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let run = 0; run < 3000; run += 1) {
+      const length = Math.floor(random() * 14);
+      let text = "";
+      for (let index = 0; index < length; index += 1) text += alphabet[Math.floor(random() * alphabet.length)];
+      expect(openLinkStart(text), JSON.stringify(text)).toBe(/!?\[[^\]\n]*\]\([^)\n]*$/.exec(text)?.index ?? -1);
+      expect(openBracketStart(text), JSON.stringify(text)).toBe(/\[[^\]\n]*$/.exec(text)?.index ?? -1);
+    }
+  });
+
+  it("stays fast on a long line full of brackets", () => {
+    const started = performance.now();
+    settleStreamingMarkdown("[x ".repeat(20_000));
+    settleStreamingMarkdown(`${"[a](b ".repeat(10_000)}\nend`);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

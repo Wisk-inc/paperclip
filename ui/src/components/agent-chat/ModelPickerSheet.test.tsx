@@ -112,6 +112,14 @@ describe("model ordering", () => {
 });
 
 describe("ModelPickerSheet", () => {
+  it("opens already searching for the model named in /model", async () => {
+    await render(<ModelPickerSheet agent={agent()} open initialQuery="llama" onOpenChange={() => {}} />);
+    await settle(() => expect(row("openrouter/meta-llama/llama-4-maverick")).not.toBeNull());
+    const search = document.querySelector('input[aria-label="Search models"]') as HTMLInputElement;
+    expect(search.value).toBe("llama");
+    expect(row("claude-opus-4-8")).toBeNull();
+  });
+
   it("lists the agent's runtime models and every OpenRouter model with clean names", async () => {
     await render(<ModelPickerSheet agent={agent()} open onOpenChange={() => {}} />);
     await settle(() => expect(row("openrouter/deepseek/deepseek-v4.1-flash")).not.toBeNull());

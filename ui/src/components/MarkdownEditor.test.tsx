@@ -1011,16 +1011,36 @@ describe("MarkdownEditor", () => {
     });
   });
 
-  it("applies visual viewport offsets when present", () => {
+  it("keeps the menu inside a panned or zoomed visual viewport without adding its offset to the caret", () => {
+    // Caret rects are already in layout-viewport coordinates.
+    expect(
+      computeMentionMenuPosition(
+        { viewportTop: 400, viewportBottom: 418, viewportLeft: 120 },
+        { offsetLeft: 24, offsetTop: 320, width: 320, height: 260 },
+        { width: 188, height: 42 },
+      ),
+    ).toEqual({
+      top: 400,
+      left: 130,
+    });
+    // A caret above the visible area pulls the menu into it.
     expect(
       computeMentionMenuPosition(
         { viewportTop: 20, viewportBottom: 38, viewportLeft: 120 },
         { offsetLeft: 24, offsetTop: 320, width: 320, height: 260 },
-      ),
-    ).toEqual({
-      top: 340,
-      left: 154,
-    });
+      ).top,
+    ).toBe(328);
+  });
+
+  it("keeps a wide menu on a narrow phone screen", () => {
+    // A 330 px slash menu after a line of text on a 360 px screen.
+    const { left } = computeMentionMenuPosition(
+      { viewportTop: 500, viewportBottom: 518, viewportLeft: 300 },
+      { offsetLeft: 0, offsetTop: 0, width: 360, height: 640 },
+      { width: 330, height: 200 },
+    );
+    expect(left).toBeGreaterThanOrEqual(8);
+    expect(left + 330).toBeLessThanOrEqual(360 - 8);
   });
 
   it("clamps the mention menu back into view near the viewport edges", () => {
@@ -1030,8 +1050,8 @@ describe("MarkdownEditor", () => {
         { offsetLeft: 0, offsetTop: 0, width: 280, height: 220 },
       ),
     ).toEqual({
-      top: 12,
-      left: 92,
+      top: 8,
+      left: 84,
     });
   });
 
@@ -1056,7 +1076,7 @@ describe("MarkdownEditor", () => {
       ),
     ).toEqual({
       top: 160,
-      left: 130,
+      left: 124,
     });
   });
 
@@ -1229,8 +1249,22 @@ describe("MarkdownEditor", () => {
     expect(placeCaretAtEditableEnd(editable)).toBe(true);
 
     const selection = window.getSelection();
-    expect(selection?.anchorNode).toBe(editable);
-    expect(selection?.anchorOffset).toBe(1);
+    expect(selection?.anchorNode).toBe(editable.firstChild);
+    expect(selection?.anchorOffset).toBe("/goal\u00a0".length);
+
+    editable.remove();
+  });
+
+  it("keeps the caret inside the last paragraph, so the argument stays on the command's line", () => {
+    const editable = document.createElement("div");
+    editable.contentEditable = "true";
+    editable.innerHTML = "<p>/think\u00a0</p>";
+    document.body.appendChild(editable);
+
+    expect(placeCaretAtEditableEnd(editable)).toBe(true);
+    const selection = window.getSelection();
+    expect(selection?.anchorNode?.parentElement?.tagName).toBe("P");
+    expect(selection?.anchorOffset).toBe("/think\u00a0".length);
 
     editable.remove();
   });

@@ -1450,12 +1450,15 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   // Slash commands the composer hands up: the model picker, the context and
   // help sheets open here; /skills leaves for the Skills page.
   const [slashSheet, setSlashSheet] = useState<"model" | "context" | "help" | null>(null);
+  // `/model opus` opens the picker already searching for "opus".
+  const [modelSheetQuery, setModelSheetQuery] = useState("");
   const handleSlashCommand = useCallback(
     async (command: ChatSlashCommand): Promise<boolean> => {
       switch (command.name) {
         case "model":
         case "context":
           if (!conversationAgent) return false;
+          setModelSheetQuery(command.name === "model" ? command.query.trim() : "");
           setSlashSheet(command.name);
           return true;
         case "think": {
@@ -2385,7 +2388,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           <EmailThreadProvider companyId={companyId} issueId={issueId}>
           {conversationAgent ? (
             <>
-              <ModelPickerSheet agent={conversationAgent} open={slashSheet === "model"} onOpenChange={(next) => { if (!next) setSlashSheet(null); }} />
+              <ModelPickerSheet agent={conversationAgent} open={slashSheet === "model"} initialQuery={modelSheetQuery} onOpenChange={(next) => { if (!next) setSlashSheet(null); }} />
               <ChatContextSheet
                 agent={conversationAgent}
                 issue={null}

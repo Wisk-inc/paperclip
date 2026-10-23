@@ -34,30 +34,6 @@ export function TaskChatThinking({
     ? body ? `${baseLabel}…` : "Thinking…"
     : item.summaryLabel ?? (body ? baseLabel : "Thought");
 
-  if (body && !active) {
-    return (
-      <div
-        className={cn(
-          "flex min-w-0 items-start gap-1.5 px-1 py-0.5 text-xs font-normal text-muted-foreground",
-          rowClassName,
-        )}
-        data-testid="task-chat-thinking"
-        data-state="settled"
-      >
-        <span className="flex w-5 shrink-0 items-center justify-center">
-          <Brain
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
-            aria-hidden
-            data-testid="task-chat-thinking-icon"
-          />
-        </span>
-        <div className="min-w-0 flex-1" data-testid="task-chat-thinking-text">
-          <MarkdownBody softBreaks linkIssueReferences>{body}</MarkdownBody>
-        </div>
-      </div>
-    );
-  }
-
   if (!body) {
     return (
       <div className={cn("-mx-1.5 flex min-w-0 items-center gap-2 px-1.5 py-0.5 text-xs font-normal text-muted-foreground", rowClassName)} data-testid="task-chat-thinking">
@@ -70,11 +46,17 @@ export function TaskChatThinking({
   }
 
   return (
-    <div className="flex min-w-0 max-w-full flex-col overflow-hidden text-xs font-normal" data-testid="task-chat-thinking">
+    <div
+      className="flex min-w-0 max-w-full flex-col overflow-hidden text-xs font-normal"
+      data-testid="task-chat-thinking"
+      data-state={active ? "live" : "settled"}
+    >
       <button
         type="button"
         aria-expanded={open || liveOpen}
-        aria-label={`${open ? "Collapse" : "Expand"} ${baseLabel.toLowerCase()}: ${preview}`}
+        // Short: the whole thought was read out as the button's name, and it
+        // said "Expand" while the live thought was already showing.
+        aria-label={`${open || liveOpen ? "Collapse" : "Expand"} ${baseLabel.toLowerCase()}${preview ? `: ${preview.length > 80 ? `${preview.slice(0, 80)}…` : preview}` : ""}`}
         onClick={() => (liveOpen && !open ? setToggled(false) : setOpen((value) => !value))}
         className={cn("group/thinking -mx-1.5 flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-sm px-1.5 py-0.5 text-left font-normal text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", rowClassName)}
       >

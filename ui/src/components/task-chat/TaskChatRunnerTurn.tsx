@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { useSecondTick } from "@/hooks/useSecondTick";
 import { cn } from "@/lib/utils";
@@ -271,9 +272,20 @@ export function TaskChatRunnerTurn({
         <div
           className="w-full"
           data-testid="task-chat-final-response"
+          // While the run is still writing, the reply shows the live caret,
+          // as the classic live tail does.
+          data-streaming={!terminal || undefined}
         >
           <TaskChatBubble
-            item={{ ...final, authorName: agentName ?? undefined, agentIcon, agent, timestamp: final.timestamp ?? formatTaskChatTimestamp(final.atMs) }}
+            item={{
+              ...final,
+              // Half-written markdown (an open ** or link) is settled while it streams.
+              text: terminal ? final.text : settleStreamingMarkdown(final.text),
+              authorName: agentName ?? undefined,
+              agentIcon,
+              agent,
+              timestamp: final.timestamp ?? formatTaskChatTimestamp(final.atMs),
+            }}
             animateEntry={false}
             hideAgentIdentity={!continuedAfterSteering}
             actions={<TaskChatBubbleActions copyText={final.text} />}

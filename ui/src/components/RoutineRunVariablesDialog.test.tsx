@@ -381,8 +381,12 @@ describe("RoutineRunVariablesDialog", () => {
     expect(dialogContent?.className).toContain("overflow-hidden");
 
     const notesInput = document.querySelector("textarea");
+    // The dialog itself is overscroll-contained too (it scrolls when a phone
+    // keyboard leaves less room), so look inside it.
     const formScrollRegion = Array.from(document.body.querySelectorAll("div")).find((element) =>
-      typeof element.className === "string" && element.className.includes("overscroll-contain"),
+      typeof element.className === "string"
+      && element.className.includes("overscroll-contain")
+      && element.getAttribute("data-slot") !== "dialog-content",
     );
     expect(formScrollRegion?.className).toContain("min-h-0");
     expect(formScrollRegion?.className).toContain("flex-1");

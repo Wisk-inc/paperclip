@@ -19,13 +19,13 @@ export function settleStreamingMarkdown(text: string): string {
   // A link or image whose URL is still arriving: show just its text. Code
   // spans are blanked out first, so `foo[0](x` inside code is left alone.
   const maskCode = (value: string) => value.replace(/`[^`\n]*`/g, (span) => " ".repeat(span.length));
-  const openLinkAt = /!?\[[^\]\n]*\]\([^)\n]*$/.exec(maskCode(out))?.index;
-  if (openLinkAt !== undefined) {
+  const openLinkAt = openLinkStart(maskCode(out));
+  if (openLinkAt !== -1) {
     const linkText = /^!?\[([^\]\n]*)\]/.exec(out.slice(openLinkAt))?.[1] ?? "";
     out = out.slice(0, openLinkAt) + linkText;
   }
-  const openBracketAt = /\[[^\]\n]*$/.exec(maskCode(out))?.index;
-  if (openBracketAt !== undefined) out = out.slice(0, openBracketAt) + out.slice(openBracketAt + 1);
+  const openBracketAt = openBracketStart(maskCode(out));
+  if (openBracketAt !== -1) out = out.slice(0, openBracketAt) + out.slice(openBracketAt + 1);
 
   const plain = out.slice(lastBreak + 1).replace(/`[^`\n]*`/g, "");
   // A list marker or a lone asterisk at the very end is not emphasis yet.
@@ -43,4 +43,33 @@ export function settleStreamingMarkdown(text: string): string {
   if (singles % 2 === 1) closing = `*${closing}`;
   if (!closing) return out;
   return `${out.replace(/(?<!\*)\*+$/, "").trimEnd()}${closing}`;
+}
+
+/*
+ * The two finders below give the same answers as /!?\[[^\]\n]*\]\([^)\n]*$/
+ * and /\[[^\]\n]*$/, in one pass. The patterns tried every "[" against the
+ * rest of its line, which took seconds on a long line full of brackets.
+ */
+
+/** Where a link or image on the last line still waits for its ")", or -1. */
+export function openLinkStart(text: string): number {
+  const lineStart = text.lastIndexOf("\n") + 1;
+  const lastParen = text.lastIndexOf(")");
+  let previousClose = lineStart - 1;
+  for (let index = lineStart; index < text.length; index += 1) {
+    if (text[index] !== "]") continue;
+    if (text[index + 1] === "(" && lastParen < index + 1) {
+      for (let open = previousClose + 1; open < index; open += 1) {
+        if (text[open] === "[") return open > lineStart && text[open - 1] === "!" ? open - 1 : open;
+      }
+    }
+    previousClose = index;
+  }
+  return -1;
+}
+
+/** Where a "[" on the last line has no "]" after it yet, or -1. */
+export function openBracketStart(text: string): number {
+  const lineStart = text.lastIndexOf("\n") + 1;
+  return text.indexOf("[", Math.max(lineStart, text.lastIndexOf("]") + 1));
 }

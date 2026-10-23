@@ -5,11 +5,11 @@ import { useSidebar } from "../context/SidebarContext";
 import { usePanel } from "../context/PanelContext";
 import { cn } from "../lib/utils";
 
-function resolveScrollTarget() {
+function resolveScrollTarget(knownOverflowY?: string) {
   const mainContent = document.getElementById("main-content");
 
   if (mainContent instanceof HTMLElement) {
-    const overflowY = window.getComputedStyle(mainContent).overflowY;
+    const overflowY = knownOverflowY ?? window.getComputedStyle(mainContent).overflowY;
     const usesOwnScroll =
       (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay")
       && mainContent.scrollHeight > mainContent.clientHeight + 1;
@@ -52,27 +52,56 @@ export function ScrollToBottom() {
       main.querySelector<HTMLElement>('[data-testid="task-chat-composer-dock"]'),
     );
     findDock();
-    const observer = new MutationObserver(findDock);
+    // A streaming reply mutates the page many times a second; look for the
+    // dock at most once a frame.
+    let frame: number | null = null;
+    const observer = new MutationObserver(() => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        findDock();
+      });
+    });
     observer.observe(main, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [isMobile]);
 
   useEffect(() => {
+    // Reading the computed style and scroll height forces a layout of the
+    // whole page. On a long thread that cost every scroll event, so it runs
+    // at most once a frame.
+    // The scroller's overflow style only changes with the layout, so it is
+    // read again on resize rather than on each scroll.
+    const mainContent = document.getElementById("main-content");
+    const readOverflow = () =>
+      mainContent instanceof HTMLElement ? window.getComputedStyle(mainContent).overflowY : undefined;
+    let overflowY = readOverflow();
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      setVisible(distanceFromBottom(resolveScrollTarget(overflowY)) > 300);
+    };
     const check = () => {
-      setVisible(distanceFromBottom(resolveScrollTarget()) > 300);
+      if (frame === null) frame = window.requestAnimationFrame(measure);
+    };
+    const onResize = () => {
+      overflowY = readOverflow();
+      check();
     };
 
-    const mainContent = document.getElementById("main-content");
-
-    check();
+    measure();
     mainContent?.addEventListener("scroll", check, { passive: true });
     window.addEventListener("scroll", check, { passive: true });
-    window.addEventListener("resize", check);
+    window.addEventListener("resize", onResize);
 
     return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
       mainContent?.removeEventListener("scroll", check);
       window.removeEventListener("scroll", check);
-      window.removeEventListener("resize", check);
+      window.removeEventListener("resize", onResize);
     };
   }, []);
 

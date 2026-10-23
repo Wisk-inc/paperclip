@@ -3,6 +3,9 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   createCoalescingQueryClient,
   createInvalidationBatcher,
+  HEAVY_REFETCH_GAP_MS,
+  liveRefetchGapMs,
+  reconcileFilter,
 } from "./query-invalidation-batcher";
 
 function fakeClient() {
@@ -147,5 +150,57 @@ describe("createCoalescingQueryClient", () => {
 
     vi.advanceTimersByTime(300);
     expect(realInvalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createInvalidationBatcher minimum gap", () => {
+  it("refetches a heavy key at most once per gap, and once more at the end", async () => {
+    vi.useFakeTimers();
+    try {
+      let clock = 0;
+      const calls: string[] = [];
+      const client = { invalidateQueries: vi.fn(async (filters: { queryKey?: readonly unknown[] }) => { calls.push(String(filters.queryKey?.[0])); }) };
+      const batcher = createInvalidationBatcher(client as never, 300, {
+        minIntervalMs: (filters) => (filters.queryKey?.[0] === "dashboard" ? 4000 : 0),
+        now: () => clock,
+      });
+      for (let i = 0; i < 10; i += 1) {
+        batcher.schedule({ queryKey: ["dashboard", "c1"] });
+        batcher.schedule({ queryKey: ["issues", "c1", "detail"] });
+        clock += 400;
+        await vi.advanceTimersByTimeAsync(400);
+      }
+      clock += 5000;
+      await vi.advanceTimersByTimeAsync(5000);
+      const dashboards = calls.filter((key) => key === "dashboard").length;
+      const issues = calls.filter((key) => key === "issues").length;
+      expect(issues).toBe(10);
+      expect(dashboards).toBeLessThanOrEqual(3);
+      expect(dashboards).toBeGreaterThanOrEqual(2);
+      batcher.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("reconcileFilter and liveRefetchGapMs", () => {
+  it("skips only data that live events never change", () => {
+    const filter = reconcileFilter();
+    const query = (key: unknown[]) => ({ queryKey: key, state: { dataUpdatedAt: 0 } }) as never;
+    expect(filter.type).toBe("active");
+    expect(filter.predicate?.(query(["issues", "c1", "list"]))).toBe(true);
+    expect(filter.predicate?.(query(["adapters"]))).toBe(false);
+    expect(filter.predicate?.(query(["instance", "settings"]))).toBe(false);
+    expect(filter.predicate?.(query(["companies"]))).toBe(true);
+  });
+
+  it("only spaces out the lists that are costly to build", () => {
+    expect(liveRefetchGapMs({ queryKey: ["dashboard", "c1"] })).toBe(HEAVY_REFETCH_GAP_MS);
+    expect(liveRefetchGapMs({ queryKey: ["agents", "c1"] })).toBe(HEAVY_REFETCH_GAP_MS);
+    expect(liveRefetchGapMs({ queryKey: ["agents", "detail", "a1"] })).toBe(0);
+    expect(liveRefetchGapMs({ queryKey: ["issues", "c1", "touched-by-me"] })).toBe(HEAVY_REFETCH_GAP_MS);
+    expect(liveRefetchGapMs({ queryKey: ["issues", "c1", "detail"] })).toBe(0);
+    expect(liveRefetchGapMs({})).toBe(0);
   });
 });

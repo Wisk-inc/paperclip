@@ -101,11 +101,13 @@ describe("task draft upload receipts", () => {
     expect(loadDraftAttachments(key)).toEqual([]);
   });
   it("bounds count and raw record size without interpreting Markdown", () => {
-    saveDraftAttachments(
-      key,
-      Array.from({ length: 21 }, () => receipt),
-    );
-    expect(loadDraftAttachments(key)).toEqual([]);
+    // More than a message can carry keeps the first 20 instead of none.
+    const many = Array.from({ length: 21 }, (_, index) => {
+      const fileId = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+      return { ...receipt, attachmentId: fileId, name: `file-${index}.txt`, contentPath: `/api/attachments/${fileId}/content` };
+    });
+    saveDraftAttachments(key, many);
+    expect(loadDraftAttachments(key).map((item) => item.name)).toEqual(many.slice(0, 20).map((item) => item.name));
     localStorage.setItem(`${key}:attachments:v1`, "x".repeat(32_769));
     expect(loadDraftAttachments(key)).toEqual([]);
     saveDraft(key, `[unbound](${receipt.contentPath})`);

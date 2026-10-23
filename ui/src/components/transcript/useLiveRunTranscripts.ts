@@ -10,6 +10,7 @@ import { buildTranscript, getUIAdapter, onAdapterChange, type RunLogChunk, type 
 import { queryKeys } from "../../lib/queryKeys";
 import { buildSameOriginWebSocketUrl } from "../../lib/websocket-url";
 import { tryCreateWebSocket } from "../../lib/websocket";
+import { useLiveEventSubscription, useLiveUpdatesConnected } from "../../context/LiveUpdatesProvider";
 import {
   mergeRunLogChunks,
   parsePersistedLogContent,
@@ -25,6 +26,7 @@ const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
 const LOG_POLL_INTERVAL_MS = 2000;
 const LOG_READ_LIMIT_BYTES = 256_000;
+const MAX_PARALLEL_LOG_READS = 4;
 // When realtime websocket updates are enabled, the frequent log poll is
 // redundant with the live stream; keep only a slow safety-net poll to cover
 // gaps and reconnects instead of polling every couple of seconds.
@@ -425,7 +427,20 @@ export function useLiveRunTranscripts({
     };
 
     const readAll = async () => {
-      await Promise.all(readableRuns.map((run) => readRunLog(run)));
+      // Opening a long chat read every past run's log at once. That took all
+      // of the browser's few connections and held up the rest of the page
+      // for seconds, so a few are read at a time, running ones first.
+      const queue = [...readableRuns].sort(
+        (a, b) => Number(b.status === "running") - Number(a.status === "running"),
+      );
+      const worker = async () => {
+        for (let run = queue.shift(); run && !cancelled; run = queue.shift()) {
+          await readRunLog(run);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(MAX_PARALLEL_LOG_READS, queue.length) }, () => worker()),
+      );
     };
 
     void readAll();
@@ -449,6 +464,20 @@ export function useLiveRunTranscripts({
     };
   }, [visible, enableRealtimeUpdates, logPollIntervalMs, logReadLimitBytes, shapedRuns, runIdsKey, retryGeneration, socketOpenGeneration, lateOutputGeneration]);
 
+  // Inside the app the shared company socket carries these events; a second
+  // socket per transcript sent every event to the phone twice and reconnected
+  // whenever the set of live runs changed. When the shared socket comes back,
+  // output written while it was down is read from the log.
+  const sharedLive = useLiveEventSubscription();
+  const sharedConnected = useLiveUpdatesConnected();
+  const sharedConnectedRef = useRef(sharedConnected);
+  useEffect(() => {
+    if (sharedLive && sharedConnected && !sharedConnectedRef.current) {
+      setSocketOpenGeneration((value) => value + 1);
+    }
+    sharedConnectedRef.current = sharedConnected;
+  }, [sharedLive, sharedConnected]);
+
   useEffect(() => {
     if (!visible || !enableRealtimeUpdates) return;
     if (!companyId || activeRunIds.size === 0) return;
@@ -456,6 +485,71 @@ export function useLiveRunTranscripts({
     let closed = false;
     let reconnectTimer: number | null = null;
     let socket: WebSocket | null = null;
+
+    const handleEvent = (event: LiveEvent) => {
+      if (closed) return;
+      if (event.companyId !== companyId) return;
+      const payload = event.payload ?? {};
+      const runId = readString(payload["runId"]);
+      if (!runId || !activeRunIds.has(runId)) return;
+      if (!knownRunIds.has(runId)) return;
+
+      if (event.type === "heartbeat.run.log") {
+        const chunk = readString(payload["chunk"]);
+        if (!chunk) return;
+        const ts = readString(payload["ts"]) ?? event.createdAt;
+        const stream =
+          readString(payload["stream"]) === "stderr"
+            ? "stderr"
+            : readString(payload["stream"]) === "system"
+              ? "system"
+              : "stdout";
+        // Streamed output arrives many times a second; as a transition React
+        // merges these redraws and lets taps and scrolling go first, so a
+        // reply that is still writing never freezes the page.
+        startTransition(() => {
+          appendChunks(runId, [{
+            ts,
+            stream,
+            chunk,
+            seq: readChunkSeq(payload["seq"]),
+            dedupeKey: `log:${runId}:${ts}:${stream}:${chunk}`,
+          }]);
+        });
+        return;
+      }
+
+      if (event.type === "heartbeat.run.event") {
+        const seq = typeof payload["seq"] === "number" ? payload["seq"] : null;
+        const eventType = readString(payload["eventType"]) ?? "event";
+        const messageText = readString(payload["message"]) ?? eventType;
+        appendChunks(runId, [{
+          ts: event.createdAt,
+          stream: eventType === "error" ? "stderr" : "system",
+          chunk: messageText,
+          dedupeKey: `socket:event:${runId}:${seq ?? `${eventType}:${messageText}:${event.createdAt}`}`,
+        }]);
+        return;
+      }
+
+      if (event.type === "heartbeat.run.status") {
+        const status = readString(payload["status"]) ?? "updated";
+        appendChunks(runId, [{
+          ts: event.createdAt,
+          stream: isTerminalStatus(status) && status !== "succeeded" ? "stderr" : "system",
+          chunk: `run ${status}`,
+          dedupeKey: `socket:status:${runId}:${status}:${readString(payload["finishedAt"]) ?? ""}`,
+        }]);
+      }
+    };
+
+    if (sharedLive) {
+      const unsubscribe = sharedLive.subscribe(handleEvent);
+      return () => {
+        closed = true;
+        unsubscribe();
+      };
+    }
 
     // The attempt counter lives in a ref keyed to the company: this effect
     // restarts whenever run metadata changes, and a per-effect counter would
@@ -496,67 +590,13 @@ export function useLiveRunTranscripts({
       socket.onmessage = (message) => {
         const raw = typeof message.data === "string" ? message.data : "";
         if (!raw) return;
-
         let event: LiveEvent;
         try {
           event = JSON.parse(raw) as LiveEvent;
         } catch {
           return;
         }
-
-        if (event.companyId !== companyId) return;
-        const payload = event.payload ?? {};
-        const runId = readString(payload["runId"]);
-        if (!runId || !activeRunIds.has(runId)) return;
-        if (!knownRunIds.has(runId)) return;
-
-        if (event.type === "heartbeat.run.log") {
-          const chunk = readString(payload["chunk"]);
-          if (!chunk) return;
-          const ts = readString(payload["ts"]) ?? event.createdAt;
-          const stream =
-            readString(payload["stream"]) === "stderr"
-              ? "stderr"
-              : readString(payload["stream"]) === "system"
-                ? "system"
-                : "stdout";
-          // Streamed output arrives many times a second; as a transition React
-          // merges these redraws and lets taps and scrolling go first, so a
-          // reply that is still writing never freezes the page.
-          startTransition(() => {
-            appendChunks(runId, [{
-              ts,
-              stream,
-              chunk,
-              seq: readChunkSeq(payload["seq"]),
-              dedupeKey: `log:${runId}:${ts}:${stream}:${chunk}`,
-            }]);
-          });
-          return;
-        }
-
-        if (event.type === "heartbeat.run.event") {
-          const seq = typeof payload["seq"] === "number" ? payload["seq"] : null;
-          const eventType = readString(payload["eventType"]) ?? "event";
-          const messageText = readString(payload["message"]) ?? eventType;
-          appendChunks(runId, [{
-            ts: event.createdAt,
-            stream: eventType === "error" ? "stderr" : "system",
-            chunk: messageText,
-            dedupeKey: `socket:event:${runId}:${seq ?? `${eventType}:${messageText}:${event.createdAt}`}`,
-          }]);
-          return;
-        }
-
-        if (event.type === "heartbeat.run.status") {
-          const status = readString(payload["status"]) ?? "updated";
-          appendChunks(runId, [{
-            ts: event.createdAt,
-            stream: isTerminalStatus(status) && status !== "succeeded" ? "stderr" : "system",
-            chunk: `run ${status}`,
-            dedupeKey: `socket:status:${runId}:${status}:${readString(payload["finishedAt"]) ?? ""}`,
-          }]);
-        }
+        handleEvent(event);
       };
 
       socket.onerror = () => {
@@ -589,7 +629,7 @@ export function useLiveRunTranscripts({
         }
       }
     };
-  }, [visible, activeRunIds, companyId, enableRealtimeUpdates, knownRunIds]);
+  }, [visible, activeRunIds, companyId, enableRealtimeUpdates, knownRunIds, sharedLive]);
 
   const transcriptByRun = useMemo(() => {
     const next = new Map<string, TranscriptEntry[]>();

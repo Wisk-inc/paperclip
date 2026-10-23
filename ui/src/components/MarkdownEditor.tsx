@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -488,23 +489,26 @@ export function computeMentionMenuPosition(
   menuSize: MentionMenuSize = { width: MENTION_MENU_WIDTH, height: MENTION_MENU_HEIGHT },
   options: { preferAbove?: boolean } = {},
 ) {
+  // The caret rect and the fixed menu share the layout viewport's coordinates;
+  // the visual viewport (zoom, keyboard pan) only bounds where the menu may
+  // go. Adding its offset to the caret counted it twice.
   const minLeft = viewport.offsetLeft + MENTION_MENU_PADDING;
-  const maxLeft = viewport.offsetLeft + viewport.width - menuSize.width;
+  const maxLeft = Math.max(minLeft, viewport.offsetLeft + viewport.width - menuSize.width - MENTION_MENU_PADDING);
   const minTop = viewport.offsetTop + MENTION_MENU_PADDING;
-  const maxTop = viewport.offsetTop + viewport.height - menuSize.height;
+  const maxTop = Math.max(minTop, viewport.offsetTop + viewport.height - menuSize.height - MENTION_MENU_PADDING);
 
   // Place the menu's top edge on the current line so it sits next to the caret.
   // If it would overflow below, flip above so the menu's bottom hugs the line.
   // On a touch screen the menu goes above whenever it fits: the composer's
   // buttons sit right under the line there, and a short menu on the line
   // itself would cover Send.
-  const desiredTop = viewport.offsetTop + anchor.viewportTop;
-  const above = viewport.offsetTop + anchor.viewportTop - menuSize.height - MENTION_MENU_PADDING;
+  const desiredTop = anchor.viewportTop;
+  const above = anchor.viewportTop - menuSize.height - MENTION_MENU_PADDING;
   let top: number;
   if (options.preferAbove && above >= minTop) {
     top = Math.min(above, maxTop);
   } else if (desiredTop > maxTop) {
-    const flipped = viewport.offsetTop + anchor.viewportBottom - menuSize.height;
+    const flipped = anchor.viewportBottom - menuSize.height;
     top = Math.max(minTop, Math.min(flipped, maxTop));
   } else {
     top = Math.max(minTop, desiredTop);
@@ -512,7 +516,7 @@ export function computeMentionMenuPosition(
 
   // Place the menu's left edge a small gap to the right of the caret X so
   // there's roughly a space-width of breathing room between cursor and menu.
-  const desiredLeft = viewport.offsetLeft + anchor.viewportLeft + MENTION_MENU_CARET_GAP;
+  const desiredLeft = anchor.viewportLeft + MENTION_MENU_CARET_GAP;
   const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
 
   return { top, left };
@@ -714,8 +718,20 @@ export function placeCaretAtEditableEnd(target: HTMLElement): boolean {
   const selection = window.getSelection();
   if (!selection) return false;
   const range = document.createRange();
-  range.selectNodeContents(target);
-  range.collapse(false);
+  // Inside the last line's text, not after its paragraph: a caret past the
+  // closing </p> made the next keystroke start a new paragraph, so
+  // "/think" then "deep" became "/think\n\ndeep".
+  const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+  let lastText: Text | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) lastText = node as Text;
+  if (lastText) {
+    range.setStart(lastText, lastText.length);
+  } else {
+    const lastBlock = target.lastElementChild ?? target;
+    range.selectNodeContents(lastBlock);
+    range.collapse(false);
+  }
+  range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
   return true;
@@ -1340,6 +1356,21 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
     ref.current.insertMarkdown(escapeUnsupportedAngleBrackets(normalizeMarkdown(rawText)));
   }, []);
 
+  // The menu's real size (its rows and labels make it wider than the
+  // fallback guess), measured after it renders, so clamping keeps all of it
+  // on screen.
+  const mentionMenuRef = useRef<HTMLDivElement | null>(null);
+  const [measuredMenuSize, setMeasuredMenuSize] = useState<MentionMenuSize | null>(null);
+  useLayoutEffect(() => {
+    const node = mentionMenuRef.current;
+    if (!node) return;
+    const next = { width: node.offsetWidth, height: node.offsetHeight };
+    if (next.width === 0 && next.height === 0) return;
+    setMeasuredMenuSize((previous) =>
+      previous && previous.width === next.width && previous.height === next.height ? previous : next,
+    );
+  });
+
   const handleRichEditorRenderError = useCallback((error: unknown) => {
     setRichEditorError({ code: "MDE-RENDER", message: richEditorErrorMessage(error) });
   }, []);
@@ -1352,7 +1383,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
     ? computeMentionMenuPosition(
         mentionState,
         getMentionMenuViewport(),
-        getMentionMenuSize(filteredMentions.length),
+        measuredMenuSize ?? getMentionMenuSize(filteredMentions.length),
         { preferAbove: isCoarsePointer() },
       )
     : null;
@@ -1585,6 +1616,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       {mentionActive && filteredMentions.length > 0 && mentionMenuPosition &&
         createPortal(
           <div
+            ref={mentionMenuRef}
             data-paperclip-floating-ui=""
             data-testid="mention-autocomplete-menu"
             className="pointer-events-auto fixed z-(--z-9999) min-w-(--sz-180px) max-w-(--sz-calc-15) max-h-(--sz-208px) overflow-y-auto overscroll-contain rounded-md border border-border bg-popover shadow-md"

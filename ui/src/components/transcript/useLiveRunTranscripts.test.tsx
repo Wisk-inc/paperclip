@@ -130,6 +130,38 @@ describe("useLiveRunTranscripts", () => {
     }
   });
 
+  it("reads a long history's logs a few at a time, running runs first", async () => {
+    let inFlight = 0;
+    let most = 0;
+    const order: string[] = [];
+    logMock.mockImplementation((async (runId: string) => {
+      order.push(runId);
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { runId, store: "memory", logRef: runId, content: "", nextOffset: undefined as unknown as number };
+    }) as never);
+    const runs = [
+      ...Array.from({ length: 12 }, (_, index) => ({ id: `old-${index}`, status: "succeeded", adapterType: "codex_local" })),
+      { id: "live", status: "running", adapterType: "codex_local" },
+    ];
+    function Harness() {
+      useLiveRunTranscripts({ companyId: "company-1", runs, enableRealtimeUpdates: false });
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<Harness />));
+      await vi.waitFor(() => expect(logMock).toHaveBeenCalledTimes(13));
+      expect(most).toBeLessThanOrEqual(4);
+      expect(order[0]).toBe("live");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("does not re-read logs or reconnect when a refetch only grows the byte counts", async () => {
     logMock.mockImplementation(async () => ({ runId: "run-1", store: "memory", logRef: "log-1", content: "", nextOffset: undefined as unknown as number }));
     function Harness({ bytes }: { bytes: number }) {
