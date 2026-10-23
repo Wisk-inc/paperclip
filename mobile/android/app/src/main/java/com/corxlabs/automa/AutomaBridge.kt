@@ -272,6 +272,14 @@ class AutomaBridge(
                 ?: config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
                 ?: origin?.let(config::secretFor)
             val companyCount = ServerConfig.companyCount(reachedUrl, secret)
+            // A locked Automa that refuses the key: say so, and keep the key
+            // that works. Saving it anyway locked the board out until the
+            // next `automa link`, and let another app swap the key unseen.
+            if (health.locked && secret != null && companyCount == null) {
+                if (config.pendingConnect?.secret == secret) config.pendingConnect = null
+                resolve(callId, error("Automa on this phone rejected that app key. In Termux, run: automa link"))
+                return@execute
+            }
             resolve(
                 callId,
                 JSONObject()

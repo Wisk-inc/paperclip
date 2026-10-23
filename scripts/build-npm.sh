@@ -55,6 +55,11 @@ await esbuild.build(config);
 
 chmod +x dist/index.js
 
+# The database client is inlined into the bundle and looks for its migrations
+# next to it (dist/migrations); without them every command that touches the
+# database (routines disable-all, worktrees) fails before connecting.
+cp -R "$REPO_ROOT/packages/db/src/migrations" dist/migrations
+
 # ── Step 4: Validate bundled entrypoint syntax ─────────────────────────────────
 echo "  [4/6] Verifying bundled entrypoint syntax..."
 node --check "$DIST_DIR/index.js"

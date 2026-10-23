@@ -179,7 +179,8 @@ Invariants:
 ## 7.3 `agent_api_keys`
 
 - `id` uuid pk
-- `agent_id` uuid fk `agents.id` not null
+- `agent_id` uuid fk `agents.id` null (null for App Studio usage, and for spend kept after its agent was removed)
+- `source` text not null default `agent`; `studio` for App Studio replies and code suggestions
 - `company_id` uuid fk `companies.id` not null
 - `name` text not null
 - `key_hash` text not null
@@ -317,7 +318,7 @@ Invariants:
 - `cost_cents` int not null
 - `occurred_at` timestamptz not null
 
-Invariant: each event must attach to agent and company; rollups are aggregation, never manually edited.
+Invariant: each event must attach to a company, and agent-sourced events to an agent when they are recorded (the public route requires one); rollups are aggregation, never manually edited. Removing an agent keeps its events with `agent_id` null so company spend and budgets stay correct.
 
 ## 7.10 `approvals`
 

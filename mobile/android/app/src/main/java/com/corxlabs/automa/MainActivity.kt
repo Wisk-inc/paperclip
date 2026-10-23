@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
         private const val CLOSE_OVERLAY_SCRIPT =
             "(function(){try{return window.__automaCloseOverlay?String(window.__automaCloseOverlay()):'false'}catch(e){return 'false'}})()"
         /** Shown on the connect screen when the board reported the key missing and nothing the app holds works. */
+        private const val KEY_SHARE_HANDLED = "automa.shareHandled"
         const val LOCKED_WITHOUT_KEY = "Automa on this phone is locked to the app, and the app does not have its key. In Termux, run: automa link (it opens Automa here). You can also paste the key it prints."
 
         /**
@@ -113,10 +114,22 @@ class MainActivity : ComponentActivity() {
          */
         fun rememberablePath(uri: Uri): String? {
             val path = uri.path?.takeIf { it.isNotEmpty() && it != "/" } ?: return null
+            if (!isBoardPath(path)) return null
             if (path.endsWith("/onboarding") || path.startsWith("/login") || path.startsWith("/auth")) return null
             val query = uri.encodedQuery?.let { "?$it" } ?: ""
             val fragment = uri.encodedFragment?.let { "#$it" } ?: ""
             return uri.encodedPath + query + fragment
+        }
+
+        /**
+         * A page of the board itself, not an API reply, a raw file or a Studio
+         * preview: only those are remembered or opened from other apps. A
+         * remembered "/api/…" page opened as raw JSON on every launch.
+         */
+        fun isBoardPath(path: String): Boolean {
+            if (!path.startsWith("/") || path.startsWith("//")) return false
+            val blocked = listOf("/api/", "/_plugins/", "/mcp/", "/.well-known/", "/assets/")
+            return path != "/api" && blocked.none { path.startsWith(it) }
         }
 
         /** Saves `<a download>` blob links (exports) through the bridge; they have no URL a native download could fetch. */
@@ -170,6 +183,8 @@ class MainActivity : ComponentActivity() {
         private set
     private var offlineOverlay: ConnectionOverlay? = null
     private var mainFrameFailures = 0
+    /** Set when the connect screen is shown: the board page that follows drops it from Back history. */
+    private var clearHistoryOnServerPage = false
     private val connectivity: ConnectivityManager? by lazy { getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager }
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -278,7 +293,7 @@ class MainActivity : ComponentActivity() {
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             route(intent)
-        } else if (incoming.isShareIntent(intent)) {
+        } else if (incoming.isShareIntent(intent) && !savedInstanceState.getBoolean(KEY_SHARE_HANDLED)) {
             route(intent)
         }
     }
@@ -292,6 +307,9 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
+        // The activity's intent is routed as soon as it arrives; after process
+        // death Android hands the same share back, which must not import twice.
+        if (incoming.isShareIntent(intent)) outState.putBoolean(KEY_SHARE_HANDLED, true)
     }
 
     override fun onStart() {
@@ -471,7 +489,36 @@ class MainActivity : ComponentActivity() {
         installPageKey()
         applyServerCookie()
         val current = webView.url?.let(Uri::parse)
-        if (current != null && config.isServerUrl(current)) webView.reload() else webView.loadUrl(lastPageUrl() ?: url)
+        when {
+            // The page itself is fine (only the network went away): it
+            // reconnects on its own, so a reload would just lose what was typed.
+            current != null && config.isServerUrl(current) && mainFrameFailures == 0 -> Unit
+            current != null && config.isServerUrl(current) -> webView.reload()
+            else -> webView.loadUrl(lastPageUrl() ?: url)
+        }
+    }
+
+    /**
+     * The board ships inside the app, so its page always loads, even with the
+     * server down; then it showed only "Failed to fetch". After each board
+     * page load the server is checked, and an unreachable one gets the same
+     * screens as a failed page load.
+     */
+    private fun confirmServerAnswers() {
+        val server = config.serverUrl ?: return
+        executor.execute {
+            val health = ServerConfig.checkHealth(server)
+            if (health.ok) return@execute
+            runOnUiThread {
+                if (config.serverUrl != server || !onServerPage()) return@runOnUiThread
+                mainFrameFailures += 1
+                when {
+                    ServerConfig.isLoopback(server) -> showConnect(null, wait = true)
+                    connectivity?.activeNetwork == null -> showOffline(ConnectionOverlay.Reason.OFFLINE, null)
+                    else -> showOffline(ConnectionOverlay.Reason.UNREACHABLE, ServerConfig.explain(server, health))
+                }
+            }
+        }
     }
 
     private fun onServerPage(): Boolean = webView.url?.let { config.isServerUrl(Uri.parse(it)) } == true
@@ -502,15 +549,18 @@ class MainActivity : ComponentActivity() {
             .flatMap { it.split(',') }
             .map { it.trim().lowercase() }
             .filter { it.isNotEmpty() }
-        val mimeTypes = accepted.mapNotNull { type ->
+        val resolved = accepted.map { type ->
             when {
                 type.contains('/') -> type
                 type.startsWith('.') -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(type.drop(1))
                 else -> null
             }
-        }.distinct()
+        }
+        val mimeTypes = resolved.filterNotNull().distinct()
         val intent = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE)
-        val allKnown = accepted.isNotEmpty() && mimeTypes.size >= accepted.distinct().size
+        // Two spellings of one type (".jpg,.jpeg", ".zip,application/zip") are
+        // still all known; only a type with no MIME match opens every file.
+        val allKnown = accepted.isNotEmpty() && resolved.none { it == null }
         when {
             !allKnown || mimeTypes.isEmpty() -> intent.setType("*/*")
             mimeTypes.size == 1 -> intent.setType(mimeTypes.first())
@@ -522,7 +572,7 @@ class MainActivity : ComponentActivity() {
     private fun openPath(path: String) {
         val server = config.serverUrl ?: return showConnect(null)
         if (googleSignIn.needsSignIn) return showConnect(null)
-        val safePath = if (path.startsWith("/") && !path.startsWith("//")) path else "/"
+        val safePath = if (isBoardPath(path)) path else "/"
         installPageKey()
         applyServerCookie()
         webView.loadUrl(server + safePath)
@@ -540,6 +590,7 @@ class MainActivity : ComponentActivity() {
         val query = listOfNotNull(error?.let { "error=" + Uri.encode(it) }, if (waitingForServer) "wait=1" else null)
         val suffix = if (query.isEmpty()) "" else "?" + query.joinToString("&")
         installPageKey()
+        clearHistoryOnServerPage = true
         webView.loadUrl(CONNECT_URL + suffix)
     }
 
@@ -848,6 +899,11 @@ class MainActivity : ComponentActivity() {
                     // Idempotent (guarded by a window flag); covers the first page after connecting.
                     view.evaluateJavascript(DOWNLOAD_HOOK, null)
                     if (!incoming.isEmpty()) view.evaluateJavascript(SHARE_EVENT, null)
+                    if (clearHistoryOnServerPage) {
+                        clearHistoryOnServerPage = false
+                        view.clearHistory()
+                    }
+                    confirmServerAnswers()
                 }
             }
 

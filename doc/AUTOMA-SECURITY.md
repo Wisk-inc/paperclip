@@ -1,8 +1,9 @@
 # Automa security: threat model, what-ifs, and the controls
 
 Automa is Paperclip with an Android app, App Studio (a coding workspace with
-collaborators), Device Files, and "Run Automa on this phone" (the server in
-Termux). This page is the white-box review of those additions: who could
+collaborators), Device Files, "Run Automa on this phone" (the server in
+Termux), and the direct Anthropic API engine that lets Claude agents answer
+where Claude Code can't run. This page is the white-box review of those additions: who could
 attack what, the "what if" for each, and what the code does about it. It is
 written to be re-read whenever one of these surfaces changes.
 
@@ -163,7 +164,24 @@ key the caller may use). It never reads another member's personal key.
 - Agent API keys and collaborator tokens are stored as SHA-256 hashes; secrets
   and Studio AI keys are encrypted at rest with the instance master key.
 - Push tokens never leave the server: the API only says `pushEnabled`.
-- Nothing in this fork sends data anywhere Paperclip did not already.
+- The direct API engine is the one new outbound path. When a Claude agent
+  answers through the Anthropic API (on a phone, with that engine chosen, or
+  when Claude Code's engine can't start on a local target), the server
+  process itself sends the chat history, the agent's instructions and image
+  attachments to Anthropic, or to the `ANTHROPIC_BASE_URL` in the agent's
+  env, with the agent's key. The agent's setup check lists models with the
+  same key. Remote and sandbox targets never switch to it. App Studio's
+  assistant already sent prompts to the provider picked in Studio. Apart
+  from these, nothing in this fork sends data anywhere Paperclip did not
+  already.
+- **Which key the direct engine uses**: the `ANTHROPIC_API_KEY` in the
+  agent's env, which the API keys page provides. A key the agent's env sets
+  to blank stays blank (the server blanks it on purpose for subscription
+  sign-ins), so the host's key is never borrowed for those. Only an agent
+  whose env doesn't mention the key falls back to the key the server was
+  started with, for any company on that server: on a shared server, don't
+  start it with one. The request never sends a bearer token from the host
+  env, and pasted keys lose invisible characters before they are stored.
 
 ## 6. What this does not cover
 
@@ -182,6 +200,12 @@ key the caller may use). It never reads another member's personal key.
   claimed names.
 - `server/src/__tests__/authz-existence-oracle-guard.test.ts`: missing and
   other-company resources answer the same 404.
+- `packages/adapters/claude-local/src/server/direct-api.test.ts`: a blank
+  key in the agent's env is respected, no host bearer token is sent, usage
+  is kept on refusal and stop, and thinking matches the model.
+- `server/src/__tests__/assets.test.ts`: photos and logos must really be
+  images. `server/src/__tests__/error-handler.test.ts`: oversized bodies and
+  bad ids answer 413 and 400, not 500.
 - The browser checks in this session's scratchpad: the connect screen with a
   fake bridge (every call carries the page key), and a locked instance end to
   end (anonymous 403, cookie and bearer accepted, sockets, join limit, notice).

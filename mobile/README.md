@@ -30,11 +30,14 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   the gesture bar, keyboard-aware, portrait and landscape, phones, tablets,
   foldables, and Chromebooks (`resizeableActivity`, no orientation lock).
 - **Claude agents answer on the phone**: Claude Code can't run in Termux, so
-  on a phone (or when an agent's engine is set to "Anthropic API (no Claude
-  Code)") a Claude agent answers chats straight through the Anthropic API
-  with the agent's `ANTHROPIC_API_KEY`. It reads the chat history and image
-  attachments but has no tools: it can't edit files or run commands. Agents
-  that need tools still run on a computer.
+  a Claude agent answers chats straight through the Anthropic API with the
+  agent's `ANTHROPIC_API_KEY` in three cases: on a phone, when its engine is
+  set to "Anthropic API (no Claude Code)", and when Claude Code's engine
+  can't start on this machine (for example Node older than 24.11) and the
+  agent has a key. Agents that run on a remote or sandbox target are never
+  switched. It reads the chat history and image attachments but has no
+  tools: it can't edit files or run commands. Agents that need tools still
+  run on a computer. Codex agents can't run on a phone and say so.
 - **Replies stream live, thinking included**: the reply appears token by
   token with a caret, and the model's thinking shows in its own panel while
   it works, folding away when the answer starts. Pick how hard it thinks
@@ -48,7 +51,11 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   cost line. The file tree shows each file's kind, size, and age, and what
   each folder holds.
 - **Every token counted**: agent runs and App Studio replies and code
-  suggestions all land on the Costs page; App Studio has its own row.
+  suggestions all land on the Costs page; App Studio has its own row, and
+  App Studio stops at the organization's budget like agents do. Code
+  suggestions are written in small batches, at most five minutes late.
+  Refused, stopped and cut-off replies still count the tokens they used.
+  Runs through Bedrock, Vertex, Foundry or a gateway count as paid usage.
 - **Uploads take any file**: the picker offers every type the page accepts
   (images, PDFs, code, archives), not just the first one.
 - **API keys in one place**: Settings → API keys adds, copies, defaults and
@@ -74,7 +81,7 @@ Phone (Automa app) ──HTTPS/HTTP on your network──▶ Automa server ─�
   (they follow the phone's touch-feedback setting; no vibrate permission).
   The tab bar stays put while you scroll, fixed bars do not blur, the brand
   mascot is a still with a gentle float on phones (agents' own characters
-  stay animated at 30 fps and pause while the page moves), and dialogs and
+  stay animated at 15 fps and pause while the page moves), and dialogs and
   menus always fit the screen.
 
 ## Requirements

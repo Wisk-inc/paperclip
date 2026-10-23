@@ -1,6 +1,6 @@
 <!-- The in-app copy lives in mobile/android/app/src/main/assets/connect/legal/; keep both in sync. Host this at a public URL for Google Play. -->
 # Privacy Policy
-_Last updated: September 28, 2026_
+_Last updated: October 23, 2026_
 
 This policy explains what the Automa app for Android, published by Corx Labs, does with your data.
 
@@ -23,7 +23,7 @@ If you allow notifications, Firebase Cloud Messaging gives this phone a push tok
 The app does not ask for location, contacts, camera, microphone, or broad storage access. You can revoke folder access in the app (Stop sharing) or in Android settings.
 
 ## Sharing
-Data goes to the Automa server you choose and, for sign-in and notifications, to Google Firebase. The app contains no advertising or analytics SDKs, and we do not sell data.
+Data goes to the Automa server you choose and, for sign-in and notifications, to Google Firebase. The app contains no advertising or analytics SDKs, and we do not sell data. When your Automa server runs on this phone (in Termux) and a Claude agent answers a chat, the server on your phone sends that chat's messages, the agent's instructions and any image attachments to Anthropic (or to the AI provider address set for that agent), with the API key you added, so the model can reply. App Studio's assistant sends your message and the files you attach to the AI provider you pick. Those providers handle that data under their own terms.
 
 ## Security
 Firebase traffic is encrypted. Use an HTTPS address for your server; on a plain HTTP address on a private network (home Wi-Fi or a VPN such as Tailscale), traffic on that network is not encrypted by the app.

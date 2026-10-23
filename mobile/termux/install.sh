@@ -29,7 +29,8 @@ fi
 
 say "Checking Node.js and PostgreSQL"
 if ! command -v node >/dev/null 2>&1 || ! command -v pg_ctl >/dev/null 2>&1; then
-  pkg install -y nodejs-lts postgresql
+  # git: tasks that use a project repository check it out before the agent runs.
+  pkg install -y nodejs-lts postgresql git
 fi
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$node_major" -lt 24 ]; then
@@ -56,11 +57,12 @@ if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
 fi
 export PGPASSWORD="$(cat "$db_password_file")"
 # A database made by an earlier installer trusted every local connection:
-# give it the password and require it from now on.
-if grep -Eq '^(local|host)\s+all\s+all\s+.*\btrust\s*$' "$pgdata/pg_hba.conf" 2>/dev/null; then
+# give it the password and require it from now on. The replication lines
+# count too: left on trust, any app on the phone could copy the database.
+if grep -Eq '^(local|host)\s+(all|replication)\s+all\s+.*\btrust\s*$' "$pgdata/pg_hba.conf" 2>/dev/null; then
   say "Locking the database to a password"
   psql -h 127.0.0.1 -d postgres -tAc "alter user \"$db_user\" with password '$PGPASSWORD'" >/dev/null
-  sed -i -E 's/^((local|host)\s+all\s+all\s+\S*\s*)trust$/\1scram-sha-256/' "$pgdata/pg_hba.conf"
+  sed -i -E 's/^((local|host)\s+(all|replication)\s+all\s+\S*\s*)trust\s*$/\1scram-sha-256/' "$pgdata/pg_hba.conf"
   pg_ctl -D "$pgdata" reload >/dev/null
 fi
 if ! psql -h 127.0.0.1 -d postgres -tAc "select 1 from pg_database where datname = 'automa'" | grep -q 1; then

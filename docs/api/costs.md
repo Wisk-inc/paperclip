@@ -19,7 +19,9 @@ POST /api/companies/{companyId}/cost-events
 }
 ```
 
-Typically reported automatically by adapters after each heartbeat.
+Typically reported automatically by adapters after each heartbeat. This route always records an agent's spend, so `agentId` is required.
+
+App Studio records its own spend (assistant replies and code suggestions) on the server, with `source: "studio"` and no agent. A cost event's `agentId` is `null` for those, and for spend kept after its agent was removed.
 
 ## Company Cost Summary
 
@@ -27,7 +29,7 @@ Typically reported automatically by adapters after each heartbeat.
 GET /api/companies/{companyId}/costs/summary
 ```
 
-Returns total spend, budget, and utilization for the current month.
+Returns total spend, budget, and utilization for the current month. App Studio's share is in `studio` (`costCents`, `inputTokens`, `outputTokens`, `calls`) and is included in the total and in the company budget.
 
 ## Costs by Agent
 
