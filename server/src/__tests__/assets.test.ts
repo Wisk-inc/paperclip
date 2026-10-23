@@ -5,6 +5,10 @@ import request from "supertest";
 import { MAX_ATTACHMENT_BYTES } from "../attachment-types.js";
 import type { StorageService } from "../storage/types.js";
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** Bytes that start like a real PNG, so the upload's image check accepts them. */
+const pngBytes = (size = 16) => Buffer.concat([PNG_SIGNATURE, Buffer.alloc(Math.max(0, size - PNG_SIGNATURE.length), "a")]);
+
 const { createAssetMock, getAssetByIdMock, logActivityMock } = vi.hoisted(() => ({
   createAssetMock: vi.fn(),
   getAssetByIdMock: vi.fn(),
@@ -160,7 +164,7 @@ describe("POST /api/companies/:companyId/assets/images", () => {
       request(baseUrl)
         .post("/api/companies/company-1/assets/images")
         .field("namespace", "goals")
-        .attach("file", Buffer.from("png"), "logo.png"),
+        .attach("file", pngBytes(), "logo.png"),
     );
 
     expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
@@ -186,7 +190,7 @@ describe("POST /api/companies/:companyId/assets/images", () => {
       request(baseUrl)
         .post("/api/companies/company-1/assets/images")
         .field("namespace", namespace)
-        .attach("file", Buffer.from("png"), "avatar.png"),
+        .attach("file", pngBytes(), "avatar.png"),
     );
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -208,7 +212,7 @@ describe("POST /api/companies/:companyId/assets/images", () => {
       request(baseUrl)
         .post("/api/companies/company-1/assets/images")
         .field("namespace", "profiles/bad name!")
-        .attach("file", Buffer.from("png"), "avatar.png"),
+        .attach("file", pngBytes(), "avatar.png"),
     );
 
     expect(res.status).toBe(400);
@@ -228,7 +232,7 @@ describe("POST /api/companies/:companyId/assets/images", () => {
       request(baseUrl)
         .post("/api/companies/company-1/assets/images")
         .field("namespace", "profiles/../secrets")
-        .attach("file", Buffer.from("png"), "avatar.png"),
+        .attach("file", pngBytes(), "avatar.png"),
     );
 
     expect(res.status).toBe(400);
@@ -298,7 +302,7 @@ describe("POST /api/companies/:companyId/logo", () => {
     const res = await requestApp(app, (baseUrl) =>
       request(baseUrl)
         .post("/api/companies/company-1/logo")
-        .attach("file", Buffer.from("png"), "logo.png"),
+        .attach("file", pngBytes(), "logo.png"),
     );
 
     expect(res.status, JSON.stringify({ body: res.body, text: res.text, createCalls: createAssetMock.mock.calls.length })).toBe(201);
@@ -353,7 +357,7 @@ describe("POST /api/companies/:companyId/logo", () => {
     const app = await createApp(png);
     createAssetMock.mockResolvedValue(createAsset());
 
-    const file = Buffer.alloc(150 * 1024, "a");
+    const file = pngBytes(150 * 1024);
     const res = await requestApp(app, (baseUrl) =>
       request(baseUrl)
         .post("/api/companies/company-1/logo")
@@ -391,6 +395,33 @@ describe("POST /api/companies/:companyId/logo", () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBe("Unsupported image type: text/plain");
     expect(createAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a file sent as a PNG that isn't one, for photos and logos", async () => {
+    const app = await createApp(createStorageService("image/png"));
+    createAssetMock.mockResolvedValue(createAsset());
+    const script = Buffer.from("#!/bin/sh\necho hi\n");
+    for (const path of ["/api/companies/company-1/logo", "/api/companies/company-1/assets/images"]) {
+      const res = await requestApp(app, (baseUrl) =>
+        request(baseUrl).post(path).attach("file", script, { filename: "fake.png", contentType: "image/png" }),
+      );
+      expect(res.status, path).toBe(422);
+      expect(res.body.error).toBe("This file isn't a valid PNG image");
+    }
+    expect(createAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("only takes images as profile photos", async () => {
+    const app = await createApp(createStorageService("text/html"));
+    createAssetMock.mockResolvedValue(createAsset());
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post("/api/companies/company-1/assets/images")
+        .field("namespace", "profiles/user-1")
+        .attach("file", Buffer.from("<p>hi</p>"), { filename: "me.html", contentType: "text/html" }),
+    );
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("A profile photo must be a PNG, JPEG, WebP or GIF image");
   });
 
   it("rejects SVG image uploads that cannot be sanitized", async () => {

@@ -34,9 +34,25 @@ async function readIndex(file: string): Promise<IndexEntry[]> {
 
 async function writeIndex(file: string, entries: IndexEntry[]) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const temp = `${file}.${randomUUID()}.tmp`;
   await fs.writeFile(temp, JSON.stringify(entries, null, 1));
   await fs.rename(temp, file);
+}
+
+/**
+ * One read-change-write of a project's checkpoint list at a time: two at
+ * once would each save their own copy and one checkpoint would vanish.
+ */
+const indexLocks = new Map<string, Promise<unknown>>();
+async function withIndexLock<T>(file: string, change: () => Promise<T>): Promise<T> {
+  const previous = indexLocks.get(file) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(change);
+  indexLocks.set(file, next);
+  try {
+    return await next;
+  } finally {
+    if (indexLocks.get(file) === next) indexLocks.delete(file);
+  }
 }
 
 /** Every regular file under `root` (relative paths), skipping heavy folders and symlinks. */
@@ -113,11 +129,14 @@ export async function createCheckpoint(
     skippedFiles: result.skipped,
     createdAt: new Date().toISOString(),
   };
-  const index = await readIndex(dirs.index);
-  index.push(entry);
-  index.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const removed = index.splice(MAX_CHECKPOINTS);
-  await writeIndex(dirs.index, index);
+  const removed = await withIndexLock(dirs.index, async () => {
+    const index = await readIndex(dirs.index);
+    index.push(entry);
+    index.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const dropped = index.splice(MAX_CHECKPOINTS);
+    await writeIndex(dirs.index, index);
+    return dropped;
+  });
   for (const old of removed) await fs.rm(path.join(dirs.base, old.id), { recursive: true, force: true });
   return entry;
 }
@@ -147,10 +166,12 @@ export async function restoreCheckpoint(companyId: string, workspaceId: string, 
 
 export async function deleteCheckpoint(companyId: string, workspaceId: string, checkpointId: string) {
   const dirs = checkpointDirs(companyId, workspaceId);
-  const index = await readIndex(dirs.index);
-  const next = index.filter((entry) => entry.id !== checkpointId);
-  if (next.length === index.length) throw notFound("Checkpoint not found");
-  await writeIndex(dirs.index, next);
+  await withIndexLock(dirs.index, async () => {
+    const index = await readIndex(dirs.index);
+    const next = index.filter((entry) => entry.id !== checkpointId);
+    if (next.length === index.length) throw notFound("Checkpoint not found");
+    await writeIndex(dirs.index, next);
+  });
   await fs.rm(path.join(dirs.base, checkpointId), { recursive: true, force: true });
 }
 

@@ -248,6 +248,23 @@ export function errorHandler(
     return;
   }
 
+  // body-parser refuses a body over the size limit; that is the client's
+  // request, not a server fault.
+  if (
+    err instanceof Error &&
+    "type" in err && err.type === "entity.too.large"
+  ) {
+    res.status(413).json({ error: "Request body is too large" });
+    return;
+  }
+
+  // A path or body id that isn't a UUID reaches the database as-is and
+  // Postgres rejects it (22P02). Answer that as bad input, not a crash.
+  if (isInvalidUuidInput(err)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
   const rootError = err instanceof Error ? err : new Error(String(err));
 
   // The client tore down the connection mid-request (closed tab, dropped
@@ -288,6 +305,22 @@ export function errorHandler(
       ? { message: rootError.message }
       : {}),
   });
+}
+
+function isInvalidUuidInput(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    const candidate = current as { code?: unknown; message?: unknown; cause?: unknown };
+    if (
+      candidate.code === "22P02" &&
+      typeof candidate.message === "string" &&
+      candidate.message.includes("type uuid")
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
 }
 
 function shouldExposeTrustedCloudTenantImportError(req: Request) {

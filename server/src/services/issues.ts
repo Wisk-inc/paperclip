@@ -5364,10 +5364,10 @@ function externalWaitFromDescription(
 ): { owner: string; action: string } | null {
   if (!description) return null;
   const owner = description
-    .match(/^\s*external owner\s*:\s*(.+)$/im)?.[1]
+    .match(/^[^\S\n]*external owner[^\S\n]*:[^\S\n]*(.+)$/im)?.[1]
     ?.trim();
   const action = description
-    .match(/^\s*external action\s*:\s*(.+)$/im)?.[1]
+    .match(/^[^\S\n]*external action[^\S\n]*:[^\S\n]*(.+)$/im)?.[1]
     ?.trim();
   if (!owner || !action) return null;
   return {

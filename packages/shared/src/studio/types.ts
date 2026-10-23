@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cleanPastedApiKey } from "../ai-connections.js";
 
 /** A Studio project: a folder of code on the Automa server, in one language. */
 export interface StudioWorkspace {
@@ -317,8 +318,10 @@ export type StudioServerEvent =
   | { type: "change:new"; changeRequest: StudioChangeRequest }
   | { type: "change:resolved"; changeRequest: StudioChangeRequest }
   | { type: "console"; lines: StudioConsoleLine[] }
+  | { type: "console:clear" }
   | { type: "run"; state: StudioRunState }
   | { type: "assistant"; turn: StudioAssistantTurn; done: boolean }
+  | { type: "assistant:cleared" }
   | { type: "share"; shareEnabled: boolean }
   | { type: "checkpoint:restored"; checkpoint: StudioCheckpoint }
   | { type: "kicked"; reason: string };
@@ -411,7 +414,7 @@ export const studioAssistantMessageSchema = z
 
 export const saveStudioAiKeySchema = z.object({
   provider: z.enum(STUDIO_AI_PROVIDERS),
-  apiKey: z.string().trim().min(8).max(1000),
+  apiKey: z.string().transform(cleanPastedApiKey).pipe(z.string().min(8).max(1000)),
   baseUrl: z.string().trim().url().max(500).optional().nullable(),
 });
 

@@ -211,6 +211,57 @@ async function markApprovalStatus(
 }
 
 export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
+  /** Why the company can't start paid AI work right now (paused, or over its hard-stop), or null. */
+  async function companyInvocationBlock(companyId: string) {
+    const company = await db
+      .select({
+        status: companies.status,
+        pauseReason: companies.pauseReason,
+        name: companies.name,
+      })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .then((rows) => rows[0] ?? null);
+    if (!company) throw notFound("Company not found");
+    if (company.status === "paused") {
+      return {
+        scopeType: "company" as const,
+        scopeId: companyId,
+        scopeName: company.name,
+        reason:
+          company.pauseReason === "budget"
+            ? "Company is paused because its budget hard-stop was reached."
+            : "Company is paused and cannot start new work.",
+      };
+    }
+
+    const companyPolicy = await db
+      .select()
+      .from(budgetPolicies)
+      .where(
+        and(
+          eq(budgetPolicies.companyId, companyId),
+          eq(budgetPolicies.scopeType, "company"),
+          eq(budgetPolicies.scopeId, companyId),
+          eq(budgetPolicies.isActive, true),
+          eq(budgetPolicies.metric, "billed_cents"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    if (companyPolicy && companyPolicy.hardStopEnabled && companyPolicy.amount > 0) {
+      const observed = await computeObservedAmount(db, companyPolicy);
+      if (observed >= companyPolicy.amount) {
+        return {
+          scopeType: "company" as const,
+          scopeId: companyId,
+          scopeName: company.name,
+          reason: "Company cannot start new work because its budget hard-stop is exceeded.",
+        };
+      }
+    }
+    return null;
+  }
+
   async function pauseScopeForBudget(policy: PolicyRow) {
     const now = new Date();
     if (policy.scopeType === "agent") {
@@ -715,6 +766,8 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
       }
     },
 
+    getCompanyInvocationBlock: (companyId: string) => companyInvocationBlock(companyId),
+
     getInvocationBlock: async (
       companyId: string,
       agentId: string,
@@ -732,52 +785,8 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
         .then((rows) => rows[0] ?? null);
       if (!agent || agent.companyId !== companyId) throw notFound("Agent not found");
 
-      const company = await db
-        .select({
-          status: companies.status,
-          pauseReason: companies.pauseReason,
-          name: companies.name,
-        })
-        .from(companies)
-        .where(eq(companies.id, companyId))
-        .then((rows) => rows[0] ?? null);
-      if (!company) throw notFound("Company not found");
-      if (company.status === "paused") {
-        return {
-          scopeType: "company" as const,
-          scopeId: companyId,
-          scopeName: company.name,
-          reason:
-            company.pauseReason === "budget"
-              ? "Company is paused because its budget hard-stop was reached."
-              : "Company is paused and cannot start new work.",
-        };
-      }
-
-      const companyPolicy = await db
-        .select()
-        .from(budgetPolicies)
-        .where(
-          and(
-            eq(budgetPolicies.companyId, companyId),
-            eq(budgetPolicies.scopeType, "company"),
-            eq(budgetPolicies.scopeId, companyId),
-            eq(budgetPolicies.isActive, true),
-            eq(budgetPolicies.metric, "billed_cents"),
-          ),
-        )
-        .then((rows) => rows[0] ?? null);
-      if (companyPolicy && companyPolicy.hardStopEnabled && companyPolicy.amount > 0) {
-        const observed = await computeObservedAmount(db, companyPolicy);
-        if (observed >= companyPolicy.amount) {
-          return {
-            scopeType: "company" as const,
-            scopeId: companyId,
-            scopeName: company.name,
-            reason: "Company cannot start new work because its budget hard-stop is exceeded.",
-          };
-        }
-      }
+      const companyBlock = await companyInvocationBlock(companyId);
+      if (companyBlock) return companyBlock;
 
       if (agent.status === "paused" && agent.pauseReason === "budget") {
         return {

@@ -390,8 +390,12 @@ export async function conversationReplay(
         boundary
           ? sql`(${issueComments.createdAt}, ${issueComments.id}) > (select cursor.created_at, cursor.id from issue_comments cursor where cursor.id = ${boundary.id}::uuid)`
           : undefined,
+        // People's messages stop before the one being answered. The agent's
+        // own replies are all included: a reply to the previous message can
+        // land after the person already sent the next one, and without it the
+        // agent answered the previous message again.
         wake
-          ? sql`(${issueComments.createdAt}, ${issueComments.id}) < (select cursor.created_at, cursor.id from issue_comments cursor where cursor.id = ${wake.id}::uuid)`
+          ? sql`(${issueComments.authorAgentId} is not null or (${issueComments.createdAt}, ${issueComments.id}) < (select cursor.created_at, cursor.id from issue_comments cursor where cursor.id = ${wake.id}::uuid))`
           : undefined,
       ),
     )

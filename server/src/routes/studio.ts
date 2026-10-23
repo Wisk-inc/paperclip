@@ -36,7 +36,7 @@ import {
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { badRequest, conflict, notFound, tooManyRequests, unauthorized, unprocessable } from "../errors.js";
-import { logActivity } from "../services/index.js";
+import { budgetService, heartbeatService, logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, hasCompanyAccess } from "./authz.js";
 import {
   createStudioEntry,
@@ -52,7 +52,7 @@ import {
 } from "../services/studio/files.js";
 import { studioService } from "../services/studio/service.js";
 import { studioUsageRecorder } from "../services/studio/usage.js";
-import { existingStudioRuntime, stopAllStudioRuntimes, studioRuntime, studioRuntimeByPreviewToken } from "../services/studio/runner.js";
+import { disposeStudioRuntime, existingStudioRuntime, stopAllStudioRuntimes, studioRuntime, studioRuntimeByPreviewToken } from "../services/studio/runner.js";
 import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
 import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
@@ -224,7 +224,18 @@ let expirySweep: ReturnType<typeof setInterval> | null = null;
 
 /** Owner routes: board users with access to the project's company. */
 export function studioRoutes(db: Db) {
-  const studioUsage = studioUsageRecorder(db);
+  const heartbeat = heartbeatService(db);
+  const budgetHooks = { cancelWorkForScope: heartbeat.cancelBudgetScopeWork };
+  const budgets = budgetService(db, budgetHooks);
+  // Studio spend counts toward the budget like an agent's, and crossing the
+  // hard-stop stops agent work the same way.
+  const studioUsage = studioUsageRecorder(db, budgetHooks);
+  const startingAssistant = new Set<string>();
+
+  async function assertStudioAiAllowed(companyId: string) {
+    const block = await budgets.getCompanyInvocationBlock(companyId);
+    if (block) throw conflict(block.reason, { code: "budget_blocked", budgetBlock: block });
+  }
   const router = Router();
   const svc = studioService(db);
 
@@ -353,7 +364,13 @@ export function studioRoutes(db: Db) {
   router.delete("/studio/workspaces/:id", async (req, res) => {
     const workspace = await workspaceFor(req);
     studioHub.kickGuests(workspace.id, "The owner deleted this project.");
-    await existingStudioRuntime(workspace.id)?.dispose();
+    // The assistant stops first and gets a moment to wind down, or its last
+    // save recreated the deleted folder (and its tools kept running).
+    stopAssistant(workspace.id);
+    for (let waited = 0; isAssistantRunning(workspace.id) && waited < 5_000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await disposeStudioRuntime(workspace.id);
     await svc.remove(workspace.id);
     await log(req, workspace, "studio.workspace_deleted");
     res.json({ ok: true });
@@ -463,6 +480,11 @@ export function studioRoutes(db: Db) {
 
   router.post("/studio/workspaces/:id/complete", validate(studioCompleteSchema), async (req, res) => {
     const workspace = await workspaceFor(req);
+    // Suggestions are paid calls too; a company over its hard-stop gets none.
+    if (await budgets.getCompanyInvocationBlock(workspace.companyId)) {
+      res.json({ completion: "", model: req.body.model ?? null, error: "AI is paused: this organization reached its budget limit." });
+      return;
+    }
     const provider = req.body.provider as StudioAiProvider;
     const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), provider);
     if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
@@ -771,17 +793,38 @@ export function studioRoutes(db: Db) {
 
   router.post("/studio/workspaces/:id/assistant", validate(studioAssistantMessageSchema), async (req, res) => {
     const workspace = await workspaceFor(req);
-    if (isAssistantRunning(workspace.id)) throw conflict("The assistant is still working; wait or tap Stop");
-    const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), req.body.provider);
-    if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
-    // Saved first, so whatever the assistant does can be undone.
-    const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
-      label: `Before AI: ${(req.body.message || req.body.attachments?.[0]?.name || "attachment").replace(/\s+/g, " ").slice(0, 80)}`,
-      kind: "assistant",
-      by: "AI assistant",
-    }).catch(() => null);
-    const { userTurn } = await runAssistantTurn({
-      checkpointId: checkpoint?.id ?? null,
+    // The slot is taken before anything is awaited, so two messages sent at
+    // once get one reply and one clear "still working", not a server error.
+    if (isAssistantRunning(workspace.id) || startingAssistant.has(workspace.id)) {
+      throw conflict("The assistant is still working; wait or tap Stop");
+    }
+    startingAssistant.add(workspace.id);
+    try {
+      await assertStudioAiAllowed(workspace.companyId);
+      const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), req.body.provider);
+      if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
+      // Saved first, so whatever the assistant does can be undone.
+      const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
+        label: `Before AI: ${(req.body.message || req.body.attachments?.[0]?.name || "attachment").replace(/\s+/g, " ").slice(0, 80)}`,
+        kind: "assistant",
+        by: "AI assistant",
+      }).catch(() => null);
+      const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body);
+      await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null });
+      res.status(202).json({ turn: userTurn });
+    } finally {
+      startingAssistant.delete(workspace.id);
+    }
+  });
+
+  function startAssistantTurn(
+    workspace: WorkspaceRow,
+    checkpointId: string | null,
+    credentials: NonNullable<Awaited<ReturnType<typeof svc.resolveAiKey>>>,
+    body: { message?: string; provider: StudioAiProvider; model: string; attachments?: Parameters<typeof runAssistantTurn>[0]["attachments"] },
+  ) {
+    return runAssistantTurn({
+      checkpointId,
       context: {
         workspaceId: workspace.id,
         companyId: workspace.companyId,
@@ -792,25 +835,27 @@ export function studioRoutes(db: Db) {
         onFileChanged: (relative) => broadcastFile(workspace, relative, "assistant"),
         onUsage: (usage) => studioUsage.recordReply(workspace.companyId, usage),
       },
-      message: req.body.message,
-      provider: req.body.provider,
-      model: req.body.model,
-      attachments: req.body.attachments ?? [],
+      message: body.message ?? "",
+      provider: body.provider,
+      model: body.model,
+      attachments: body.attachments ?? [],
       credentials,
     });
-    res.status(202).json({ turn: userTurn });
-  });
+  }
 
   router.post("/studio/workspaces/:id/assistant/stop", async (req, res) => {
     const workspace = await workspaceFor(req);
     stopAssistant(workspace.id);
+    await log(req, workspace, "studio.assistant_stopped");
     res.json({ ok: true });
   });
 
   router.delete("/studio/workspaces/:id/assistant", async (req, res) => {
     const workspace = await workspaceFor(req);
-    if (isAssistantRunning(workspace.id)) throw conflict("Stop the assistant first");
+    if (isAssistantRunning(workspace.id) || startingAssistant.has(workspace.id)) throw conflict("Stop the assistant first");
     await clearAssistantConversation(workspace.companyId, workspace.id);
+    studioHub.broadcast(workspace.id, { type: "assistant:cleared" });
+    await log(req, workspace, "studio.assistant_cleared");
     res.json({ ok: true });
   });
 

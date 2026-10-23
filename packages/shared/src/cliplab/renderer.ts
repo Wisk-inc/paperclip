@@ -11,6 +11,8 @@ export interface RenderOptions {
   width: number; height: number; displaySize?: number; background?: string | null
   cursor?: { x: number; y: number }; rotation?: { x: number; y: number; z: number }; zoom?: number; framing?: 'portrait' | 'character'; pixelRatio?: number
   pointerLook?: PointerLook; eyeGazes?: EyeGazes; reducedMotion?: boolean
+  /** Keep the drawn frame readable (thumbnails read it back); live characters don't need to. */
+  preserveDrawingBuffer?: boolean
 }
 /** Cursor pitch owns the vertical look direction, independent of the resting tilt. */
 export function characterRotation(character: Pick<Character, 'trueFront' | 'followRotation'>, pose: Pick<Pose, 'rotationX' | 'rotationY' | 'rotationZ'>, rotation = { x: -5.9, y: -24.2, z: 0 }, cursor: Gaze = { x: 0, y: 0 }) {
@@ -317,12 +319,16 @@ export class CharacterRenderer {
     if (canvas) {
       this.faceCanvas = document.createElement('canvas')
       this.propCanvas = document.createElement('canvas')
-    this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'low-power' })
+    this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: options.preserveDrawingBuffer ?? true, powerPreference: 'low-power' })
     this.gl.outputColorSpace = THREE.SRGBColorSpace
     this.gl.setPixelRatio(options.pixelRatio ?? Math.min(Math.max(window.devicePixelRatio || 1, 1) * 2, 4))
-    this.faceCanvas.width = this.faceCanvas.height = 1024
+    // The face is drawn at the size it shows: a 1024 px texture (4 MB plus
+    // mipmaps, uploaded on every expression change) for a 96 px avatar kept
+    // phones busy. Small characters get 256 px; the drawing scales with it.
+    const faceSize = (options.displaySize ?? 512) <= 128 ? 256 : 1024
+    this.faceCanvas.width = this.faceCanvas.height = faceSize
     this.faceCtx = this.faceCanvas.getContext('2d')!
-    this.faceCtx.scale(2, 2)
+    this.faceCtx.scale(faceSize / 512, faceSize / 512)
     this.faceTexture = new THREE.CanvasTexture(this.faceCanvas); this.faceTexture.colorSpace = THREE.SRGBColorSpace
     this.faceTexture.generateMipmaps = true; this.faceTexture.minFilter = THREE.LinearMipmapLinearFilter
     this.propCanvas.width = this.propCanvas.height = 512; this.propCtx = this.propCanvas.getContext('2d')!; this.propCtx.scale(2, 2)

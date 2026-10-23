@@ -1,3 +1,4 @@
+import { conflict } from "../../errors.js";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -151,7 +152,7 @@ interface ToolOutcome {
   step: StudioAssistantStep;
 }
 
-async function runTool(context: StudioAssistantContext, name: string, rawInput: unknown): Promise<ToolOutcome> {
+async function runTool(context: StudioAssistantContext, name: string, rawInput: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
   const def = TOOLS.find((tool) => tool.name === name);
   if (!def) return { ok: false, output: `Unknown tool ${name}`, step: { tool: name, summary: name, ok: false, detail: "Unknown tool" } };
   const parsed = def.schema.safeParse(rawInput ?? {});
@@ -197,7 +198,7 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
       case "run_command": {
         const command = String(input.command);
         const timeoutMs = (Number(input.timeout_seconds) || 120) * 1000;
-        const result = await runtime.exec(dirs.files, command, { timeoutMs });
+        const result = await runtime.exec(dirs.files, command, { timeoutMs, signal });
         const output = `${result.timedOut ? "(stopped: took too long)\n" : ""}exit code: ${result.exitCode}\n${clip(result.output)}`;
         return {
           ok: result.exitCode === 0 && !result.timedOut,
@@ -283,11 +284,14 @@ export async function clearAssistantConversation(companyId: string, workspaceId:
 // ── Running a turn ─────────────────────────────────────────────────────────
 
 const running = new Map<string, AbortController>();
-/** The reply being written, so a page that reloads mid-turn still shows it. */
-const liveTurns = new Map<string, StudioAssistantTurn>();
+/**
+ * The reply being written, so a page that reloads mid-turn still shows it:
+ * the text and thinking streamed so far, not just the finished steps.
+ */
+const liveTurns = new Map<string, () => StudioAssistantTurn>();
 
 export function currentAssistantTurn(workspaceId: string): StudioAssistantTurn | null {
-  return liveTurns.get(workspaceId) ?? null;
+  return liveTurns.get(workspaceId)?.() ?? null;
 }
 
 export function isAssistantRunning(workspaceId: string) {
@@ -332,10 +336,24 @@ export async function runAssistantTurn(input: {
   attachments?: StudioAssistantAttachmentInput[];
 }) {
   const { context } = input;
-  if (running.has(context.workspaceId)) throw new Error("The assistant is already working on this project");
+  if (running.has(context.workspaceId)) throw conflict("The assistant is still working; wait or tap Stop");
   const controller = new AbortController();
   running.set(context.workspaceId, controller);
+  try {
+    return await startTurn(input, controller);
+  } catch (error) {
+    // Nothing started: the next message must not be refused as "still working".
+    running.delete(context.workspaceId);
+    liveTurns.delete(context.workspaceId);
+    throw error;
+  }
+}
 
+async function startTurn(
+  input: Parameters<typeof runAssistantTurn>[0],
+  controller: AbortController,
+) {
+  const { context } = input;
   const attachments = input.attachments ?? [];
   const images = attachments.filter((item) => item.encoding === "base64" && (STUDIO_ASSISTANT_IMAGE_TYPES as readonly string[]).includes(item.type));
   const texts = attachments.filter((item) => item.encoding === "text");
@@ -355,7 +373,6 @@ export async function runAssistantTurn(input: {
   // Saved before the model starts: the page reloads the transcript while the
   // assistant works, and a message that only lived in memory vanished.
   await writeJson(transcriptFile, transcript.slice(-200));
-  liveTurns.set(context.workspaceId, turn);
   let liveThinking = "";
   let live = "";
   const snapshot = (): StudioAssistantTurn => ({
@@ -364,6 +381,7 @@ export async function runAssistantTurn(input: {
     ...(live ? { live: live.trimStart() } : {}),
     ...(liveThinking ? { liveThinking } : {}),
   });
+  liveTurns.set(context.workspaceId, snapshot);
   const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, { type: "assistant", turn: done ? { ...turn, steps: [...turn.steps] } : snapshot(), done });
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
 
@@ -379,8 +397,6 @@ export async function runAssistantTurn(input: {
   };
 
   const finish = async () => {
-    running.delete(context.workspaceId);
-    liveTurns.delete(context.workspaceId);
     if (usageTotals.inputTokens || usageTotals.cachedInputTokens || usageTotals.outputTokens) {
       turn.usage = {
         inputTokens: usageTotals.inputTokens + usageTotals.cachedInputTokens,
@@ -400,8 +416,17 @@ export async function runAssistantTurn(input: {
         logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant usage not recorded");
       }
     }
+    // The reply is saved before the turn stops counting as running, so a
+    // reload or a "New chat" in between never sees it missing or revives it.
     transcript.push(turn);
-    await writeJson(transcriptFile, transcript.slice(-200));
+    try {
+      await writeJson(transcriptFile, transcript.slice(-200));
+    } catch (error) {
+      // A full disk on a phone must not take the whole server down.
+      logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant transcript not saved");
+    }
+    running.delete(context.workspaceId);
+    liveTurns.delete(context.workspaceId);
     publish(true);
   };
 
@@ -464,11 +489,22 @@ export async function runAssistantTurn(input: {
       logger.warn({ error: turn.error, workspaceId: context.workspaceId }, "studio assistant turn failed");
     } finally {
       if (pendingLive) clearTimeout(pendingLive);
-      await finish();
+      await finish().catch((error) => {
+        running.delete(context.workspaceId);
+        liveTurns.delete(context.workspaceId);
+        logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant turn did not finish cleanly");
+      });
     }
   })();
   publish(false);
   return { userTurn, turn };
+}
+
+/** Tool calls in the last assistant message that no tool result answered. */
+function danglingAnthropicToolUses(messages: Anthropic.Beta.BetaMessageParam[]): string[] {
+  const last = messages.at(-1);
+  if (!last || last.role !== "assistant" || !Array.isArray(last.content)) return [];
+  return last.content.flatMap((block) => (block.type === "tool_use" ? [block.id] : []));
 }
 
 function describeProviderError(error: unknown, aborted: boolean): string {
@@ -477,7 +513,12 @@ function describeProviderError(error: unknown, aborted: boolean): string {
   if (error instanceof Anthropic.PermissionDeniedError) return "This Anthropic key can't use that model.";
   if (error instanceof Anthropic.NotFoundError) return "Anthropic doesn't know that model name.";
   if (error instanceof Anthropic.RateLimitError) return "Anthropic is rate limiting this key. Wait a moment and try again.";
-  if (error instanceof Anthropic.APIError) return `Anthropic error ${error.status ?? ""}: ${error.message}`.trim();
+  if (error instanceof Anthropic.APIError) {
+    if (error.status === 529 || (error.status ?? 0) >= 500) return "Anthropic is overloaded or had a server error. Try again in a minute.";
+    // The SDK's message repeats the status and the raw JSON body.
+    const detail = (error.error as { error?: { message?: string } } | undefined)?.error?.message ?? error.message;
+    return `Anthropic refused the request: ${detail}`.replace(/\s+/g, " ").trim();
+  }
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -510,6 +551,9 @@ async function runAnthropic(input: {
   const baseURL = input.credentials.baseUrl || process.env.PAPERCLIP_STUDIO_ANTHROPIC_BASE_URL || undefined;
   const client = new Anthropic({
     apiKey: input.credentials.apiKey,
+    // Never the server's own ANTHROPIC_AUTH_TOKEN, which the SDK would add
+    // and send to whatever base URL the key names.
+    authToken: null,
     baseURL,
     maxRetries: 2,
   });
@@ -517,10 +561,20 @@ async function runAnthropic(input: {
   let messages = await readJson<Anthropic.Beta.BetaMessageParam[]>(historyFile, []);
   // A fresh conversation instead of trimming: earlier turns are never edited.
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
+  // A turn cut off mid-step (length limit, Stop, a restart) leaves tool calls
+  // without results, and the API then refuses every later message. They are
+  // answered as interrupted at the start of this message.
+  const interrupted = danglingAnthropicToolUses(messages).map((id): Anthropic.Beta.BetaToolResultBlockParam => ({
+    type: "tool_result",
+    tool_use_id: id,
+    content: "This step was interrupted before it finished.",
+    is_error: true,
+  }));
   messages.push({
     role: "user",
-    content: input.images.length
+    content: input.images.length || interrupted.length
       ? [
+          ...interrupted,
           ...input.images.map((image) => ({
             type: "image" as const,
             source: { type: "base64" as const, media_type: image.type as "image/png" | "image/jpeg" | "image/gif" | "image/webp", data: image.data },
@@ -564,6 +618,25 @@ async function runAnthropic(input: {
       response = await stream.finalMessage();
       jsonRetries = 0;
     } catch (error) {
+      // A stopped or failed call was still billed for what it used so far.
+      const partial = (stream as unknown as { currentMessage?: Anthropic.Beta.BetaMessage }).currentMessage;
+      if (partial?.usage) {
+        const cacheWrite = partial.usage.cache_creation_input_tokens ?? 0;
+        const cacheRead = partial.usage.cache_read_input_tokens ?? 0;
+        await input.onUsage({
+          provider: "anthropic",
+          model: partial.model || input.model,
+          inputTokens: partial.usage.input_tokens + cacheWrite,
+          cachedInputTokens: cacheRead,
+          outputTokens: partial.usage.output_tokens,
+          costUsd: estimateClaudeCostUsd(partial.model || input.model, {
+            inputTokens: partial.usage.input_tokens,
+            outputTokens: partial.usage.output_tokens,
+            cacheReadInputTokens: cacheRead,
+            cacheCreationInputTokens: cacheWrite,
+          }),
+        }).catch(() => undefined);
+      }
       // A streamed tool input that isn't JSON at all: ask again (a few times).
       if (error instanceof Anthropic.APIError || input.signal.aborted || jsonRetries >= 2) throw error;
       jsonRetries += 1;
@@ -607,7 +680,8 @@ async function runAnthropic(input: {
 
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const use of toolUses) {
-      const outcome = await runTool(context, use.name, use.input);
+      if (input.signal.aborted) throw new Error("Stopped.");
+      const outcome = await runTool(context, use.name, use.input, input.signal);
       input.onStep(outcome.step);
       results.push({ type: "tool_result", tool_use_id: use.id, content: outcome.output, ...(outcome.ok ? {} : { is_error: true }) });
     }
@@ -645,6 +719,14 @@ async function runOpenAiCompatible(input: {
   const historyFile = metaFile(context, `assistant-${input.provider}.json`);
   let messages = await readJson<ChatMessage[]>(historyFile, []);
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
+  // Tool calls left unanswered by an interrupted turn get an "interrupted"
+  // result, or the provider refuses the whole conversation.
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role === "assistant" && lastMessage.tool_calls?.length) {
+    for (const call of lastMessage.tool_calls) {
+      messages.push({ role: "tool", tool_call_id: call.id, content: "This step was interrupted before it finished." });
+    }
+  }
   messages.push({
     role: "user",
     content: input.images.length
@@ -720,7 +802,7 @@ async function runOpenAiCompatible(input: {
       }
       const outcome = args === null
         ? { ok: false, output: "The tool arguments were not valid JSON.", step: { tool: call.function.name, summary: call.function.name, ok: false, detail: "Invalid arguments" } }
-        : await runTool(context, call.function.name, args);
+        : await runTool(context, call.function.name, args, input.signal);
       input.onStep(outcome.step);
       messages.push({ role: "tool", tool_call_id: call.id, content: outcome.output });
     }

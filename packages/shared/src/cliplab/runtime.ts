@@ -17,13 +17,15 @@ export function createCharacter(target: HTMLElement, definition: Definition, opt
   canvas.setAttribute('aria-hidden', 'true')
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
   const coarse = window.matchMedia('(pointer: coarse)')
-  // Phones draw a smaller buffer (the display ratio, not twice it), half the
-  // frames, and nothing at all while the page scrolls: the character must
+  // Phones draw a smaller buffer (the display ratio, not twice it), 15 frames
+  // a second, and nothing at all while the page scrolls: the character must
   // never compete with a swipe for the GPU or the main thread.
   const phone = coarse.matches
-  const PHONE_FRAME_MS = 1000 / 30
+  const PHONE_FRAME_MS = 1000 / 15
   const renderer = new CharacterRenderer(canvas, {
     width: target.clientWidth || 256, height: target.clientHeight || 256, displaySize: options.displaySize, framing: 'character',
+    // Nothing reads a live character's frames back, so the GPU may discard them.
+    preserveDrawingBuffer: false,
     ...(phone ? { pixelRatio: Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) } : {}),
   })
   target.appendChild(canvas)

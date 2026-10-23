@@ -1359,6 +1359,22 @@ describe("resolveClaudeAcpBillingIdentity", () => {
     });
   });
 
+  it("counts Vertex, Foundry and token gateways as metered, not a subscription", () => {
+    const identity = (env: Record<string, string>) =>
+      resolveClaudeAcpBillingIdentity({
+        config: { env },
+        executionTarget: { kind: "remote", transport: "sandbox", remoteCwd: "/work" },
+      } as never);
+    expect(identity({ CLAUDE_CODE_USE_VERTEX: "1" })).toEqual({ provider: "anthropic", biller: "google_vertex", billingType: "metered_api" });
+    expect(identity({ CLAUDE_CODE_USE_FOUNDRY: "true" })).toEqual({ provider: "anthropic", biller: "microsoft_foundry", billingType: "metered_api" });
+    expect(identity({ ANTHROPIC_AUTH_TOKEN: "t", ANTHROPIC_BASE_URL: "https://gateway.example" })).toEqual({
+      provider: "anthropic",
+      biller: "llm_gateway",
+      billingType: "metered_api",
+    });
+    expect(identity({ ANTHROPIC_AUTH_TOKEN: "t" }).billingType).toBe("api");
+  });
+
   it("ignores host env for remote execution targets", () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-host-only";
     expect(

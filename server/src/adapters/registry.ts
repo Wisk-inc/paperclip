@@ -425,6 +425,25 @@ const paperclipRunnerAdapter: ServerAdapterModule = {
         }],
       };
     }
+    // The runner binary isn't in the phone bundle, so every provider that runs
+    // it on this machine would fail at launch; cloud providers still work.
+    if (
+      process.platform === "android" &&
+      context.executionTarget?.kind !== "remote" &&
+      profile.provider !== "claude_managed" &&
+      profile.provider !== "aws_agentcore"
+    ) {
+      return {
+        adapterType: "paperclip_runner",
+        status: "fail" as const,
+        testedAt: new Date().toISOString(),
+        checks: [{
+          code: "paperclip_runner_unavailable_on_phone",
+          level: "error" as const,
+          message: "The native runner can't run on a phone. Use the Claude adapter instead: on a phone it answers with your Anthropic API key directly, with live replies and thinking.",
+        }],
+      };
+    }
     if (profile.provider === "acpx") {
       try {
         if (profile.acpxAgent !== "claude") throw new Error("Select Codex to use the native Codex runner.");

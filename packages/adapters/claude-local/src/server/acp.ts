@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { resolveClaudeBillingIdentity } from "./billing.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -178,18 +179,7 @@ export function resolveClaudeAcpBillingIdentity(
     const fromHost = considerHostEnv ? process.env[key] : undefined;
     return typeof fromHost === "string" ? fromHost.trim() : "";
   };
-  const bedrockFlag = readEnvValue("CLAUDE_CODE_USE_BEDROCK");
-  const bedrock = bedrockFlag === "1" || bedrockFlag === "true" || Boolean(readEnvValue("ANTHROPIC_BEDROCK_BASE_URL"));
-  const billingType: AdapterBillingType = bedrock
-    ? "metered_api"
-    : readEnvValue("ANTHROPIC_API_KEY")
-    ? "api"
-    : "subscription";
-  return {
-    provider: "anthropic",
-    biller: bedrock ? "aws_bedrock" : "anthropic",
-    billingType,
-  };
+  return { provider: "anthropic", ...resolveClaudeBillingIdentity(readEnvValue) };
 }
 
 /**

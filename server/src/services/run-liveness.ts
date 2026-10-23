@@ -61,7 +61,7 @@ const DEFAULT_EVIDENCE: RunLivenessEvidenceInput = {
 
 const PLANNING_ONLY_RE =
   /\b(?:i(?:'ll| will| am going to|'m going to)|let me|i need to|next(?:,| i will| i'll)?|my next step is|the next step is)\s+(?:first\s+)?(?:inspect|check|review|look|investigate|analy[sz]e|open|read|start|begin|work on|implement|fix|test|update|create|add)\b/i;
-const NEXT_STEPS_RE = /^\s*(?:next steps?|plan)\s*:/im;
+const NEXT_STEPS_RE = /^[^\S\n]*(?:next steps?|plan)\s*:/im;
 const BLOCKER_RE =
   /\b(?:blocked|can't proceed|cannot proceed|unable to proceed|waiting on|need(?:s|ed)? .{0,80}\b(?:approval|access|credential|credentials|secret|api key|token|input|clarification)|requires? .{0,80}\b(?:approval|access|credential|credentials|secret|api key|token|input|clarification))\b/i;
 const NEGATED_BLOCKER_RE = /\b(?:not blocked|no blocker|no blockers|unblocked)\b/i;
@@ -171,7 +171,7 @@ export function declaredBlocker(input: RunLivenessClassificationInput) {
 export function looksLikePlanningOnly(input: RunLivenessClassificationInput) {
   const text = actionabilityText(input);
   if (!text) return false;
-  return PLANNING_ONLY_RE.test(text) || NEXT_STEPS_RE.test(text) || /^\s*next(?: steps?| action)?\s*:/im.test(text);
+  return PLANNING_ONLY_RE.test(text) || NEXT_STEPS_RE.test(text) || /^[^\S\n]*next(?: steps?| action)?\s*:/im.test(text);
 }
 
 function normalizeEvidence(evidence: Partial<RunLivenessEvidenceInput> | null | undefined): RunLivenessEvidenceInput {

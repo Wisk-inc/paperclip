@@ -50,6 +50,23 @@ describe("errorHandler", () => {
     telemetryMocks.trackErrorHandlerCrash.mockReset();
   });
 
+  it("answers an oversized body with 413 and a bad id with 400, without a crash report", () => {
+    const tooLarge = Object.assign(new Error("request entity too large"), { type: "entity.too.large", status: 413 });
+    const badId = new Error("Failed query", {
+      cause: Object.assign(new Error('invalid input syntax for type uuid: "not-a-uuid"'), { code: "22P02" }),
+    });
+    for (const [err, status, body] of [
+      [tooLarge, 413, { error: "Request body is too large" }],
+      [badId, 400, { error: "Invalid id" }],
+    ] as const) {
+      const res = makeRes() as any;
+      errorHandler(err, makeReq(), res, vi.fn() as unknown as NextFunction);
+      expect(res.status).toHaveBeenCalledWith(status);
+      expect(res.json).toHaveBeenCalledWith(body);
+    }
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
   it("attaches the original Error to res.err for 500s", () => {
     const req = makeReq();
     const res = makeRes() as any;

@@ -440,6 +440,18 @@ async function withHireRunLock<T>(key: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
+const agentPatchLocks = new Map<string, Promise<unknown>>();
+async function withAgentPatchLock<T>(agentId: string, change: () => Promise<T>): Promise<T> {
+  const previous = agentPatchLocks.get(agentId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(change);
+  agentPatchLocks.set(agentId, next);
+  try {
+    return await next;
+  } finally {
+    if (agentPatchLocks.get(agentId) === next) agentPatchLocks.delete(agentId);
+  }
+}
+
 export function agentRoutes(
   db: Db,
   options: {
@@ -5217,7 +5229,9 @@ export function agentRoutes(
     res.json(result.bundle);
   });
 
-  router.patch("/agents/:id", validate(updateAgentSchema), async (req, res) => {
+  // One change to an agent at a time: two saved together (thinking level and
+  // model, say) each merged into the same old settings and one was lost.
+  router.patch("/agents/:id", validate(updateAgentSchema), (req, res) => withAgentPatchLock(req.params.id as string, async () => {
     const id = req.params.id as string;
     const existing = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
     if (!existing) return;
@@ -5425,7 +5439,7 @@ export function agentRoutes(
     });
 
     res.json(redactAgentRowForResponse(agent));
-  });
+  }));
 
   router.post("/agents/:id/pause", async (req, res) => {
     assertBoard(req);

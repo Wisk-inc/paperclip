@@ -1,3 +1,4 @@
+import { codexPhoneBlockReason } from "./execute.js";
 import type {
   AdapterEnvironmentCheck,
   AdapterEnvironmentTestContext,
@@ -246,6 +247,15 @@ async function prepareCodexHelloProbe(input: {
 export async function testEnvironment(
   ctx: AdapterEnvironmentTestContext,
 ): Promise<AdapterEnvironmentTestResult> {
+  const phoneBlock = codexPhoneBlockReason(parseObject(ctx.config), ctx.executionTarget);
+  if (phoneBlock) {
+    return {
+      adapterType: "codex_local",
+      status: "fail",
+      checks: [{ code: "adapter_engine_unavailable", level: "error", message: phoneBlock }],
+      testedAt: new Date().toISOString(),
+    };
+  }
   const engineSelection = await resolveCodexExecutionEngineForRun({
     config: parseObject(ctx.config),
     executionTarget: ctx.executionTarget,

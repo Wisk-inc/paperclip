@@ -566,7 +566,29 @@ export async function ensureCodexSkillsInjected(
   );
 }
 
+
+/**
+ * Codex ships no Android build: in Termux its platform package is skipped at
+ * install and every run would fail. A phone says so up front, unless the
+ * agent runs elsewhere or points at a Codex binary it brought itself.
+ */
+export function codexPhoneBlockReason(config: Record<string, unknown>, executionTarget: unknown): string | null {
+  if (process.platform !== "android") return null;
+  const target = readAdapterExecutionTarget({
+    executionTarget: executionTarget as Parameters<typeof readAdapterExecutionTarget>[0]["executionTarget"],
+  });
+  if (adapterExecutionTargetIsRemote(target)) return null;
+  const env = parseObject(config.env);
+  const command = typeof config.command === "string" ? config.command.trim() : "";
+  if ((typeof env.CODEX_PATH === "string" && env.CODEX_PATH.trim()) || (command && command !== "codex")) return null;
+  return "Codex isn't built for Android phones, so it can't run in Termux. Run this agent on a computer, or use a Claude agent, which answers on the phone through the Anthropic API.";
+}
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
+  const phoneBlock = codexPhoneBlockReason(parseObject(ctx.config), ctx.executionTarget);
+  if (phoneBlock) {
+    return { exitCode: 1, signal: null, timedOut: false, errorCode: "adapter_engine_unavailable", errorMessage: phoneBlock };
+  }
   const engineSelection = await resolveCodexExecutionEngineForRun(ctx);
   if (engineSelection.unavailableReason) {
     return {

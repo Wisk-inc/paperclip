@@ -85,6 +85,14 @@ export function createStaticSiteServer(root: string): Server {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not found");
         return;
       }
+      // The path check above reads the name only; a symlink inside the
+      // project (from a cloned repo, say) can still point anywhere. The real
+      // file must sit inside the project too, or a preview link reads the host.
+      const [realRoot, realTarget] = await Promise.all([fs.realpath(root), fs.realpath(target).catch(() => null)]);
+      if (!realTarget || (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep))) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not found");
+        return;
+      }
       res.writeHead(200, {
         "content-type": CONTENT_TYPES[path.extname(target).toLowerCase()] ?? "application/octet-stream",
         "content-length": stat.size,
@@ -94,7 +102,7 @@ export function createStaticSiteServer(root: string): Server {
         res.end();
         return;
       }
-      createReadStream(target).pipe(res);
+      createReadStream(realTarget).pipe(res);
     } catch (error) {
       res.writeHead(500).end(error instanceof Error ? error.message : "Error");
     }
@@ -124,7 +132,9 @@ export class StudioRuntime extends EventEmitter {
     tunnelError: null,
   };
   private lines: StudioConsoleLine[] = [];
-  private seq = 0;
+  // Line numbers start from the clock, so they keep growing across server
+  // restarts: an open page drops lines it thinks it has already seen.
+  private seq = Date.now() * 1000;
   private child: ChildProcess | null = null;
   private staticServer: Server | null = null;
   private stopping = false;
@@ -152,7 +162,7 @@ export class StudioRuntime extends EventEmitter {
 
   clearConsole() {
     this.lines = [];
-    this.emit("console", []);
+    this.emit("console:clear");
   }
 
   private setState(patch: Partial<StudioRunState>) {
@@ -360,7 +370,7 @@ export class StudioRuntime extends EventEmitter {
   }
 
   /** Runs a one-off command in the project folder; its output goes to the console too. */
-  exec(root: string, command: string, options: { timeoutMs?: number; maxOutput?: number } = {}) {
+  exec(root: string, command: string, options: { timeoutMs?: number; maxOutput?: number; signal?: AbortSignal } = {}) {
     const timeoutMs = options.timeoutMs ?? 120_000;
     const maxOutput = options.maxOutput ?? 30_000;
     this.append("command", command);
@@ -379,21 +389,34 @@ export class StudioRuntime extends EventEmitter {
       };
       child.stdout?.on("data", collect("stdout"));
       child.stderr?.on("data", collect("stderr"));
-      const timer = setTimeout(() => {
-        timedOut = true;
+      const killGroup = () => {
         try {
           if (child.pid) process.kill(-child.pid, "SIGKILL");
         } catch {
           child.kill("SIGKILL");
         }
+      };
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killGroup();
       }, timeoutMs);
+      // Stop in the AI panel ends the command too, not just the next step.
+      let stopped = false;
+      const onAbort = () => {
+        stopped = true;
+        killGroup();
+      };
+      if (options.signal?.aborted) onAbort();
+      else options.signal?.addEventListener("abort", onAbort, { once: true });
       child.on("error", (error) => {
         output += `\n${error.message}`;
       });
       child.on("close", (code) => {
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
         this.flushPartials();
-        if (timedOut) this.append("system", `Stopped after ${Math.round(timeoutMs / 1000)} seconds.`);
+        if (stopped) this.append("system", "Stopped.");
+        else if (timedOut) this.append("system", `Stopped after ${Math.round(timeoutMs / 1000)} seconds.`);
         else if (code !== 0) this.append("system", `Exit code ${code}.`);
         resolve({
           exitCode: code,

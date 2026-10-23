@@ -1,3 +1,4 @@
+import os from "node:os";
 import { Router } from "express";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -249,7 +250,9 @@ export function boardChatRoutes(
 
     const proc = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
-      cwd: "/tmp",
+      // Termux has no /tmp; a missing working folder makes spawn report the
+      // program itself as missing.
+      cwd: os.tmpdir(),
       env: {
         ...process.env,
         PAPERCLIP_API_URL: apiUrl,
@@ -388,8 +391,9 @@ export function boardChatRoutes(
         res.write(
           `data: ${JSON.stringify({
             type: "error",
-            message:
-              "Could not start the board assistant. Is the `claude` CLI installed and on PATH?",
+            message: process.platform === "android"
+              ? "The board assistant needs Claude Code, which can't run on a phone. Use it from Automa on a computer."
+              : "Could not start the board assistant. Is the `claude` CLI installed and on PATH?",
           })}\n\n`,
         );
         res.end();

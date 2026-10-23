@@ -108,8 +108,8 @@ function isSupportedGitHubRemoteUrl(remoteUrl: string): boolean {
  */
 export function scrubGitCredentialText(text: string): string {
   return text
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, "$1***@")
-    .replace(/([a-z][a-z0-9+.-]*:\/\/[^\s"'?]*)\?[^\s"']*/gi, "$1?***");
+    .replace(/(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, "$1***@")
+    .replace(/(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/[^\s"'?]*)\?[^\s"']*/gi, "$1?***");
 }
 
 export function buildGitAuthInvocation(credential: GitCredential): GitAuthInvocation {

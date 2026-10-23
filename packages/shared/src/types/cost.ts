@@ -4,7 +4,10 @@ import type { BillingType, CostStatus } from "../constants.js";
 export interface CostEvent {
   id: string;
   companyId: string;
-  agentId: string;
+  /** Null for App Studio spend, and for spend kept after its agent was removed. */
+  agentId: string | null;
+  /** Where the spend came from: an agent run, or App Studio's AI. */
+  source: "agent" | "studio";
   issueId: string | null;
   projectId: string | null;
   goalId: string | null;

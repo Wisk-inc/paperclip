@@ -211,7 +211,7 @@ function sanitizeUrls(input: string): string {
     return safeUrl ? `<${safeUrl}>` : "[link removed]";
   });
   output = output.replace(PLAIN_HTTP_URL_RE, (href) => {
-    const trailing = href.match(/[.,;:!?]+$/)?.[0] ?? "";
+    const trailing = href.match(/(?<![.,;:!?])[.,;:!?]+$/)?.[0] ?? "";
     const candidate = trailing ? href.slice(0, -trailing.length) : href;
     return `${sanitizeExternalChatUrl(candidate) ?? "[link removed]"}${trailing}`;
   });
@@ -257,7 +257,7 @@ export function projectSafeChatPublicationText(input: string): string {
   output = output
     .replace(SLACK_BROADCAST_RE, (_match, name: string) => `@\u200b${name}`)
     .replace(PROVIDER_BROADCAST_RE, (_match, name: string) => `@\u200b${name}`)
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(/(?<![ \t])[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 

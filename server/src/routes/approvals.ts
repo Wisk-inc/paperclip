@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
-import { eq } from "drizzle-orm";
-import { heartbeatRuns, type Db } from "@paperclipai/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { agents, heartbeatRuns, issues, type Db } from "@paperclipai/db";
 import {
   addApprovalCommentSchema,
   createApprovalSchema,
@@ -240,12 +240,42 @@ export function approvalRoutes(
         : approvalInput.payload;
 
     const actor = getActorInfo(req);
+    // An agent always requests as itself. A board user may name an agent,
+    // but only one of this company's: approving wakes the requester, so a
+    // foreign id would start runs on another company's budget.
+    let requestedByAgentId: string | null =
+      actor.actorType === "agent" ? actor.actorId : (approvalInput.requestedByAgentId ?? null);
+    if (actor.actorType !== "agent" && requestedByAgentId) {
+      const [requester] = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.id, requestedByAgentId), eq(agents.companyId, companyId)));
+      if (!requester) {
+        res.status(422).json({ error: "The requesting agent must belong to this company" });
+        return;
+      }
+    }
+    // Check linked issues before anything is saved, so a refused request
+    // leaves no half-made approval behind.
+    if (uniqueIssueIds.length > 0) {
+      const found = await db
+        .select({ id: issues.id, companyId: issues.companyId })
+        .from(issues)
+        .where(inArray(issues.id, uniqueIssueIds));
+      if (found.length !== uniqueIssueIds.length) {
+        res.status(404).json({ error: "One or more issues not found" });
+        return;
+      }
+      if (found.some((row) => row.companyId !== companyId)) {
+        res.status(422).json({ error: "Issue and approval must belong to the same company" });
+        return;
+      }
+    }
     const approval = await svc.create(companyId, {
       ...approvalInput,
       payload: normalizedPayload,
       requestedByUserId: actor.actorType === "user" ? actor.actorId : null,
-      requestedByAgentId:
-        approvalInput.requestedByAgentId ?? (actor.actorType === "agent" ? actor.actorId : null),
+      requestedByAgentId,
       status: "pending",
       decisionNote: null,
       decidedByUserId: null,

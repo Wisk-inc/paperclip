@@ -6,15 +6,17 @@ export const ROUTINE_MENTION_SCHEME = "routine://";
 export const PIPELINE_MENTION_SCHEME = "pipeline://";
 
 const HEX_COLOR_RE = /^[0-9a-f]{6}$/i;
+// Mention labels can't contain "[": with it allowed, a run of "[" made every
+// comment save rescan the rest of the text from each one (quadratic).
 const HEX_COLOR_SHORT_RE = /^[0-9a-f]{3}$/i;
 const HEX_COLOR_WITH_HASH_RE = /^#[0-9a-f]{6}$/i;
 const HEX_COLOR_SHORT_WITH_HASH_RE = /^#[0-9a-f]{3}$/i;
-const PROJECT_MENTION_LINK_RE = /\[[^\]]*]\((project:\/\/[^)\s]+)\)/gi;
-const AGENT_MENTION_LINK_RE = /\[[^\]]*]\((agent:\/\/[^)\s]+)\)/gi;
-const USER_MENTION_LINK_RE = /\[[^\]]*]\((user:\/\/[^)\s]+)\)/gi;
-const SKILL_MENTION_LINK_RE = /\[[^\]]*]\((skill:\/\/[^)\s]+)\)/gi;
-const ROUTINE_MENTION_LINK_RE = /\[[^\]]*]\((routine:\/\/[^)\s]+)\)/gi;
-const PIPELINE_MENTION_LINK_RE = /\[[^\]]*]\((pipeline:\/\/[^)\s]+)\)/gi;
+const PROJECT_MENTION_LINK_RE = /\[[^\][]*]\((project:\/\/[^)\s]+)\)/gi;
+const AGENT_MENTION_LINK_RE = /\[[^\][]*]\((agent:\/\/[^)\s]+)\)/gi;
+const USER_MENTION_LINK_RE = /\[[^\][]*]\((user:\/\/[^)\s]+)\)/gi;
+const SKILL_MENTION_LINK_RE = /\[[^\][]*]\((skill:\/\/[^)\s]+)\)/gi;
+const ROUTINE_MENTION_LINK_RE = /\[[^\][]*]\((routine:\/\/[^)\s]+)\)/gi;
+const PIPELINE_MENTION_LINK_RE = /\[[^\][]*]\((pipeline:\/\/[^)\s]+)\)/gi;
 const AGENT_ICON_NAME_RE = /^[a-z0-9-]+$/i;
 const SKILL_SLUG_RE = /^[a-z0-9][a-z0-9-]*$/i;
 

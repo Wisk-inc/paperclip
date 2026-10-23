@@ -139,7 +139,7 @@ function boundedMarkdownBlocks(text: string): MarkdownNode[] {
       node = { type: "code" };
     else
       node = {
-        type: /[\\[\]_*`~|<>#]|(?:^|\n)\s*(?:[-+]|\d+[.)])\s/.test(block)
+        type: /[\\[\]_*`~|<>#]|(?:^|\n)[^\S\n]*(?:[-+]|\d+[.)])\s/.test(block)
           ? "literal"
           : "paragraph",
       };

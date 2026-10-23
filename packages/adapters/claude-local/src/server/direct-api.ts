@@ -7,6 +7,10 @@ import {
   normalizePaperclipWakePayload,
   parseObject,
 } from "@paperclipai/adapter-utils/server-utils";
+import {
+  adapterExecutionTargetIsRemote,
+  readAdapterExecutionTarget,
+} from "@paperclipai/adapter-utils/execution-target";
 import { estimateClaudeCostUsd } from "@paperclipai/shared";
 import { claudeLocalReasoningEffortsForModel, resolveClaudeModel } from "../index.js";
 
@@ -27,7 +31,8 @@ import { claudeLocalReasoningEffortsForModel, resolveClaudeModel } from "../inde
 const DIRECT_ENGINE_NAMES = new Set(["api", "direct", "direct_api", "anthropic_api"]);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// The API takes up to 5 MB per image once base64-encoded; 3.75 MB of raw bytes fits.
+const MAX_IMAGE_BYTES = 3_750_000;
 const MAX_INSTRUCTIONS_CHARS = 60_000;
 const MAX_HISTORY_MESSAGES = 40;
 /** Live output is sent in small batches so the chat updates smoothly without a log line per token. */
@@ -42,11 +47,39 @@ export interface ClaudeDirectApiCredentials {
 
 export function claudeDirectApiCredentials(config: Record<string, unknown>): ClaudeDirectApiCredentials | null {
   const env = parseObject(config.env);
-  const fromConfig = (key: string) => (typeof env[key] === "string" ? (env[key] as string).trim() : "");
-  const apiKey = fromConfig("ANTHROPIC_API_KEY") || (process.env.ANTHROPIC_API_KEY ?? "").trim();
+  // A key the agent's own environment names wins, and so does a blank one:
+  // the server blanks ANTHROPIC_API_KEY on purpose for subscription logins so
+  // the host's own key is never borrowed. Only an agent that says nothing
+  // about it uses the key this server was started with.
+  const read = (key: string) => {
+    if (Object.prototype.hasOwnProperty.call(env, key)) {
+      return typeof env[key] === "string" ? (env[key] as string).trim() : "";
+    }
+    return (process.env[key] ?? "").trim();
+  };
+  const apiKey = read("ANTHROPIC_API_KEY");
   if (!apiKey) return null;
-  const baseUrl = fromConfig("ANTHROPIC_BASE_URL") || (process.env.ANTHROPIC_BASE_URL ?? "").trim() || null;
+  const baseUrl = read("ANTHROPIC_BASE_URL") || null;
   return { apiKey, baseUrl };
+}
+
+/**
+ * How to ask a model to think. Claude 4.6 and newer (and every 5.x model)
+ * take adaptive thinking and an effort level; older 4.x models and Claude
+ * 3.7 Sonnet need a fixed thinking budget and reject effort; earlier models
+ * don't think at all. Names this can't read (gateway aliases) are treated as
+ * current models.
+ */
+export function claudeThinkingStyle(model: string): "adaptive" | "budget" | "none" {
+  const match = /claude-(?:opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/i.exec(model)
+    ?? /claude-(\d+)(?:[-.](\d+))?-(?:opus|sonnet|haiku)/i.exec(model);
+  if (!match) return "adaptive";
+  const major = Number(match[1]);
+  // A dated id such as claude-opus-4-20250514 has no minor version.
+  const minor = match[2] && match[2].length <= 2 ? Number(match[2]) : 0;
+  if (major >= 5 || (major === 4 && minor >= 6)) return "adaptive";
+  if (major === 4 || (major === 3 && minor === 7)) return "budget";
+  return "none";
 }
 
 /** True when the agent is explicitly set to answer through the API. */
@@ -60,7 +93,21 @@ export function runningOnPhone(): boolean {
   return process.platform === "android";
 }
 
-function errorResult(message: string, code: string): AdapterExecutionResult {
+/**
+ * True when the agent runs on this machine. An agent sent to an SSH host or a
+ * sandbox runs Claude Code there, so the phone and "engine missing" fallbacks
+ * (which answer from this server with its key) don't apply to it.
+ */
+export function claudeRunsHere(target: { executionTarget?: unknown; legacyRemoteExecution?: unknown }): boolean {
+  return !adapterExecutionTargetIsRemote(
+    readAdapterExecutionTarget({
+      executionTarget: target.executionTarget as Parameters<typeof readAdapterExecutionTarget>[0]["executionTarget"],
+      legacyRemoteExecution: target.legacyRemoteExecution as Parameters<typeof readAdapterExecutionTarget>[0]["legacyRemoteExecution"],
+    }),
+  );
+}
+
+function errorResult(message: string, code: string, spent?: SpentTokens | null): AdapterExecutionResult {
   return {
     exitCode: 1,
     signal: null,
@@ -70,6 +117,66 @@ function errorResult(message: string, code: string): AdapterExecutionResult {
     provider: "anthropic",
     biller: "anthropic",
     summary: message,
+    ...(spent ? spentFields(spent) : {}),
+  };
+}
+
+/** A reply stopped by the person: acknowledged, with whatever it used. */
+function stoppedResult(spent: SpentTokens | null): AdapterExecutionResult {
+  return {
+    exitCode: null,
+    signal: null,
+    timedOut: false,
+    errorCode: "cancelled",
+    errorMessage: "Stopped.",
+    provider: "anthropic",
+    biller: "anthropic",
+    summary: null,
+    // No tools ran and the chat history is the session, so nothing needs
+    // reconciling: the next message simply continues the conversation.
+    executionRecovery: { kind: "interrupted", providerStopped: true, sessionPreserved: true, actionOutcomes: "settled" },
+    clearSession: true,
+    resultJson: {
+      engine: "direct_api",
+      executionCancellation: { state: "acknowledged", acknowledgedAt: new Date().toISOString(), forced: false },
+    },
+    ...(spent ? spentFields(spent) : {}),
+  };
+}
+
+/** Tokens a call has used so far, read from the stream as it runs. */
+interface SpentTokens {
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+function spentCostUsd(spent: SpentTokens): number | null {
+  return estimateClaudeCostUsd(spent.model, {
+    inputTokens: spent.input,
+    outputTokens: spent.output,
+    cacheReadInputTokens: spent.cacheRead,
+    cacheCreationInputTokens: spent.cacheWrite,
+  });
+}
+
+/**
+ * Usage fields for a result. A refused, stopped or cut-off reply is still
+ * billed for what it used, so every exit path reports it.
+ */
+function spentFields(spent: SpentTokens): Partial<AdapterExecutionResult> {
+  if (spent.input + spent.output + spent.cacheRead + spent.cacheWrite === 0) return {};
+  return {
+    billingType: "api",
+    usage: {
+      inputTokens: spent.input + spent.cacheWrite,
+      outputTokens: spent.output,
+      cachedInputTokens: spent.cacheRead,
+    },
+    usageBasis: "per_run",
+    costUsd: spentCostUsd(spent),
   };
 }
 
@@ -135,9 +242,12 @@ async function readImageAttachments(
   bodies: string[],
   ctx: AdapterExecutionContext,
   onNote: (note: string) => Promise<void>,
-): Promise<ContentBlock[]> {
-  const ids = [...new Set(bodies.flatMap((body) => [...body.matchAll(ATTACHMENT_PATTERN)].map((match) => match[1]!)))].slice(0, MAX_IMAGES);
-  if (ids.length === 0 || !ctx.authToken) return [];
+): Promise<{ blocks: ContentBlock[]; skipped: string[] }> {
+  const allIds = [...new Set(bodies.flatMap((body) => [...body.matchAll(ATTACHMENT_PATTERN)].map((match) => match[1]!)))];
+  const ids = allIds.slice(0, MAX_IMAGES);
+  const skipped: string[] = [];
+  if (allIds.length > MAX_IMAGES) skipped.push(`${allIds.length - MAX_IMAGES} more attachment(s): only ${MAX_IMAGES} images are read per message`);
+  if (ids.length === 0 || !ctx.authToken) return { blocks: [], skipped: ids.length ? [`${ids.length} attachment(s): no access to read them`] : skipped };
   const apiUrl = buildPaperclipEnv(ctx.agent).PAPERCLIP_API_URL;
   const blocks: ContentBlock[] = [];
   for (const id of ids) {
@@ -147,18 +257,35 @@ async function readImageAttachments(
         signal: ctx.signal,
       });
       const type = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-      if (!response.ok || !IMAGE_TYPES.has(type)) continue;
+      if (!response.ok) {
+        skipped.push(`an attachment that could not be opened (${response.status})`);
+        continue;
+      }
+      if (!IMAGE_TYPES.has(type)) {
+        // PDFs, documents and HEIC photos aren't read by this engine.
+        skipped.push(`a ${type || "file"} attachment (only PNG, JPEG, GIF and WebP images are read here)`);
+        continue;
+      }
+      const declared = Number(response.headers.get("content-length") ?? "");
+      if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+        skipped.push(`an image over ${Math.round(MAX_IMAGE_BYTES / 1_000_000 * 10) / 10} MB`);
+        continue;
+      }
       const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) continue;
+      if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+        skipped.push(bytes.length === 0 ? "an empty image" : `an image over ${Math.round(MAX_IMAGE_BYTES / 1_000_000 * 10) / 10} MB`);
+        continue;
+      }
       blocks.push({
         type: "image",
         source: { type: "base64", media_type: type as "image/png", data: bytes.toString("base64") },
       });
     } catch {
-      await onNote(`[paperclip] Could not read attachment ${id}; the reply goes without it.\n`);
+      skipped.push("an attachment that could not be read");
     }
   }
-  return blocks;
+  if (skipped.length) await onNote(`[paperclip] Not shown to the model: ${skipped.join("; ")}.\n`);
+  return { blocks, skipped };
 }
 
 async function readInstructions(config: Record<string, unknown>): Promise<string> {
@@ -218,8 +345,21 @@ function describeApiError(error: unknown, aborted: boolean): { message: string; 
   if (error instanceof Anthropic.RateLimitError) {
     return { message: "Anthropic is rate limiting this key. Wait a moment and send again.", code: "claude_api_rate_limited" };
   }
+  const status = error instanceof Anthropic.APIError ? error.status : undefined;
+  const apiType = error instanceof Anthropic.APIError
+    ? (error.error as { error?: { type?: string } } | undefined)?.error?.type
+    : undefined;
+  if (status === 529 || apiType === "overloaded_error") {
+    return { message: "Anthropic is overloaded right now. Send the message again in a minute.", code: "claude_transient_upstream" };
+  }
+  if (error instanceof Anthropic.InternalServerError || (status !== undefined && status >= 500)) {
+    return { message: "Anthropic had a server error. Send the message again in a minute.", code: "claude_transient_upstream" };
+  }
   if (error instanceof Anthropic.APIError) {
-    return { message: `Anthropic error ${error.status ?? ""}: ${error.message}`.replace(/\s+/g, " ").trim(), code: "claude_api_error" };
+    // The SDK's message repeats the status and the raw JSON body; the API's
+    // own sentence is what helps.
+    const detail = (error.error as { error?: { message?: string } } | undefined)?.error?.message ?? error.message;
+    return { message: `Anthropic refused the request: ${detail}`.replace(/\s+/g, " ").trim(), code: "claude_api_error" };
   }
   return { message: error instanceof Error ? error.message : String(error), code: "claude_api_error" };
 }
@@ -241,7 +381,8 @@ export async function executeClaudeDirectApi(
 
   const env = parseObject(config.env);
   const model = resolveClaudeModel(config.model, env) || "claude-opus-5-5";
-  const efforts = claudeLocalReasoningEffortsForModel(model);
+  const thinkingStyle = claudeThinkingStyle(model);
+  const efforts = thinkingStyle === "adaptive" ? claudeLocalReasoningEffortsForModel(model) : [];
   const requestedEffort = asString(config.effort, "").trim().toLowerCase();
   const effort = efforts.includes(requestedEffort) ? requestedEffort : null;
   const conversation = context.conversationMode === true;
@@ -274,7 +415,15 @@ export async function executeClaudeDirectApi(
       ? "Continue."
       : `You were assigned this task. Reply with how you would approach it.\n\n${asString(context.paperclipTaskMarkdown, "").slice(0, 20_000)}`;
   const images = await readImageAttachments(bodies, ctx, (note) => onLog("stdout", note));
-  const messages = buildConversationMessages(history, [...images, { type: "text", text }]);
+  const promptText = images.skipped.length
+    ? `${text}\n\n(Attached but not visible to you: ${images.skipped.join("; ")}. Say so if it matters for your answer.)`
+    : text;
+  const messages = buildConversationMessages(history, [...images.blocks, { type: "text", text: promptText }]);
+  // The whole conversation so far is cached, not only the system prompt:
+  // every turn replays the history, and cached input costs a tenth.
+  const lastMessage = messages.at(-1);
+  const lastBlock = Array.isArray(lastMessage?.content) ? (lastMessage!.content as ContentBlock[]).at(-1) : undefined;
+  if (lastBlock && lastBlock.type === "text") (lastBlock as Anthropic.TextBlockParam).cache_control = { type: "ephemeral" };
   const system = systemPrompt({
     agentName: ctx.agent.name,
     instructions: await readInstructions(config),
@@ -285,6 +434,9 @@ export async function executeClaudeDirectApi(
 
   const client = new Anthropic({
     apiKey: credentials.apiKey,
+    // Without this the SDK adds the server's own ANTHROPIC_AUTH_TOKEN, and
+    // whoever set the agent's base URL would receive it.
+    authToken: null,
     baseURL: credentials.baseUrl ?? undefined,
     maxRetries: 2,
   });
@@ -323,21 +475,44 @@ export async function executeClaudeDirectApi(
   };
 
   const startedAt = Date.now();
+  const spent: SpentTokens = { model, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  // Tells the server Stop works from here on: the request is aborted and the
+  // chat carries on, instead of the run being held for manual recovery.
+  await ctx.onCancellationReady?.();
+  if (ctx.signal?.aborted) return stoppedResult(null);
   try {
     const stream = client.messages.stream(
       {
         model,
-        max_tokens: 32_000,
+        max_tokens: thinkingStyle === "none" ? 8_192 : 32_000,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         messages,
-        // Thinking stays on (adaptive) and is shown: the summarized text
-        // streams into the chat's thinking panel.
-        thinking: { type: "adaptive", display: "summarized" },
+        // Thinking stays on and is shown: the summarized text streams into
+        // the chat's thinking panel. Older models get a fixed budget instead.
+        ...(thinkingStyle === "adaptive"
+          ? { thinking: { type: "adaptive" as const, display: "summarized" as const } }
+          : thinkingStyle === "budget"
+            ? { thinking: { type: "enabled" as const, budget_tokens: 10_000 } }
+            : {}),
         ...(effort ? { output_config: { effort: effort as "low" | "medium" | "high" | "xhigh" | "max" } } : {}),
       },
       { signal: ctx.signal },
     );
     stream.on("streamEvent", (event) => {
+      if (event.type === "message_start") {
+        const usage = event.message.usage;
+        spent.model = event.message.model || model;
+        spent.input = usage.input_tokens ?? 0;
+        spent.output = usage.output_tokens ?? 0;
+        spent.cacheRead = usage.cache_read_input_tokens ?? 0;
+        spent.cacheWrite = usage.cache_creation_input_tokens ?? 0;
+        return;
+      }
+      if (event.type === "message_delta") {
+        // Output tokens here are the running total for the message.
+        spent.output = event.usage.output_tokens ?? spent.output;
+        return;
+      }
       if (event.type !== "content_block_delta") return;
       if (event.delta.type === "thinking_delta") queue("thinking", event.delta.thinking);
       else if (event.delta.type === "text_delta") queue("text", event.delta.text);
@@ -353,12 +528,13 @@ export async function executeClaudeDirectApi(
     const usage = response.usage;
     const cacheRead = usage.cache_read_input_tokens ?? 0;
     const cacheWrite = usage.cache_creation_input_tokens ?? 0;
-    const costUsd = estimateClaudeCostUsd(model, {
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      cacheReadInputTokens: cacheRead,
-      cacheCreationInputTokens: cacheWrite,
+    Object.assign(spent, {
+      input: usage.input_tokens,
+      output: usage.output_tokens,
+      cacheRead,
+      cacheWrite,
     });
+    const costUsd = spentCostUsd({ ...spent, model });
     await onLog(
       "stdout",
       logLine({
@@ -374,13 +550,19 @@ export async function executeClaudeDirectApi(
     );
 
     if (response.stop_reason === "refusal") {
-      return errorResult("Claude declined to answer this message.", "claude_api_refusal");
+      return {
+        ...errorResult("Claude declined to answer this message.", "claude_api_refusal", { ...spent, model }),
+        errorFamily: "model_refusal",
+      };
     }
-    const finalText =
-      reply ||
-      (response.stop_reason === "max_tokens"
+    const cutOff = response.stop_reason === "max_tokens";
+    const finalText = reply
+      ? cutOff
+        ? `${reply}\n\n(The reply hit its length limit. Ask me to continue.)`
+        : reply
+      : cutOff
         ? "(The reply hit its length limit. Ask me to continue.)"
-        : "(No reply text came back. Send the message again.)");
+        : "(No reply text came back. Send the message again.)";
     return {
       exitCode: 0,
       signal: null,
@@ -410,9 +592,11 @@ export async function executeClaudeDirectApi(
   } catch (error) {
     flush();
     await logChain;
-    const described = describeApiError(error, ctx.signal?.aborted === true);
+    const aborted = ctx.signal?.aborted === true;
+    const described = describeApiError(error, aborted);
     await onLog("stdout", logLine({ type: "acpx.error", message: described.message }));
-    return errorResult(described.message, described.code);
+    if (aborted) return stoppedResult(spent);
+    return errorResult(described.message, described.code, spent);
   } finally {
     if (flushTimer) clearTimeout(flushTimer);
   }
@@ -456,7 +640,7 @@ export async function testClaudeDirectApiEnvironment(
     };
   }
   try {
-    const client = new Anthropic({ apiKey: credentials.apiKey, baseURL: credentials.baseUrl ?? undefined, maxRetries: 0, timeout: 15_000 });
+    const client = new Anthropic({ apiKey: credentials.apiKey, authToken: null, baseURL: credentials.baseUrl ?? undefined, maxRetries: 0, timeout: 15_000 });
     await client.models.list({ limit: 1 });
     return {
       adapterType: "claude_local",

@@ -17,6 +17,8 @@ function preserveNewlinesAsWhitespace(value: string) {
   return value.replace(/[^\n]/g, " ");
 }
 
+const FENCE_START_RE = /^(?:```+|~~~+)/;
+
 function stripMarkdownCode(markdown: string): string {
   if (!markdown) return "";
 
@@ -24,9 +26,8 @@ function stripMarkdownCode(markdown: string): string {
   let index = 0;
 
   while (index < markdown.length) {
-    const remaining = markdown.slice(index);
-    const fenceMatch = /^(?:```+|~~~+)/.exec(remaining);
     const atLineStart = index === 0 || markdown[index - 1] === "\n";
+    const fenceMatch = atLineStart ? FENCE_START_RE.exec(markdown.slice(index, index + 64)) : null;
 
     if (atLineStart && fenceMatch) {
       const fence = fenceMatch[0]!;
@@ -69,8 +70,11 @@ function stripMarkdownCode(markdown: string): string {
       continue;
     }
 
-    output += markdown[index]!;
-    index += 1;
+    // Plain text up to the next backtick or line start is copied in one go.
+    let next = index + 1;
+    while (next < markdown.length && markdown[next] !== "`" && markdown[next - 1] !== "\n") next += 1;
+    output += markdown.slice(index, next);
+    index = next;
   }
 
   return output;

@@ -48,6 +48,7 @@ class StudioHub {
 
   private attachRuntime(runtime: StudioRuntime) {
     runtime.on("console", (lines) => this.broadcast(runtime.workspaceId, { type: "console", lines }));
+    runtime.on("console:clear", () => this.broadcast(runtime.workspaceId, { type: "console:clear" }));
     runtime.on("state", (state) => this.broadcast(runtime.workspaceId, { type: "run", state }));
   }
 

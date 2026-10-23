@@ -103,7 +103,7 @@ function plainText(value: string | null | undefined) {
   return (value ?? "")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\][]+)\]\([^)]+\)/g, "$1")
     .replace(/(^|\s)[#>*_~|]+|[#>*_~|]+(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim();

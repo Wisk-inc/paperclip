@@ -487,6 +487,13 @@ const TRANSIENT_INFRA_CONTINUATION_ERROR_CODES = new Set<string>([
 
 const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   "adapter_engine_unavailable",
+  // The direct Anthropic API engine's permanent failures: the same request
+  // would be refused (and billed) again.
+  "claude_api_refusal",
+  "claude_api_auth_failed",
+  "claude_api_key_missing",
+  "claude_api_permission_denied",
+  "claude_api_model_not_found",
   "agent_not_invokable",
   "agent_not_found",
   "budget_blocked",

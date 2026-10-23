@@ -358,6 +358,18 @@ export function deduplicateAgentName(
   return `${candidateName} ${Date.now()}`;
 }
 
+const reportingLocks = new Map<string, Promise<unknown>>();
+async function withReportingLock<T>(companyId: string, change: () => Promise<T>): Promise<T> {
+  const previous = reportingLocks.get(companyId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(change);
+  reportingLocks.set(companyId, next);
+  try {
+    return await next;
+  } finally {
+    if (reportingLocks.get(companyId) === next) reportingLocks.delete(companyId);
+  }
+}
+
 export function agentService(db: Db) {
   const secretsSvc = secretService(db);
 
@@ -477,6 +489,10 @@ export function agentService(db: Db) {
     if (manager.companyId !== companyId) {
       throw unprocessable("Manager must belong to same company");
     }
+    // Reporting to a removed agent quietly made the report impossible to run.
+    if (manager.status === "terminated") {
+      throw unprocessable("An agent can't report to a terminated agent");
+    }
     return manager;
   }
 
@@ -485,8 +501,13 @@ export function agentService(db: Db) {
     if (reportsTo === agentId) throw unprocessable("Agent cannot report to itself");
 
     let cursor: string | null = reportsTo;
+    // A chain that already loops (left by an older race) must end the walk,
+    // not spin forever.
+    const seen = new Set<string>();
     while (cursor) {
       if (cursor === agentId) throw unprocessable("Reporting relationship would create cycle");
+      if (seen.has(cursor)) throw unprocessable("The reporting chain above this manager already loops; fix it first");
+      seen.add(cursor);
       const next = await getById(cursor);
       cursor = next?.reportsTo ?? null;
     }
@@ -716,7 +737,22 @@ export function agentService(db: Db) {
     });
   }
 
+  /**
+   * Manager changes in one company happen one at a time: two at once (A under
+   * B and B under A) each passed the cycle check and together made a loop.
+   */
   async function updateAgent(
+    id: string,
+    data: Partial<typeof agents.$inferInsert>,
+    options?: UpdateAgentOptions,
+  ) {
+    if (data.reportsTo === undefined) return updateAgentNow(id, data, options);
+    const existing = await getById(id);
+    if (!existing) return null;
+    return withReportingLock(existing.companyId, () => updateAgentNow(id, data, options));
+  }
+
+  async function updateAgentNow(
     id: string,
     data: Partial<typeof agents.$inferInsert>,
     options?: UpdateAgentOptions,
@@ -1120,14 +1156,17 @@ export function agentService(db: Db) {
         await issueThreadInteractionService(tx as unknown as Db)
           .cancelPendingForDeletedAddressee(existing.companyId, id);
         await tx.update(agents).set({ reportsTo: null }).where(eq(agents.reportsTo, id));
+        // A chat names its agent three ways that must change together (the
+        // conversation identity check), so its chats stop being chats first;
+        // their messages stay as an ordinary task.
+        await tx
+          .update(issues)
+          .set({ conversationAgentId: null, conversationUserId: null, conversationState: null, assigneeAgentId: null })
+          .where(eq(issues.conversationAgentId, id));
         await tx
           .update(issues)
           .set({ assigneeAgentId: null, createdByAgentId: null })
           .where(or(eq(issues.assigneeAgentId, id), eq(issues.createdByAgentId, id)));
-        await tx
-          .update(issues)
-          .set({ conversationAgentId: null })
-          .where(eq(issues.conversationAgentId, id));
 
         // Ownership and authorship references survive the agent as blanks.
         await tx.update(projects).set({ leadAgentId: null }).where(eq(projects.leadAgentId, id));
@@ -1223,11 +1262,12 @@ export function agentService(db: Db) {
           .set({ archivedByRunId: null })
           .where(sql`${decisionRetention.archivedByRunId} in ${agentRunIds}`);
 
-        // Money already spent stays on the company ledger; only the per-run
-        // cost detail (which must name an agent) goes with the agent.
+        // Money already spent stays on the company ledger and keeps counting
+        // toward the budget: the agent's cost rows lose their agent and run,
+        // not their amounts.
         await tx
           .update(financeEvents)
-          .set({ agentId: null, heartbeatRunId: null, costEventId: null })
+          .set({ agentId: null, heartbeatRunId: null })
           .where(
             or(
               eq(financeEvents.agentId, id),
@@ -1236,7 +1276,8 @@ export function agentService(db: Db) {
             ),
           );
         await tx
-          .delete(costEvents)
+          .update(costEvents)
+          .set({ agentId: null, heartbeatRunId: null })
           .where(or(eq(costEvents.agentId, id), sql`${costEvents.heartbeatRunId} in ${agentRunIds}`));
 
         await tx

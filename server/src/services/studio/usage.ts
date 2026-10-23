@@ -1,5 +1,6 @@
 import type { Db } from "@paperclipai/db";
 import { costService } from "../costs.js";
+import type { BudgetServiceHooks } from "../budgets.js";
 import { logger } from "../../middleware/logger.js";
 import type { StudioAiUsage } from "./assistant.js";
 
@@ -18,10 +19,12 @@ interface Pending {
   /** US dollars not yet recorded (below one cent). */
   costUsd: number;
   startedAt: number;
+  /** Writes the batch after a while even if no other suggestion comes. */
+  timer: NodeJS.Timeout | null;
 }
 
-export function studioUsageRecorder(db: Db) {
-  const costs = costService(db);
+export function studioUsageRecorder(db: Db, budgetHooks: BudgetServiceHooks = {}) {
+  const costs = costService(db, budgetHooks);
   const pending = new Map<string, Pending>();
 
   async function write(companyId: string, usage: StudioAiUsage, costCents: number) {
@@ -31,7 +34,7 @@ export function studioUsageRecorder(db: Db) {
       source: "studio",
       provider: usage.provider,
       biller: usage.provider,
-      billingType: "api",
+      billingType: "metered_api",
       costStatus: usage.costUsd === null ? "unpriced" : "reported",
       model: usage.model,
       inputTokens: usage.inputTokens,
@@ -51,12 +54,25 @@ export function studioUsageRecorder(db: Db) {
     /** One code suggestion; recorded in batches. */
     recordSuggestion(companyId: string, usage: StudioAiUsage) {
       const key = `${companyId}:${usage.provider}:${usage.model}`;
-      const entry = pending.get(key) ?? {
+      const existing = pending.get(key);
+      const entry: Pending = existing ?? {
         companyId,
         usage: { ...usage, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 },
         costUsd: 0,
         startedAt: Date.now(),
+        timer: null,
       };
+      if (!existing) {
+        // Without this, the last batch (and every batch of a provider with no
+        // price) waited for the next suggestion and was lost on restart.
+        entry.timer = setTimeout(() => {
+          if (pending.get(key) !== entry) return;
+          pending.delete(key);
+          void write(companyId, entry.usage, Math.floor(entry.costUsd * 100))
+            .catch((error) => logger.warn({ error: error instanceof Error ? error.message : String(error) }, "studio suggestion usage not recorded"));
+        }, FLUSH_AFTER_MS);
+        entry.timer.unref?.();
+      }
       entry.usage.inputTokens += usage.inputTokens;
       entry.usage.cachedInputTokens += usage.cachedInputTokens;
       entry.usage.outputTokens += usage.outputTokens;
@@ -66,6 +82,7 @@ export function studioUsageRecorder(db: Db) {
       const cents = Math.floor(entry.costUsd * 100);
       if (cents < 1 && Date.now() - entry.startedAt < FLUSH_AFTER_MS) return;
       pending.delete(key);
+      if (entry.timer) clearTimeout(entry.timer);
       const remainder = entry.costUsd - cents / 100;
       void write(companyId, entry.usage, cents)
         .then(() => {

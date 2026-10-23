@@ -4559,6 +4559,11 @@ export function secretService(db: Db | DbTransaction) {
       },
       actor?: { userId?: string | null; agentId?: string | null },
     ) => {
+      // The redaction placeholder is what a reader sees instead of a stored
+      // value; saving it would replace the real key with those 14 characters.
+      if (input.value?.trim() === REDACTED_SENTINEL) {
+        throw unprocessable("That is the hidden placeholder, not the value. Type or paste the real value.");
+      }
       return withAccountHomeSecretMutationLock(undefined, companyId, async () => {
         // A queued create can win the lock after an account-home cleanup
         // already removed the directory this value names. Check the
@@ -4592,6 +4597,9 @@ export function secretService(db: Db | DbTransaction) {
       },
       actor?: { userId?: string | null; agentId?: string | null },
     ) => {
+      if (input.value?.trim() === REDACTED_SENTINEL) {
+        throw unprocessable("That is the hidden placeholder, not the value. Type or paste the real value.");
+      }
       const preCheckSecret = await getById(secretId);
       if (!preCheckSecret) throw notFound("Secret not found");
       return withAccountHomeSecretMutationLock(undefined, preCheckSecret.companyId, async () => {

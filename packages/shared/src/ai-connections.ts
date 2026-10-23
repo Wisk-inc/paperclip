@@ -156,6 +156,11 @@ export type AiConnectionResolution =
   | { ok: true; attribution: AiConnectionAttribution }
   | { ok: false; reason: AiConnectionUnavailableReason; message: string };
 
+/** Removes whitespace and invisible format characters a pasted key picks up. */
+export function cleanPastedApiKey(value: string): string {
+  return value.replace(/[\s\u00AD\u180E\u200B-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g, "");
+}
+
 export interface AiManagedConnectionSummary {
   id: string;
   grantId: string;
@@ -176,7 +181,10 @@ export const createAiConnectionSchema = z
     ...requirement,
     name: z.string().trim().min(1).max(160),
     ownership: z.enum(["personal", "shared"]),
-    apiKey: z.string().trim().min(1).max(32768).optional(),
+    // Keys copied from a web page or a chat often carry invisible characters
+    // (zero-width spaces, a no-break space). No provider key contains
+    // whitespace, and one that does can never be sent in a header.
+    apiKey: z.string().transform(cleanPastedApiKey).pipe(z.string().min(1).max(32768)).optional(),
     loginSessionId: z.string().max(128).optional(),
     connectionId: z.string().uuid().optional(),
     agentIds: z.array(z.string().uuid()).max(1000).default([]),

@@ -22,6 +22,7 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
 export function buildClaudeLocalConfig(v: CreateConfigValues): Record<string, unknown> {
   const ac: Record<string, unknown> = {};
   if (v.claudeEngine === "cli") ac.engine = "cli";
+  if (v.claudeEngine === "api") ac.engine = "api";
   if (v.claudeEngine === "acp") {
     ac.engine = "acp";
     if (v.claudeAcpAgentCommand) ac.agentCommand = v.claudeAcpAgentCommand;

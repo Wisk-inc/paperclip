@@ -23,6 +23,31 @@ const ALLOWED_COMPANY_LOGO_CONTENT_TYPES = new Set([
   SVG_CONTENT_TYPE,
 ]);
 
+const RASTER_IMAGE_SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
+  "image/png": (bytes) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  "image/jpeg": (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff,
+  "image/jpg": (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff,
+  "image/gif": (bytes) => /^GIF8[79]a/.test(bytes.subarray(0, 6).toString("latin1")),
+  "image/webp": (bytes) =>
+    bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP",
+};
+
+/**
+ * True when a file sent as a PNG, JPEG, GIF or WebP really is one. The type
+ * comes from the client, and a script renamed `photo.png` replaced a profile
+ * photo with something no browser can draw.
+ */
+export function rasterImageBytesMatch(contentType: string, bytes: Buffer): boolean {
+  const check = RASTER_IMAGE_SIGNATURES[contentType];
+  return check ? check(bytes) : true;
+}
+
+function invalidImageMessage(contentType: string) {
+  return `This file isn't a valid ${contentType.replace("image/", "").toUpperCase()} image`;
+}
+
+const PROFILE_PHOTO_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]);
+
 function sanitizeSvgBuffer(input: Buffer): Buffer | null {
   const raw = input.toString("utf8").trim();
   if (!raw) return null;
@@ -166,6 +191,14 @@ export function assetRoutes(db: Db, storage: StorageService) {
       res.status(422).json({ error: "Image is empty" });
       return;
     }
+    if (namespaceSuffix.startsWith("profiles/") && !PROFILE_PHOTO_CONTENT_TYPES.has(contentType)) {
+      res.status(422).json({ error: "A profile photo must be a PNG, JPEG, WebP or GIF image" });
+      return;
+    }
+    if (!rasterImageBytesMatch(contentType, fileBody)) {
+      res.status(422).json({ error: invalidImageMessage(contentType) });
+      return;
+    }
 
     const actor = getActorInfo(req);
     const stored = await storage.putFile({
@@ -265,6 +298,10 @@ export function assetRoutes(db: Db, storage: StorageService) {
 
     if (fileBody.length <= 0) {
       res.status(422).json({ error: "Image is empty" });
+      return;
+    }
+    if (!rasterImageBytesMatch(contentType, fileBody)) {
+      res.status(422).json({ error: invalidImageMessage(contentType) });
       return;
     }
 

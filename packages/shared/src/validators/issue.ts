@@ -1027,7 +1027,9 @@ export type IssueCommentMetadata = z.infer<typeof issueCommentMetadataSchema>;
 
 export const addIssueCommentSchema = z.object({
   clientRequestId: z.string().uuid().optional(),
-  body: multilineTextSchema.pipe(z.string().min(1)),
+  // Same cap as documents (512 KiB): every reader, phones included, renders
+  // the whole comment.
+  body: multilineTextSchema.pipe(z.string().min(1).max(524288)),
   attachmentIds: issueCommentAttachmentIdsSchema.optional(),
   onBehalfOfUserId: z.string().trim().min(1).optional().nullable(),
   authorType: issueCommentAuthorTypeSchema.optional(),

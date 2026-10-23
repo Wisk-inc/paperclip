@@ -91,6 +91,7 @@ import {
 import { resolveClaudeDesiredSkillNames } from "./skills.js";
 import { isBedrockModelId } from "./models.js";
 import { prepareClaudePromptBundle } from "./prompt-cache.js";
+import { resolveClaudeBillingIdentity } from "./billing.js";
 import { buildClaudeExecutionPermissionArgs, claudeSandboxPermissionEnv } from "./permissions.js";
 import { resolveClaudeModel, SANDBOX_INSTALL_COMMAND } from "../index.js";
 import {
@@ -100,6 +101,7 @@ import {
 import {
   claudeDirectApiConfigured,
   claudeDirectApiCredentials,
+  claudeRunsHere,
   executeClaudeDirectApi,
   runningOnPhone,
 } from "./direct-api.js";
@@ -168,9 +170,8 @@ function isBedrockAuth(env: Record<string, string>): boolean {
   );
 }
 
-function resolveClaudeBillingType(env: Record<string, string>): "api" | "subscription" | "metered_api" {
-  if (isBedrockAuth(env)) return "metered_api";
-  return hasNonEmptyEnvValue(env, "ANTHROPIC_API_KEY") ? "api" : "subscription";
+function resolveClaudeBilling(env: Record<string, string>) {
+  return resolveClaudeBillingIdentity((key) => (typeof env[key] === "string" ? env[key] : ""));
 }
 
 async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<ClaudeRuntimeConfig> {
@@ -406,9 +407,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // Claude Code cannot run on a phone; there, and wherever the agent is set to
   // answer through the API, the direct engine replies with the API key.
   if (claudeDirectApiConfigured(ctx.config)) return executeClaudeDirectApi(ctx, "configured");
-  if (runningOnPhone()) return executeClaudeDirectApi(ctx, "phone");
+  const runsHere = claudeRunsHere({
+    executionTarget: ctx.executionTarget,
+    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
+  });
+  if (runsHere && runningOnPhone()) return executeClaudeDirectApi(ctx, "phone");
   const engineSelection = await resolveClaudeExecutionEngineForRun(ctx);
-  if (engineSelection.unavailableReason && claudeDirectApiCredentials(ctx.config)) {
+  if (runsHere && engineSelection.unavailableReason && claudeDirectApiCredentials(ctx.config)) {
     await ctx.onLog(
       "stdout",
       `[paperclip] ${engineSelection.unavailableReason} Answering through the Anthropic API with the agent's API key instead.\n`,
@@ -506,7 +511,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   );
   const modelEnv = executionTargetIsRemote ? env : effectiveEnv;
   const model = resolveClaudeModel(config.model, modelEnv);
-  const billingType = resolveClaudeBillingType(effectiveEnv);
+  const { biller, billingType } = resolveClaudeBilling(effectiveEnv);
   const claudeSkillEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
   const desiredSkillNames = new Set(resolveClaudeDesiredSkillNames(config, claudeSkillEntries));
   // When instructionsFilePath is configured, build a stable content-addressed
@@ -1260,7 +1265,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionParams: resolvedSessionParams,
       sessionDisplayId: resolvedSessionId,
       provider: "anthropic",
-      biller: isBedrockAuth(effectiveEnv) ? "aws_bedrock" : "anthropic",
+      biller,
       model: parsedStream.model || asString(parsed.model, model),
       billingType,
       costUsd: parsedStream.costUsd,
@@ -1308,7 +1313,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           errorMessage,
           errorCode: "claude_cli_version_incompatible",
           provider: "anthropic",
-          biller: isBedrockAuth(effectiveEnv) ? "aws_bedrock" : "anthropic",
+          biller,
           model,
           billingType,
           resultJson: {

@@ -12,7 +12,7 @@ import {
 import { visibleIssueCondition } from "./issue-visibility.js";
 
 const EXCERPT_MAX_CHARS = 180;
-const URL_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"'`]+/giu;
+const URL_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?<![a-z0-9.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"'`]+/giu;
 
 type ExtractSource = {
   issueId: string;
@@ -61,7 +61,7 @@ function scopeIncludes(scope: CompanySearchExtractQuery["scope"], source: Exclud
 }
 
 function trimUrlToken(value: string): string {
-  let result = value.replace(/[.,;:!?]+$/g, "");
+  let result = value.replace(/(?<![.,;:!?])[.,;:!?]+$/g, "");
   const pairs: Array<[string, string]> = [["(", ")"], ["[", "]"], ["{", "}"]];
   for (const [open, close] of pairs) {
     while (result.endsWith(close) && result.split(close).length > result.split(open).length) {

@@ -5,6 +5,8 @@ import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
 import {
   buildConversationMessages,
   claudeDirectApiConfigured,
+  claudeDirectApiCredentials,
+  claudeThinkingStyle,
   executeClaudeDirectApi,
   readConversationReplay,
 } from "./direct-api.js";
@@ -20,7 +22,7 @@ beforeAll(async () => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       const json = JSON.parse(body || "{}") as Record<string, unknown>;
-      requests.push(json);
+      requests.push({ ...json, authorization: req.headers.authorization ?? null });
       if (req.headers["x-api-key"] !== "sk-test") {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }));
@@ -29,6 +31,8 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       const send = (type: string, data: Record<string, unknown>) =>
         res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+      const lastText = JSON.stringify((json.messages as unknown[] | undefined)?.at(-1) ?? "");
+      const stopReason = lastText.includes("SCENARIO_REFUSE") ? "refusal" : lastText.includes("SCENARIO_LONG") ? "max_tokens" : "end_turn";
       send("message_start", {
         message: {
           id: "msg_1", type: "message", role: "assistant", model: json.model, content: [], stop_reason: null, stop_sequence: null,
@@ -46,7 +50,7 @@ beforeAll(async () => {
         send("content_block_delta", { index: 1, delta: { type: "text_delta", text: part } });
       }
       send("content_block_stop", { index: 1 });
-      send("message_delta", { delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 800 } });
+      send("message_delta", { delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 800 } });
       send("message_stop", {});
       res.end();
     });
@@ -177,5 +181,77 @@ describe("direct API engine", () => {
     expect(claudeDirectApiConfigured({ engine: "api" })).toBe(true);
     expect(claudeDirectApiConfigured({ engine: "acp" })).toBe(false);
     expect(claudeDirectApiConfigured({})).toBe(false);
+  });
+
+  it("never borrows the server's key when the agent's environment blanks it", () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-server-owner";
+    try {
+      expect(claudeDirectApiCredentials({ env: { ANTHROPIC_API_KEY: "" } })).toBeNull();
+      expect(claudeDirectApiCredentials({ env: {} })?.apiKey).toBe("sk-server-owner");
+      expect(claudeDirectApiCredentials({ env: { ANTHROPIC_API_KEY: "sk-agent" } })?.apiKey).toBe("sk-agent");
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
+  });
+
+  it("does not send the server's auth token to the agent's base URL", async () => {
+    const saved = process.env.ANTHROPIC_AUTH_TOKEN;
+    process.env.ANTHROPIC_AUTH_TOKEN = "server-owner-oauth-token";
+    try {
+      await executeClaudeDirectApi(context().ctx, "phone");
+      expect(requests.at(-1)!.authorization).toBeNull();
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+      else process.env.ANTHROPIC_AUTH_TOKEN = saved;
+    }
+  });
+
+  it("reports what a refused reply used and marks it as a refusal", async () => {
+    const { ctx } = context({ context: { paperclipWake: { reason: "issue_commented", comments: [{ id: "c2", issueId: "issue-1", body: "SCENARIO_REFUSE", bodyTruncated: false, createdAt: null, authorType: "user", authorId: "u1" }], commentIds: ["c2"] } } });
+    const result = await executeClaudeDirectApi(ctx, "phone");
+    expect(result.errorCode).toBe("claude_api_refusal");
+    expect(result.errorFamily).toBe("model_refusal");
+    expect(result.usage).toEqual({ inputTokens: 1200, outputTokens: 800, cachedInputTokens: 300 });
+    expect(result.costUsd).toBeGreaterThan(0);
+  });
+
+  it("says when a reply was cut off at its length limit", async () => {
+    const { ctx } = context({ context: { paperclipWake: { reason: "issue_commented", comments: [{ id: "c3", issueId: "issue-1", body: "SCENARIO_LONG", bodyTruncated: false, createdAt: null, authorType: "user", authorId: "u1" }], commentIds: ["c3"] } } });
+    const result = await executeClaudeDirectApi(ctx, "phone");
+    expect(result.summary).toBe("Here is the plan: ship it.\n\n(The reply hit its length limit. Ask me to continue.)");
+  });
+
+  it("acknowledges a stop before the request starts", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { ctx } = context();
+    const ready: string[] = [];
+    Object.assign(ctx, { signal: controller.signal, onCancellationReady: async () => { ready.push("ready"); } });
+    const result = await executeClaudeDirectApi(ctx, "phone");
+    expect(ready).toEqual(["ready"]);
+    expect(result.errorCode).toBe("cancelled");
+    expect(result.resultJson).toMatchObject({ executionCancellation: { state: "acknowledged" } });
+  });
+
+  it("asks each model to think the way it can", () => {
+    expect(claudeThinkingStyle("claude-opus-5-5")).toBe("adaptive");
+    expect(claudeThinkingStyle("claude-sonnet-4-6")).toBe("adaptive");
+    expect(claudeThinkingStyle("claude-haiku-5-5")).toBe("adaptive");
+    expect(claudeThinkingStyle("claude-haiku-4-5-20251001")).toBe("budget");
+    expect(claudeThinkingStyle("claude-sonnet-4-5")).toBe("budget");
+    expect(claudeThinkingStyle("claude-opus-4-20250514")).toBe("budget");
+    expect(claudeThinkingStyle("claude-3-7-sonnet-20250219")).toBe("budget");
+    expect(claudeThinkingStyle("claude-3-5-haiku-20241022")).toBe("none");
+    expect(claudeThinkingStyle("my-gateway-model")).toBe("adaptive");
+  });
+
+  it("sends a thinking budget and no effort to older models", async () => {
+    const { ctx } = context({ config: { model: "claude-haiku-4-5", effort: "high" } });
+    await executeClaudeDirectApi(ctx, "phone");
+    const request = requests.at(-1)!;
+    expect(request.thinking).toEqual({ type: "enabled", budget_tokens: 10_000 });
+    expect(request.output_config).toBeUndefined();
   });
 });

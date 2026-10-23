@@ -39,6 +39,7 @@ import { resolveClaudeExecutionEngineForRun, testClaudeAcpEnvironment } from "./
 import {
   claudeDirectApiConfigured,
   claudeDirectApiCredentials,
+  claudeRunsHere,
   runningOnPhone,
   testClaudeDirectApiEnvironment,
 } from "./direct-api.js";
@@ -73,12 +74,13 @@ export async function testEnvironment(
 ): Promise<AdapterEnvironmentTestResult> {
   const directConfig = parseObject(ctx.config);
   if (claudeDirectApiConfigured(directConfig)) return testClaudeDirectApiEnvironment(directConfig, "configured");
-  if (runningOnPhone()) return testClaudeDirectApiEnvironment(directConfig, "phone");
+  const runsHere = claudeRunsHere({ executionTarget: ctx.executionTarget });
+  if (runsHere && runningOnPhone()) return testClaudeDirectApiEnvironment(directConfig, "phone");
   const engineSelection = await resolveClaudeExecutionEngineForRun({
     config: parseObject(ctx.config),
     executionTarget: ctx.executionTarget,
   });
-  if (engineSelection.unavailableReason && claudeDirectApiCredentials(directConfig)) {
+  if (runsHere && engineSelection.unavailableReason && claudeDirectApiCredentials(directConfig)) {
     return testClaudeDirectApiEnvironment(directConfig, "engine_unavailable");
   }
   if (engineSelection.unavailableReason) {

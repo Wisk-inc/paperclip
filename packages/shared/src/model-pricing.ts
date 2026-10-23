@@ -37,13 +37,28 @@ const PRICES: Array<[RegExp, ClaudeModelPrice]> = [
   [/^claude-3-5-haiku/, { input: 0.8, output: 4, cacheRead: 0.08 }],
 ];
 
-/** The bare model id: no region prefix (Bedrock) or long-context suffix. */
+/** Short names Claude Code accepts for the newest model of each family. */
+const MODEL_ALIASES: Record<string, string> = {
+  opus: "claude-opus-5-5",
+  sonnet: "claude-sonnet-5-5",
+  haiku: "claude-haiku-5-5",
+  fable: "claude-fable-5-1",
+};
+
+/**
+ * The bare model id: no provider or region prefix (Bedrock's
+ * "us-gov.anthropic.", OpenRouter's "anthropic/"), no long-context suffix,
+ * and versions written with dashes ("claude-opus-4.5" is claude-opus-4-5).
+ */
 function bareModelId(model: string) {
-  return model
+  const id = model
     .trim()
     .toLowerCase()
     .replace(/\[1m\]$/, "")
-    .replace(/^(?:(?:us|eu|apac|global)\.)?anthropic\./, "");
+    .replace(/^anthropic\//, "")
+    .replace(/^(?:[a-z][a-z-]*\.)?anthropic\./, "")
+    .replace(/(\d)\.(\d)/g, "$1-$2");
+  return MODEL_ALIASES[id] ?? id;
 }
 
 export function claudeModelPrice(model: string): ClaudeModelPrice | null {

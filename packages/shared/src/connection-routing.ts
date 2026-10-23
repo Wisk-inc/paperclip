@@ -219,8 +219,11 @@ export function findAggregatorService(query: string) {
 export function explicitAggregatorQuery(query: string) {
   // A trailing exclusion is not a second proposed provider. Keep this grammar
   // narrow; alternatives and contradictory choices still require confirmation.
-  const exclusion = query.match(/\s*,?\s+not\s+(composio|arcade|executor|zapier)[.!]?\s*$/i);
-  if (exclusion) query = query.slice(0, exclusion.index).trim();
+  // Only the end of the text can hold it; matching there keeps a long run of
+  // spaces from being rescanned over and over (this was cubic).
+  const tail = query.slice(-200);
+  const exclusion = tail.match(/(?<![\s,])\s*,?\s+not\s+(composio|arcade|executor|zapier)[.!]?\s*$/i);
+  if (exclusion) query = query.slice(0, query.length - tail.length + (exclusion.index ?? 0)).trim();
   const matches = [
     ...query.matchAll(
       /\b(?:through|via|using)\s+(composio|arcade|executor|zapier)\b/gi,

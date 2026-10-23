@@ -30,6 +30,8 @@ import {
 import type { Db } from "@paperclipai/db";
 import {
   agents,
+  aiConnectionDefaults,
+  aiProviderDefaults,
   connectionGrantMembers,
   connectionGrantDelegations,
   connectionGrants,
@@ -6148,6 +6150,18 @@ export function toolAccessService(
             grantsToRevoke.map((row) => row.id),
           ),
         );
+    }
+    // A removed AI key stops being anyone's default. Left in place, the
+    // default pointed at a revoked grant, every agent that uses its owner's
+    // default failed, and a key added afterwards could not take its place.
+    const removedGrantIds = grantRows.map((row) => row.id);
+    if (removedGrantIds.length > 0) {
+      await db
+        .delete(aiProviderDefaults)
+        .where(and(eq(aiProviderDefaults.companyId, connection.companyId), inArray(aiProviderDefaults.grantId, removedGrantIds)));
+      await db
+        .delete(aiConnectionDefaults)
+        .where(and(eq(aiConnectionDefaults.companyId, connection.companyId), inArray(aiConnectionDefaults.grantId, removedGrantIds)));
     }
     let externalCredentialCleanup: ToolConnectionRemovalSummary["externalCredentialCleanup"] =
       null;

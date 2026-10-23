@@ -15033,6 +15033,21 @@ export function issueRoutes(
     if (!(await assertAgentIssueMutationAllowed(req, res, existing))) return;
     const attachments = await svc.listAttachments(id);
 
+    // A reply still being written for this task or chat is stopped first; left
+    // running it failed on the deleted row, flagged its agent and lost its spend.
+    const runToStop = await resolveActiveIssueRun(existing);
+    if (runToStop) {
+      try {
+        await heartbeat.cancelRun(runToStop.id, "Cancelled because the task was deleted", {
+          errorCode: "issue_deleted",
+          eventMessage: "run cancelled before issue deletion",
+          eventPayload: { issueId: existing.id },
+        });
+      } catch (err) {
+        logger.warn({ err, issueId: id, runId: runToStop.id }, "could not stop the run before deleting its issue");
+      }
+    }
+
     const issue = await svc.remove(id);
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
