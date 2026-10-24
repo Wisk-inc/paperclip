@@ -103,7 +103,11 @@ class MainActivity : ComponentActivity() {
         private const val TERMUX_RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
         private const val TERMUX_RUN_COMMAND_ACTION = "com.termux.RUN_COMMAND"
         private const val TERMUX_RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService"
+        // Termux's own files, which RUN_COMMAND names by absolute path; they are
+        // not in this app's storage, so getFilesDir() can't stand in for them.
+        @SuppressLint("SdCardPath")
         private const val TERMUX_AUTOMA_PATH = "/data/data/com.termux/files/usr/bin/automa"
+        @SuppressLint("SdCardPath")
         private const val TERMUX_HOME = "/data/data/com.termux/files/home"
         /** The bundle Termux puts a command's result in, and its "no error" value. */
         private const val TERMUX_RESULT_BUNDLE = "result"

@@ -1,3 +1,5 @@
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Properties
 
 plugins {
@@ -41,7 +43,7 @@ android {
         buildConfigField(
             "String",
             "BUILD_TIME",
-            "\"" + ((project.findProperty("automa.buildTime") as String?) ?: java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).toString()) + "\"",
+            "\"" + ((project.findProperty("automa.buildTime") as String?) ?: Instant.now().truncatedTo(ChronoUnit.MINUTES).toString()) + "\"",
         )
     }
 
