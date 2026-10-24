@@ -1,177 +1,54 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Boxes, FileCode2, Folder, Hammer, Loader2, Save, Sparkles, Trash2 } from "lucide-react";
-import { appInspectorApi, type InspectorFileNode, type InspectorProjectView } from "@/api/app-inspector";
+import { Boxes, FileUp, FolderOpen, LayoutGrid, Loader2, Search, Trash2, X } from "lucide-react";
+import { appInspectorApi, type InspectorDecodeOptions, type InspectorProjectView } from "@/api/app-inspector";
+import { AppActionsSheet, AppIcon, type PickerApp } from "@/components/app-inspector/AppActionsSheet";
+import { formatBytes } from "@/components/app-inspector/file-kinds";
+import { ProjectExplorer } from "@/components/app-inspector/ProjectExplorer";
 import { Mascot } from "@/components/mascot/Mascot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useToastActions } from "@/context/ToastContext";
+import { automaNative } from "@/lib/automa-native";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 
-function parentPath(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  parts.pop();
-  return parts.join("/");
-}
+type HomeTab = "apps" | "projects";
+type Sort = "name" | "size" | "updated";
 
-/** Browse and read the decoded files of one project. */
-function ProjectView({ companyId, projectId, onBack }: { companyId: string; projectId: string; onBack: () => void }) {
-  const client = useQueryClient();
-  const { pushToast } = useToastActions();
-  const [cwd, setCwd] = useState("");
-  const [openFile, setOpenFile] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [explanation, setExplanation] = useState<string | null>(null);
-
-  const project = useQuery({
-    queryKey: ["inspector", "project", companyId, projectId],
-    queryFn: () => appInspectorApi.project(companyId, projectId).then((r) => r.project),
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
-      return s === "decoding" || s === "building" ? 1500 : false;
-    },
-  });
-  const ready = project.data && project.data.status !== "decoding" && project.data.status !== "failed";
-  const dir = useQuery({
-    queryKey: ["inspector", "dir", companyId, projectId, cwd],
-    queryFn: () => appInspectorApi.dir(companyId, projectId, cwd).then((r) => r.entries),
-    enabled: Boolean(ready && openFile === null),
-  });
-  const file = useQuery({
-    queryKey: ["inspector", "file", companyId, projectId, openFile],
-    queryFn: () => appInspectorApi.file(companyId, projectId, openFile!).then((r) => r.text),
-    enabled: Boolean(openFile),
-  });
-  useEffect(() => {
-    if (file.data !== undefined) setDraft(file.data);
-  }, [file.data]);
-  useEffect(() => setExplanation(null), [openFile]);
-
-  const save = useMutation({
-    mutationFn: () => appInspectorApi.writeFile(companyId, projectId, openFile!, draft),
-    onSuccess: () => {
-      haptic("success");
-      pushToast({ title: "Saved", tone: "success" });
-    },
-    onError: (error) => pushToast({ title: "Couldn't save", body: error instanceof Error ? error.message : String(error), tone: "error" }),
-  });
-  const explain = useMutation({
-    mutationFn: () => appInspectorApi.explain(companyId, projectId, openFile!),
-    onSuccess: ({ explanation: text }) => setExplanation(text),
-    onError: (error) => pushToast({ title: "Claude couldn't read it", body: error instanceof Error ? error.message : String(error), tone: "error" }),
-  });
-  const rebuild = useMutation({
-    mutationFn: () => appInspectorApi.rebuild(companyId, projectId),
-    onSuccess: () => {
-      haptic("tick");
-      void client.invalidateQueries({ queryKey: ["inspector", "project", companyId, projectId] });
-    },
-    onError: (error) => pushToast({ title: "Couldn't rebuild", body: error instanceof Error ? error.message : String(error), tone: "error" }),
-  });
-
-  const p = project.data;
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon-sm" aria-label="Back to apps" onClick={onBack}><ArrowLeft /></Button>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{p?.label ?? "Loading…"}</span>
-        {ready ? (
-          <Button size="sm" disabled={rebuild.isPending || p?.status === "building"} onClick={() => rebuild.mutate()} data-testid="inspector-rebuild">
-            {p?.status === "building" ? <Loader2 className="animate-spin" /> : <Hammer />} Rebuild
-          </Button>
-        ) : null}
-      </div>
-
-      {p?.status === "built" && p.outputPath ? (
-        <p className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground" data-testid="inspector-output">
-          Rebuilt and signed. Saved to your Downloads: <span className="font-mono">{p.outputPath}</span>
-        </p>
-      ) : null}
-
-      {p && (p.status === "decoding" || p.status === "building" || p.status === "failed") ? (
-        <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
-            {p.status === "failed" ? null : <Loader2 className="size-4 animate-spin" />}
-            {p.status === "decoding" ? "Decoding the app…" : p.status === "building" ? "Rebuilding…" : "It didn't finish — see the log."}
-          </span>
-          <pre className="max-h-64 overflow-auto rounded-lg bg-muted px-2 py-1.5 font-mono text-(length:--text-micro) text-muted-foreground whitespace-pre-wrap" data-testid="inspector-log">
-            {p.logTail || "…"}
-          </pre>
-        </div>
-      ) : null}
-
-      {ready && openFile === null ? (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <button type="button" className="hover:text-foreground" onClick={() => setCwd("")}>root</button>
-            {cwd ? <span className="font-mono">/{cwd}</span> : null}
-            {cwd ? <button type="button" className="ml-auto hover:text-foreground" onClick={() => setCwd(parentPath(cwd))}>Up</button> : null}
-          </div>
-          <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="inspector-tree">
-            {(dir.data ?? []).map((entry: InspectorFileNode) => (
-              <li key={entry.path}>
-                <button
-                  type="button"
-                  className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm hover:bg-accent/60"
-                  onClick={() => (entry.dir ? setCwd(entry.path) : setOpenFile(entry.path))}
-                >
-                  {entry.dir ? <Folder className="size-4 text-muted-foreground" /> : <FileCode2 className="size-4 text-muted-foreground" />}
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.name}</span>
-                </button>
-              </li>
-            ))}
-            {dir.data && dir.data.length === 0 ? <li className="px-3 py-2 text-xs text-muted-foreground">Empty folder.</li> : null}
-          </ul>
-        </div>
-      ) : null}
-
-      {openFile !== null ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setOpenFile(null)}><ArrowLeft className="size-3.5" /> Files</Button>
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{openFile}</span>
-          </div>
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            spellCheck={false}
-            className="min-h-64 w-full rounded-lg border border-border bg-(--terminal-surface) p-2 font-mono text-(length:--text-micro) text-foreground"
-            data-testid="inspector-file"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={save.isPending || file.data === draft} onClick={() => save.mutate()}>
-              {save.isPending ? <Loader2 className="animate-spin" /> : <Save />} Save
-            </Button>
-            <Button size="sm" variant="outline" disabled={explain.isPending} onClick={() => explain.mutate()} data-testid="inspector-explain">
-              {explain.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />} Explain with Claude
-            </Button>
-          </div>
-          {explanation ? (
-            <div className="rounded-lg border border-border bg-card p-3 text-sm whitespace-pre-wrap" data-testid="inspector-explanation">{explanation}</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
+function projectStatus(project: InspectorProjectView): { text: string; tone: string } {
+  if (project.status === "decoding") return { text: "Decompiling…", tone: "bg-primary/10 text-primary" };
+  if (project.status === "building") return { text: "Building…", tone: "bg-primary/10 text-primary" };
+  if (project.status === "built") return { text: "Built", tone: "bg-primary/10 text-primary" };
+  if (project.status === "failed" && !project.decoded) return { text: "Failed", tone: "bg-destructive/10 text-destructive" };
+  if (project.status === "failed") return { text: "Build failed", tone: "bg-destructive/10 text-destructive" };
+  if (project.java === "working") return { text: "Java…", tone: "bg-muted text-muted-foreground" };
+  return { text: "Ready", tone: "bg-muted text-muted-foreground" };
 }
 
 /**
- * App Inspector: decode an Android app with apktool, read its manifest,
- * resources and code (and ask Claude to explain them), edit the files, and
- * rebuild a signed APK to your Downloads. For apps you made or are authorized
- * to analyze.
+ * App Inspector, laid out like Apktool M: the phone's apps (tap one for its
+ * actions: decompile with options, or save its APK), decompiled projects, and
+ * a full-screen project with a file manager, Java, app info, a live log and a
+ * code editor. Decoding uses apktool, Java uses jadx, and Build signs the APK.
+ * For apps you made or are authorized to analyze.
  */
 export function AppInspector() {
   const { selectedCompanyId: companyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const { pushToast } = useToastActions();
   const client = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [appPackage, setAppPackage] = useState("");
-  const [apkPath, setApkPath] = useState("");
+  const [tab, setTab] = useState<HomeTab>("apps");
+  const [openProject, setOpenProject] = useState<string | null>(null);
+  const [sheetApp, setSheetApp] = useState<PickerApp | null>(null);
+  const [search, setSearch] = useState("");
+  const [showSystem, setShowSystem] = useState(false);
+  const [sort, setSort] = useState<Sort>("name");
+  const [phase, setPhase] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => setBreadcrumbs([{ label: "App Inspector" }]), [setBreadcrumbs]);
 
@@ -180,51 +57,165 @@ export function AppInspector() {
     queryFn: () => appInspectorApi.status(companyId!),
     enabled: Boolean(companyId),
   });
+  const nativeAvailable = automaNative.canListInstalledApps();
+  const nativeApps = useQuery({
+    queryKey: ["inspector", "native-apps"],
+    queryFn: () => automaNative.installedApps(),
+    enabled: nativeAvailable,
+    staleTime: 60_000,
+  });
   const projects = useQuery({
     queryKey: ["inspector", "projects", companyId],
     queryFn: () => appInspectorApi.projects(companyId!).then((r) => r.projects),
-    enabled: Boolean(companyId) && !selected,
-    refetchInterval: (query) => ((query.state.data ?? []).some((p: InspectorProjectView) => p.status === "decoding" || p.status === "building") ? 2000 : false),
+    enabled: Boolean(companyId),
+    refetchInterval: (query) =>
+      !openProject && (query.state.data ?? []).some((p: InspectorProjectView) => p.status === "decoding" || p.status === "building" || p.java === "working")
+        ? 2000
+        : false,
   });
 
-  const open = useMutation({
-    mutationFn: () =>
-      appInspectorApi.open(companyId!, {
-        source: appPackage ? { kind: "installed", package: appPackage } : { kind: "path", apkPath: apkPath.trim() },
-      }),
-    onSuccess: ({ project }) => {
-      haptic("tick");
-      setAppPackage("");
-      setApkPath("");
-      setSelected(project.id);
-      void client.invalidateQueries({ queryKey: ["inspector", "projects", companyId] });
+  const apps: PickerApp[] = useMemo(() => {
+    if (nativeAvailable && nativeApps.data) {
+      return nativeApps.data.map((app) => ({
+        package: app.package,
+        label: app.label,
+        versionName: app.versionName,
+        sizeBytes: app.sizeBytes,
+        splitCount: app.splitCount,
+        system: app.system,
+        updatedAt: app.updatedAt,
+        iconUrl: app.iconUrl,
+        sourceDir: app.sourceDir,
+        apkUrl: app.apkUrl,
+      }));
+    }
+    return (status.data?.apps ?? []).map((pkg) => ({
+      package: pkg,
+      label: pkg.split(".").pop() || pkg,
+      versionName: null,
+      sizeBytes: null,
+      splitCount: 0,
+      system: false,
+      updatedAt: 0,
+      iconUrl: null,
+      sourceDir: null,
+      apkUrl: null,
+    }));
+  }, [nativeAvailable, nativeApps.data, status.data]);
+  const iconByPackage = useMemo(() => new Map(apps.map((app) => [app.package, app.iconUrl])), [apps]);
+  const systemCount = apps.filter((app) => app.system).length;
+  const visibleApps = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const filtered = apps.filter(
+      (app) => (showSystem || !app.system) && (!term || app.label.toLowerCase().includes(term) || app.package.toLowerCase().includes(term)),
+    );
+    const sorted = [...filtered];
+    if (sort === "size") sorted.sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
+    else if (sort === "updated") sorted.sort((a, b) => b.updatedAt - a.updatedAt);
+    else sorted.sort((a, b) => a.label.localeCompare(b.label));
+    return sorted;
+  }, [apps, search, showSystem, sort]);
+  const projectList = projects.data ?? [];
+  const workingCount = projectList.filter((p) => p.status === "decoding" || p.status === "building" || p.java === "working").length;
+
+  const opened = (project: InspectorProjectView) => {
+    haptic("success");
+    setSheetApp(null);
+    setOpenProject(project.id);
+    void client.invalidateQueries({ queryKey: ["inspector", "projects", companyId] });
+  };
+  const failed = (title: string) => (error: unknown) => {
+    haptic("warning");
+    pushToast({ title, body: error instanceof Error ? error.message : String(error), tone: "error" });
+  };
+
+  const decompile = useMutation({
+    mutationFn: async ({ app, options }: { app: PickerApp; options: InspectorDecodeOptions }) => {
+      const extras = { label: app.label, packageName: app.package, splitCount: app.splitCount, options };
+      if (app.sourceDir && app.apkUrl) {
+        // Automa runs on this phone: it copies the APK from where Android keeps it.
+        if (status.data?.kind === "phone") {
+          setPhase("Copying the app…");
+          try {
+            return (await appInspectorApi.open(companyId!, { source: { kind: "path", apkPath: app.sourceDir }, ...extras })).project;
+          } catch {
+            // Termux couldn't read it there; send the bytes instead.
+          }
+        }
+        setPhase("Reading the app…");
+        const res = await fetch(app.apkUrl, { cache: "no-store" });
+        if (!res.ok) throw new Error("The Automa app couldn't read that app's APK.");
+        const blob = await res.blob();
+        setPhase(`Sending ${formatBytes(blob.size)}…`);
+        return (await appInspectorApi.upload(companyId!, blob, extras)).project;
+      }
+      setPhase("Copying the app…");
+      return (await appInspectorApi.open(companyId!, { source: { kind: "installed", package: app.package }, ...extras })).project;
     },
-    onError: (error) => pushToast({ title: "Couldn't open that app", body: error instanceof Error ? error.message : String(error), tone: "error" }),
+    onSuccess: opened,
+    onError: failed("Couldn't decompile that app"),
+    onSettled: () => setPhase(null),
+  });
+  const uploadFile = useMutation({
+    mutationFn: async (file: File) => {
+      setPhase(`Sending ${formatBytes(file.size)}…`);
+      return (await appInspectorApi.upload(companyId!, file, { label: file.name.replace(/\.apk$/i, "") })).project;
+    },
+    onSuccess: opened,
+    onError: failed("Couldn't open that APK"),
+    onSettled: () => setPhase(null),
+  });
+  const extract = useMutation({
+    mutationFn: async (app: PickerApp) => {
+      const res = await fetch(app.apkUrl!, { cache: "no-store" });
+      if (!res.ok) throw new Error("The Automa app couldn't read that app's APK.");
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${app.label.replace(/[^\w.-]+/g, "_")}${app.versionName ? `-${app.versionName}` : ""}.apk`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+    onSuccess: () => {
+      haptic("success");
+      pushToast({ title: "Saving the APK to Downloads", tone: "success" });
+    },
+    onError: failed("Couldn't save the APK"),
   });
   const remove = useMutation({
     mutationFn: (id: string) => appInspectorApi.remove(companyId!, id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["inspector", "projects", companyId] }),
   });
 
-  const apps = useMemo(() => status.data?.apps ?? [], [status.data]);
   if (!companyId) return null;
-
-  if (selected) {
-    return (
-      <div className="mx-auto w-full max-w-3xl" data-testid="app-inspector-page">
-        <ProjectView companyId={companyId} projectId={selected} onBack={() => { setSelected(null); void projects.refetch(); }} />
-      </div>
-    );
-  }
+  const busy = decompile.isPending || uploadFile.isPending;
+  const listLoading = nativeAvailable ? nativeApps.isPending : status.isPending;
+  const openedProject = projectList.find((p) => p.id === openProject);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5" data-testid="app-inspector-page">
-      <header className="flex flex-col gap-1">
-        <h1 className="flex items-center gap-2 text-lg font-semibold"><Boxes className="size-5 text-muted-foreground" aria-hidden="true" /> App Inspector</h1>
-        <p className="text-sm text-muted-foreground">
-          Decode an Android app to read its manifest, resources and code, ask Claude to explain them, edit the files, and rebuild a signed
-          APK to your Downloads. For apps you made or are authorized to analyze.
-        </p>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3" data-testid="app-inspector-page">
+      <header className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10" aria-hidden="true">
+          <Boxes className="size-5 text-primary" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg leading-tight font-semibold">App Inspector</h1>
+          <p className="text-xs text-muted-foreground">Decompile, read as Java, edit and rebuild Android apps. For apps you made or may analyze.</p>
+        </div>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => fileInput.current?.click()} data-testid="inspector-choose-file">
+          <FileUp /> APK
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".apk,application/vnd.android.package-archive"
+          className="hidden"
+          onChange={(event) => {
+            const chosen = event.target.files?.[0];
+            event.target.value = "";
+            if (chosen) uploadFile.mutate(chosen);
+          }}
+        />
       </header>
 
       {status.isError ? (
@@ -234,57 +225,227 @@ export function AppInspector() {
         </div>
       ) : (
         <>
-          <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4" aria-label="Open an app">
-            <h2 className="text-sm font-semibold">Open an app</h2>
-            {!status.data?.apktoolReady ? (
-              <p className="text-xs text-muted-foreground">The first time, decoding installs apktool and a JDK (shown in the log). That can take a minute.</p>
-            ) : null}
-            {apps.length > 0 ? (
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground">Installed app</span>
-                <select
-                  value={appPackage}
-                  onChange={(event) => { setAppPackage(event.target.value); setApkPath(""); }}
-                  className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
-                  data-testid="inspector-app-select"
-                >
-                  <option value="">Choose an app…</option>
-                  {apps.map((pkg) => <option key={pkg} value={pkg}>{pkg}</option>)}
-                </select>
-              </label>
-            ) : null}
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">{apps.length > 0 ? "…or an APK file path" : "APK file path on this device"}</span>
-              <Input value={apkPath} onChange={(event) => { setApkPath(event.target.value); setAppPackage(""); }} placeholder="/sdcard/Download/app.apk" className="h-10 font-mono text-sm" />
-            </label>
-            <div>
-              <Button size="sm" disabled={open.isPending || (!appPackage && !apkPath.trim())} onClick={() => open.mutate()} data-testid="inspector-open">
-                {open.isPending ? <Loader2 className="animate-spin" /> : <FileCode2 />} Decode
-              </Button>
-            </div>
-          </section>
+          <div className="grid grid-cols-2 border-b border-border" role="tablist" aria-label="App Inspector">
+            {(
+              [
+                { id: "apps" as const, label: "Apps", icon: LayoutGrid, count: apps.filter((app) => showSystem || !app.system).length || null },
+                { id: "projects" as const, label: "Projects", icon: FolderOpen, count: projectList.length || null },
+              ]
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                onClick={() => {
+                  haptic("tick");
+                  setTab(item.id);
+                }}
+                className={cn(
+                  "flex min-h-11 items-center justify-center gap-1.5 border-b-2 text-sm transition-colors",
+                  tab === item.id ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+                data-testid={`inspector-tab-${item.id}`}
+              >
+                <item.icon className="size-4" aria-hidden="true" />
+                {item.label}
+                {item.count ? <span className="rounded-full bg-muted px-1.5 text-xs font-normal text-muted-foreground">{item.count}</span> : null}
+                {item.id === "projects" && workingCount > 0 ? <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
 
-          {(projects.data ?? []).length > 0 ? (
-            <section aria-label="Decoded apps" className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold">Decoded apps</h2>
-              <ul className="flex flex-col gap-2">
-                {(projects.data ?? []).map((project) => (
-                  <li key={project.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3" data-testid="inspector-project">
-                    <Boxes className="size-4 text-muted-foreground" />
-                    <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-medium" onClick={() => setSelected(project.id)}>
-                      {project.label}
-                      <span className="block text-xs font-normal text-muted-foreground">
-                        {project.status === "ready" ? "Ready to read and edit" : project.status === "built" ? "Rebuilt · in Downloads" : project.status === "failed" ? "Didn't finish" : "Working…"}
-                      </span>
-                    </button>
-                    <Button variant="ghost" size="icon-sm" aria-label="Delete" onClick={() => remove.mutate(project.id)}><Trash2 /></Button>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {status.data && !status.data.apktoolReady ? (
+            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              {status.data.kind === "phone"
+                ? "The first decompile installs apktool, jadx and a JDK in Termux (you'll see it in the log). That takes a few minutes, once."
+                : "Decompiling needs apktool (and jadx for Java) installed on this computer."}
+            </p>
           ) : null}
+
+          {tab === "apps" ? (
+            <section aria-label="Apps" className="flex flex-col gap-2">
+              {apps.length > 0 || listLoading ? (
+                <div className="flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search apps"
+                      aria-label="Search apps"
+                      className="h-10 pr-8 pl-9"
+                      data-testid="inspector-search"
+                    />
+                    {search ? (
+                      <button type="button" aria-label="Clear the search" className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground" onClick={() => setSearch("")}>
+                        <X className="size-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                  <select
+                    value={sort}
+                    onChange={(event) => setSort(event.target.value as Sort)}
+                    aria-label="Sort apps"
+                    className="h-10 rounded-md border border-border bg-background px-2 text-sm"
+                    data-testid="inspector-sort"
+                  >
+                    <option value="name">Name</option>
+                    <option value="size">Size</option>
+                    <option value="updated">Updated</option>
+                  </select>
+                </div>
+              ) : null}
+              {systemCount > 0 ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <button
+                    type="button"
+                    aria-pressed={showSystem}
+                    onClick={() => {
+                      haptic("tick");
+                      setShowSystem((value) => !value);
+                    }}
+                    className={cn("rounded-full border px-3 py-1", showSystem ? "border-primary bg-primary/10 text-primary" : "border-border")}
+                    data-testid="inspector-system"
+                  >
+                    System apps
+                  </button>
+                  <span>{visibleApps.length} apps</span>
+                </div>
+              ) : null}
+
+              {listLoading ? (
+                <div className="flex flex-col gap-1">{Array.from({ length: 7 }, (_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+              ) : nativeApps.isError ? (
+                <p className="text-sm text-destructive">{nativeApps.error instanceof Error ? nativeApps.error.message : "Couldn't list the apps on this phone"}</p>
+              ) : apps.length === 0 ? (
+                <div className="flex items-center gap-4 rounded-xl border border-dashed border-border p-4" data-testid="inspector-no-apps">
+                  <Mascot pose="thinking" size="sm" />
+                  <p className="text-sm text-muted-foreground">
+                    {status.data?.kind === "phone"
+                      ? "Open this page in the Automa app (1.8.0 or newer) to pick from the apps on this phone, or tap APK to choose a file."
+                      : "Tap APK to choose a file. In the Automa app on a phone, the phone's apps are listed here."}
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card" data-testid="inspector-apps">
+                  {visibleApps.map((app) => (
+                    <li key={app.package}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic("tick");
+                          setSheetApp(app);
+                        }}
+                        className="flex min-h-16 w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/60"
+                        data-testid="inspector-app"
+                        data-package={app.package}
+                      >
+                        <AppIcon app={app} className="size-11" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{app.label}</span>
+                          <span className="block truncate font-mono text-xs text-muted-foreground">{app.package}</span>
+                        </span>
+                        <span className="shrink-0 text-right text-xs text-muted-foreground">
+                          {app.versionName ? <span className="block max-w-24 truncate">{app.versionName}</span> : null}
+                          {app.sizeBytes ? <span className="block">{formatBytes(app.sizeBytes)}</span> : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {visibleApps.length === 0 ? <li className="px-4 py-6 text-center text-sm text-muted-foreground">No app matches.</li> : null}
+                </ul>
+              )}
+            </section>
+          ) : (
+            <section aria-label="Projects" className="flex flex-col gap-2">
+              {projects.isPending ? (
+                <div className="flex flex-col gap-1">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+              ) : projectList.length === 0 ? (
+                <div className="flex items-center gap-4 rounded-xl border border-dashed border-border p-4" data-testid="inspector-no-projects">
+                  <Mascot pose="thinking" size="sm" />
+                  <p className="text-sm text-muted-foreground">Apps you decompile show up here, ready to read, edit and build.</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                  {projectList.map((project) => {
+                    const state = projectStatus(project);
+                    return (
+                      <li key={project.id} className="flex items-center gap-1 pr-1" data-testid="inspector-project">
+                        <button
+                          type="button"
+                          className="flex min-h-16 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left hover:bg-accent/60"
+                          onClick={() => {
+                            haptic("tick");
+                            setOpenProject(project.id);
+                          }}
+                        >
+                          <AppIcon app={{ iconUrl: project.packageName ? iconByPackage.get(project.packageName) ?? null : null }} className="size-11" />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                              <span className="truncate text-sm font-semibold">{project.label}</span>
+                              <span className={cn("shrink-0 rounded-full px-2 text-xs", state.tone)}>{state.text}</span>
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {[
+                                project.packageName,
+                                new Date(project.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </span>
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${project.label}`}
+                          onClick={() => {
+                            if (window.confirm(`Delete the decompiled ${project.label}? Your edits in it are lost.`)) remove.mutate(project.id);
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          )}
         </>
       )}
+
+      {uploadFile.isPending ? (
+        <div className="fixed inset-x-3 bottom-(--sz-safe-bottom) z-30 mb-20 flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-lg" role="status">
+          <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" />
+          <span className="text-sm">{phase ?? "Sending the APK…"}</span>
+        </div>
+      ) : null}
+
+      <AppActionsSheet
+        app={sheetApp}
+        busy={decompile.isPending}
+        phase={phase}
+        onDecompile={(app, options) => decompile.mutate({ app, options })}
+        onExtract={nativeAvailable ? (app) => extract.mutate(app) : null}
+        onOpenChange={(open) => {
+          if (!open && !decompile.isPending) setSheetApp(null);
+        }}
+      />
+
+      {openProject ? (
+        <ProjectExplorer
+          companyId={companyId}
+          projectId={openProject}
+          iconUrl={openedProject?.packageName ? iconByPackage.get(openedProject.packageName) ?? null : null}
+          onClose={() => {
+            setOpenProject(null);
+            setTab("projects");
+            void projects.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
