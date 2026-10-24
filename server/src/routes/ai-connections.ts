@@ -3,11 +3,12 @@ import { readVerifiedLocalAiCredential } from "../services/local-ai-credentials.
 import { localAiLoginService } from "../services/local-ai-login.js";
 import { z } from "zod";
 import { Router, type Request } from "express";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   type Db,
   adapterAuthSessions,
   heartbeatRuns,
+  costEvents,
   toolConnections,
   connectionGrants,
   agents,
@@ -18,6 +19,8 @@ import {
   localAiConnectionSchema,
   localAiLoginStartSchema,
   isAiConnectionCompatible,
+  AI_PROVIDER_BILLING_URLS,
+  type AiConnectionBalance,
   type AiConnectionLoginIntent,
   type AiProvider,
   type AiConnectionBinding,
@@ -136,6 +139,27 @@ export async function canInstallSharedAiConnectionForNewAgent(
     connection.creator === userId || await accessService(db).hasPermission(companyId, "user", userId, "tools:manage_connections");
 }
 
+/**
+ * The credit left on an OpenRouter key's account. The only provider here with
+ * a balance API; the others show it in their consoles. Fixed URL, no redirects.
+ */
+export async function fetchOpenRouterCredits(key: string, request: typeof fetch = fetch) {
+  const response = await request("https://openrouter.ai/api/v1/credits", {
+    redirect: "error",
+    signal: AbortSignal.timeout(10000),
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`OpenRouter answered ${response.status}`);
+  }
+  const body = (await response.json()) as { data?: { total_credits?: unknown; total_usage?: unknown } };
+  const total = Number(body.data?.total_credits);
+  const used = Number(body.data?.total_usage);
+  if (!Number.isFinite(total) || !Number.isFinite(used)) throw new Error("OpenRouter sent no balance");
+  return { totalCreditsUsd: total, remainingUsd: Math.max(0, total - used) };
+}
+
 /** Fixed provider endpoints; credentials are never sent to a caller-supplied URL or through a redirect. */
 export async function validateAiApiKey(
   provider: AiProvider,
@@ -226,6 +250,50 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
         agentId as string | undefined,
       ),
     });
+  });
+  // The API keys page: what is left on a key's account and what Automa spent
+  // through it this month. The key itself never leaves the server.
+  router.get("/companies/:companyId/ai-connections/:connectionId/balance", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const connectionId = req.params.connectionId as string;
+    assertBoard(req);
+    assertCompanyAccess(req, companyId);
+    if (!z.string().uuid().safeParse(connectionId).success) throw unprocessable("Invalid connection ID");
+    const userId = getActorInfo(req).actorId;
+    const summary = (await service.list(companyId, userId)).find((connection) => connection.id === connectionId);
+    if (!summary) throw notFound("AI connection not found");
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const [spent] = await db
+      .select({ cents: sql<number>`coalesce(sum(${costEvents.costCents}), 0)::int` })
+      .from(costEvents)
+      .where(and(eq(costEvents.companyId, companyId), eq(costEvents.provider, summary.provider), gte(costEvents.occurredAt, monthStart)));
+    let remainingUsd: number | null = null;
+    let totalCreditsUsd: number | null = null;
+    let note: string | null = null;
+    if (summary.provider === "openrouter" && summary.method === "api_key") {
+      try {
+        ({ remainingUsd, totalCreditsUsd } = await fetchOpenRouterCredits(await service.reveal(companyId, userId, connectionId)));
+      } catch {
+        note = "OpenRouter didn't report the balance just now. Try again in a moment.";
+      }
+    } else if (summary.method === "api_key") {
+      note = "This provider doesn't share the balance with apps. See it in its console.";
+    } else {
+      note = "A subscription has no balance; it has usage limits instead.";
+    }
+    const balance: AiConnectionBalance = {
+      connectionId,
+      provider: summary.provider,
+      remainingUsd,
+      totalCreditsUsd,
+      spentThisMonthCents: Number(spent?.cents ?? 0),
+      billingUrl: AI_PROVIDER_BILLING_URLS[summary.provider],
+      note,
+      checkedAt: now.toISOString(),
+    };
+    res.setHeader("Cache-Control", "no-store");
+    res.json(balance);
   });
   // The API keys page: copy a key back out. Only the board, never a viewer,
   // and every reveal is an audit entry.

@@ -176,6 +176,30 @@ export interface AiManagedConnectionSummary {
   status: "connected" | "needs_attention" | "expired" | "revoked";
   unavailableReason?: string;
 }
+/** Where each provider shows (and tops up) the credit on an account. */
+export const AI_PROVIDER_BILLING_URLS: Record<AiProvider, string> = {
+  anthropic: "https://console.anthropic.com/settings/billing",
+  openai: "https://platform.openai.com/settings/organization/billing/overview",
+  openrouter: "https://openrouter.ai/settings/credits",
+  xai: "https://console.x.ai",
+};
+
+/** What is left on a key's account, and what Automa spent through it this month. */
+export interface AiConnectionBalance {
+  connectionId: string;
+  provider: AiProvider;
+  /** Credit left, in US dollars, when the provider reports it (OpenRouter does). */
+  remainingUsd: number | null;
+  /** All credit bought on the account, in US dollars, when reported. */
+  totalCreditsUsd: number | null;
+  /** What Automa recorded for this provider since the 1st of the month (UTC), in cents. */
+  spentThisMonthCents: number;
+  billingUrl: string;
+  /** Why there is no balance, in a sentence, when there is none. */
+  note: string | null;
+  checkedAt: string;
+}
+
 export const createAiConnectionSchema = z
   .object({
     ...requirement,

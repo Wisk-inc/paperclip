@@ -1,4 +1,4 @@
-import type { AiManagedConnectionSummary, CreateAiConnection, AiConnectionLoginIntent, LocalAiLoginAttempt, LocalAiLoginStatus } from "@paperclipai/shared";
+import type { AiConnectionBalance, AiManagedConnectionSummary, CreateAiConnection, AiConnectionLoginIntent, LocalAiLoginAttempt, LocalAiLoginStatus } from "@paperclipai/shared";
 import { api } from "./client";
 export const aiConnectionsApi = {
   startLocalLogin: (companyId: string, input: AiConnectionLoginIntent & { restart?: boolean }) => api.post<LocalAiLoginAttempt>(`/companies/${companyId}/ai-connections/local/attempts`, input),
@@ -8,6 +8,8 @@ export const aiConnectionsApi = {
   activeRuns: (companyId: string, connectionId: string) => api.get<Array<{ id: string; agentId: string; agentName: string; status: string }>>(`/companies/${companyId}/ai-connections/${connectionId}/active-runs`),
   list: (companyId: string, agentId?: string) => api.get<{ currentUserId: string; connections: AiManagedConnectionSummary[] }>(`/companies/${companyId}/ai-connections${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`),
   create: (companyId: string, input: CreateAiConnection) => api.post<{ connectionId: string; grantId: string }>(`/companies/${companyId}/ai-connections`, input),
+  balance: (companyId: string, connectionId: string) =>
+    api.get<AiConnectionBalance>(`/companies/${companyId}/ai-connections/${connectionId}/balance`, { cache: "no-store" }),
   reveal: (companyId: string, connectionId: string) => api.post<{ apiKey: string }>(`/companies/${companyId}/ai-connections/${connectionId}/reveal`, {}),
   setDefault: (companyId: string, grantId: string) => api.put(`/companies/${companyId}/ai-connections/default`, { grantId }),
   loginResult: (companyId: string, sessionId: string) => api.get<{ connectionId: string; grantId: string }>(`/companies/${companyId}/ai-connections/login/${encodeURIComponent(sessionId)}`),

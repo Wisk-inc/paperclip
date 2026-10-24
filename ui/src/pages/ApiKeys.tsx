@@ -6,6 +6,8 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { studioApi } from "@/api/studio";
 import { toolsApi } from "@/api/tools";
 import { ModelLogo } from "@/components/ModelLogo";
+import { KeyBalance } from "@/components/api-keys/KeyBalance";
+import { SpendingLimitCard } from "@/components/api-keys/SpendingLimitCard";
 import { Mascot } from "@/components/mascot/Mascot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -242,6 +244,7 @@ export function ApiKeys() {
                       {connection.unavailableReason ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{connection.unavailableReason}</p> : null}
                     </div>
                   </div>
+                  <KeyBalance companyId={companyId} connection={connection} />
                   <div className="flex flex-wrap items-center gap-2">
                     {isKey ? (
                       <Button type="button" variant="outline" size="sm" onClick={() => void copyKey(connection)} data-testid="api-key-copy">
@@ -282,6 +285,8 @@ export function ApiKeys() {
           </ul>
         )}
       </section>
+
+      <SpendingLimitCard companyId={companyId} />
 
       {studioOnlyKeys.length > 0 ? (
         <section aria-label="Saved in App Studio" className="flex flex-col gap-2" data-testid="api-keys-studio">
