@@ -41,6 +41,7 @@ import { Link, useLocation, useNavigate } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { AUTOMA_RELEASES } from "@/lib/release-history";
 import { AboutAutomaSheet } from "./AboutAutomaSheet";
+import { AccountBalanceCard } from "./AccountBalanceCard";
 
 const NAME_MAX = 120;
 
@@ -302,6 +303,8 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               </button>
             ) : null}
           </section>
+
+          {selectedCompanyId ? <AccountBalanceCard companyId={selectedCompanyId} open={open} onNavigate={close} /> : null}
 
           {selectedCompany ? (
             <section aria-label="Organization" className="overflow-hidden rounded-xl border border-border bg-card" data-slot="account-organization">
