@@ -139,3 +139,51 @@ export function claudeBilledSpend(model: string, usage: ClaudeApiUsage) {
     costUsd: costUsd === null ? null : Math.round(costUsd * 1_000_000) / 1_000_000,
   };
 }
+
+/** Per million tokens, in US dollars, for models other than Claude. */
+export interface ApiModelPrice {
+  input: number;
+  cachedInput: number;
+  output: number;
+}
+
+/**
+ * Prices for the newer non-Claude models people pick in Automa, from the
+ * providers' own pricing pages (October 2026). A model missing here is
+ * recorded as unpriced rather than guessed. Gemini 4 Argon's launch price
+ * doubles on 1 December 2026, so its rate depends on the date.
+ */
+const API_MODEL_PRICES: Array<[RegExp, (at: Date) => ApiModelPrice]> = [
+  [
+    /^(?:google\/)?gemini-4-argon(?::batch)?$/,
+    (at) =>
+      at.getTime() < Date.UTC(2026, 11, 1)
+        ? { input: 2, cachedInput: 0.1, output: 10 }
+        : { input: 4, cachedInput: 0.2, output: 20 },
+  ],
+  // No published cache rate for Highspeed: cached input is counted at the
+  // full input rate, so a spending cap errs on the safe side.
+  [/^(?:moonshotai\/)?kimi-k3\.1-pro-highspeed$/, () => ({ input: 4, cachedInput: 4, output: 20 })],
+  [/^(?:moonshotai\/)?kimi-k3\.1-pro$/, () => ({ input: 2, cachedInput: 0.2, output: 10 })],
+  [/^(?:moonshotai\/)?kimi-k3$/, () => ({ input: 3, cachedInput: 0.3, output: 15 })],
+];
+
+export function apiModelPrice(model: string, at: Date = new Date()): ApiModelPrice | null {
+  const id = model.trim().toLowerCase();
+  for (const [pattern, price] of API_MODEL_PRICES) if (pattern.test(id)) return price(at);
+  return null;
+}
+
+/** Cost of one call to an OpenAI-compatible API, or null when the model has no known price. */
+export function estimateApiCostUsd(
+  model: string,
+  usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number },
+  at: Date = new Date(),
+): number | null {
+  const price = apiModelPrice(model, at);
+  if (!price) return null;
+  const cost =
+    (usage.inputTokens * price.input + usage.cachedInputTokens * price.cachedInput + usage.outputTokens * price.output) /
+    1_000_000;
+  return Math.round(cost * 1_000_000) / 1_000_000;
+}

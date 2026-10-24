@@ -159,7 +159,7 @@ export interface StudioMessage {
   createdAt: string;
 }
 
-export const STUDIO_AI_PROVIDERS = ["anthropic", "openai", "openrouter", "google", "deepseek", "xai", "groq", "mistral", "custom"] as const;
+export const STUDIO_AI_PROVIDERS = ["anthropic", "openai", "openrouter", "google", "moonshot", "deepseek", "xai", "groq", "mistral", "custom"] as const;
 export type StudioAiProvider = (typeof STUDIO_AI_PROVIDERS)[number];
 
 export interface StudioAiProviderInfo {
@@ -200,17 +200,26 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "anthropic/claude-opus-5.5",
     completionModel: "anthropic/claude-haiku-5.5",
-    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7"],
+    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-4-argon", "moonshotai/kimi-k3.1-pro", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7"],
     keyUrl: "https://openrouter.ai/keys",
   },
   google: {
     id: "google",
     name: "Google (Gemini)",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-3.8-flash",
+    defaultModel: "gemini-4-argon",
     completionModel: "gemini-3.8-flash",
-    models: ["gemini-3.8-flash"],
+    models: ["gemini-4-argon", "gemini-3.8-flash"],
     keyUrl: "https://aistudio.google.com/apikey",
+  },
+  moonshot: {
+    id: "moonshot",
+    name: "Kimi (Moonshot AI)",
+    baseUrl: "https://api.moonshot.ai/v1",
+    defaultModel: "kimi-k3.1-pro",
+    completionModel: "kimi-k3.1-pro-highspeed",
+    models: ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3"],
+    keyUrl: "https://platform.kimi.ai",
   },
   deepseek: {
     id: "deepseek",

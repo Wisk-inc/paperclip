@@ -270,4 +270,6 @@ export const NEWEST_MODEL_IDS: readonly string[] = [
   "openai/gpt-6.1-sol-pro",
   "openai/gpt-6-astra",
   "openai/gpt-6-luna",
+  "google/gemini-4-argon",
+  "moonshotai/kimi-k3.1-pro",
 ];

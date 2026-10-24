@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeBilledSpend, claudeModelPrice, estimateClaudeCostUsd } from "./model-pricing.js";
+import { claudeBilledSpend, claudeModelPrice, estimateApiCostUsd, estimateClaudeCostUsd } from "./model-pricing.js";
 
 describe("claudeModelPrice", () => {
   it("prices the same model however its id is written", () => {
@@ -58,5 +58,19 @@ describe("claudeBilledSpend", () => {
     expect(withFallback).toMatchObject({ inputTokens: 200, outputTokens: 70 });
     expect(withFallback.costUsd!).toBeGreaterThan(single.costUsd!);
     expect(claudeBilledSpend("my-gateway-model", top).costUsd).toBeNull();
+  });
+});
+
+describe("estimateApiCostUsd", () => {
+  it("prices Gemini 4 Argon at its launch rate, then the December rate", () => {
+    const usage = { inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 100_000 };
+    expect(estimateApiCostUsd("gemini-4-argon", usage, new Date("2026-10-24T00:00:00Z"))).toBe(3);
+    expect(estimateApiCostUsd("google/gemini-4-argon", usage, new Date("2026-12-02T00:00:00Z"))).toBe(6);
+  });
+
+  it("prices Kimi K3.1 Pro and leaves unknown models unpriced", () => {
+    expect(estimateApiCostUsd("kimi-k3.1-pro", { inputTokens: 500_000, cachedInputTokens: 500_000, outputTokens: 0 })).toBe(1.1);
+    expect(estimateApiCostUsd("moonshotai/kimi-k3.1-pro-highspeed", { inputTokens: 0, cachedInputTokens: 0, outputTokens: 1_000_000 })).toBe(20);
+    expect(estimateApiCostUsd("some-new-model", { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 })).toBeNull();
   });
 });

@@ -340,10 +340,10 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
           ) : null}
 
           {!searching && filter === "all" && newest.length > 0 ? (
-            <section aria-label="Newest Claude and GPT models" className="pb-2" data-testid="newest-models">
+            <section aria-label="Newest models" className="pb-2" data-testid="newest-models">
               <h3 className="flex items-center gap-1.5 px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <Sparkles className="size-3.5" aria-hidden="true" />
-                Newest Claude &amp; GPT
+                Newest models
               </h3>
               {newest.map((entry) => (
                 <ModelRow

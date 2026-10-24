@@ -24,6 +24,7 @@ function logoProvider(provider: StudioAiProvider): ModelProvider {
     case "deepseek":
     case "xai":
     case "mistral":
+    case "moonshot":
       return provider;
     default:
       return "other";

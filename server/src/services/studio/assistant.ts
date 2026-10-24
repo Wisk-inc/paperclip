@@ -13,7 +13,7 @@ import {
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
-import { claudeBilledSpend, type ClaudeApiUsage } from "@paperclipai/shared";
+import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -756,13 +756,18 @@ async function runOpenAiCompatible(input: {
     };
     if (data.usage) {
       const cached = data.usage.prompt_tokens_details?.cached_tokens ?? 0;
-      await input.onUsage({
-        provider: input.provider,
-        model: data.model || input.model,
+      const tokens = {
         inputTokens: Math.max(0, (data.usage.prompt_tokens ?? 0) - cached),
         cachedInputTokens: cached,
         outputTokens: data.usage.completion_tokens ?? 0,
-        costUsd: typeof data.usage.cost === "number" ? data.usage.cost : null,
+      };
+      await input.onUsage({
+        provider: input.provider,
+        model: data.model || input.model,
+        ...tokens,
+        // OpenRouter reports the cost; for other providers it is worked out
+        // from the model's price, or left unpriced when that isn't known.
+        costUsd: typeof data.usage.cost === "number" ? data.usage.cost : estimateApiCostUsd(data.model || input.model, tokens),
       });
     }
     const message = data.choices?.[0]?.message;
@@ -881,13 +886,12 @@ export async function completeCode(input: {
     usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
   };
   if (data.usage) {
+    const tokens = { inputTokens: data.usage.prompt_tokens ?? 0, cachedInputTokens: 0, outputTokens: data.usage.completion_tokens ?? 0 };
     input.onUsage?.({
       provider: input.provider,
       model: data.model || input.model,
-      inputTokens: data.usage.prompt_tokens ?? 0,
-      cachedInputTokens: 0,
-      outputTokens: data.usage.completion_tokens ?? 0,
-      costUsd: typeof data.usage.cost === "number" ? data.usage.cost : null,
+      ...tokens,
+      costUsd: typeof data.usage.cost === "number" ? data.usage.cost : estimateApiCostUsd(data.model || input.model, tokens),
     });
   }
   return cleanCompletion(data.choices?.[0]?.message?.content ?? "", input.prefix);

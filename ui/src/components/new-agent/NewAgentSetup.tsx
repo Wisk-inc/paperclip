@@ -1039,8 +1039,14 @@ function Setup({
                                   setKimiModel(event.target.value);
                                   resetTest();
                                 }}
-                                placeholder="kimi-for-coding"
+                                placeholder="kimi-k3.1-pro"
+                                list="kimi-api-models"
                               />
+                              <datalist id="kimi-api-models">
+                                <option value="kimi-k3.1-pro">Kimi K3.1 Pro</option>
+                                <option value="kimi-k3.1-pro-highspeed">Kimi K3.1 Pro Highspeed</option>
+                                <option value="kimi-k3">Kimi K3</option>
+                              </datalist>
                             </Field>
                             <Field label="Kimi API protocol">
                               <select
