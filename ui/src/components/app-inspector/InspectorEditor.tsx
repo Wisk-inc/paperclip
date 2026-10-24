@@ -49,6 +49,10 @@ export function InspectorEditor({
     queryKey: fileKey,
     queryFn: () => appInspectorApi.file(companyId, projectId, path, view),
     enabled: !kind.image,
+    // A background refetch (switching back to the app) would replace unsaved edits.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   useEffect(() => {
     if (file.data) setDraft(file.data.text);
