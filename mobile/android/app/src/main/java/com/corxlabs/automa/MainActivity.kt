@@ -1,10 +1,13 @@
 package com.corxlabs.automa
 
 import android.annotation.SuppressLint
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -37,6 +40,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
@@ -96,6 +100,15 @@ class MainActivity : ComponentActivity() {
         private const val SERVER_BUNDLE_NAME = "automa-server.tar.xz"
         private const val SERVER_BUNDLE_ASSET = "server/$SERVER_BUNDLE_NAME"
         private const val TERMUX_PACKAGE = "com.termux"
+        private const val TERMUX_RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
+        private const val TERMUX_RUN_COMMAND_ACTION = "com.termux.RUN_COMMAND"
+        private const val TERMUX_RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService"
+        private const val TERMUX_AUTOMA_PATH = "/data/data/com.termux/files/usr/bin/automa"
+        private const val TERMUX_HOME = "/data/data/com.termux/files/home"
+        /** The bundle Termux puts a command's result in, and its "no error" value. */
+        private const val TERMUX_RESULT_BUNDLE = "result"
+        private const val TERMUX_ERRNO_SUCCESS = -1
+        private const val TERMUX_REPLY_TIMEOUT_MS = 20_000L
         private const val TERMUX_DOWNLOAD_URL = "https://f-droid.org/packages/com.termux/"
 
         /** Gap between the two beats of the success haptic on Android 10 and older. */
@@ -227,6 +240,24 @@ class MainActivity : ComponentActivity() {
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) Push.refreshToken(this)
+    }
+
+    /** Waiting on Android's "Allow Automa to run commands in Termux?" answer. */
+    private var termuxStartAfterPermission: ((JSONObject) -> Unit)? = null
+    private var termuxRequestCode = 0
+    private val termuxRunPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val done = termuxStartAfterPermission ?: return@registerForActivityResult
+        termuxStartAfterPermission = null
+        if (granted) {
+            launchAutomaInTermux(done)
+        } else {
+            done(
+                termuxFailure(
+                    "denied",
+                    "Automa can't start it for you without that permission. Open Termux and run: automa run",
+                ),
+            )
+        }
     }
 
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -762,6 +793,89 @@ class MainActivity : ComponentActivity() {
         }
         openDeveloperOptions()
     }
+
+    fun hasTermuxRunPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, TERMUX_RUN_COMMAND_PERMISSION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Starts Automa in Termux in the background (`automa start`) through
+     * Termux's RUN_COMMAND, asking Android for that permission the first
+     * time. Replies {ok, output} once Termux confirms, {ok, pending} when it
+     * has not answered in a while, or {ok:false, reason, error}.
+     */
+    fun startAutomaInTermux(done: (JSONObject) -> Unit) {
+        if (!isTermuxInstalled()) return done(termuxFailure("not_installed", "Install Termux first (from F-Droid), then set up Automa in it."))
+        if (hasTermuxRunPermission()) return launchAutomaInTermux(done)
+        // A second request while Android's dialog is up waits for the same answer.
+        val earlier = termuxStartAfterPermission
+        termuxStartAfterPermission = if (earlier == null) done else { reply -> earlier(reply); done(reply) }
+        if (earlier == null) termuxRunPermission.launch(TERMUX_RUN_COMMAND_PERMISSION)
+    }
+
+    private fun launchAutomaInTermux(done: (JSONObject) -> Unit) {
+        val action = "$packageName.TERMUX_RESULT"
+        var finished = false
+        lateinit var receiver: BroadcastReceiver
+        val finish = { reply: JSONObject ->
+            if (!finished) {
+                finished = true
+                runCatching { unregisterReceiver(receiver) }
+                done(reply)
+            }
+        }
+        val timeout = Runnable { finish(JSONObject().put("ok", true).put("pending", true)) }
+        receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                root.removeCallbacks(timeout)
+                val result = intent.getBundleExtra(TERMUX_RESULT_BUNDLE)
+                val err = result?.getInt("err", TERMUX_ERRNO_SUCCESS) ?: TERMUX_ERRNO_SUCCESS
+                val errmsg = result?.getString("errmsg")?.trim().orEmpty()
+                val stdout = result?.getString("stdout")?.trim().orEmpty()
+                val stderr = result?.getString("stderr")?.trim().orEmpty()
+                val exitCode = result?.getInt("exitCode", 0) ?: 0
+                finish(
+                    when {
+                        err != TERMUX_ERRNO_SUCCESS || errmsg.isNotEmpty() -> explainTermuxError(errmsg)
+                        exitCode != 0 -> explainTermuxError(stderr.ifEmpty { stdout })
+                        else -> JSONObject().put("ok", true).put("output", stdout)
+                    },
+                )
+            }
+        }
+        ContextCompat.registerReceiver(this, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val flags = PendingIntent.FLAG_ONE_SHOT or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+        val reply = PendingIntent.getBroadcast(this, termuxRequestCode++, Intent(action).setPackage(packageName), flags)
+        val run = Intent(TERMUX_RUN_COMMAND_ACTION)
+            .setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE)
+            .putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_AUTOMA_PATH)
+            .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("start"))
+            .putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME)
+            .putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+            .putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", reply)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(run) else startService(run)
+            root.postDelayed(timeout, TERMUX_REPLY_TIMEOUT_MS)
+        } catch (error: Exception) {
+            finish(termuxFailure("blocked", "Android did not let Automa reach Termux. Open Termux and run: automa run"))
+        }
+    }
+
+    /** What Termux's refusal means, and what fixes it, in one sentence. */
+    private fun explainTermuxError(message: String): JSONObject = when {
+        message.contains("allow-external-apps", ignoreCase = true) -> termuxFailure(
+            "not_allowed",
+            "Termux doesn't let other apps start Automa yet. Open Termux and run the Automa setup again (it turns this on), or run: automa run",
+        )
+        Regex("no such file|not found|does not exist|not exist", RegexOption.IGNORE_CASE).containsMatchIn(message) -> termuxFailure(
+            "not_set_up",
+            "Automa isn't set up in Termux yet. Follow \"Run Automa on this phone\" below.",
+        )
+        else -> termuxFailure("failed", "Termux couldn't start Automa" + (if (message.isNotEmpty()) ": ${message.take(300)}" else "."))
+    }
+
+    private fun termuxFailure(reason: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put("reason", reason).put("error", message)
 
     fun openTermux() {
         val launch = packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE)

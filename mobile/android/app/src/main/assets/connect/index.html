@@ -91,15 +91,19 @@
       </div>
     </div>
 
-    <div id="wait" class="note wait" role="status" aria-live="polite" hidden>
-      <strong>Waiting for Automa on this phone</strong>
-      <span>If Termux is closed, open it and run <code>automa run</code>. This screen opens Automa by itself when it answers.</span>
-      <div class="wait-timer">
-        <div class="wait-cell"><b id="wait-next">…</b><small>s to next try</small></div>
-        <div class="wait-cell"><b id="wait-elapsed">0:00</b><small>waited</small></div>
-        <div class="wait-cell"><b id="wait-tries">1</b><small>tries</small></div>
-      </div>
+    <div id="wait" class="note wait" hidden>
+      <strong>Starting Automa on this phone</strong>
+      <span id="wait-status" class="wait-status" role="status" aria-live="polite">Getting ready…</span>
+      <div class="wait-bar" role="progressbar" aria-label="Starting Automa" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="wait-fill"></span></div>
+      <ol class="wait-steps">
+        <li data-step="termux" data-state="todo">Termux starts Automa</li>
+        <li data-step="answer" data-state="todo">Automa answers</li>
+        <li data-step="ready" data-state="todo">Automa finishes starting up</li>
+        <li data-step="open" data-state="todo">Your board opens</li>
+      </ol>
+      <span id="wait-help" class="wait-help" hidden></span>
       <div class="row">
+        <button type="button" id="wait-termux" class="secondary" hidden>Open Termux</button>
         <button type="button" id="wait-stop" class="secondary">Stop waiting</button>
       </div>
     </div>

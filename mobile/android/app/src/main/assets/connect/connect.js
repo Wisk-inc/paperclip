@@ -130,62 +130,144 @@
   // start, so that tap keeps trying until it answers.
   var requested = document.getElementById("requested");
   var waitBox = document.getElementById("wait");
-  var waitNext = document.getElementById("wait-next");
-  var waitElapsed = document.getElementById("wait-elapsed");
-  var waitTries = document.getElementById("wait-tries");
+  var waitStatus = document.getElementById("wait-status");
+  var waitFill = document.getElementById("wait-fill");
+  var waitBar = waitFill.parentNode;
+  var waitHelp = document.getElementById("wait-help");
+  var waitTermux = document.getElementById("wait-termux");
   var waitTimer = null;
-  var tickTimer = null;
+  var fillTimer = null;
   var tries = 0;
   var waitStarted = 0;
+  var stepStarted = 0;
+  var step = "termux";
+  var startedTermux = false;
   var RETRY_MS = 3000;
   var MAX_TRIES = 100;
-  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  // Each step owns a stretch of the bar. Within a step the bar creeps on
+  // toward the step's end, so a slow start still shows movement, and jumps
+  // ahead the moment the step is done.
+  var STEPS = ["termux", "answer", "ready", "open"];
+  var SPAN = { termux: [0, 30], answer: [30, 65], ready: [65, 90], open: [90, 100] };
+  function stepState(name, state) {
+    var item = waitBox.querySelector('[data-step="' + name + '"]');
+    if (item) item.setAttribute("data-state", state);
+  }
+  function setStep(name, status) {
+    if (STEPS.indexOf(name) < STEPS.indexOf(step)) name = step;
+    if (name !== step) stepStarted = Date.now();
+    step = name;
+    STEPS.forEach(function (other) {
+      var item = waitBox.querySelector('[data-step="' + other + '"]');
+      if (!item || item.getAttribute("data-state") === "skipped") return;
+      var at = STEPS.indexOf(other);
+      var now = STEPS.indexOf(name);
+      item.setAttribute("data-state", at < now ? "done" : at === now ? "active" : "todo");
+    });
+    if (status) waitStatus.textContent = status;
+    drawFill();
+  }
+  function drawFill() {
+    var span = SPAN[step];
+    var seconds = (Date.now() - stepStarted) / 1000;
+    var within = step === "open" ? 1 : 1 - Math.exp(-seconds / 12);
+    var value = Math.round(span[0] + (span[1] - span[0]) * 0.92 * within);
+    waitFill.style.width = value + "%";
+    waitBar.setAttribute("aria-valuenow", String(value));
+  }
+  function setHelp(text, offerTermux) {
+    waitHelp.textContent = text || "";
+    waitHelp.hidden = !text;
+    waitTermux.hidden = !offerTermux;
+  }
   function stopWaiting() {
     if (waitTimer) clearTimeout(waitTimer);
-    if (tickTimer) clearInterval(tickTimer);
+    if (fillTimer) clearInterval(fillTimer);
     waitTimer = null;
-    tickTimer = null;
+    fillTimer = null;
     tries = 0;
+    startedTermux = false;
     waitBox.hidden = true;
     setBusy(false);
   }
-  // The visible timer: how long we have waited, and when the next try fires.
-  // The board opens by itself the moment Automa answers.
-  function showWaitTimer(nextAt) {
+  function beginWaiting(canStartTermux) {
     waitBox.hidden = false;
-    function tick() {
-      var now = Date.now();
-      var elapsed = Math.max(0, Math.round((now - waitStarted) / 1000));
-      waitElapsed.textContent = Math.floor(elapsed / 60) + ":" + pad(elapsed % 60);
-      waitNext.textContent = nextAt ? String(Math.max(0, Math.ceil((nextAt - now) / 1000))) : "…";
-      waitTries.textContent = String(tries);
-    }
-    tick();
-    if (tickTimer) clearInterval(tickTimer);
-    tickTimer = setInterval(tick, 250);
+    waitStarted = Date.now();
+    stepStarted = waitStarted;
+    step = canStartTermux ? "termux" : "answer";
+    stepState("termux", canStartTermux ? "todo" : "skipped");
+    setHelp("", false);
+    setStep(step, canStartTermux ? "Getting ready…" : "Waiting for Automa on this phone to answer…");
+    if (fillTimer) clearInterval(fillTimer);
+    fillTimer = setInterval(drawFill, 250);
   }
-  function connectWaiting(address) {
+  function isThisPhone(address) {
+    return /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test((address || "").trim());
+  }
+  // Asks Termux to start Automa (`automa start`), saying what it waits on:
+  // Android's permission dialog the first time, then Termux's answer.
+  function startInTermux(then) {
+    startedTermux = true;
+    var granted = bridge.termuxRunPermissionGranted && bridge.termuxRunPermissionGranted(KEY);
+    setStep("termux", granted ? "Waiting for confirmation from Termux…" : "Waiting for your OK: allow Automa to run commands in Termux.");
+    bridge.startAutomaInTermux(KEY, nextCall("termux-start", function (reply) {
+      if (reply && reply.ok !== false) {
+        setStep("answer", reply.pending ? "Asked Termux to start Automa. Waiting for it to answer…" : "Termux started Automa. Waiting for it to answer…");
+      } else {
+        var reason = reply && reply.reason;
+        setHelp((reply && reply.error) || "Termux didn't start Automa.", reason !== "not_set_up" && reason !== "not_installed");
+        if (reason === "not_set_up" || reason === "not_installed") openThisPhone();
+        setStep("answer", "Waiting for Automa to answer. Start it in Termux if it isn't running.");
+      }
+      then();
+    }));
+  }
+  // `startTermux`: Automa on this phone is down and nobody is starting it, so
+  // ask Termux to. Not for a request Termux itself sent (automa run is
+  // already starting it there).
+  function connectWaiting(address, startTermux) {
     if (!bridge) return;
     showError("");
     setPose("thinking");
-    if (tries === 0) waitStarted = Date.now();
+    if (tries === 0) {
+      var canStart = !!startTermux && isThisPhone(address) && !!bridge.startAutomaInTermux && !!(bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY));
+      beginWaiting(canStart);
+      setBusy(true, "Waiting for Automa…");
+      if (canStart && !startedTermux) {
+        tries = 1;
+        startInTermux(function () { tryOnce(address); });
+        return;
+      }
+    }
     tries += 1;
-    setBusy(true, "Waiting for Automa…");
-    showWaitTimer(null);
+    tryOnce(address);
+  }
+  function tryOnce(address) {
     connectOnce(address, null, function (reply) {
+      if (waitBox.hidden) return;
       if (reply && reply.ok !== false) {
-        stopWaiting();
-        setPose("success");
+        setStep("open", reply.firstRun ? "Connected. Taking you to setup…" : "Connected. Opening your board…");
         haptic("success");
-        showConnected(reply);
+        setPose("success");
+        window.setTimeout(function () {
+          stopWaiting();
+          showConnected(reply);
+        }, 450);
         return;
       }
       var message = (reply && reply.error) || "Could not connect.";
       // Not up yet (refused, still starting): try again shortly, for a while.
       if (tries < MAX_TRIES && /not running|nothing answers|still starting|try again|refused|closed the connection/i.test(message)) {
-        var nextAt = Date.now() + RETRY_MS;
-        showWaitTimer(nextAt);
-        waitTimer = setTimeout(function () { connectWaiting(address); }, RETRY_MS);
+        if (/still starting/i.test(message)) {
+          setStep("ready", "Automa is starting up. The first start after an update can take a minute…");
+        } else {
+          setStep("answer", startedTermux ? "Waiting for Automa to answer…" : "Waiting for Automa on this phone to answer…");
+          var waited = (Date.now() - waitStarted) / 1000;
+          if (waited > 45 && waitHelp.hidden) {
+            setHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.", true);
+          }
+        }
+        waitTimer = setTimeout(function () { tries += 1; tryOnce(address); }, RETRY_MS);
         return;
       }
       stopWaiting();
@@ -194,6 +276,10 @@
       showError(message);
     });
   }
+  waitTermux.addEventListener("click", function () {
+    haptic("tick");
+    if (bridge && bridge.openTermux) bridge.openTermux(KEY);
+  });
   document.getElementById("wait-stop").addEventListener("click", function () {
     haptic("tick");
     stopWaiting();
@@ -414,7 +500,7 @@
     if (!state.requested && params.get("wait") === "1" && state.waitFor) {
       input.value = state.waitFor.replace(/^https?:\/\//, "");
       showError("");
-      connectWaiting(state.waitFor);
+      connectWaiting(state.waitFor, true);
     }
   }
 

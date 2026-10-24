@@ -118,6 +118,20 @@ Termux app with no computer:
    **Connect** (the app waits for the server to come up). Next time, start it
    in Termux with `automa run`.
 
+**Keeping it running.** `automa run` starts the server again by itself when
+it stops (a crash, or Android ending it), until Ctrl+C. `automa start` does
+the same in the background (log in `~/.automa/server.log`), `automa stop`
+ends it, and `automa status` says whether it answers; only one runs at a time.
+When the app opens and Automa on the phone does not answer, the app starts it
+for you through Termux's `RUN_COMMAND`: the installer turns on
+`allow-external-apps` in `~/.termux/termux.properties`, and Android asks once
+whether Automa may run commands in Termux. The connect screen then shows each
+step (Termux starts Automa, Automa answers, Automa finishes starting up, your
+board opens) with a bar that fills as they finish, instead of a timer. With
+the Termux:Boot app (F-Droid) installed, `~/.termux/boot/automa` starts it
+when the phone boots. Set Termux's battery use to **Unrestricted** (App info →
+Battery) so Android does not close it in the background.
+
 **Locked to the app.** On a phone every installed app can reach `127.0.0.1`,
 so Automa in Termux only answers the Automa app: the installer makes an app
 key (`~/.automa/app-secret`), the launcher exports it as
@@ -169,10 +183,12 @@ Android does not pause it.
 
 Agents run on the phone too. Claude agents need nothing extra: Claude Code
 can't run in Termux, so they answer through the Anthropic API with the
-agent's `ANTHROPIC_API_KEY` (Settings → API keys), without tools. Other
+agent's `ANTHROPIC_API_KEY` (Settings → API keys), with Claude Code's own
+tools (Read, Write, Edit, Bash, Grep, Glob) running in Termux, plus the
+`termux-*` commands when Termux:API is installed. Other
 runtimes (Codex, OpenCode for OpenRouter models, …) must be installed in
 Termux; that part is not covered by the test above. A computer is faster for
-heavy agent work, and needed for agents that edit files or run commands.
+heavy agent work and big builds.
 
 **Letting agents control the phone (optional).** Agents in Termux get the
 phone's shell (`adb shell`: `input`, `screencap`, `pm`, `settings`) through

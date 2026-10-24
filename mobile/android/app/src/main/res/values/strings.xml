@@ -31,11 +31,8 @@
     <string name="unreachable_title">Can\'t reach Automa</string>
     <string name="unreachable_message">The server did not answer. It may be restarting, or the phone may have switched networks.</string>
     <string name="offline_retry">Try now</string>
-    <string name="retrying_now">Trying again…</string>
-    <plurals name="retry_in_seconds">
-        <item quantity="one">Trying again in %d second</item>
-        <item quantity="other">Trying again in %d seconds</item>
-    </plurals>
+    <string name="retrying_now">Checking whether Automa answers…</string>
+    <string name="reconnecting_soon">Trying again when the bar fills up.</string>
     <string name="sign_in_unavailable">Google sign-in is not set up in this build</string>
     <string name="sign_in_cancelled">Sign-in was cancelled</string>
     <string name="sign_in_no_account">No Google account is available on this phone. Add one in Settings, then try again.</string>

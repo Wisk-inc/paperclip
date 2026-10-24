@@ -110,9 +110,13 @@ fi
 cat > "$PREFIX/bin/automa" <<LAUNCHER
 #!$PREFIX/bin/bash
 # Starts the Automa database when it is not running, then the Automa server CLI.
-# Usage: automa run        (or any paperclipai command: automa doctor, automa onboard)
+# Usage: automa run        runs Automa here, and starts it again if it stops
+#        automa start      the same, in the background (the Automa app and Termux:Boot use this)
+#        automa stop       stops Automa started with automa start
+#        automa status     says whether Automa is running
 #        automa link       hands the app key to the Automa app again (prints it too)
 #        automa adb link   links this phone's own Wireless debugging, so agents can run adb shell
+#        (or any paperclipai command: automa doctor, automa onboard)
 set -e
 export PAPERCLIP_LOCAL_TRUSTED_SECRET="\$(cat "$secret_file")"
 # Opens the Automa app on this phone's Automa with the app key. The first time
@@ -135,6 +139,37 @@ case "\${1:-}" in
       *) exec adb "\$@" ;;
     esac
     ;;
+  start)
+    # Already up: nothing to do. Otherwise the supervisor below runs in the
+    # background, its output in ~/.automa/server.log.
+    if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+      echo "Automa is already running."
+      exit 0
+    fi
+    AUTOMA_NO_APP=1 nohup "\$0" run >"$automa_home/server.log" 2>&1 </dev/null &
+    echo "Automa is starting (log: $automa_home/server.log)."
+    exit 0
+    ;;
+  stop)
+    if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+      kill -TERM "\$(cat "$automa_home/automa.pid")"
+      rm -f "$automa_home/automa.pid"
+      command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock || true
+      echo "Automa stopped."
+    else
+      echo "Automa is not running in the background."
+    fi
+    exit 0
+    ;;
+  status)
+    if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"; then
+      echo "Automa is running on http://127.0.0.1:3100"
+    else
+      echo "Automa is not answering. Start it with: automa run"
+      exit 1
+    fi
+    exit 0
+    ;;
   link)
     echo "App key for the Automa app (Run Automa on this phone -> paste the app key):"
     echo "\$PAPERCLIP_LOCAL_TRUSTED_SECRET"
@@ -150,11 +185,57 @@ export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un):\$(cat "$db_password
 # is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then
   command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
-  link_app || true
+  [ -n "\${AUTOMA_NO_APP:-}" ] || link_app || true
+fi
+if [ "\${1:-}" = "run" ]; then
+  # One Automa at a time: a second one (the app or Termux:Boot starting it
+  # while it already runs) would only fight the first for the port.
+  if [ -s "$automa_home/automa.pid" ] && [ "\$(cat "$automa_home/automa.pid")" != "\$\$" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+    echo "Automa is already running. Stop it with: automa stop"
+    exit 0
+  fi
+  echo "\$\$" > "$automa_home/automa.pid"
+  # Keeps Automa up: when Android or a crash stops the server, it starts again.
+  # Ctrl+C (or automa stop) ends it for good.
+  child=""
+  finish() {
+    [ -n "\$child" ] && kill -TERM "\$child" 2>/dev/null && wait "\$child" 2>/dev/null
+    [ "\$(cat "$automa_home/automa.pid" 2>/dev/null)" = "\$\$" ] && rm -f "$automa_home/automa.pid"
+    exit 0
+  }
+  trap finish INT TERM HUP
+  while true; do
+    node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@" &
+    child=\$!
+    code=0
+    wait "\$child" || code=\$?
+    child=""
+    [ "\$code" -eq 0 ] && finish
+    echo "Automa stopped (exit \$code). Starting it again in 3 seconds..." >&2
+    sleep 3
+    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null || true
+  done
 fi
 exec node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@"
 LAUNCHER
 chmod 700 "$PREFIX/bin/automa"
+
+say "Letting the Automa app start Automa, and starting it when the phone boots"
+# The app starts Automa through Termux's RUN_COMMAND, which Termux only allows
+# once allow-external-apps is on. Android still asks you once in the app.
+mkdir -p "$HOME/.termux"
+if ! grep -qs '^allow-external-apps *= *true' "$HOME/.termux/termux.properties"; then
+  printf '\nallow-external-apps = true\n' >> "$HOME/.termux/termux.properties"
+  command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings || true
+fi
+# With the Termux:Boot app installed (F-Droid), Automa starts when the phone does.
+mkdir -p "$HOME/.termux/boot"
+cat > "$HOME/.termux/boot/automa" <<BOOT
+#!$PREFIX/bin/sh
+termux-wake-lock
+exec "$PREFIX/bin/automa" start
+BOOT
+chmod 700 "$HOME/.termux/boot/automa"
 
 say "Installed. Starting Automa on http://127.0.0.1:3100 (locked to the Automa app)"
 say "The Automa app opens by itself: tap Connect there. Next time, open Termux and run: automa run"

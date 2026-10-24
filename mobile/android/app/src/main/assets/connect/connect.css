@@ -283,9 +283,25 @@ input:focus-visible { border-color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { .connected, .connected-mascot, .connected-progress span { animation: none; } .connected-progress span { width: 100%; } }
 .connected-warning { margin-top: 6px !important; color: var(--danger) !important; font-size: 13px !important; }
 
-/* The waiting card: a live timer for when the next try fires and how long we have waited. */
+/* The waiting card: what is happening now, a bar that fills as each step
+   finishes, and the steps themselves. No timers to read. */
 .wait { border-color: var(--fg); }
-.wait-timer { display: flex; gap: 8px; margin: 12px 0 4px; }
-.wait-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 6px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); }
-.wait-cell b { font-size: 24px; font-variant-numeric: tabular-nums; line-height: 1; color: var(--fg); }
-.wait-cell small { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.wait-status { color: var(--fg) !important; font-weight: 500; }
+.wait-bar { position: relative; height: 6px; margin: 12px 0 4px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.wait-bar span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--fg); transition: width 400ms ease-out; }
+.wait-bar span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); animation: wait-sheen 1600ms ease-in-out infinite; }
+@keyframes wait-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.wait-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.wait-steps li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+.wait-steps li::before { content: ""; flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); box-sizing: border-box; }
+.wait-steps li[data-state="active"] { color: var(--fg); font-weight: 500; }
+.wait-steps li[data-state="active"]::before { border-color: var(--fg); border-right-color: transparent; animation: wait-spin 900ms linear infinite; }
+.wait-steps li[data-state="done"] { color: var(--fg); }
+.wait-steps li[data-state="done"]::before { border-color: var(--fg); background: var(--fg); box-shadow: inset 0 0 0 3px var(--bg); }
+.wait-steps li[data-state="skipped"] { display: none; }
+@keyframes wait-spin { to { transform: rotate(360deg); } }
+.wait-help { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .wait-bar span { transition: none; }
+  .wait-bar span::after, .wait-steps li[data-state="active"]::before { animation: none; }
+}

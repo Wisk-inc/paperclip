@@ -377,6 +377,21 @@ class AutomaBridge(
     @JavascriptInterface
     fun isTermuxInstalled(key: String?): Boolean = onConnectPage(key) && activity.isTermuxInstalled()
 
+    /** Whether Android already lets this app run commands in Termux. Connect screen only. */
+    @JavascriptInterface
+    fun termuxRunPermissionGranted(key: String?): Boolean = onConnectPage(key) && activity.hasTermuxRunPermission()
+
+    /**
+     * Starts Automa in Termux in the background (asking for the permission the
+     * first time). Replies {ok, output}, {ok, pending} or {ok:false, reason, error}.
+     * Connect screen only.
+     */
+    @JavascriptInterface
+    fun startAutomaInTermux(key: String?, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread { activity.startAutomaInTermux { reply -> resolve(callId, reply.toString()) } }
+    }
+
     /** Opens Termux, or its download page when it is not installed. Connect screen only. */
     @JavascriptInterface
     fun openTermux(key: String?) {
