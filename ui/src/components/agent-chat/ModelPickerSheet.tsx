@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
 import { aiConnectionBindingSchema, type Agent, type AiProvider } from "@paperclipai/shared";
@@ -123,10 +123,14 @@ function ProviderChip({ provider, label, count, active, onClick }: {
   );
 }
 
-export function ModelPickerSheet({ agent, open, onOpenChange }: {
+export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "", returnFocusRef }: {
   agent: Agent;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Search text to open with (from `/model <name>`). */
+  initialQuery?: string;
+  /** Where focus goes when the sheet closes (it has no trigger of its own). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const client = useQueryClient();
   const { pushToast } = useToastActions();
@@ -134,7 +138,14 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
   const currentModel = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
   const binding = aiConnectionBindingSchema.safeParse((agent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection).data;
   const runsOnOpenRouter = agent.adapterType === "opencode_local" && binding?.provider === "openrouter";
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
+  // Each time the sheet opens, it starts from the search it was opened with.
+  const [openedWith, setOpenedWith] = useState<string | null>(null);
+  const openKey = open ? initialQuery : null;
+  if (openKey !== openedWith) {
+    setOpenedWith(openKey);
+    if (open) setQuery(initialQuery);
+  }
   const [filter, setFilter] = useState<ModelProvider | "all">("all");
   const [expanded, setExpanded] = useState<Set<ModelProvider>>(() => new Set());
 
@@ -265,6 +276,11 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
         side="bottom"
         className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
         data-testid="model-picker-sheet"
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusRef?.current) return;
+          event.preventDefault();
+          returnFocusRef.current.focus();
+        }}
       >
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border" aria-hidden="true" />
         <SheetHeader className="gap-1 px-4 pt-3 pb-2">
@@ -318,7 +334,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange }: {
             </section>
           ) : null}
           {!runsOnOpenRouter && runtimeModels.isPending && open ? (
-            <div className="space-y-2 px-3 py-2" aria-busy="true" aria-label="Loading models">
+            <div className="space-y-2 px-3 py-2" role="status" aria-busy="true" aria-label="Loading models">
               {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-12 w-full rounded-lg" />)}
             </div>
           ) : null}

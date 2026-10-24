@@ -61,6 +61,7 @@ import { LanguageLogo } from "../components/studio/LanguageLogo";
 
 type Pane = "files" | "code" | "console" | "preview" | "ai" | "team";
 type SideTab = Exclude<Pane, "files" | "code">;
+const PHONE_PANES: Pane[] = ["files", "code", "console", "preview", "ai", "team"];
 
 interface OpenFile {
   path: string;
@@ -141,6 +142,10 @@ export function StudioWorkspace() {
   const narrow = useNarrowScreen();
 
   const [pane, setPane] = useState<Pane>("code");
+  const [visitedPanes, setVisitedPanes] = useState<ReadonlySet<Pane>>(() => new Set<Pane>(["code"]));
+  useEffect(() => {
+    setVisitedPanes((current) => (current.has(pane) ? current : new Set(current).add(pane)));
+  }, [pane]);
   const [sideTab, setSideTab] = useState<SideTab>("console");
   const [run, setRun] = useState<StudioRunState | null>(null);
   const consoleStore = useMemo(() => createStudioConsoleStore(), [workspaceId]);
@@ -1049,7 +1054,13 @@ export function StudioWorkspace() {
       {narrow ? (
       <>
       <div className="min-h-0 flex-1">
-        {pane === "files" ? filesPane : pane === "code" ? editorPane : sidePanes[pane]}
+        {/* A pane stays mounted (hidden) once opened: switching tabs lost the
+            AI composer's draft and attachments and folded every folder. */}
+        {PHONE_PANES.filter((id) => id === pane || visitedPanes.has(id)).map((id) => (
+          <div key={id} className={cn("h-full min-h-0", id === pane ? null : "hidden")}>
+            {id === "files" ? filesPane : id === "code" ? editorPane : sidePanes[id]}
+          </div>
+        ))}
       </div>
       <div className="flex border-t border-border bg-card" role="tablist" aria-label="Studio panes">
         {tabs.map((tab) => {

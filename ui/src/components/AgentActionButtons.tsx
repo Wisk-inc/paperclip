@@ -465,7 +465,7 @@ export function AgentActionButtons({
       {children}
       <Popover open={moreOpen} onOpenChange={setMoreOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon-xs" aria-label={`Open actions for ${agent.name}`}>
+          <Button variant="ghost" size="icon-xs" className="pointer-coarse:size-10" aria-label={`Open actions for ${agent.name}`}>
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </PopoverTrigger>

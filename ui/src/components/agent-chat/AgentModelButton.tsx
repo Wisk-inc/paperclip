@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
 import { ModelLogo } from "@/components/ModelLogo";
@@ -10,11 +10,13 @@ import { ModelPickerSheet } from "./ModelPickerSheet";
 /** The agent's current model as a chip in the chat header; tapping it opens the model switcher. */
 export function AgentModelButton({ agent, className }: { agent: Agent; className?: string }) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
   const name = modelDisplayName(model);
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         data-slot="agent-model-button"
         aria-haspopup="dialog"
@@ -24,16 +26,18 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
           setOpen(true);
         }}
         className={cn(
-          "inline-flex h-8 max-w-28 shrink-0 items-center sm:max-w-40 gap-1.5 rounded-full border border-border bg-card pr-2 pl-1.5 text-xs font-medium text-foreground transition-colors md:max-w-56",
+          "inline-flex h-10 max-w-28 shrink-0 items-center justify-center sm:max-w-40 gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors md:max-w-56 @md/header:pr-2 @md/header:pl-1.5",
           "hover:bg-accent active:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
           className,
         )}
       >
         <ModelLogo modelId={model} adapterType={agent.adapterType} size="sm" tile={false} />
-        <span className="min-w-0 truncate">{name}</span>
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        {/* On phones narrower than 28rem the chat title needs the room, so
+            the header shows just the model's logo (the label still names it). */}
+        <span className="hidden min-w-0 truncate @md/header:inline">{name}</span>
+        <ChevronDown className="hidden size-3.5 shrink-0 text-muted-foreground @md/header:inline" aria-hidden="true" />
       </button>
-      <ModelPickerSheet agent={agent} open={open} onOpenChange={setOpen} />
+      <ModelPickerSheet agent={agent} open={open} onOpenChange={setOpen} returnFocusRef={buttonRef} />
     </>
   );
 }

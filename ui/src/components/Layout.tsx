@@ -1,6 +1,6 @@
 import { SetupWizardSidebarOutlet } from "./SetupWizard";
 import { ChatSetupSidebarProvider } from "@/context/ChatSetupSidebarContext";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { Sidebar } from "./Sidebar";
@@ -64,6 +64,12 @@ import {
 import { cn } from "../lib/utils";
 import { NotFoundPage } from "../pages/NotFound";
 import { PluginSlotMount, resolveRouteSidebarSlot, usePluginSlots } from "../plugins/slots";
+
+/** A viewport this much shorter than its tallest has a keyboard open. */
+const KEYBOARD_MIN_HEIGHT_PX = 150;
+/** How long a newly focused field may wait for its keyboard. */
+const NO_KEYBOARD_GRACE_MS = 1000;
+const DRAWER_FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   return getCompanyPathSegments(pathname, companyPrefix)[0]?.toLowerCase() ?? null;
@@ -219,10 +225,13 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
   // The Apps area (Connectors, an app's or a chat connection's pages) has no
   // navigation of its own on the page, so on a phone its rail rides along at
   // the top of the drawer; every other page keeps its navigation on the page.
+  // Skills too: its rail is the only way to Discover and My Skills on a phone.
   const phoneSecondarySidebar =
     isAppsRoute || isToolsRoute || appDetailConnectionId || appDetailApplicationId
       ? sharedSecondarySidebar
-      : null;
+      : shellRoute.builtInContextualSurface === "skills"
+        ? secondarySidebar
+        : null;
   const keepsPrimarySidebar = streamlinedUiEnabled && hasSecondarySidebar && (
     shellRoute.builtInContextualSurface === "skills"
     || shellRoute.builtInContextualSurface === "agent"
@@ -291,6 +300,8 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     }
   }, [companies, companiesLoading, openOnboarding, health?.cloud, health?.deploymentMode]);
 
+  // The last selected organization the URL has shown.
+  const settledSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     if (!companyPrefix || companiesLoading || companies.length === 0) return;
 
@@ -331,11 +342,15 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       return;
     }
 
+    if (matchedCompany.id === selectedCompanyId) settledSelectionRef.current = selectedCompanyId;
     if (
       shouldSyncCompanySelectionFromRoute({
         selectionSource,
         selectedCompanyId,
         routeCompanyId: matchedCompany.id,
+        // Back after switching organizations showed the other one's data
+        // under the old URL, because a manual pick never followed the URL.
+        manualSwitchSettled: settledSelectionRef.current === selectedCompanyId,
       })
     ) {
       setSelectedCompanyId(matchedCompany.id, { source: "route_sync" });
@@ -477,7 +492,10 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
   useEffect(() => {
     if (!isMobile) return;
 
-    const EDGE_ZONE = 30; // px from left edge to start open-swipe
+    // px from the left edge to start the open-swipe. Android's back gesture
+    // takes the outermost ~24 px, so the zone reaches past it: with 30 px a
+    // swipe that opens the menu barely existed on gesture-navigation phones.
+    const EDGE_ZONE = 48;
     const MIN_DISTANCE = 50; // minimum horizontal swipe distance
     const MAX_VERTICAL = 75; // max vertical drift before we ignore
 
@@ -517,6 +535,47 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       document.removeEventListener("touchend", onTouchEnd);
     };
   }, [isMobile, sidebarOpen, setSidebarOpen]);
+
+  // The open drawer holds focus like a dialog: focus moves into it, Tab stays
+  // inside, Escape closes it, and focus returns to where it was.
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const focusBeforeDrawerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!isMobile) return;
+    if (sidebarOpen) {
+      focusBeforeDrawerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const first = drawerRef.current?.querySelector<HTMLElement>(DRAWER_FOCUSABLE);
+      first?.focus({ preventScroll: true });
+      return;
+    }
+    const previous = focusBeforeDrawerRef.current;
+    focusBeforeDrawerRef.current = null;
+    if (previous?.isConnected && drawerRef.current?.contains(document.activeElement)) {
+      previous.focus({ preventScroll: true });
+    }
+  }, [isMobile, sidebarOpen]);
+  const handleDrawerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!sidebarOpen) return;
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      const previous = focusBeforeDrawerRef.current;
+      setSidebarOpen(false);
+      previous?.focus({ preventScroll: true });
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(drawerRef.current?.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE) ?? [])];
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, [sidebarOpen, setSidebarOpen]);
 
   // The Android app asks the page to close whatever is on top (the drawer, a
   // sheet, a dialog) before it treats Back as "go to the previous page".
@@ -571,14 +630,54 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       if (showTimer !== null) clearTimeout(showTimer);
       showTimer = null;
     };
+    // A focused field does not always mean a keyboard: Android's Back closes
+    // the keyboard but leaves the field focused, and a page can focus a field
+    // without one opening. The viewport's height tells which, so the bar
+    // comes back when no keyboard is taking the room.
+    const viewport = window.visualViewport ?? null;
+    const viewportHeight = () => viewport?.height ?? window.innerHeight;
+    let tallest = viewportHeight();
+    let width = window.innerWidth;
+    let keyboardSinceFocus = false;
+    let noKeyboardTimer: ReturnType<typeof setTimeout> | null = null;
+    const keyboardOpen = () => tallest - viewportHeight() > KEYBOARD_MIN_HEIGHT_PX;
+    const cancelNoKeyboard = () => {
+      if (noKeyboardTimer !== null) clearTimeout(noKeyboardTimer);
+      noKeyboardTimer = null;
+    };
+    const onViewportResize = () => {
+      if (window.innerWidth !== width) {
+        // Turning the phone changes the full height too.
+        width = window.innerWidth;
+        tallest = viewportHeight();
+      }
+      tallest = Math.max(tallest, viewportHeight());
+      if (!editable(document.activeElement)) return;
+      if (keyboardOpen()) {
+        keyboardSinceFocus = true;
+        cancelNoKeyboard();
+        setMobileNavVisible(false);
+      } else if (keyboardSinceFocus) {
+        keyboardSinceFocus = false;
+        setMobileNavVisible(true);
+      }
+    };
     const onFocusIn = (event: FocusEvent) => {
       if (!editable(event.target)) return;
       cancelShow();
       setMobileNavVisible(false);
+      if (!viewport) return;
+      keyboardSinceFocus = keyboardOpen();
+      cancelNoKeyboard();
+      noKeyboardTimer = setTimeout(() => {
+        noKeyboardTimer = null;
+        if (!keyboardSinceFocus && !keyboardOpen() && editable(document.activeElement)) setMobileNavVisible(true);
+      }, NO_KEYBOARD_GRACE_MS);
     };
     const onFocusOut = (event: FocusEvent) => {
       if (!editable(event.target)) return;
       cancelShow();
+      cancelNoKeyboard();
       showTimer = setTimeout(() => {
         showTimer = null;
         if (!editable(document.activeElement)) setMobileNavVisible(true);
@@ -587,10 +686,13 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     setMobileNavVisible(!editable(document.activeElement));
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
+    viewport?.addEventListener("resize", onViewportResize);
     return () => {
       cancelShow();
+      cancelNoKeyboard();
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      viewport?.removeEventListener("resize", onViewportResize);
     };
   }, [isMobile]);
 
@@ -684,6 +786,11 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       <DevRestartBanner devServer={health?.devServer} />
       {health?.localSecretRequired && companyListUnauthorized ? <LocalSecretNotice /> : null}
       <div className={cn("min-h-0 flex-1", isMobile ? "w-full" : "flex overflow-clip")}>
+        {isMobile ? (
+          // Covers the notch strip so the page does not show through above
+          // the sticky header while it scrolls.
+          <div aria-hidden className="pointer-events-none fixed inset-x-0 top-0 z-20 h-(--sz-safe-top) bg-background" />
+        ) : null}
         {isMobile && sidebarOpen && (
           <button
             type="button"
@@ -695,8 +802,14 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
 
         {isMobile ? (
           <div
+            ref={drawerRef}
+            // Closed, the drawer is off screen: keyboards and screen readers
+            // skip it instead of walking its links.
+            inert={!sidebarOpen}
+            aria-label="Menu"
+            onKeyDown={handleDrawerKeyDown}
             className={cn(
-              "fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden pt-(--sz-safe-top) transition-transform duration-(--motion-duration-base) ease-(--motion-ease-out-expo)",
+              "fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden pt-(--sz-safe-top) pb-(--sz-safe-bottom) transition-transform duration-(--motion-duration-base) ease-(--motion-ease-out-expo)",
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
             )}
           >
@@ -758,7 +871,8 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
           <div
             className={cn(
               !isMobile && useStreamlinedTaskDetailShell && "hidden",
-              isMobile && "sticky top-0 z-20 bg-background",
+              // Below the notch: at top-0 the scrolled header slid under it.
+              isMobile && "sticky top-(--sz-safe-top) z-20 bg-background",
             )}
           >
             <StandaloneBrowserControls mobile={isMobile} />

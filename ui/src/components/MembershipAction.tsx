@@ -55,7 +55,7 @@ export function MembershipAction({
         aria-busy={pending ? "true" : undefined}
         disabled={pending}
         onClick={handleClick}
-        className="w-(--sz-66px)"
+        className="w-(--sz-66px) pointer-coarse:h-10"
       >
         <Icon className={cn("h-3 w-3", pending && "motion-safe:animate-spin")} />
         <span>{label}</span>

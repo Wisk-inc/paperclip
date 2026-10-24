@@ -167,7 +167,7 @@ describe("ModelPickerSheet", () => {
     expect(mockAgentsApi.update).not.toHaveBeenCalled();
     expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Add your OpenRouter key first",
-      action: { label: "Add key", href: "/apps/connect?source=openrouter" },
+      action: { label: "Add key", href: "/company/settings/api-keys?add=openrouter" },
     }));
   });
 

@@ -18,7 +18,7 @@
  *
  * Exit non-zero on any violation.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
@@ -28,7 +28,6 @@ const SCAN_DIRS = ["ui/src/components/task-chat"];
 const SCAN_FILES = [
   "ui/src/components/TaskChatThread.tsx",
   "ui/src/components/PropertiesPanel.tsx",
-  "ui/src/components/TaskChatRedesignGate.tsx",
   "ui/src/pages/TaskChatLab.tsx",
   "ui/src/components/issue-properties/IssuePropertiesPlansTab.tsx",
   "ui/src/components/issue-properties/IssuePropertiesArtifactsTab.tsx",
@@ -54,7 +53,10 @@ function walk(dir, out) {
 
 const files = [];
 for (const d of SCAN_DIRS) walk(join(repoRoot, d), files);
-for (const f of SCAN_FILES) files.push(join(repoRoot, f));
+// A listed file that was removed or renamed is reported, not a crash: the
+// check stopped running at all when TaskChatRedesignGate.tsx went away.
+const missingFiles = SCAN_FILES.filter((f) => !existsSync(join(repoRoot, f)));
+for (const f of SCAN_FILES) if (!missingFiles.includes(f)) files.push(join(repoRoot, f));
 
 const violations = [];
 for (const file of files) {
@@ -72,22 +74,32 @@ for (const file of files) {
 const seams = [
   {
     file: "ui/src/pages/IssueDetail.tsx",
-    needle: "? TaskChatThread : IssueChatThread",
+    needle: "const ThreadComponent = classicTaskInterfaceEnabled",
     label: "chat-tab seam",
   },
   {
     file: "ui/src/components/issue-properties/IssueProperties.tsx",
-    needle: "if (!taskChatRedesignEnabled) return propertiesBody;",
+    needle: "if (!taskChatShellEnabled || sidePanelContentOnly) return propertiesBody;",
     label: "properties-pane seam",
   },
 ];
 const missingSeams = [];
 for (const seam of seams) {
-  const text = readFileSync(join(repoRoot, seam.file), "utf8");
+  const path = join(repoRoot, seam.file);
+  if (!existsSync(path)) {
+    missingSeams.push(`${seam.label} (${seam.file} is missing)`);
+    continue;
+  }
+  const text = readFileSync(path, "utf8");
   if (!text.includes(seam.needle)) missingSeams.push(`${seam.label} (${seam.file})`);
 }
 
 let failed = false;
+if (missingFiles.length > 0) {
+  failed = true;
+  console.error("Files listed for the motion check are missing (update SCAN_FILES):");
+  for (const f of missingFiles) console.error(`  ${f}`);
+}
 if (violations.length > 0) {
   failed = true;
   console.error("Hardcoded timing found in the task-chat redesign surface:");

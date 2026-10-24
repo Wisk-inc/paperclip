@@ -123,6 +123,13 @@ describe("pickAvailableIssuePrefix", () => {
     expect(new PgDialect().sqlToQuery(conditions[0] as SQL).params).toEqual([3, "A%_"]);
   });
 
+  it("never picks a prefix the board uses as a page address", async () => {
+    // "Organic" derives ORG, which /ORG/... would route to the org chart.
+    const { db } = stubPrefixReadDb([]);
+    await expect(pickAvailableIssuePrefix(db, "ORG")).resolves.toBe("ORGA");
+    await expect(pickAvailableIssuePrefix(db, "U")).resolves.toBe("UA");
+  });
+
   it("skips every prefix already taken in the same family", async () => {
     const { db } = stubPrefixReadDb(["ACM", "ACMA", "ACMB"]);
     // ACMB belongs to a different naming scheme, so it does not block ACMAA.

@@ -111,7 +111,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
     breadcrumbs.length > 1 ? (
       <Button
         variant="ghost"
-        size="icon-sm"
+        size="icon"
         className="mr-1 shrink-0"
         onClick={() => {
           haptic("tick");
@@ -129,7 +129,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
     ) : (
       <Button
         variant="ghost"
-        size="icon-sm"
+        size="icon"
         className="mr-2 shrink-0"
         onClick={toggleSidebar}
         aria-label="Open sidebar"
@@ -223,7 +223,8 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
   // Other single-crumb pages keep their existing page-title presentation.
   if (breadcrumbs.length === 1 && !taskDetailLayout) {
     return (
-      <div className="h-(--sz-60px) shrink-0 flex items-center border-b border-border px-4 md:px-6">
+      // A named container, so trailing controls can shrink on narrow phones.
+      <div className="@container/header h-(--sz-60px) shrink-0 flex items-center border-b border-border px-4 md:px-6">
         {menuButton}
         <div className="min-w-0 overflow-hidden flex-1">
           {breadcrumbs[0].leading || breadcrumbs[0].identifier ? (

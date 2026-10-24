@@ -13,6 +13,7 @@ import {
   type StudioAssistantStep,
   type StudioAssistantTurn,
 } from "@paperclipai/shared";
+import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -239,7 +240,21 @@ export function StudioAssistant({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const info = STUDIO_AI_PROVIDER_INFO[choice.provider];
-  const keyStatus = keys.find((key) => key.provider === choice.provider);
+  // Removing a key waits out an Undo window first (DESIGN.md: undo over
+  // confirm); a failed removal brings the key back and says why.
+  const keyRemoval = useUndoableAction({
+    commit: async (provider) => {
+      try {
+        await onRemoveKey(provider as StudioAiProvider);
+      } catch (removeError) {
+        setError(removeError instanceof Error ? `Couldn't remove the key: ${removeError.message}` : "Couldn't remove the key");
+        throw removeError;
+      }
+    },
+  });
+  const keyStatus = keyRemoval.hiddenIds.has(choice.provider)
+    ? undefined
+    : keys.find((key) => key.provider === choice.provider);
   const connected = Boolean(keyStatus?.connected);
   const showKeyForm = !connected || editingKey;
 
@@ -394,7 +409,7 @@ export function StudioAssistant({
               Using your organization&apos;s {info.name.replace(/ \(.*\)$/, "")} key (
               <Link to="/company/settings/api-keys" className="underline underline-offset-2">Settings → API keys</Link>)
             </span>
-            <Button variant="ghost" size="xs" onClick={() => setEditingKey(true)}>
+            <Button variant="ghost" size="sm" onClick={() => setEditingKey(true)}>
               Use another
             </Button>
           </div>
@@ -402,10 +417,17 @@ export function StudioAssistant({
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <KeyRound className="size-3.5" />
             <span className="min-w-0 flex-1 truncate">Key saved (ends in {keyStatus?.last4 ?? "…"})</span>
-            <Button variant="ghost" size="xs" onClick={() => setEditingKey(true)}>
+            <Button variant="ghost" size="sm" onClick={() => setEditingKey(true)}>
               Change
             </Button>
-            <Button variant="ghost" size="xs" onClick={() => void onRemoveKey(choice.provider)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setError(null);
+                keyRemoval.run(choice.provider, `${info.name.replace(/ \(.*\)$/, "")} key removed`);
+              }}
+            >
               Remove
             </Button>
           </div>

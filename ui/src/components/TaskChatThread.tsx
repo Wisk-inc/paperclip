@@ -3081,7 +3081,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                   // the nav height while the nav is visible so the composer's action
                   // row is never occluded, and drops it back to the safe-area dock
                   // when the nav auto-hides (PAP-495). transition-[bottom] rides the
-                  // nav's own 200ms slide; the offset only changes on nav toggles, so
+                  // nav's own slide (same duration); the offset only changes on nav toggles, so
                   // it never animates mid-scroll.
                   isMobile
                     ? "bottom-(--tc-composer-bottom) z-20 transition-[bottom] duration-200 ease-out"

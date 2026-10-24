@@ -19,6 +19,7 @@ import {
   isIssuePrefixConflict,
   issuePrefixSuffixForAttempt,
   pickAvailableIssuePrefix,
+  RESERVED_ISSUE_PREFIXES,
   rekeyCompanyIssueIdentifiers,
 } from "../services/issue-prefix.js";
 import { verifyLocalAgentJwt } from "../agent-auth-jwt.js";
@@ -920,6 +921,7 @@ async function insertCloudTenantCompany(
 ): Promise<void> {
   const base = deriveIssuePrefixBase(input.companyName);
   for (let attempt = 1; attempt <= MAX_ISSUE_PREFIX_ATTEMPTS; attempt += 1) {
+    if (RESERVED_ISSUE_PREFIXES.has(`${base}${issuePrefixSuffixForAttempt(attempt)}`)) continue;
     try {
       await db
         .insert(companies)

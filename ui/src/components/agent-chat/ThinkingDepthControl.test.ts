@@ -32,3 +32,10 @@ describe("thinking level keys", () => {
     expect(currentThinkingLevel({ adapterType: "claude_local", adapterConfig: { effort: "max" } } as never)).toBe("max");
   });
 });
+
+describe("Kimi thinking levels", () => {
+  it("offers levels only on Kimi's CLI engine and an effort-capable model", () => {
+    expect(thinkingLevelsFor({ adapterType: "kimi_local", adapterConfig: { engine: "cli", model: "kimi-code/k3" } } as never)).toEqual(["", "low", "high", "max"]);
+    expect(thinkingLevelsFor({ adapterType: "kimi_local", adapterConfig: { model: "kimi-code/k3" } } as never)).toEqual([]);
+  });
+});

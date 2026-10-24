@@ -5128,7 +5128,9 @@ export function CompanySkills() {
   });
 
   const skillFolderResult = skillFoldersQuery.data ?? null;
-  const showInstalledFolders = isDiscovery && effectiveDiscoveryTab === "installed";
+  // The streamlined view shows no folder rail, so it offers no folder actions
+  // either: "New folder" made folders that appeared nowhere on the page.
+  const showInstalledFolders = isDiscovery && effectiveDiscoveryTab === "installed" && browseRailsEnabled;
   const showInstalledBulkSelection = showInstalledFolders && !streamlinedUiEnabled;
   // Rail counts reflect the current category/search scope, never the folder
   // filter itself (ux-spec §5.3).

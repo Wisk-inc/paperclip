@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, ChevronDown, KeyRound } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName, type ModelProvider } from "@/lib/model-brand";
+import { handleRadioGroupKeyDown, radioTabIndex } from "@/lib/radio-group-keys";
 import { cn } from "@/lib/utils";
 
 /** Studio's provider ids, as the logo set names them. */
@@ -55,13 +56,20 @@ export function StudioModelSheet({
   onChange: (next: { provider: StudioAiProvider; model: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const info = STUDIO_AI_PROVIDER_INFO[provider];
   const models = info.models.includes(model) || !model ? info.models : [model, ...info.models];
   const status = keys.find((key) => key.provider === provider);
+  const chooseProvider = (id: StudioAiProvider) => {
+    if (id === provider) return;
+    haptic("tick");
+    onChange({ provider: id, model: STUDIO_AI_PROVIDER_INFO[id].defaultModel });
+  };
 
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => {
           haptic("tick");
@@ -87,6 +95,11 @@ export function StudioModelSheet({
           side="bottom"
           className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
           data-testid="studio-model-sheet"
+          // No SheetTrigger, so focus is sent back to the button by hand.
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            buttonRef.current?.focus();
+          }}
         >
           <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border" aria-hidden="true" />
           <SheetHeader className="gap-1 px-4 pt-3 pb-2">
@@ -95,8 +108,13 @@ export function StudioModelSheet({
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-border px-4 pt-3 pb-5">
             <h3 className="pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Provider</h3>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="AI provider">
-              {STUDIO_AI_PROVIDERS.map((id) => {
+            <div
+              className="grid grid-cols-2 gap-2"
+              role="radiogroup"
+              aria-label="AI provider"
+              onKeyDown={(event) => handleRadioGroupKeyDown(event, (index) => chooseProvider(STUDIO_AI_PROVIDERS[index]))}
+            >
+              {STUDIO_AI_PROVIDERS.map((id, index) => {
                 const selected = id === provider;
                 const label = keyLabel(keys.find((key) => key.provider === id));
                 return (
@@ -105,11 +123,8 @@ export function StudioModelSheet({
                     type="button"
                     role="radio"
                     aria-checked={selected}
-                    onClick={() => {
-                      if (selected) return;
-                      haptic("tick");
-                      onChange({ provider: id, model: STUDIO_AI_PROVIDER_INFO[id].defaultModel });
-                    }}
+                    tabIndex={radioTabIndex(selected, index, true)}
+                    onClick={() => chooseProvider(id)}
                     className={cn(
                       "flex min-h-14 min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-(--motion-duration-fast)",
                       selected ? "border-foreground bg-accent/60" : "border-border hover:bg-accent/40",
@@ -131,15 +146,24 @@ export function StudioModelSheet({
 
             <h3 className="pt-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model</h3>
             {info.models.length ? (
-              <ul className="flex flex-col divide-y divide-border rounded-lg border border-border" role="radiogroup" aria-label="Model">
-                {models.map((id) => {
+              // A div, not a list: a radiogroup's children must be radios.
+              <div
+                className="flex flex-col divide-y divide-border rounded-lg border border-border"
+                role="radiogroup"
+                aria-label="Model"
+                // Arrows pick a model and keep the sheet open; a tap or Enter
+                // picks it and closes the sheet.
+                onKeyDown={(event) => handleRadioGroupKeyDown(event, (index) => onChange({ provider, model: models[index] }))}
+              >
+                {models.map((id, index) => {
                   const selected = id === model;
                   return (
-                    <li key={id}>
+                    <div key={id}>
                       <button
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        tabIndex={radioTabIndex(selected, index, models.includes(model))}
                         onClick={() => {
                           haptic("tick");
                           onChange({ provider, model: id });
@@ -155,10 +179,10 @@ export function StudioModelSheet({
                         </span>
                         {selected ? <Check className="size-4 shrink-0" aria-label="Selected" /> : null}
                       </button>
-                    </li>
+                    </div>
                   );
                 })}
-              </ul>
+              </div>
             ) : (
               <Input
                 aria-label="Model name"

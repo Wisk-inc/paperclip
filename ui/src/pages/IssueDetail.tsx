@@ -5478,7 +5478,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         leading: <AgentStatusAvatar agent={conversationAgent} size={24} />,
         leadingKey: `agent:${conversationAgent.id}:${conversationAgent.status}`,
         trailing: (
-          <span className="ml-2 flex items-center gap-1">
+          <span className="ml-1 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />
             <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
           </span>

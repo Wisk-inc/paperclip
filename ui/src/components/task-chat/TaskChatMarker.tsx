@@ -78,6 +78,7 @@ export function TaskChatMarker({
               type="button"
               variant="outline"
               size="xs"
+              className="pointer-coarse:h-10 pointer-coarse:px-3"
               onClick={handleTryAgain}
               disabled={tryAgainPending}
               data-testid="task-chat-run-failed-try-again"
@@ -118,6 +119,7 @@ export function TaskChatMarker({
                   <Button
                     type="button"
                     size="xs"
+                    className="pointer-coarse:h-10 pointer-coarse:px-3"
                     onClick={handleTryAgain}
                     disabled={tryAgainPending}
                     data-testid="task-chat-run-failed-try-again"
@@ -165,6 +167,7 @@ export function TaskChatMarker({
             type="button"
             variant="outline"
             size="xs"
+            className="pointer-coarse:h-10 pointer-coarse:px-3"
             onClick={handleTryAgain}
             disabled={tryAgainPending}
             data-testid="task-chat-run-failed-try-again"

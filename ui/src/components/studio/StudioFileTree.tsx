@@ -218,6 +218,8 @@ export function StudioFileTree({
             <button
               type="button"
               onClick={() => (isFolder ? toggle(node.path) : onOpen(node.path))}
+              aria-expanded={isFolder ? isOpen : undefined}
+              aria-current={!isFolder && activePath === node.path ? "true" : undefined}
               className="flex min-h-9 min-w-0 flex-1 items-center gap-1.5 py-1 text-left pointer-coarse:min-h-10"
               style={{ paddingLeft: `calc(var(--spacing) * ${2 + depth * 4})` }}
               data-testid={`studio-tree-${node.path}`}
@@ -259,7 +261,7 @@ export function StudioFileTree({
                     variant="ghost"
                     size="icon-xs"
                     aria-label={`More for ${node.name}`}
-                    className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                    className="shrink-0 pointer-coarse:size-10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
                   >
                     <Ellipsis />
                   </Button>

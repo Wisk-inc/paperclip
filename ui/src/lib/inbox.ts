@@ -364,9 +364,18 @@ export function saveReadInboxItems(ids: Set<string>) {
   }
 }
 
-export function loadBellSeenKeys(): Set<string> {
+/**
+ * Each organization keeps its own seen list. One shared list was replaced by
+ * the current organization's items on every tap, so another organization's
+ * bell lit up again for things already seen there.
+ */
+export function bellSeenStorageKey(companyId: string | null | undefined): string {
+  return companyId ? `${BELL_SEEN_KEY}:${companyId}` : BELL_SEEN_KEY;
+}
+
+export function loadBellSeenKeys(companyId?: string | null): Set<string> {
   try {
-    const raw = localStorage.getItem(BELL_SEEN_KEY);
+    const raw = localStorage.getItem(bellSeenStorageKey(companyId));
     const parsed: unknown = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : []);
   } catch {
@@ -375,9 +384,9 @@ export function loadBellSeenKeys(): Set<string> {
 }
 
 /** Only the keys that currently exist are kept, so the list never grows past the inbox. */
-export function saveBellSeenKeys(keys: Iterable<string>) {
+export function saveBellSeenKeys(keys: Iterable<string>, companyId?: string | null) {
   try {
-    localStorage.setItem(BELL_SEEN_KEY, JSON.stringify([...keys]));
+    localStorage.setItem(bellSeenStorageKey(companyId), JSON.stringify([...keys]));
   } catch {
     // Ignore localStorage failures.
   }

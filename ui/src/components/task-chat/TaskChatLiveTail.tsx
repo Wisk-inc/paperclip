@@ -44,7 +44,7 @@ export function TaskChatLiveTail({
 
   if (rows.length === 0) {
     return emptyMessage ? (
-      <div className="px-1 py-1 text-xs text-muted-foreground/70">{emptyMessage}</div>
+      <div className="px-1 py-1 text-xs text-muted-foreground">{emptyMessage}</div>
     ) : null;
   }
 

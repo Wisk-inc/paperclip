@@ -4,7 +4,7 @@ import { Link } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { haptic } from "../lib/haptics";
-import { BELL_SEEN_KEY, loadBellSeenKeys, saveBellSeenKeys } from "../lib/inbox";
+import { bellSeenStorageKey, loadBellSeenKeys, saveBellSeenKeys } from "../lib/inbox";
 
 /**
  * The phone header's inbox: a bell with the count of items that arrived since
@@ -15,20 +15,21 @@ import { BELL_SEEN_KEY, loadBellSeenKeys, saveBellSeenKeys } from "../lib/inbox"
 export function InboxBell() {
   const { selectedCompanyId } = useCompany();
   const { keys } = useInboxBadge(selectedCompanyId);
-  const [seen, setSeen] = useState<Set<string>>(loadBellSeenKeys);
+  const [seen, setSeen] = useState<Set<string>>(() => loadBellSeenKeys(selectedCompanyId));
   useEffect(() => {
+    setSeen(loadBellSeenKeys(selectedCompanyId));
     const onStorage = (event: StorageEvent) => {
-      if (event.key === BELL_SEEN_KEY) setSeen(loadBellSeenKeys());
+      if (event.key === bellSeenStorageKey(selectedCompanyId)) setSeen(loadBellSeenKeys(selectedCompanyId));
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [selectedCompanyId]);
   const unseen = useMemo(() => keys.filter((key) => !seen.has(key)).length, [keys, seen]);
   const label = unseen > 0 ? `Inbox, ${unseen} new` : "Inbox";
   const markSeen = () => {
     haptic("tick");
     const next = new Set(keys);
-    saveBellSeenKeys(next);
+    saveBellSeenKeys(next, selectedCompanyId);
     setSeen(next);
   };
   return (

@@ -79,9 +79,9 @@ describe("ThemeContext", () => {
     document.body.innerHTML = "";
   });
 
-  it("follows OS prefers-color-scheme changes while no explicit choice has been made", () => {
+  it("keeps the black default when the phone's light/dark setting changes", () => {
     document.documentElement.classList.add("dark");
-    const mql = installMatchMedia(true);
+    const mql = installMatchMedia(false);
 
     const root = createRoot(container);
     act(() => {
@@ -93,20 +93,12 @@ describe("ThemeContext", () => {
     });
 
     expect(observedTheme).toBe("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    expect(mql.listenerCount()).toBe(1);
-
     act(() => {
       mql.dispatch(false);
     });
-    expect(observedTheme).toBe("light");
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
-
-    act(() => {
-      mql.dispatch(true);
-    });
+    // Launch opens black; following the phone only mid-session flipped it.
     expect(observedTheme).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
 
     act(() => {
@@ -114,7 +106,7 @@ describe("ThemeContext", () => {
     });
   });
 
-  it("stops listening to OS changes after the user makes an explicit choice", () => {
+  it("keeps and stores an explicit choice", () => {
     document.documentElement.classList.add("dark");
     const mql = installMatchMedia(true);
 
@@ -127,13 +119,10 @@ describe("ThemeContext", () => {
       );
     });
 
-    expect(mql.listenerCount()).toBe(1);
-
     act(() => {
       setTheme?.("light");
     });
     expect(observedTheme).toBe("light");
-    expect(mql.listenerCount()).toBe(0);
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
 
     act(() => {
@@ -152,7 +141,7 @@ describe("ThemeContext", () => {
     });
   });
 
-  it("does not attach the OS listener when a stored choice already exists", () => {
+  it("uses a stored choice and ignores the phone's setting", () => {
     window.localStorage.setItem(THEME_STORAGE_KEY, "light");
     const mql = installMatchMedia(true);
 
@@ -164,8 +153,6 @@ describe("ThemeContext", () => {
         </ThemeProvider>,
       );
     });
-
-    expect(mql.listenerCount()).toBe(0);
 
     act(() => {
       mql.dispatch(true);

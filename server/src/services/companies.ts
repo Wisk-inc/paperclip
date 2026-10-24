@@ -43,6 +43,7 @@ import {
   isIssuePrefixConflict,
   issuePrefixSuffixForAttempt,
   pickAvailableIssuePrefix,
+  RESERVED_ISSUE_PREFIXES,
   rekeyCompanyIssueIdentifiers,
 } from "./issue-prefix.js";
 import { environmentService } from "./environments.js";
@@ -280,6 +281,10 @@ export function companyService(db: Db) {
     let suffix = 1;
     while (suffix <= MAX_ISSUE_PREFIX_ATTEMPTS) {
       const candidate = `${base}${issuePrefixSuffixForAttempt(suffix)}`;
+      if (RESERVED_ISSUE_PREFIXES.has(candidate)) {
+        suffix += 1;
+        continue;
+      }
       try {
         const rows = await db
           .insert(companies)

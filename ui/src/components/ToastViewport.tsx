@@ -102,6 +102,7 @@ export function ToastViewport() {
     <aside
       aria-live="polite"
       aria-atomic="false"
+      data-slot="toast-viewport"
       className="pointer-events-none fixed inset-x-0 bottom-(--sz-calc-14) z-(--z-120) px-4 md:inset-x-auto md:bottom-3 md:left-3 md:w-full md:max-w-sm md:px-1"
     >
       <ol className="flex w-full flex-col-reverse gap-2">

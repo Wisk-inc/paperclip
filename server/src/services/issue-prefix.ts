@@ -31,6 +31,14 @@ export function deriveIssuePrefixBase(name: string) {
   return normalized.slice(0, 3) || ISSUE_PREFIX_FALLBACK;
 }
 
+/**
+ * Prefixes the board can't route to, because the first URL segment with that
+ * name is one of its own pages (`/org` is the org chart, `/u` a profile; see
+ * BOARD_ROUTE_ROOTS in ui/src/lib/company-routes.ts). An "Organic" company got
+ * ORG and could not be opened.
+ */
+export const RESERVED_ISSUE_PREFIXES = new Set(["ORG", "U"]);
+
 /** Disambiguating suffix for the nth allocation attempt: "", "A", "AA", ... */
 export function issuePrefixSuffixForAttempt(attempt: number) {
   if (attempt <= 1) return "";
@@ -94,7 +102,7 @@ export async function pickAvailableIssuePrefix(
   );
   for (let attempt = 1; attempt <= MAX_ISSUE_PREFIX_ATTEMPTS; attempt += 1) {
     const candidate = `${base}${issuePrefixSuffixForAttempt(attempt)}`;
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(candidate) && !RESERVED_ISSUE_PREFIXES.has(candidate)) return candidate;
   }
   return null;
 }

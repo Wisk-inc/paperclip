@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DEFAULT_KIMI_LOCAL_MODEL, KIMI_SUPPORTED_EFFORTS, modelSupportsEffort } from "@paperclipai/adapter-kimi-local";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Brain } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
@@ -8,6 +9,7 @@ import { setupEfforts } from "@/lib/agent-setup-fields";
 import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
+import { handleRadioGroupKeyDown, radioTabIndex } from "@/lib/radio-group-keys";
 
 /** What each effort level is called in the app, and what it means for a reply. */
 export const THINKING_LEVELS: Record<string, { label: string; hint: string }> = {
@@ -47,6 +49,13 @@ export function thinkingLevelPatch(agent: Pick<Agent, "adapterType">, level: str
 
 export function thinkingLevelsFor(agent: Pick<Agent, "adapterType" | "adapterConfig">): string[] {
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
+  if (agent.adapterType === "kimi_local") {
+    // Kimi reads the level only on its CLI engine, and only for the models
+    // that support it; anywhere else the control would change nothing.
+    return agent.adapterConfig?.engine === "cli" && modelSupportsEffort(model || DEFAULT_KIMI_LOCAL_MODEL)
+      ? ["", ...KIMI_SUPPORTED_EFFORTS]
+      : [];
+  }
   const efforts = setupEfforts(agent.adapterType, model);
   return efforts.length ? ["", ...efforts] : [];
 }
@@ -108,6 +117,11 @@ export function ThinkingDepthControl({ agent, className }: { agent: Agent; class
   if (levels.length === 0) return null;
   const pending = setLevel.isPending ? setLevel.variables : null;
   const active = pending ?? current;
+  const choose = (level: string) => {
+    if (setLevel.isPending || level === current) return;
+    haptic("tick");
+    setLevel.mutate(level);
+  };
   return (
     <div className={cn("flex flex-col gap-1.5", className)} data-testid="thinking-depth">
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -115,8 +129,13 @@ export function ThinkingDepthControl({ agent, className }: { agent: Agent; class
         Thinking
         <span className="min-w-0 truncate font-normal">· {THINKING_LEVELS[active]?.hint ?? ""}</span>
       </div>
-      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5" role="radiogroup" aria-label="Thinking depth">
-        {levels.map((level) => {
+      <div
+        className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5"
+        role="radiogroup"
+        aria-label="Thinking depth"
+        onKeyDown={(event) => handleRadioGroupKeyDown(event, (index) => choose(levels[index]))}
+      >
+        {levels.map((level, index) => {
           const selected = level === active;
           return (
             <button
@@ -124,14 +143,13 @@ export function ThinkingDepthControl({ agent, className }: { agent: Agent; class
               type="button"
               role="radio"
               aria-checked={selected}
-              disabled={setLevel.isPending}
-              onClick={() => {
-                if (level === current) return;
-                haptic("tick");
-                setLevel.mutate(level);
-              }}
+              tabIndex={radioTabIndex(selected, index, levels.includes(active))}
+              // aria-disabled, not disabled: a disabled button drops focus to
+              // the page while the level saves, and the next Tab started over.
+              aria-disabled={setLevel.isPending || undefined}
+              onClick={() => choose(level)}
               className={cn(
-                "min-h-9 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors duration-(--motion-duration-fast) disabled:opacity-60",
+                "min-h-9 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors duration-(--motion-duration-fast) aria-disabled:opacity-60",
                 selected
                   ? "border-foreground bg-foreground text-background"
                   : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",

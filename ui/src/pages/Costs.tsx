@@ -1,5 +1,5 @@
 import { AgentIdentity } from "@/components/AgentIdentity";
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BudgetPolicySummary,
@@ -156,6 +156,11 @@ function FinanceSummaryCard({
       </CardContent>
     </Card>
   );
+}
+
+/** Radix links every tab to its panel, but only the open panel exists. */
+function tabPanelLink(active: string, value: string) {
+  return active === value ? {} : { "aria-controls": undefined };
 }
 
 export function Costs({
@@ -649,11 +654,13 @@ export function Costs({
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)}>
         {!lockTab ? (
           <TabsList variant="line" className="justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            {!hideBudgetsTab ? <TabsTrigger value="budgets">Budgets</TabsTrigger> : null}
-            <TabsTrigger value="providers">Providers</TabsTrigger>
-            <TabsTrigger value="billers">Billers</TabsTrigger>
-            <TabsTrigger value="finance">Finance</TabsTrigger>
+            {/* Only the open tab's panel is on the page; the others must not
+                point screen readers at a panel that isn't there. */}
+            <TabsTrigger value="overview" {...tabPanelLink(mainTab, "overview")}>Overview</TabsTrigger>
+            {!hideBudgetsTab ? <TabsTrigger value="budgets" {...tabPanelLink(mainTab, "budgets")}>Budgets</TabsTrigger> : null}
+            <TabsTrigger value="providers" {...tabPanelLink(mainTab, "providers")}>Providers</TabsTrigger>
+            <TabsTrigger value="billers" {...tabPanelLink(mainTab, "billers")}>Billers</TabsTrigger>
+            <TabsTrigger value="finance" {...tabPanelLink(mainTab, "finance")}>Finance</TabsTrigger>
           </TabsList>
         ) : null}
 
@@ -771,6 +778,19 @@ export function Costs({
                             <div
                               className={cn("flex items-start justify-between gap-3", hasBreakdown ? "cursor-pointer select-none" : "")}
                               onClick={() => hasBreakdown && toggleAgent(row.agentId)}
+                              {...(hasBreakdown
+                                ? {
+                                    role: "button",
+                                    tabIndex: 0,
+                                    "aria-expanded": isExpanded,
+                                    "aria-label": `${row.agentName ?? row.agentId}: ${isExpanded ? "hide" : "show"} spend by model`,
+                                    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                                      if (event.key !== "Enter" && event.key !== " ") return;
+                                      event.preventDefault();
+                                      toggleAgent(row.agentId);
+                                    },
+                                  }
+                                : {})}
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 {hasBreakdown ? (

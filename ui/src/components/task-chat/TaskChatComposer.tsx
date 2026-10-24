@@ -339,6 +339,9 @@ type ComposerAttachment = {
   contentPath?: string;
 };
 
+/** The most files one message can carry (the server's comment limit). */
+const MAX_MESSAGE_ATTACHMENTS = 20;
+
 /** An uploaded inline image whose markdown is no longer in the message. */
 function isDroppedInlineImage(item: ComposerAttachment, body: string) {
   return Boolean(item.inline && item.status === "attached" && item.contentPath && !body.includes(item.contentPath));
@@ -687,8 +690,20 @@ export function TaskChatComposer({
     onPendingAssigneeChange?.(value);
   }
 
+  /**
+   * The server takes up to 20 files per message. Past that the whole send was
+   * refused ("Validation error") and the draft lost every file chip.
+   */
+  function attachmentLimitReached() {
+    const live = attachmentsRef.current.filter((item) => !isDroppedInlineImage(item, bodyRef.current));
+    if (live.length < MAX_MESSAGE_ATTACHMENTS) return false;
+    setActionError(`You can attach up to ${MAX_MESSAGE_ATTACHMENTS} files to one message. Send these first, then add more.`);
+    return true;
+  }
+
   /** Upload an image and return its URL for inline `![](src)` markdown. */
   async function uploadInlineImage(file: File): Promise<string> {
+    if (attachmentLimitReached()) throw new Error(`Only ${MAX_MESSAGE_ATTACHMENTS} files per message`);
     const id = crypto.randomUUID();
     setAttachments((prev) => [
       ...prev,
@@ -739,6 +754,7 @@ export function TaskChatComposer({
 
   /** Non-image files: attach to the task and track in the chip row. */
   async function attachNonImageFile(file: File) {
+    if (attachmentLimitReached()) return;
     const id = `${file.name}:${file.size}:${file.lastModified}:${Math.random().toString(36).slice(2)}`;
     setAttachments((prev) => [
       ...prev,
@@ -873,7 +889,13 @@ export function TaskChatComposer({
     previousTakeoverVisibleRef.current = takeoverVisible;
   }, [queuedEdit, takeoverVisible]);
 
-  const canResetPausedConversation = conversationMode && !queuedEdit && body.trim() === "/new" && attachments.length === 0;
+  // A paused chat can still start fresh: `/new`, or its aliases `/clear` and
+  // `/reset` (which the parser maps to "clear").
+  const canResetPausedConversation =
+    conversationMode &&
+    !queuedEdit &&
+    liveAttachments.length === 0 &&
+    (body.trim() === "/new" || parseChatSlashCommand(body)?.name === "clear");
 
   /** Empties the editor and its saved draft after a command ran without posting a message. */
   function resetComposerText() {
@@ -1734,7 +1756,8 @@ export function TaskChatComposer({
               className={cn(
                 // Micro-states: empty shrinks and dims, ready pops back to
                 // full size, a press squeezes, and sending holds full size.
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-(--tp-transform-opacity) duration-(--motion-duration-fast) ease-(--motion-ease-out-expo) hover:scale-105 active:scale-90 disabled:scale-100",
+                // 40 px on phones, so a thumb hits it; 32 px with a mouse.
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full md:h-8 md:w-8 transition-(--tp-transform-opacity) duration-(--motion-duration-fast) ease-(--motion-ease-out-expo) hover:scale-105 active:scale-90 disabled:scale-100",
                 streamlined
                   ? "bg-foreground text-background disabled:bg-foreground disabled:text-background disabled:opacity-100"
                   : "bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground",

@@ -26,6 +26,17 @@ describe("shouldSyncCompanySelectionFromRoute", () => {
     ).toBe(false);
   });
 
+  it("follows the route again once a manual switch has landed (Back after a switch)", () => {
+    expect(
+      shouldSyncCompanySelectionFromRoute({
+        selectionSource: "manual",
+        selectedCompanyId: "pap",
+        routeCompanyId: "ret",
+        manualSwitchSettled: true,
+      }),
+    ).toBe(true);
+  });
+
   it("syncs back to the route company for non-manual mismatches", () => {
     expect(
       shouldSyncCompanySelectionFromRoute({

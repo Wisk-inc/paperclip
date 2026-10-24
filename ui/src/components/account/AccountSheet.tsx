@@ -462,7 +462,8 @@ export function AccountButton({ className, size = "sm" }: { className?: string; 
         }}
         aria-label={`You: ${profile.name}. Profile and organization`}
         data-slot="account-button"
-        className={cn("shrink-0 rounded-full transition-transform active:scale-95", className)}
+        // The padding makes the tap area 40 px around the smaller avatar.
+        className={cn("shrink-0 rounded-full p-1 transition-transform active:scale-95", className)}
       >
         <Avatar className={cn("ring-2 ring-border", size === "md" ? "size-9" : "size-8")}>
           {profile.image ? <AvatarImage src={profile.image} alt="" referrerPolicy="no-referrer" /> : null}

@@ -105,18 +105,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [theme, hasExplicitChoice]);
 
-  // When the user has not made an explicit choice, follow OS-level
-  // `prefers-color-scheme` changes so the UI flips alongside the OS theme.
-  useEffect(() => {
-    if (hasExplicitChoice) return;
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = (event: MediaQueryListEvent) => {
-      setThemeState(event.matches ? "dark" : "light");
-    };
-    media.addEventListener("change", handleChange);
-    return () => media.removeEventListener("change", handleChange);
-  }, [hasExplicitChoice]);
+  // Automa opens in black unless the person picks a theme (index.html sets
+  // it before first paint). It used to follow the phone's light/dark setting
+  // only while open, so the app flipped mid-session and opened black again on
+  // the next launch; it now stays black until a theme is chosen.
 
   const value = useMemo(
     () => ({

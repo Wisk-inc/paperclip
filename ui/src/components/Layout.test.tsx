@@ -607,6 +607,34 @@ describe("Layout", () => {
     });
   });
 
+  it("puts the Skills rail in the phone drawer so Discover and My Skills stay reachable", async () => {
+    currentPathname = "/PAP/skills/studio";
+    mockSidebarState.isMobile = true;
+    mockSidebarState.sidebarOpen = true;
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(container.textContent).toContain("Skills sidebar");
+    expect(container.textContent).toContain("Main company nav");
+
+    await act(async () => {
+      root.unmount();
+    });
+    mockSidebarState.sidebarOpen = false;
+  });
+
   it("renders a mobile company settings selector on company settings routes", async () => {
     currentPathname = "/PAP/company/settings/secrets";
     mockSidebarState.isMobile = true;

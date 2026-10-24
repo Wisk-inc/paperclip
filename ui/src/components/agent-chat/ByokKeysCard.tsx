@@ -14,8 +14,13 @@ export const BYOK_PROVIDERS: Array<{ provider: AiProvider; name: string; brand: 
   { provider: "xai", name: "xAI", brand: "xai", hint: "Grok" },
 ];
 
+/**
+ * Adds a key on the API keys page, where it is saved as the person's own
+ * default. The Apps connect flow saved it shared with no personal default, so
+ * the person's agents failed while Chats said "Connected".
+ */
 export function connectKeyHref(provider: AiProvider) {
-  return `/apps/connect?source=${encodeURIComponent(provider)}`;
+  return `/company/settings/api-keys?add=${encodeURIComponent(provider)}`;
 }
 
 /** "Bring your own key": one row per provider, connected or a one-tap Add key. */

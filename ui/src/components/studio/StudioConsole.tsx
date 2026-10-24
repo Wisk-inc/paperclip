@@ -114,7 +114,7 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
           </span>
         ) : null}
         {onClear ? (
-          <Button variant="ghost" size="icon-xs" className="ml-auto text-studio-console-foreground hover:bg-studio-console-foreground/10 hover:text-studio-console-foreground" aria-label="Clear console" onClick={onClear}>
+          <Button variant="ghost" size="icon-xs" className="ml-auto pointer-coarse:size-10 text-studio-console-foreground hover:bg-studio-console-foreground/10 hover:text-studio-console-foreground" aria-label="Clear console" onClick={onClear}>
             <Eraser />
           </Button>
         ) : null}
@@ -153,7 +153,7 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            className="h-8 border-transparent bg-transparent font-mono text-sm text-studio-console-foreground shadow-none placeholder:text-studio-console-foreground/40 focus-visible:ring-0"
+            className="h-8 border-transparent bg-transparent font-mono text-sm text-studio-console-foreground shadow-none placeholder:text-studio-console-foreground/70 focus-visible:ring-0"
           />
           <Button type="submit" size="icon-sm" variant="ghost" disabled={busy} aria-label={mode === "input" ? "Send input" : "Run command"} className="text-studio-console-foreground hover:bg-studio-console-foreground/10 hover:text-studio-console-foreground">
             {busy ? <LoaderCircle className="animate-spin" /> : <Send />}

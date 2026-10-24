@@ -74,13 +74,19 @@ export function shouldSyncCompanySelectionFromRoute(params: {
   selectionSource: CompanySelectionSource;
   selectedCompanyId: string | null;
   routeCompanyId: string;
+  /**
+   * The route has shown the manually selected company since it was picked,
+   * so its navigation is done. A later route for another company (Back, or a
+   * link) then selects that company again.
+   */
+  manualSwitchSettled?: boolean;
 }): boolean {
-  const { selectionSource, selectedCompanyId, routeCompanyId } = params;
+  const { selectionSource, selectedCompanyId, routeCompanyId, manualSwitchSettled = false } = params;
 
   if (selectedCompanyId === routeCompanyId) return false;
 
   // Let manual company switches finish their remembered-path navigation first.
-  if (selectionSource === "manual" && selectedCompanyId) {
+  if (selectionSource === "manual" && selectedCompanyId && !manualSwitchSettled) {
     return false;
   }
 

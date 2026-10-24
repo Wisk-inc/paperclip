@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Star, Trash2 } from "lucide-react";
-import { cleanPastedApiKey, type AiManagedConnectionSummary, type AiProvider } from "@paperclipai/shared";
+import { STUDIO_AI_PROVIDER_INFO, cleanPastedApiKey, type AiManagedConnectionSummary, type AiProvider, type StudioAiProvider } from "@paperclipai/shared";
 import { aiConnectionsApi } from "@/api/ai-connections";
+import { studioApi } from "@/api/studio";
 import { toolsApi } from "@/api/tools";
 import { ModelLogo } from "@/components/ModelLogo";
 import { Mascot } from "@/components/mascot/Mascot";
@@ -13,6 +14,8 @@ import { useCompany } from "@/context/CompanyContext";
 import { useToastActions } from "@/context/ToastContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { haptic } from "@/lib/haptics";
+import { queryKeys } from "@/lib/queryKeys";
+import { useSearchParams } from "@/lib/router";
 import type { ModelProvider } from "@/lib/model-brand";
 import { cn } from "@/lib/utils";
 
@@ -60,14 +63,47 @@ export function ApiKeys() {
     [connections.data],
   );
 
-  const [provider, setProvider] = useState<AiProvider>("anthropic");
+  // "Add key" links elsewhere (chats, the model picker) open this page with
+  // their provider picked, so the key is saved as the person's own default.
+  const [searchParams] = useSearchParams();
+  const requestedProvider = searchParams.get("add");
+  const [provider, setProvider] = useState<AiProvider>(
+    () => PROVIDERS.find((item) => item.id === requestedProvider)?.id ?? "anthropic",
+  );
   const [keyInput, setKeyInput] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const info = PROVIDERS.find((item) => item.id === provider)!;
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["ai-connections"] });
+  // App Studio reads the organization's keys too, so its key status refreshes
+  // with every change here (it stayed stale for up to 30 s).
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["ai-connections"] }),
+      client.invalidateQueries({ queryKey: queryKeys.studio.aiKeys(companyId!) }),
+    ]);
+
+  // Keys saved inside App Studio take its place for Studio only; they are
+  // listed here so they can be seen and removed in the one place for keys.
+  const studioKeys = useQuery({
+    queryKey: queryKeys.studio.aiKeys(companyId ?? ""),
+    queryFn: () => studioApi.aiKeys(companyId!),
+    enabled: Boolean(companyId),
+  });
+  const studioOnlyKeys = (studioKeys.data?.keys ?? []).filter((key) => key.source === "studio");
+  const removeStudioKey = useMutation({
+    mutationFn: (studioProvider: StudioAiProvider) => studioApi.deleteAiKey(companyId!, studioProvider),
+    onSuccess: async () => {
+      haptic("success");
+      await refresh();
+      pushToast({ title: "App Studio key removed", body: "App Studio now uses the keys on this page.", tone: "success" });
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn't remove the key", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
 
   const add = useMutation({
     mutationFn: async () => {
@@ -213,7 +249,9 @@ export function ApiKeys() {
                         {copied === connection.id ? "Copied" : "Copy key"}
                       </Button>
                     ) : null}
-                    {!connection.isDefault ? (
+                    {/* A shared key is no one's personal default; the server
+                        refused this with "Only the owner can choose". */}
+                    {!connection.isDefault && connection.ownership !== "shared" ? (
                       <Button type="button" variant="ghost" size="sm" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate(connection.grantId)}>
                         <Star /> Make default
                       </Button>
@@ -244,6 +282,36 @@ export function ApiKeys() {
           </ul>
         )}
       </section>
+
+      {studioOnlyKeys.length > 0 ? (
+        <section aria-label="Saved in App Studio" className="flex flex-col gap-2" data-testid="api-keys-studio">
+          <h2 className="text-sm font-semibold">Saved in App Studio</h2>
+          <p className="text-xs text-muted-foreground">
+            App Studio uses these instead of the keys above. Remove one and Studio uses your keys here.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {studioOnlyKeys.map((key) => (
+              <li key={key.provider} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3" data-provider={key.provider}>
+                <KeyRound className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {STUDIO_AI_PROVIDER_INFO[key.provider].name}
+                  <span className="text-muted-foreground"> · ends in {key.last4 ?? "…"}</span>
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={removeStudioKey.isPending}
+                  onClick={() => removeStudioKey.mutate(key.provider)}
+                  data-testid="api-key-studio-remove"
+                >
+                  <Trash2 /> Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-label="Add a key" className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Add a key</h2>
