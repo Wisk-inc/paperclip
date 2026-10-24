@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
-import { and, eq, inArray } from "drizzle-orm";
-import { agents, heartbeatRuns, issues, type Db } from "@paperclipai/db";
+import { and, eq } from "drizzle-orm";
+import { agents, heartbeatRuns, type Db } from "@paperclipai/db";
 import {
   addApprovalCommentSchema,
   createApprovalSchema,
@@ -257,20 +257,7 @@ export function approvalRoutes(
     }
     // Check linked issues before anything is saved, so a refused request
     // leaves no half-made approval behind.
-    if (uniqueIssueIds.length > 0) {
-      const found = await db
-        .select({ id: issues.id, companyId: issues.companyId })
-        .from(issues)
-        .where(inArray(issues.id, uniqueIssueIds));
-      if (found.length !== uniqueIssueIds.length) {
-        res.status(404).json({ error: "One or more issues not found" });
-        return;
-      }
-      if (found.some((row) => row.companyId !== companyId)) {
-        res.status(422).json({ error: "Issue and approval must belong to the same company" });
-        return;
-      }
-    }
+    await issueApprovalsSvc.assertIssuesLinkable(companyId, uniqueIssueIds);
     const approval = await svc.create(companyId, {
       ...approvalInput,
       payload: normalizedPayload,

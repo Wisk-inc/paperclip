@@ -40,6 +40,33 @@ export function issueApprovalService(db: Db) {
     return { issue, approval };
   }
 
+  /**
+   * Every issue exists and belongs to the company. The approvals route checks
+   * this before it creates an approval, so a refused request leaves nothing
+   * half-made behind.
+   */
+  async function assertIssuesLinkable(companyId: string, issueIds: string[]) {
+    const uniqueIssueIds = Array.from(new Set(issueIds));
+    if (uniqueIssueIds.length === 0) return;
+    const rows = await db
+      .select({
+        id: issues.id,
+        companyId: issues.companyId,
+      })
+      .from(issues)
+      .where(inArray(issues.id, uniqueIssueIds));
+
+    if (rows.length !== uniqueIssueIds.length) {
+      throw notFound("One or more issues not found");
+    }
+
+    for (const row of rows) {
+      if (row.companyId !== companyId) {
+        throw unprocessable("Issue and approval must belong to the same company");
+      }
+    }
+  }
+
   return {
     listApprovalsForIssue: async (issueId: string) => {
       const issue = await getIssue(issueId);
@@ -132,6 +159,8 @@ export function issueApprovalService(db: Db) {
         .where(and(eq(issueApprovals.issueId, issueId), eq(issueApprovals.approvalId, approvalId)));
     },
 
+    assertIssuesLinkable,
+
     linkManyForApproval: async (approvalId: string, issueIds: string[], actor?: LinkActor) => {
       if (issueIds.length === 0) return;
 
@@ -139,23 +168,7 @@ export function issueApprovalService(db: Db) {
       if (!approval) throw notFound("Approval not found");
 
       const uniqueIssueIds = Array.from(new Set(issueIds));
-      const rows = await db
-        .select({
-          id: issues.id,
-          companyId: issues.companyId,
-        })
-        .from(issues)
-        .where(inArray(issues.id, uniqueIssueIds));
-
-      if (rows.length !== uniqueIssueIds.length) {
-        throw notFound("One or more issues not found");
-      }
-
-      for (const row of rows) {
-        if (row.companyId !== approval.companyId) {
-          throw unprocessable("Issue and approval must belong to the same company");
-        }
-      }
+      await assertIssuesLinkable(approval.companyId, uniqueIssueIds);
 
       await db
         .insert(issueApprovals)

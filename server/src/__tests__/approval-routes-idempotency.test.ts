@@ -22,6 +22,7 @@ const mockHeartbeatService = vi.hoisted(() => ({
 const mockIssueApprovalService = vi.hoisted(() => ({
   listIssuesForApproval: vi.fn(),
   linkManyForApproval: vi.fn(),
+  assertIssuesLinkable: vi.fn(async () => undefined),
 }));
 
 const mockSecretService = vi.hoisted(() => ({
