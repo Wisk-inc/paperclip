@@ -40,6 +40,7 @@ import { InlineBanner } from "../components/InlineBanner";
 import type { Agent, Issue } from "@paperclipai/shared";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { SmokeLabDashboardCard } from "../components/SmokeLabDashboardCard";
+import { FirstStepsCard } from "../components/FirstStepsCard";
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
@@ -385,7 +386,20 @@ export function Dashboard() {
 
       <ActiveAgentsPanel companyId={selectedCompanyId!} />
 
-      {data && (
+      {data && (() => {
+        // A new organization (no runs, no tasks yet) gets its first steps
+        // instead of zeros and empty charts.
+        const runsSoFar = data.runActivity.reduce((sum, day) => sum + day.total, 0);
+        const fresh = runsSoFar === 0 && (issues?.length ?? 0) === 0;
+        const agentTotal = data.agents.active + data.agents.running + data.agents.paused + data.agents.error;
+        return fresh ? (
+          <FirstStepsCard
+            companyId={selectedCompanyId!}
+            agentCount={agentTotal}
+            taskCount={issues?.length ?? 0}
+            budgetCents={data.costs.monthBudgetCents}
+          />
+        ) : (
         <>
           {data.budgets.activeIncidents > 0 ? (
             <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/20 bg-(image:--gradient-extract-1) px-4 py-3">
@@ -564,7 +578,8 @@ export function Dashboard() {
           </div>
 
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }

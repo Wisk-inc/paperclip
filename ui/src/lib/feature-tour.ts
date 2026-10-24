@@ -25,6 +25,14 @@ export function featureTourPending(): boolean {
   }
 }
 
+export function featureTourSeen(): boolean {
+  try {
+    return localStorage.getItem(FEATURE_TOUR_SEEN_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function markFeatureTourDone() {
   try {
     localStorage.removeItem(FEATURE_TOUR_PENDING_KEY);
