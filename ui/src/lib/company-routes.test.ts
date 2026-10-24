@@ -3,6 +3,7 @@ import {
   applyCompanyPrefix,
   extractCompanyPrefixFromPath,
   isBoardPathWithoutPrefix,
+  recoverMisreadCompanyPrefix,
   toCompanyRelativePath,
 } from "./company-routes";
 
@@ -125,6 +126,25 @@ describe("company routes", () => {
     expect(extractCompanyPrefixFromPath("/timeline")).toBeNull();
     expect(applyCompanyPrefix("/timeline", "PAP")).toBe("/PAP/timeline");
     expect(toCompanyRelativePath("/PAP/timeline")).toBe("/timeline");
+  });
+
+  it.each(["/terminals", "/terminals?tool=claude&agent=a1", "/app-inspector"])(
+    "treats %s as a board route, never as an organization prefix",
+    (path) => {
+      const pathname = path.split("?")[0]!;
+      expect(isBoardPathWithoutPrefix(pathname)).toBe(true);
+      expect(extractCompanyPrefixFromPath(pathname)).toBeNull();
+      expect(applyCompanyPrefix(path, "PAP")).toBe(`/PAP${path}`);
+      expect(toCompanyRelativePath(`/PAP${path}`)).toBe(path);
+    },
+  );
+
+  it("recovers paths where a page name was taken for an organization", () => {
+    expect(recoverMisreadCompanyPrefix("/TERMINALS", "NOR")).toBe("/NOR/terminals");
+    expect(recoverMisreadCompanyPrefix("/TERMINALS/tasks", "NOR")).toBe("/NOR/tasks");
+    expect(recoverMisreadCompanyPrefix("/APP-INSPECTOR/chats/ada", "NOR")).toBe("/NOR/chats/ada");
+    expect(recoverMisreadCompanyPrefix("/STUDIO/abc", "NOR")).toBe("/NOR/studio/abc");
+    expect(recoverMisreadCompanyPrefix("/ACME/tasks", "NOR")).toBeNull();
   });
 
   it("treats Skill Studio create mode as an unprefixed board route", () => {

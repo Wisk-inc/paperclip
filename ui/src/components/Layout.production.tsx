@@ -64,6 +64,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { scheduleMainContentFocus } from "../lib/main-content-focus";
 import { pinDocumentScrollToZero } from "../lib/pin-document-scroll";
 import { cn } from "../lib/utils";
+import { recoverMisreadCompanyPrefix } from "../lib/company-routes";
 import { NotFoundPage } from "../pages/NotFound";
 import {
   PluginSlotMount,
@@ -298,6 +299,13 @@ export function Layout() {
           : null) ??
         companies[0] ??
         null;
+      // A page name taken for an organization (/TERMINALS/tasks): go to the
+      // page in the current organization instead of "Organization not found".
+      const recovered = fallback ? recoverMisreadCompanyPrefix(location.pathname, fallback.issuePrefix) : null;
+      if (recovered) {
+        navigate(`${recovered}${location.search}${location.hash}`, { replace: true });
+        return;
+      }
       if (fallback && selectedCompanyId !== fallback.id) {
         setSelectedCompanyId(fallback.id, { source: "route_sync" });
       }

@@ -18,6 +18,8 @@ const BOARD_ROUTE_ROOTS = new Set([
   "artifacts",
   "device-files",
   "studio",
+  "terminals",
+  "app-inspector",
   "tools",
   "approvals",
   "costs",
@@ -66,6 +68,21 @@ export function isBoardPathWithoutPrefix(pathname: string): boolean {
   const root = getRootSegment(pathname);
   if (!root) return false;
   return BOARD_ROUTE_ROOTS.has(root.toLowerCase());
+}
+
+/**
+ * A page name read as an organization prefix (an unprefixed link once sent
+ * people to /terminals, which became organization "TERMINALS", and every tab
+ * there to /TERMINALS/tasks and the like), rewritten under a real one. Null
+ * when the first segment isn't a page name.
+ */
+export function recoverMisreadCompanyPrefix(pathname: string, companyPrefix: string): string | null {
+  const segments = pathname.split("/").filter(Boolean);
+  const first = segments[0];
+  if (!first || !BOARD_ROUTE_ROOTS.has(first.toLowerCase())) return null;
+  const rest = segments.slice(1);
+  const target = rest.length > 0 && BOARD_ROUTE_ROOTS.has(rest[0]!.toLowerCase()) ? rest : [first.toLowerCase(), ...rest];
+  return `/${companyPrefix}/${target.join("/")}`;
 }
 
 export function extractCompanyPrefixFromPath(pathname: string): string | null {

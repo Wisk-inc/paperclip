@@ -881,6 +881,8 @@ export function App() {
           <Route path="artifacts" element={<UnprefixedBoardRedirect />} />
           <Route path="studio" element={<UnprefixedBoardRedirect />} />
           <Route path="studio/:workspaceId" element={<UnprefixedBoardRedirect />} />
+          <Route path="terminals" element={<UnprefixedBoardRedirect />} />
+          <Route path="app-inspector" element={<UnprefixedBoardRedirect />} />
           <Route path="audit" element={<UnprefixedBoardRedirect />} />
           {streamlinedUiEnabled ? (
             <>
