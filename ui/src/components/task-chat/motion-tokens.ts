@@ -78,6 +78,8 @@ export const MOTION_TOKENS: MotionTokenDef[] = [
   { name: "--motion-fab-sheet-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-fab-sheet-exit", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
   { name: "--motion-hero-enter", group: "App shell", kind: "time", min: 0, max: 1500, step: 10 },
+  { name: "--motion-progress-sweep", group: "App shell", kind: "time", min: 0, max: 6000, step: 100 },
+  { name: "--motion-progress-fill", group: "App shell", kind: "time", min: 0, max: 2000, step: 10 },
 ];
 
 /** Common easing presets offered by the tweak panel's easing picker. */

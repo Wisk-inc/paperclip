@@ -98,7 +98,7 @@ it("requires a name and an enabled adapter before navigating", async () => {
   expect(query.get("name")).toBe("Ada & Co");
   expect(query.get("adapterType")).toBe("codex_local");
 });
-it("offers native Codex, Claude ACPX, and OpenCode runners", async () => {
+it("offers native Claude ACPX, Codex, and OpenCode runners", async () => {
   await name();
   await act(async () =>
     (
@@ -110,8 +110,10 @@ it("offers native Codex, Claude ACPX, and OpenCode runners", async () => {
   const options = [...document.querySelectorAll("option")].map(
     (option) => option.textContent,
   );
-  expect(options).toContain("Codex (app server)");
+  expect(options).toContain("Codex (OpenAI)");
   expect(options).toContain("Claude (ACPX)");
+  // Claude first: the runner used to start on Codex.
+  expect(options.indexOf("Claude (ACPX)")).toBeLessThan(options.indexOf("Codex (OpenAI)"));
   expect(options).toContain("OpenCode");
   expect(options.join(" ")).not.toContain("ACPX Codex");
 });
@@ -132,7 +134,7 @@ it.each([false, undefined])(
   },
 );
 
-it("offers Claude, Codex, OpenCode, and Grok on Cloud, even with the runner enabled", async () => {
+it("offers the Anthropic API, Claude, Codex, OpenCode, and Grok on Cloud, even with the runner enabled", async () => {
   await act(async () => {
     cache.setQueryData(queryKeys.health, {
       status: "ok",
@@ -160,7 +162,7 @@ it("offers Claude, Codex, OpenCode, and Grok on Cloud, even with the runner enab
     [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map(
       (input) => input.value,
     ),
-  ).toEqual(["claude_local", "codex_local", "opencode_local", "grok_local"]);
+  ).toEqual(["anthropic_api", "claude_local", "codex_local", "opencode_local", "grok_local"]);
   expect(document.body.textContent).not.toContain("CLI harness");
   await act(async () =>
     document.querySelector<HTMLInputElement>('input[value="grok_local"]')!.click(),

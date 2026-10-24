@@ -70,6 +70,12 @@ const companyState = vi.hoisted(() => ({
 
 vi.mock("../api/goals", () => ({ goalsApi: mockGoalsApi }));
 vi.mock("@/api/adapters", () => ({ adaptersApi: mockAdaptersApi }));
+const mockAiConnectionsApi = vi.hoisted(() => ({
+  list: vi.fn(async () => ({ currentUserId: "user-1", connections: [] })),
+  create: vi.fn(async () => ({ connectionId: "connection-1", grantId: "grant-1" })),
+}));
+vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
+vi.mock("@/api/secrets", () => ({ secretsApi: { listMyUserSecrets: vi.fn(async () => []), list: vi.fn(async () => []) } }));
 vi.mock("../api/companies", () => ({ companiesApi: mockCompaniesApi }));
 vi.mock("../api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("../api/approvals", () => ({ approvalsApi: { create: vi.fn() } }));
@@ -648,8 +654,17 @@ describe("OnboardingWizard — which step it lands on", () => {
 
       await press(stepCta());
       await pickModelSource();
+      // Onboarding needs a working connection; with no browser sign-in here,
+      // that is an API key.
+      await press([...document.body.querySelectorAll("button")].find((button) => button.textContent?.trim().startsWith("Use API key instead"))!);
+      setControlledValue(document.body.querySelector('input[placeholder="Enter API key here"]') as HTMLInputElement, "sk-ant-test");
+      // The saved-keys check settles before the key can be submitted.
+      await settle();
+      await settle();
+      await settle();
       await press(stepCta());
 
+      expect(mockAiConnectionsApi.create).toHaveBeenCalled();
       expect(mockAgentsApi.hire).toHaveBeenCalled();
       const [, payload] = mockAgentsApi.hire.mock.calls.at(-1)!;
       expect(payload.role).toBe("general");
