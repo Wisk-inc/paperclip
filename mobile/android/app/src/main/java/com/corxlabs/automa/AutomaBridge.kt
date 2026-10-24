@@ -22,10 +22,14 @@ import java.util.concurrent.ExecutorService
  * else shown in a frame, so the key (handed only to the app's own pages, see
  * [MainActivity.installPageKey]) is what keeps those frames out. Device
  * methods answer only the configured Automa server, connect methods only the
- * bundled connect screen. File bytes never travel through this bridge as
- * strings; the page fetches them from same-origin URLs under [NATIVE_PREFIX]
- * that [intercept] serves locally.
+ * bundled connect screen. Device file bytes never travel through this bridge
+ * as strings; the page fetches them from same-origin URLs under
+ * [NATIVE_PREFIX] that [intercept] serves locally. The one way in is a file
+ * the page itself made (an export), which comes in bounded chunks.
  */
+/** The largest file a page may save through [AutomaBridge.beginDownload]. */
+private const val MAX_DOWNLOAD_BYTES = 2L * 1024 * 1024 * 1024
+
 class AutomaBridge(
     private val activity: MainActivity,
     private val config: ServerConfig,
@@ -131,6 +135,67 @@ class AutomaBridge(
     fun saveBase64(key: String?, filename: String, mimeType: String, base64: String) {
         if (!onServerPage(key)) return
         executor.execute { activity.reportDownload(Downloads.saveBase64(activity, filename, mimeType, base64)) }
+    }
+
+    /*
+     * Large blob downloads (a company or project export can be tens of MB)
+     * arrive in chunks instead of one string: the whole file as base64 ran the
+     * app out of memory. Chunks are written to a cache file as they come, then
+     * the file is copied to Downloads. The calls are synchronous, so the
+     * page's chunks arrive in order.
+     */
+    private class PendingDownload(val file: java.io.File, val filename: String, val mimeType: String) {
+        var bytes = 0L
+    }
+
+    private val pendingDownloads = java.util.concurrent.ConcurrentHashMap<String, PendingDownload>()
+
+    @JavascriptInterface
+    fun beginDownload(key: String?, filename: String, mimeType: String): String {
+        if (!onServerPage(key)) return ""
+        val dir = java.io.File(activity.cacheDir, "downloads").apply { mkdirs() }
+        val id = UUID.randomUUID().toString()
+        val file = java.io.File(dir, "$id.part")
+        if (!runCatching { file.createNewFile() }.getOrDefault(false)) return ""
+        pendingDownloads[id] = PendingDownload(file, filename, mimeType)
+        return id
+    }
+
+    @JavascriptInterface
+    fun appendDownload(key: String?, id: String, base64: String): Boolean {
+        if (!onServerPage(key)) return false
+        val pending = pendingDownloads[id] ?: return false
+        val bytes = runCatching { android.util.Base64.decode(base64, android.util.Base64.DEFAULT) }.getOrNull()
+        if (bytes == null || pending.bytes + bytes.size > MAX_DOWNLOAD_BYTES) {
+            cancelDownload(key, id)
+            return false
+        }
+        val ok = runCatching { java.io.FileOutputStream(pending.file, true).use { it.write(bytes) } }.isSuccess
+        if (!ok) {
+            cancelDownload(key, id)
+            return false
+        }
+        pending.bytes += bytes.size
+        return true
+    }
+
+    @JavascriptInterface
+    fun finishDownload(key: String?, id: String) {
+        if (!onServerPage(key)) return
+        val pending = pendingDownloads.remove(id) ?: return
+        executor.execute {
+            try {
+                activity.reportDownload(Downloads.saveFile(activity, pending.filename, pending.mimeType, pending.file))
+            } finally {
+                pending.file.delete()
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun cancelDownload(key: String?, id: String) {
+        if (!keyOk(key)) return
+        pendingDownloads.remove(id)?.file?.delete()
     }
 
     @JavascriptInterface

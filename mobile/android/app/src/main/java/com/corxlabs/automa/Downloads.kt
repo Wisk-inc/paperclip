@@ -67,6 +67,11 @@ object Downloads {
         return save(context, clean(filename), mimeType ?: "application/octet-stream", bytes.inputStream())
     }
 
+    /** Copies a finished file (a chunked page download) into Downloads. */
+    fun saveFile(context: Context, filename: String, mimeType: String?, file: File): Result =
+        runCatching { file.inputStream().use { save(context, clean(filename), mimeType ?: "application/octet-stream", it) } }
+            .getOrDefault(Result(false, filename, false))
+
     fun saveDataUrl(context: Context, dataUrl: String, filename: String): Result {
         val header = dataUrl.substringBefore(',')
         val payload = dataUrl.substringAfter(',', "")

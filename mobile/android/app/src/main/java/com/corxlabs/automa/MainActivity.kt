@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.ConnectivityManager
@@ -137,15 +138,39 @@ class MainActivity : ComponentActivity() {
 (function () {
   if (window.__automaDownloadHook) return;
   window.__automaDownloadHook = true;
-  function save(href, name) {
-    fetch(href).then(function (r) { return r.blob(); }).then(function (blob) {
+  function base64Of(part) {
+    return new Promise(function (resolve, reject) {
       var reader = new FileReader();
-      reader.onload = function () {
-        var data = String(reader.result || '');
-        if (window.AutomaNative) window.AutomaNative.saveBase64(window.__automaKey || '', name || 'download', blob.type || 'application/octet-stream', data.slice(data.indexOf(',') + 1));
-      };
-      reader.readAsDataURL(blob);
+      reader.onload = function () { var data = String(reader.result || ''); resolve(data.slice(data.indexOf(',') + 1)); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(part);
     });
+  }
+  // Sent in 512 KB pieces: one base64 string of a large export ran the app
+  // out of memory.
+  function save(href, name) {
+    saveNow(href, name).catch(function () {});
+  }
+  async function saveNow(href, name) {
+    var native = window.AutomaNative;
+    if (!native) return;
+    var key = window.__automaKey || '';
+    var blob = await (await fetch(href)).blob();
+    var type = blob.type || 'application/octet-stream';
+    var id = native.beginDownload ? native.beginDownload(key, name || 'download', type) : '';
+    if (!id) {
+      native.saveBase64(key, name || 'download', type, await base64Of(blob));
+      return;
+    }
+    var size = 512 * 1024;
+    try {
+      for (var offset = 0; offset < blob.size; offset += size) {
+        if (!native.appendDownload(key, id, await base64Of(blob.slice(offset, offset + size)))) return;
+      }
+      native.finishDownload(key, id);
+    } catch (error) {
+      native.cancelDownload(key, id);
+    }
   }
   var click = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function () {
@@ -320,6 +345,19 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         super.onStop()
+    }
+
+    private fun textZoomFor(configuration: Configuration) = (configuration.fontScale * 100).toInt().coerceIn(85, 200)
+
+    // The manifest keeps the activity on a font size change (fontScale is in
+    // configChanges), so the WebView's text zoom is updated here; it was set
+    // only at creation and the new size showed after a restart.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::webView.isInitialized) {
+            val zoom = textZoomFor(newConfig)
+            if (webView.settings.textZoom != zoom) webView.settings.textZoom = zoom
+        }
     }
 
     override fun onResume() {
@@ -838,7 +876,7 @@ class MainActivity : ComponentActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             // Follow the system font size for accessibility.
-            textZoom = (resources.configuration.fontScale * 100).toInt().coerceIn(85, 200)
+            textZoom = textZoomFor(resources.configuration)
             userAgentString = "$userAgentString AutomaAndroid/${BuildConfig.VERSION_NAME}"
             // Rasterize tiles just outside the screen while the view is attached:
             // a fast flick lands on painted content instead of a blank strip.
