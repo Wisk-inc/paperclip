@@ -230,7 +230,10 @@ say "Letting the Automa app start Automa, and starting it when the phone boots"
 # The app starts Automa through Termux's RUN_COMMAND, which Termux only allows
 # once allow-external-apps is on. Android still asks you once in the app.
 mkdir -p "$HOME/.termux"
-if ! grep -qs '^allow-external-apps *= *true' "$HOME/.termux/termux.properties"; then
+touch "$HOME/.termux/termux.properties"
+if ! grep -qs '^[[:space:]]*allow-external-apps[[:space:]]*=[[:space:]]*true' "$HOME/.termux/termux.properties"; then
+  # Replace any "= false" line rather than leaving Termux two answers.
+  sed -i '/^[[:space:]]*allow-external-apps/d' "$HOME/.termux/termux.properties"
   printf '\nallow-external-apps = true\n' >> "$HOME/.termux/termux.properties"
   command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings || true
 fi

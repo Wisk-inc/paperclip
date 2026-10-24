@@ -102,6 +102,20 @@
         <li data-step="open" data-state="todo">Your board opens</li>
       </ol>
       <span id="wait-help" class="wait-help" hidden></span>
+      <div id="wait-fix" class="wait-fix" hidden>
+        <strong>One setting in Termux</strong>
+        <span>Termux only lets other apps start Automa once <code>allow-external-apps</code> is on.</span>
+        <ol>
+          <li>Tap <b>Copy fix and open Termux</b>.</li>
+          <li>In Termux, long-press the screen, tap <b>Paste</b>, then press Enter.</li>
+          <li>Come back here and tap <b>Try again</b>.</li>
+        </ol>
+        <code id="wait-fix-command"></code>
+        <div class="row">
+          <button type="button" id="wait-fix-copy" class="primary">Copy fix and open Termux</button>
+          <button type="button" id="wait-fix-retry" class="secondary">Try again</button>
+        </div>
+      </div>
       <div class="row">
         <button type="button" id="wait-termux" class="secondary" hidden>Open Termux</button>
         <button type="button" id="wait-stop" class="secondary">Stop waiting</button>

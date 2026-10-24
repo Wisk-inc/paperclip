@@ -103,6 +103,17 @@ class MainActivity : ComponentActivity() {
         private const val TERMUX_RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
         private const val TERMUX_RUN_COMMAND_ACTION = "com.termux.RUN_COMMAND"
         private const val TERMUX_RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService"
+        private const val PREF_TERMUX_REFUSED = "refused_external_apps"
+
+        /**
+         * Pasted into Termux, this turns on allow-external-apps (replacing a
+         * "false" line if there is one) and reloads Termux's settings.
+         */
+        const val TERMUX_ALLOW_EXTERNAL_APPS_FIX =
+            "mkdir -p ~/.termux && touch ~/.termux/termux.properties && " +
+                "sed -i '/^[[:space:]]*allow-external-apps/d' ~/.termux/termux.properties && " +
+                "echo 'allow-external-apps = true' >> ~/.termux/termux.properties && " +
+                "termux-reload-settings && echo 'Done. Go back to Automa and tap Try again.'"
         // Termux's own files, which RUN_COMMAND names by absolute path; they are
         // not in this app's storage, so getFilesDir() can't stand in for them.
         @SuppressLint("SdCardPath")
@@ -807,8 +818,13 @@ class MainActivity : ComponentActivity() {
      * time. Replies {ok, output} once Termux confirms, {ok, pending} when it
      * has not answered in a while, or {ok:false, reason, error}.
      */
-    fun startAutomaInTermux(done: (JSONObject) -> Unit) {
+    fun startAutomaInTermux(force: Boolean = false, done: (JSONObject) -> Unit) {
         if (!isTermuxInstalled()) return done(termuxFailure("not_installed", "Install Termux first (from F-Droid), then set up Automa in it."))
+        // Termux refused before (allow-external-apps is off). Asking again only
+        // makes Termux show its error report; wait for "Try again" instead.
+        if (!force && termuxRefusedExternalApps()) {
+            return done(termuxNotAllowed().put("skipped", true))
+        }
         if (hasTermuxRunPermission()) return launchAutomaInTermux(done)
         // A second request while Android's dialog is up waits for the same answer.
         val earlier = termuxStartAfterPermission
@@ -824,6 +840,10 @@ class MainActivity : ComponentActivity() {
             if (!finished) {
                 finished = true
                 runCatching { unregisterReceiver(receiver) }
+                when {
+                    reply.optString("reason") == "not_allowed" -> setTermuxRefusedExternalApps(true)
+                    reply.optBoolean("ok") && !reply.optBoolean("pending") -> setTermuxRefusedExternalApps(false)
+                }
                 done(reply)
             }
         }
@@ -867,10 +887,7 @@ class MainActivity : ComponentActivity() {
 
     /** What Termux's refusal means, and what fixes it, in one sentence. */
     private fun explainTermuxError(message: String): JSONObject = when {
-        message.contains("allow-external-apps", ignoreCase = true) -> termuxFailure(
-            "not_allowed",
-            "Termux doesn't let other apps start Automa yet. Open Termux and run the Automa setup again (it turns this on), or run: automa run",
-        )
+        message.contains("allow-external-apps", ignoreCase = true) -> termuxNotAllowed()
         Regex("no such file|not found|does not exist|not exist", RegexOption.IGNORE_CASE).containsMatchIn(message) -> termuxFailure(
             "not_set_up",
             "Automa isn't set up in Termux yet. Follow \"Run Automa on this phone\" below.",
@@ -880,6 +897,19 @@ class MainActivity : ComponentActivity() {
 
     private fun termuxFailure(reason: String, message: String): JSONObject =
         JSONObject().put("ok", false).put("reason", reason).put("error", message)
+
+    private fun termuxNotAllowed(): JSONObject = termuxFailure(
+        "not_allowed",
+        "Termux needs one setting before Automa can start it: allow-external-apps.",
+    ).put("fix", TERMUX_ALLOW_EXTERNAL_APPS_FIX)
+
+    private val termuxPrefs get() = getSharedPreferences("termux", MODE_PRIVATE)
+
+    private fun termuxRefusedExternalApps(): Boolean = termuxPrefs.getBoolean(PREF_TERMUX_REFUSED, false)
+
+    private fun setTermuxRefusedExternalApps(refused: Boolean) {
+        termuxPrefs.edit().putBoolean(PREF_TERMUX_REFUSED, refused).apply()
+    }
 
     fun openTermux() {
         val launch = packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE)

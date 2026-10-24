@@ -411,6 +411,16 @@ class AutomaBridge(
         activity.runOnUiThread { activity.startAutomaInTermux { reply -> resolve(callId, reply.toString()) } }
     }
 
+    /**
+     * Like [startAutomaInTermux], but asks Termux even after it refused
+     * before: the person fixed the setting and tapped "Try again".
+     */
+    @JavascriptInterface
+    fun retryAutomaInTermux(key: String?, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread { activity.startAutomaInTermux(force = true) { reply -> resolve(callId, reply.toString()) } }
+    }
+
     /** Opens Termux, or its download page when it is not installed. Connect screen only. */
     @JavascriptInterface
     fun openTermux(key: String?) {

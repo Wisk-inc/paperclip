@@ -286,6 +286,15 @@ input:focus-visible { border-color: var(--fg); }
 /* The waiting card: what is happening now, a bar that fills as each step
    finishes, and the steps themselves. No timers to read. */
 .wait { border-color: var(--fg); }
+/* Termux refused to start Automa: the one setting to fix, step by step. */
+.wait-fix { display: grid; gap: 8px; margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--muted); font-size: 13px; }
+.wait-fix[hidden] { display: none; }
+.wait-fix strong { margin: 0; }
+.wait-fix ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--fg); }
+.wait-fix code { color: var(--fg); }
+#wait-fix-command { display: block; padding: 8px; border-radius: 8px; background: var(--card); font-size: 12px; word-break: break-all; }
+.wait-fix .row { display: flex; gap: 8px; }
+.wait-fix .row button { flex: 1; height: 44px; font-size: 14px; }
 .wait-status { color: var(--fg) !important; font-weight: 500; }
 .wait-bar { position: relative; height: 6px; margin: 12px 0 4px; border-radius: 3px; background: var(--border); overflow: hidden; }
 .wait-bar span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--fg); transition: width 400ms ease-out; }

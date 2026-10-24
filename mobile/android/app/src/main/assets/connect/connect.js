@@ -135,6 +135,9 @@
   var waitBar = waitFill.parentNode;
   var waitHelp = document.getElementById("wait-help");
   var waitTermux = document.getElementById("wait-termux");
+  var waitFix = document.getElementById("wait-fix");
+  var waitFixCommand = document.getElementById("wait-fix-command");
+  var lastWaitAddress = "";
   var waitTimer = null;
   var fillTimer = null;
   var tries = 0;
@@ -180,7 +183,15 @@
     waitHelp.hidden = !text;
     waitTermux.hidden = !offerTermux;
   }
+  // Termux refused (allow-external-apps is off): show the one-line fix
+  // instead of asking it again, which only makes Termux pop an error report.
+  function showAllowFix(command) {
+    if (command) waitFixCommand.textContent = command;
+    waitFix.hidden = false;
+    setHelp("", false);
+  }
   function stopWaiting() {
+    waitFix.hidden = true;
     if (waitTimer) clearTimeout(waitTimer);
     if (fillTimer) clearInterval(fillTimer);
     waitTimer = null;
@@ -206,13 +217,18 @@
   }
   // Asks Termux to start Automa (`automa start`), saying what it waits on:
   // Android's permission dialog the first time, then Termux's answer.
-  function startInTermux(then) {
+  function startInTermux(then, retry) {
     startedTermux = true;
     var granted = bridge.termuxRunPermissionGranted && bridge.termuxRunPermissionGranted(KEY);
     setStep("termux", granted ? "Waiting for confirmation from Termux…" : "Waiting for your OK: allow Automa to run commands in Termux.");
-    bridge.startAutomaInTermux(KEY, nextCall("termux-start", function (reply) {
+    var start = retry && bridge.retryAutomaInTermux ? bridge.retryAutomaInTermux : bridge.startAutomaInTermux;
+    start.call(bridge, KEY, nextCall("termux-start", function (reply) {
       if (reply && reply.ok !== false) {
+        waitFix.hidden = true;
         setStep("answer", reply.pending ? "Asked Termux to start Automa. Waiting for it to answer…" : "Termux started Automa. Waiting for it to answer…");
+      } else if (reply && reply.reason === "not_allowed") {
+        showAllowFix(reply.fix);
+        setStep("answer", "Waiting for Automa. Fix the Termux setting below, or run automa run in Termux.");
       } else {
         var reason = reply && reply.reason;
         setHelp((reply && reply.error) || "Termux didn't start Automa.", reason !== "not_set_up" && reason !== "not_installed");
@@ -227,6 +243,7 @@
   // already starting it there).
   function connectWaiting(address, startTermux) {
     if (!bridge) return;
+    lastWaitAddress = address;
     showError("");
     setPose("thinking");
     if (tries === 0) {
@@ -276,6 +293,21 @@
       showError(message);
     });
   }
+  document.getElementById("wait-fix-copy").addEventListener("click", function () {
+    haptic("tick");
+    if (bridge && bridge.copyText) bridge.copyText(KEY, waitFixCommand.textContent || "");
+    if (bridge && bridge.openTermux) bridge.openTermux(KEY);
+  });
+  document.getElementById("wait-fix-retry").addEventListener("click", function () {
+    haptic("tick");
+    if (!bridge) return;
+    waitFix.hidden = true;
+    if (waitBox.hidden) {
+      connectWaiting(lastWaitAddress || input.value, true);
+      return;
+    }
+    startInTermux(function () {}, true);
+  });
   waitTermux.addEventListener("click", function () {
     haptic("tick");
     if (bridge && bridge.openTermux) bridge.openTermux(KEY);
