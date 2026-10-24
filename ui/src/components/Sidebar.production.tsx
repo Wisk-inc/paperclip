@@ -206,6 +206,7 @@ export function Sidebar() {
           <SidebarNavItem to="/device-files" label="Files" icon={FolderSync} badge={filesBadge.pendingRequests} badgeLabel="file requests" />
           <SidebarNavItem to="/studio" label="App Studio" icon={CodeXml} />
           <SidebarNavItem to="/terminals" label="Terminals" icon={SquareTerminal} />
+          <SidebarNavItem to="/app-inspector" label="App Inspector" icon={Boxes} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />

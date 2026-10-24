@@ -195,6 +195,7 @@ const ProductionOrgChart = lazy(() =>
 const Studio = lazy(() => import("./pages/Studio").then((module) => ({ default: module.Studio })));
 const StudioWorkspace = lazy(() => import("./pages/StudioWorkspace").then((module) => ({ default: module.StudioWorkspace })));
 const Terminals = lazy(() => import("./pages/Terminals").then((module) => ({ default: module.Terminals })));
+const AppInspector = lazy(() => import("./pages/AppInspector").then((module) => ({ default: module.AppInspector })));
 
 function ProductionSurface({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PaperclipLoading />}>{children}</Suspense>;
@@ -442,6 +443,7 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="studio" element={<ProductionSurface><Studio /></ProductionSurface>} />
       <Route path="studio/:workspaceId" element={<ProductionSurface><StudioWorkspace /></ProductionSurface>} />
       <Route path="terminals" element={<ProductionSurface><Terminals /></ProductionSurface>} />
+      <Route path="app-inspector" element={<ProductionSurface><AppInspector /></ProductionSurface>} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
       <Route path="approvals/pending" element={<Approvals />} />
       <Route path="approvals/all" element={<Approvals />} />
