@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => ({
     __PAPERCLIP_BUILD_COMMIT__: JSON.stringify(
       readBrowserBuildCommit(__dirname),
     ),
+    // When this board was built, shown under About.
+    __AUTOMA_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [react(), tailwindcss(), serviceWorkerBuildIdPlugin()],
   build: {

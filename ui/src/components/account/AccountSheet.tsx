@@ -39,6 +39,8 @@ import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { cn } from "@/lib/utils";
+import { AUTOMA_RELEASES } from "@/lib/release-history";
+import { AboutAutomaSheet } from "./AboutAutomaSheet";
 
 const NAME_MAX = 120;
 
@@ -131,6 +133,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const appVersion = inApp ? automaNative.info()?.appVersion ?? null : null;
   const googleSignedIn = profile.source === "google";
 
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [name, setName] = useState(profile.name);
   const [orgName, setOrgName] = useState(selectedCompany?.name ?? "");
   useEffect(() => {
@@ -430,9 +433,17 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </section>
 
           <footer className="flex flex-col items-center gap-1 pt-1 text-center text-xs text-muted-foreground" data-slot="account-about">
-            <span>
-              Automa{appVersion ? ` ${appVersion}` : ""} by Corx Labs · Made in Jamaica 🇯🇲
-            </span>
+            <button
+              type="button"
+              className="min-h-8 rounded-md px-2 underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => {
+                haptic("tick");
+                setAboutOpen(true);
+              }}
+              data-testid="account-about-open"
+            >
+              Automa {appVersion ?? AUTOMA_RELEASES[0]!.version} by Corx Labs · Made in Jamaica 🇯🇲 · About
+            </button>
             <span className="flex gap-3">
               <a href="/legal/terms.html" className="underline underline-offset-2 hover:text-foreground">Terms</a>
               <a href="/legal/privacy.html" className="underline underline-offset-2 hover:text-foreground">Privacy</a>
@@ -441,6 +452,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </footer>
         </div>
       </SheetContent>
+      <AboutAutomaSheet open={aboutOpen} onOpenChange={setAboutOpen} />
     </Sheet>
   );
 }

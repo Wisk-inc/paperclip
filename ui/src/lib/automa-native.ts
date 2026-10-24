@@ -26,6 +26,8 @@ export interface AutomaNativeInfo {
   deviceName: string;
   platform: "android";
   appVersion: string;
+  /** When the APK was built (ISO time); missing on apps before 1.7.0. */
+  buildTime?: string;
   sdkInt: number;
 }
 

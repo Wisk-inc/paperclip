@@ -37,6 +37,12 @@ android {
         versionCode = ((project.findProperty("automa.versionCode") as String?) ?: "1").toInt()
         versionName = (project.findProperty("automa.versionName") as String?) ?: "1.0.0"
         buildConfigField("boolean", "FIREBASE_ENABLED", firebaseConfigured.toString())
+        // When this APK was built, shown under About in the app.
+        buildConfigField(
+            "String",
+            "BUILD_TIME",
+            "\"" + ((project.findProperty("automa.buildTime") as String?) ?: java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).toString()) + "\"",
+        )
     }
 
     signingConfigs {

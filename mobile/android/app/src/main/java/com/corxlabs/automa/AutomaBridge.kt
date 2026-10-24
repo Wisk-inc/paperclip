@@ -72,6 +72,7 @@ class AutomaBridge(
             .put("deviceName", deviceName())
             .put("platform", "android")
             .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("buildTime", BuildConfig.BUILD_TIME)
             .put("phoneAddress", ServerConfig.localNetworkAddress() ?: JSONObject.NULL)
             .put("sdkInt", Build.VERSION.SDK_INT)
             .toString()
@@ -274,6 +275,7 @@ class AutomaBridge(
             .put("serverUrl", config.serverUrl ?: JSONObject.NULL)
             .put("recent", JSONArray(config.recentServers))
             .put("appVersion", BuildConfig.VERSION_NAME)
+            .put("buildTime", BuildConfig.BUILD_TIME)
             .put("phoneAddress", ServerConfig.localNetworkAddress() ?: JSONObject.NULL)
             // A connect request another app sent (Termux's launcher): shown, never applied without a tap.
             .put(
