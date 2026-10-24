@@ -17,6 +17,7 @@ import type {
   StudioToolchainStatus,
   StudioWorkspace,
   StudioAssistantAttachmentInput,
+  StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { buildSameOriginWebSocketUrl } from "../lib/websocket-url";
 import { api, ApiError } from "./client";
@@ -151,7 +152,10 @@ export const studioApi = {
   deleteAiKey: (companyId: string, provider: StudioAiProvider) =>
     api.delete<{ ok: true }>(`${company(companyId)}/ai-keys/${encodeURIComponent(provider)}`),
   assistant: (id: string) => api.get<{ turns: StudioAssistantTurn[]; running: boolean }>(`${ws(id)}/assistant`, { cache: "no-store" }),
-  askAssistant: (id: string, input: { message: string; provider: StudioAiProvider; model: string; attachments?: StudioAssistantAttachmentInput[] }) =>
+  askAssistant: (
+    id: string,
+    input: { message: string; provider: StudioAiProvider; model: string; attachments?: StudioAssistantAttachmentInput[]; thinking?: StudioThinkingLevel },
+  ) =>
     api.post<{ turn: StudioAssistantTurn }>(`${ws(id)}/assistant`, input),
   stopAssistant: (id: string) => api.post<{ ok: true }>(`${ws(id)}/assistant/stop`, {}),
   clearAssistant: (id: string) => api.delete<{ ok: true }>(`${ws(id)}/assistant`),

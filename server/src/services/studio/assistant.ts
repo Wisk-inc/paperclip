@@ -8,10 +8,12 @@ import {
   STUDIO_ASSISTANT_IMAGE_TYPES,
   STUDIO_AI_PROVIDER_INFO,
   studioLanguage,
+  studioThinkingLevels,
   type StudioAiProvider,
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
+  type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
@@ -314,6 +316,11 @@ function supportsEffort(model: string) {
   return !/^claude-(?:haiku-4|sonnet-4-5|opus-4-[01]|sonnet-4-0|3)/.test(model) && /^claude-/.test(model);
 }
 
+/** The picked thinking level, when this provider's model takes it. */
+function thinkingLevelFor(provider: StudioAiProvider, model: string, level: StudioThinkingLevel | undefined) {
+  return level && studioThinkingLevels(provider, model).includes(level) ? level : null;
+}
+
 interface ProviderCredentials {
   apiKey: string;
   baseUrl: string | null;
@@ -334,6 +341,8 @@ export async function runAssistantTurn(input: {
   checkpointId?: string | null;
   /** Images the model looks at and text files inlined into the prompt. */
   attachments?: StudioAssistantAttachmentInput[];
+  /** How long the model thinks; ignored where the model has no such setting. */
+  thinking?: StudioThinkingLevel;
 }) {
   const { context } = input;
   if (running.has(context.workspaceId)) throw conflict("The assistant is still working; wait or tap Stop");
@@ -538,6 +547,7 @@ async function runAnthropic(input: {
   prompt: string;
   images: StudioAssistantAttachmentInput[];
   model: string;
+  thinking?: StudioThinkingLevel;
   credentials: ProviderCredentials;
   signal: AbortSignal;
   onStep: (step: StudioAssistantStep) => void;
@@ -593,6 +603,8 @@ async function runAnthropic(input: {
     ...(baseURL ? {} : { eager_input_streaming: true }),
   }));
   const useFallbacks = FALLBACK_MODELS.has(input.model);
+  // High unless the person picked another level the model takes.
+  const effort = supportsEffort(input.model) ? thinkingLevelFor("anthropic", input.model, input.thinking) ?? "high" : null;
   let jsonRetries = 0;
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
@@ -600,13 +612,14 @@ async function runAnthropic(input: {
     const stream = client.beta.messages.stream(
       {
         model: input.model,
-        max_tokens: 32000,
+        // The deepest levels think and act at length; they get room to finish.
+        max_tokens: effort === "xhigh" || effort === "max" ? 64000 : 32000,
         system: [{ type: "text", text: systemPrompt(context), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
         // Thinking is shown in the panel as it happens (summarized).
         ...(supportsAdaptiveThinking(input.model) ? { thinking: { type: "adaptive" as const, display: "summarized" as const } } : {}),
-        ...(supportsEffort(input.model) ? { output_config: { effort: "high" as const } } : {}),
+        ...(effort ? { output_config: { effort } } : {}),
         ...(useFallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
       },
       { signal: input.signal },
@@ -686,6 +699,7 @@ async function runOpenAiCompatible(input: {
   images: StudioAssistantAttachmentInput[];
   provider: StudioAiProvider;
   model: string;
+  thinking?: StudioThinkingLevel;
   credentials: ProviderCredentials;
   signal: AbortSignal;
   onStep: (step: StudioAssistantStep) => void;
@@ -717,6 +731,7 @@ async function runOpenAiCompatible(input: {
       : input.prompt,
   });
   const tools = TOOLS.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } }));
+  const reasoningEffort = thinkingLevelFor(input.provider, input.model, input.thinking);
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
@@ -735,6 +750,8 @@ async function runOpenAiCompatible(input: {
         tool_choice: "auto",
         // OpenRouter adds the call's cost to its usage report when asked.
         ...(input.provider === "openrouter" ? { usage: { include: true } } : {}),
+        // OpenRouter takes one reasoning setting for every model it routes to.
+        ...(reasoningEffort ? (input.provider === "openrouter" ? { reasoning: { effort: reasoningEffort } } : { reasoning_effort: reasoningEffort }) : {}),
       }),
     });
     const text = await response.text();

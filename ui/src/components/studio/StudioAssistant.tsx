@@ -7,11 +7,13 @@ import {
   STUDIO_ASSISTANT_MAX_ATTACHMENTS,
   STUDIO_ASSISTANT_MAX_IMAGE_BYTES,
   STUDIO_ASSISTANT_MAX_TEXT_BYTES,
+  STUDIO_THINKING_LEVELS,
   type StudioAiKeyStatus,
   type StudioAiProvider,
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
+  type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
@@ -22,6 +24,7 @@ import { ModelLogo } from "@/components/ModelLogo";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import { StudioModelSheet } from "./StudioModelSheet";
+import { StudioThinkingControl, effectiveStudioThinking } from "./StudioThinkingControl";
 import { modelDisplayName } from "@/lib/model-brand";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
@@ -55,25 +58,44 @@ interface StudioAssistantProps {
   keys: StudioAiKeyStatus[];
   onSaveKey: (provider: StudioAiProvider, apiKey: string, baseUrl: string | null) => Promise<void>;
   onRemoveKey: (provider: StudioAiProvider) => Promise<void>;
-  onSend: (message: string, provider: StudioAiProvider, model: string, attachments?: StudioAssistantAttachmentInput[]) => Promise<void>;
+  onSend: (
+    message: string,
+    provider: StudioAiProvider,
+    model: string,
+    attachments?: StudioAssistantAttachmentInput[],
+    thinking?: StudioThinkingLevel,
+  ) => Promise<void>;
   onStop: () => Promise<void>;
   onClear: () => Promise<void>;
   /** Goes back to the checkpoint saved before a message. */
   onUndo?: (checkpointId: string) => Promise<void>;
-  /** Remembers the provider and model per organization. */
+  /** Remembers the provider, model and thinking level per organization. */
   storageKey: string;
   /** A first message to send once a key is ready (from "describe your app"). */
   initialPrompt?: string | null;
   onInitialPromptUsed?: () => void;
 }
 
-function readChoice(storageKey: string): { provider: StudioAiProvider; model: string } {
+interface AiChoice {
+  provider: StudioAiProvider;
+  model: string;
+  thinking?: StudioThinkingLevel;
+}
+
+function readChoice(storageKey: string): AiChoice {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (raw) {
-      const parsed = JSON.parse(raw) as { provider?: string; model?: string };
+      const parsed = JSON.parse(raw) as { provider?: string; model?: string; thinking?: string };
       if (parsed.provider && (STUDIO_AI_PROVIDERS as readonly string[]).includes(parsed.provider)) {
-        return { provider: parsed.provider as StudioAiProvider, model: parsed.model || STUDIO_AI_PROVIDER_INFO[parsed.provider as StudioAiProvider].defaultModel };
+        const thinking = (STUDIO_THINKING_LEVELS as readonly string[]).includes(parsed.thinking ?? "")
+          ? (parsed.thinking as StudioThinkingLevel)
+          : undefined;
+        return {
+          provider: parsed.provider as StudioAiProvider,
+          model: parsed.model || STUDIO_AI_PROVIDER_INFO[parsed.provider as StudioAiProvider].defaultModel,
+          ...(thinking ? { thinking } : {}),
+        };
       }
     }
   } catch {
@@ -226,7 +248,7 @@ export function StudioAssistant({
   initialPrompt,
   onInitialPromptUsed,
 }: StudioAssistantProps) {
-  const [choice, setChoice] = useState(() => readChoice(storageKey));
+  const [choice, setChoice] = useState<AiChoice>(() => readChoice(storageKey));
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -316,7 +338,13 @@ export function StudioAssistant({
     setSending(true);
     setError(null);
     try {
-      await onSend(trimmed, choice.provider, choice.model.trim(), attachments.map((item) => item.input));
+      await onSend(
+        trimmed,
+        choice.provider,
+        choice.model.trim(),
+        attachments.map((item) => item.input),
+        effectiveStudioThinking(choice.provider, choice.model.trim(), choice.thinking),
+      );
       haptic("tick");
       setMessage("");
       for (const item of attachments) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -357,8 +385,15 @@ export function StudioAssistant({
           keys={keys}
           onChange={(next) => {
             if (next.provider !== choice.provider) setEditingKey(false);
-            setChoice(next);
+            // The level carries over to the next model when it takes it too.
+            setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}) });
           }}
+        />
+        <StudioThinkingControl
+          provider={choice.provider}
+          model={choice.model}
+          value={choice.thinking}
+          onChange={(thinking) => setChoice(({ thinking: _old, ...rest }) => (thinking ? { ...rest, thinking } : rest))}
         />
         {choice.provider === "anthropic" && FALLBACK_MODELS.has(choice.model) ? (
           <p className="text-xs text-muted-foreground">Fallbacks are on: if Claude declines a request, Anthropic retries it on another Claude model.</p>

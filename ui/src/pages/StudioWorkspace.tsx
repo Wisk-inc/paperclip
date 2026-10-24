@@ -873,9 +873,15 @@ export function StudioWorkspace() {
         await studioApi.deleteAiKey(companyId, provider);
         await queryClient.invalidateQueries({ queryKey: queryKeys.studio.aiKeys(companyId) });
       }}
-      onSend={async (message, provider, model, attachments) => {
+      onSend={async (message, provider, model, attachments, thinking) => {
         await save();
-        const sent = await studioApi.askAssistant(workspaceId, { message, provider, model, ...(attachments?.length ? { attachments } : {}) });
+        const sent = await studioApi.askAssistant(workspaceId, {
+          message,
+          provider,
+          model,
+          ...(attachments?.length ? { attachments } : {}),
+          ...(thinking ? { thinking } : {}),
+        });
         // Shown at once, whether or not the live socket is connected.
         setTurns((current) => upsertTurn(current, sent.turn));
         setAssistantRunning(true);

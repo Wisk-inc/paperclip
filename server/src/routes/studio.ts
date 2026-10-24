@@ -843,7 +843,7 @@ export function studioRoutes(db: Db) {
         by: "AI assistant",
       }).catch(() => null);
       const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body);
-      await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null });
+      await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null, thinking: req.body.thinking ?? null });
       res.status(202).json({ turn: userTurn });
     } finally {
       startingAssistant.delete(workspace.id);
@@ -854,7 +854,13 @@ export function studioRoutes(db: Db) {
     workspace: WorkspaceRow,
     checkpointId: string | null,
     credentials: NonNullable<Awaited<ReturnType<typeof svc.resolveAiKey>>>,
-    body: { message?: string; provider: StudioAiProvider; model: string; attachments?: Parameters<typeof runAssistantTurn>[0]["attachments"] },
+    body: {
+      message?: string;
+      provider: StudioAiProvider;
+      model: string;
+      attachments?: Parameters<typeof runAssistantTurn>[0]["attachments"];
+      thinking?: Parameters<typeof runAssistantTurn>[0]["thinking"];
+    },
   ) {
     return runAssistantTurn({
       checkpointId,
@@ -872,6 +878,7 @@ export function studioRoutes(db: Db) {
       provider: body.provider,
       model: body.model,
       attachments: body.attachments ?? [],
+      ...(body.thinking ? { thinking: body.thinking } : {}),
       credentials,
     });
   }
