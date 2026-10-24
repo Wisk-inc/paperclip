@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Cpu, KeyRound } from "lucide-react";
+import { ChevronRight, Cpu, KeyRound, SquareTerminal } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { ModelLogo } from "@/components/ModelLogo";
@@ -26,6 +26,14 @@ const CLAUDE_ENGINES = [
     hint: "The Claude Code program on the computer that runs Automa. Phones use the API instead.",
   },
 ] as const;
+
+/** The terminal tool each coding adapter maps to, for "Open a terminal as this agent". */
+const TERMINAL_TOOL_FOR_ADAPTER: Record<string, string> = {
+  claude_local: "claude",
+  codex_local: "codex",
+  gemini_local: "gemini",
+  opencode_local: "opencode",
+};
 
 /**
  * An agent's AI settings in one place: its model, how long it thinks, and
@@ -115,6 +123,19 @@ export function AgentAiSettings({ agent, onNavigate }: { agent: Agent; onNavigat
             );
           })}
         </fieldset>
+      ) : null}
+
+      {TERMINAL_TOOL_FOR_ADAPTER[agent.adapterType] ? (
+        <Link
+          to={`/terminals?tool=${TERMINAL_TOOL_FOR_ADAPTER[agent.adapterType]}&agent=${agent.id}`}
+          onClick={onNavigate}
+          className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm text-foreground hover:bg-accent/60"
+          data-testid="agent-open-terminal"
+        >
+          <SquareTerminal className="size-4 text-muted-foreground" aria-hidden="true" />
+          <span className="flex-1">Open a terminal as {agent.name}</span>
+          <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+        </Link>
       ) : null}
 
       <Link

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CircleStop, Loader2, Play, SquareTerminal, Wrench } from "lucide-react";
 import { TERMINAL_TOOLS, type TerminalSessionSummary, type TerminalToolId, type TerminalToolInfo } from "@paperclipai/shared";
@@ -8,6 +8,7 @@ import { Mascot } from "@/components/mascot/Mascot";
 import { Button } from "@/components/ui/button";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
+import { useSearchParams } from "@/lib/router";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
@@ -61,7 +62,7 @@ export function Terminals() {
   const linuxReady = status.data?.linuxReady ?? true;
 
   const start = useMutation({
-    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell" }) =>
+    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string }) =>
       terminalsApi.start(companyId!, { ...input, cols: 80, rows: 24 }),
     onSuccess: ({ session }) => {
       haptic("tick");
@@ -78,6 +79,25 @@ export function Terminals() {
     mutationFn: (id: string) => terminalsApi.stop(companyId!, id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["terminals", "sessions", companyId] }),
   });
+
+  // A deep link from an agent ("Open a terminal as this agent") auto-opens the tool.
+  const [params, setParams] = useSearchParams();
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current || !status.data) return;
+    const toolParam = params.get("tool");
+    if (!toolParam || !TERMINAL_TOOLS.some((t) => t.id === toolParam)) return;
+    autoStarted.current = true;
+    const agentParam = params.get("agent") ?? undefined;
+    const toolId = toolParam as TerminalToolId;
+    const isInstalled = toolId === "shell" || installed.get(toolId);
+    start.mutate({ toolId, mode: toolId === "shell" ? "shell" : isInstalled ? "run" : "install", agentId: agentParam });
+    const next = new URLSearchParams(params);
+    next.delete("tool");
+    next.delete("agent");
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.data]);
 
   if (!companyId) return null;
 

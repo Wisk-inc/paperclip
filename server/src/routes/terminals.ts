@@ -8,6 +8,9 @@ import { forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { logActivity } from "../services/activity-log.js";
 import { supportsLocalAiLogin } from "../services/local-ai-login-policy.js";
+import { aiConnectionService } from "../services/ai-connections.js";
+import { TOOL_CREDENTIAL } from "../services/terminals/registry.js";
+import { getActorInfo } from "./authz.js";
 import { terminalStatus } from "../services/terminals/status.js";
 import {
   listTerminalSessions,
@@ -35,7 +38,18 @@ export function terminalsRoutes(
   opts: { deploymentMode: DeploymentMode; deploymentExposure: DeploymentExposure },
 ) {
   const router = Router();
+  const connections = aiConnectionService(db);
   const enabled = supportsLocalAiLogin({ deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure });
+
+  // When a terminal opens a coding CLI, hand it the operator's saved key for
+  // that tool's provider so it starts already signed in. Nothing is logged or
+  // returned; the key only reaches the child process's environment.
+  async function toolEnv(companyId: string, userId: string, toolId: string): Promise<Record<string, string> | undefined> {
+    const credential = TOOL_CREDENTIAL[toolId as keyof typeof TOOL_CREDENTIAL];
+    if (!credential) return undefined;
+    const key = await connections.credentialForProvider(companyId, userId, credential.provider).catch(() => null);
+    return key ? { [credential.envVar]: key } : undefined;
+  }
 
   function assertDeviceOperator(req: Request) {
     if (!enabled) throw forbidden("Terminals run on the device Automa runs on, and this instance is hosted for many people.");
@@ -66,6 +80,7 @@ export function terminalsRoutes(
     assertDeviceOperator(req);
     const body = startSchema.parse(req.body);
     try {
+      const env = body.mode === "run" ? await toolEnv(companyId, getActorInfo(req).actorId, body.toolId) : undefined;
       const session = startTerminalSession({
         companyId,
         toolId: body.toolId,
@@ -74,6 +89,7 @@ export function terminalsRoutes(
         rows: body.rows ?? 24,
         cwd: body.cwd,
         agentId: body.agentId ?? null,
+        ...(env ? { env } : {}),
       });
       await logActivity(db, {
         companyId,

@@ -6,7 +6,7 @@
  * The command is a closed, in-code set keyed by the tool id. Opening a terminal
  * can only ever start one of these — never an arbitrary process a caller named.
  */
-import { terminalToolInfo, type TerminalToolId } from "@paperclipai/shared";
+import { terminalToolInfo, type AiProvider, type TerminalToolId } from "@paperclipai/shared";
 
 export { TERMINAL_TOOLS, isTerminalToolId, type TerminalToolId } from "@paperclipai/shared";
 
@@ -35,3 +35,15 @@ const COMMANDS: Record<TerminalToolId, ToolCommand> = {
 export function terminalCommand(id: TerminalToolId): ToolCommand {
   return COMMANDS[id];
 }
+
+/**
+ * The provider and environment variable each agent-capable tool reads its key
+ * from, so a terminal can open already authenticated with the operator's saved
+ * key. Tools with their own sign-in (Gemini, Kimi) aren't listed; they log in
+ * in the terminal.
+ */
+export const TOOL_CREDENTIAL: Partial<Record<TerminalToolId, { provider: AiProvider; envVar: string }>> = {
+  claude: { provider: "anthropic", envVar: "ANTHROPIC_API_KEY" },
+  codex: { provider: "openai", envVar: "OPENAI_API_KEY" },
+  opencode: { provider: "openrouter", envVar: "OPENROUTER_API_KEY" },
+};
