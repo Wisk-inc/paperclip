@@ -1347,6 +1347,10 @@ const BOARD_ONLY_PREFIXES = [
   "/api/instance/",
   "/api/studio/",
   "/api/companies/{companyId}/studio/",
+  // Terminals and the App Inspector run programs on the device itself: its
+  // operator only, never an agent.
+  "/api/companies/{companyId}/terminals/",
+  "/api/companies/{companyId}/app-inspector/",
 ];
 
 const BOARD_ONLY_OPERATIONS = new Set([
@@ -1365,6 +1369,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "DELETE /api/companies/{companyId}/ai-connections/local/attempts/{sessionId}",
   "PUT /api/companies/{companyId}/ai-connections/default",
   "GET /api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
+  "GET /api/companies/{companyId}/ai-connections/{connectionId}/balance",
   "POST /api/companies/{companyId}/ai-connections/{connectionId}/reveal",
   "GET /api/companies/{companyId}/ai-connections/login/{sessionId}",
 
@@ -7792,6 +7797,59 @@ registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/l
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/workspaces", tags: ["studio"], summary: "List App Studio apps" });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/studio/workspaces", tags: ["studio"], summary: "Create an app from a language template or a Git clone", body: createStudioWorkspaceSchema });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/studio/cloudflared", tags: ["studio"], summary: "Install cloudflared for temporary public links" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/terminals/status", tags: ["terminals"], summary: "Which coding CLIs are installed on this device, and whether its Linux layer is ready" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/terminals/sessions", tags: ["terminals"], summary: "List running terminals" });
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/terminals/sessions",
+  tags: ["terminals"],
+  summary: "Open a terminal running a coding CLI, its installer, the Linux layer setup, or a shell",
+  body: z.object({
+    toolId: z.string(),
+    mode: z.enum(["run", "install", "setup", "shell"]),
+    cols: z.number().int().optional(),
+    rows: z.number().int().optional(),
+    cwd: z.string().optional(),
+    agentId: z.string().uuid().optional(),
+  }),
+});
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/terminals/sessions/{id}/stop", tags: ["terminals"], summary: "Stop a terminal" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/status", tags: ["app-inspector"], summary: "Whether apktool and jadx are installed, and the phone's apps when Automa runs on it" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects", tags: ["app-inspector"], summary: "List decoded apps" });
+registerCurrentRoute({
+  method: "post",
+  path: "/api/companies/{companyId}/app-inspector/projects",
+  tags: ["app-inspector"],
+  summary: "Decode an installed app or an APK on this device",
+  body: z.object({
+    source: z.union([
+      z.object({ kind: z.literal("installed"), package: z.string() }),
+      z.object({ kind: z.literal("path"), apkPath: z.string() }),
+    ]),
+    label: z.string().optional(),
+    packageName: z.string().optional(),
+    splitCount: z.number().int().optional(),
+    options: z.object({ resources: z.boolean(), sources: z.boolean(), java: z.boolean() }).partial().optional(),
+  }),
+});
+registerCurrentRoute({
+  method: "put",
+  path: "/api/companies/{companyId}/app-inspector/uploads",
+  tags: ["app-inspector"],
+  summary: "Decode an APK sent as the request body (application/octet-stream)",
+  query: z.object({ label: z.string().optional(), package: z.string().optional(), splits: z.string().optional(), res: z.enum(["0", "1"]).optional(), src: z.enum(["0", "1"]).optional(), java: z.enum(["0", "1"]).optional() }),
+});
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}", tags: ["app-inspector"], summary: "A decoded app's status and log" });
+registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/app-inspector/projects/{id}", tags: ["app-inspector"], summary: "Delete a decoded app" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/dir", tags: ["app-inspector"], summary: "One folder of a decoded app", query: z.object({ path: z.string().optional(), view: z.enum(["files", "java"]).optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/file", tags: ["app-inspector"], summary: "Read a file of a decoded app", query: z.object({ path: z.string(), view: z.enum(["files", "java"]).optional() }) });
+registerCurrentRoute({ method: "put", path: "/api/companies/{companyId}/app-inspector/projects/{id}/file", tags: ["app-inspector"], summary: "Save a text file of a decoded app", body: z.object({ path: z.string(), text: z.string() }) });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/app-inspector/projects/{id}/rebuild", tags: ["app-inspector"], summary: "Rebuild and sign the decoded app" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/search", tags: ["app-inspector"], summary: "Find files by name, or text in files", query: z.object({ q: z.string(), mode: z.enum(["name", "text"]).optional(), view: z.enum(["files", "java"]).optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/image", tags: ["app-inspector"], summary: "An image in a decoded app", query: z.object({ path: z.string(), view: z.enum(["files", "java"]).optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/info", tags: ["app-inspector"], summary: "Package, versions, SDKs, permissions and components from the manifest" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/output", tags: ["app-inspector"], summary: "Download the rebuilt APK" });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/app-inspector/projects/{id}/explain", tags: ["app-inspector"], summary: "Ask Claude to explain a file of a decoded app", body: z.object({ path: z.string(), view: z.enum(["files", "java"]).optional() }) });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "List which AI providers have a saved key (never the keys)" });
 registerCurrentRoute({ method: "put", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "Save an AI provider key for the coding assistant", body: saveStudioAiKeySchema });
 registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/studio/ai-keys/{provider}", tags: ["studio"], summary: "Remove a saved AI provider key" });
@@ -10576,6 +10634,14 @@ registerCurrentRoute({
   path: "/api/companies/{companyId}/ai-connections/{connectionId}/active-runs",
   tags: ["ai-connections"],
   summary: "List active runs attributed to an AI connection",
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
+});
+
+registerCurrentRoute({
+  method: "get",
+  path: "/api/companies/{companyId}/ai-connections/{connectionId}/balance",
+  tags: ["ai-connections"],
+  summary: "Credit left on a key's account (when the provider reports it) and what Automa spent through it this month",
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound, 422: r.unprocessable },
 });
 
