@@ -40,7 +40,7 @@ const mockAgentsApi = vi.hoisted(() => ({
   testEnvironment: vi.fn(),
   getClaudeOAuthTokenStatus: vi.fn(),
 }));
-const mockCompaniesApi = vi.hoisted(() => ({ create: vi.fn() }));
+const mockCompaniesApi = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), remove: vi.fn() }));
 // The hire path resolves the Test environment before it probes: it reads the
 // environment list, the instance settings, and the experimental settings. The
 // test stubs these so the resolution settles on the local default, the same as
@@ -166,6 +166,19 @@ describe("OnboardingWizard — which step it lands on", () => {
       });
     }
   }
+  /** Names the agent and presses Next: the organization is created on this step now. */
+  async function nameAgentAndContinue(name = "Ada") {
+    const agentInput = document.body.querySelector("#onboarding-agent-name") as HTMLInputElement;
+    setControlledValue(agentInput, name);
+    await settle();
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((b) => b.textContent?.trim() === "Next")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+
 
   beforeEach(() => {
     container = document.createElement("div");
@@ -381,9 +394,13 @@ describe("OnboardingWizard — which step it lands on", () => {
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await settle();
+    expect(mockCompaniesApi.create).not.toHaveBeenCalled();
+    expect(currentStep()).toBe("agent");
+    await nameAgentAndContinue();
+    await settle();
     await settle();
     expect(mockCompaniesApi.create).toHaveBeenCalled();
-    expect(currentStep()).toBe("agent");
+    expect(currentStep()).toBe("other");
 
     // Its own onboarding path, then back to the unprefixed one.
     routerState.pathname = "/PC1/onboarding";
@@ -425,6 +442,8 @@ describe("OnboardingWizard — which step it lands on", () => {
     await act(async () => {
       next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    await settle();
+    await nameAgentAndContinue();
 
     // A route supplies an existing company before the create lands.
     routerState.pathname = "/PC1/onboarding";
@@ -474,6 +493,8 @@ describe("OnboardingWizard — which step it lands on", () => {
     await act(async () => {
       next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    await settle();
+    await nameAgentAndContinue();
 
     // Model the surrounding app adopting exactly the company that the pending
     // request is about, without choosing a new step on the wizard's behalf.
@@ -485,9 +506,39 @@ describe("OnboardingWizard — which step it lands on", () => {
     await act(async () => resolveCreate({ id: "company-created", issuePrefix: "INI" }));
     await settle();
 
-    expect(currentStep()).toBe("agent");
+    // On to the model step, the one after the agent's name.
+    expect(currentStep()).toBe("other");
+    expect(document.body.textContent).toContain("Connect a model");
     expect(companyState.setSelectedCompanyId).toHaveBeenCalledWith("company-created");
     expect(mockCompaniesApi.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on the model step when the app asks for the agent step of the company it just created", async () => {
+    // The dashboard behind sees a company with no agents and asks for the
+    // agent step. For the company this run created, that is the app catching
+    // up, and it must not walk the customer back off the model step.
+    mockCompaniesApi.create.mockResolvedValue({ id: "company-created", issuePrefix: "INI" });
+    routerState.pathname = "/onboarding";
+    await render();
+    await settle();
+    setControlledValue(document.body.querySelector("input")! as HTMLInputElement, "Initech");
+    await settle();
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((b) => b.textContent?.trim() === "Continue")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    await nameAgentAndContinue();
+    await settle();
+    expect(document.body.textContent).toContain("Connect a model");
+
+    dialogState.onboardingOpen = true;
+    dialogState.onboardingOptions = { companyId: "company-created", initialStep: 3 };
+    await rerender();
+    await settle();
+    expect(currentStep()).toBe("other");
+    expect(document.body.textContent).toContain("Connect a model");
   });
 
   it("applies the step again when the wizard is re-opened", async () => {

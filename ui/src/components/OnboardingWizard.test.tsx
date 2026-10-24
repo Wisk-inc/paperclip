@@ -47,6 +47,7 @@ const mockCompaniesApi = vi.hoisted(() => ({
   detachInflightList: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  remove: vi.fn(),
   // The gate fetches the list itself now, rather than reading the shared
   // cache, so ownership cases are driven from here. `mockCompany.companies`
   // below still feeds the *inner* wizard, which is a different question.
@@ -401,7 +402,7 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
     // so "Continue" on step 1 creates the organization and lands on the agent
     // step with no mission question in between.
 
-    async function openStepOne() {
+    async function openStepOne(adapters: Array<{ type: string }> = [{ type: "claude_local" }, { type: "codex_local" }]) {
       window.localStorage.setItem(
         ONBOARDING_STORAGE_KEY,
         JSON.stringify({ step: 1, companyName: "Initech" }),
@@ -413,7 +414,7 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
 
       // The model step needs tiles to pick from, and this suite's default
       // registry is empty.
-      mockAdapterRegistry.list = [{ type: "claude_local" }, { type: "codex_local" }];
+      mockAdapterRegistry.list = adapters;
       const { root, queryClient } = render();
       const renderTree = () =>
         act(async () => {
@@ -438,15 +439,65 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await flushReact();
     }
 
-    it("creates the organization on Continue and lands on the agent step, no mission", async () => {
+    /** Names the agent on step 3 and presses Next, which creates the organization. */
+    async function nameAgentAndCreate(name = "Ada") {
+      const agentField = document.body.querySelector("#onboarding-agent-name") as HTMLInputElement;
+      await act(async () => {
+        setControlledValue(agentField, name);
+      });
+      await flushReact();
+      await clickByText((t) => isArcPrimary(t));
+    }
+
+    it("takes the name on Continue and creates the organization only once the agent is named", async () => {
       mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
       const { root } = await openStepOne();
       await clickByText((t) => t.startsWith("Continue"));
 
-      expect(mockCompaniesApi.create).toHaveBeenCalledWith({ name: "Initech" });
+      // Nothing exists yet: a name typed and abandoned leaves no organization.
+      expect(mockCompaniesApi.create).not.toHaveBeenCalled();
       expect(document.body.textContent).toContain("Create your first agent");
       expect(document.body.textContent).not.toContain("Define your mission");
       expect(document.body.textContent).not.toContain("Tell us about your team");
+
+      await nameAgentAndCreate();
+      expect(mockCompaniesApi.create).toHaveBeenCalledWith({ name: "Initech" });
+      expect(document.body.textContent).toContain("Connect a model");
+
+      await act(async () => root.unmount());
+    });
+
+    it("offers Gemini and Grok on the model step once an API key is chosen", async () => {
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      const { root } = await openStepOne([{ type: "claude_local" }, { type: "codex_local" }, { type: "gemini_local" }, { type: "grok_local" }]);
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate();
+      const tiles = () => [...document.body.querySelectorAll("button[aria-checked]")].map((tile) => tile.textContent?.trim() ?? "");
+      const before = tiles();
+      expect(before.some((label) => label.startsWith("Claude"))).toBe(true);
+      expect(before.some((label) => label.startsWith("Gemini"))).toBe(false);
+
+      await clickByText((t) => t.includes("Use API key instead"));
+      const labels = tiles();
+      await act(async () => root.unmount());
+      expect(labels.some((label) => label.startsWith("Claude"))).toBe(true);
+      expect(labels.some((label) => label.startsWith("Gemini"))).toBe(true);
+      expect(labels.some((label) => label.startsWith("Grok"))).toBe(true);
+    });
+
+    it("removes the organization it created when closed before the first agent is hired", async () => {
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      mockCompaniesApi.remove.mockResolvedValue({ ok: true });
+      const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate();
+      expect(document.body.textContent).toContain("Connect a model");
+
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      await flushReact();
+      expect(mockCompaniesApi.remove).toHaveBeenCalledWith("company-new");
 
       await act(async () => root.unmount());
     });
@@ -682,7 +733,7 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await act(async () => root.unmount());
     });
 
-    it("creates one company for one keystroke, modifier or not", async () => {
+    it("creates one company for one keystroke on the agent name, modifier or not", async () => {
       // The name field handles Enter itself and does not check for a modifier,
       // so Cmd+Enter in that field reaches the field's handler *and* the
       // wizard's step-level one. Both would start creating. The step-level
@@ -691,19 +742,22 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       // value the first has not written. Two companies, one keystroke.
       mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
       const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
 
-      const nameInput = document.body.querySelector(
-        'input[placeholder="e.g. Northwind Labs"]',
-      ) as HTMLInputElement;
+      const agentInput = document.body.querySelector("#onboarding-agent-name") as HTMLInputElement;
       await act(async () => {
-        nameInput.dispatchEvent(
+        setControlledValue(agentInput, "Ada");
+      });
+      await flushReact();
+      await act(async () => {
+        agentInput.dispatchEvent(
           new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
         );
       });
       await flushReact();
 
       expect(mockCompaniesApi.create).toHaveBeenCalledTimes(1);
-      expect(document.body.textContent).toContain("Create your first agent");
+      expect(document.body.textContent).toContain("Connect a model");
 
       await act(async () => root.unmount());
     });
@@ -722,13 +776,16 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
         }),
       );
       const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
 
-      const nameInput = document.body.querySelector(
-        'input[placeholder="e.g. Northwind Labs"]',
-      ) as HTMLInputElement;
+      const agentInput = document.body.querySelector("#onboarding-agent-name") as HTMLInputElement;
+      await act(async () => {
+        setControlledValue(agentInput, "Ada");
+      });
+      await flushReact();
       await act(async () => {
         for (let i = 0; i < 4; i++) {
-          nameInput.dispatchEvent(
+          agentInput.dispatchEvent(
             new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
           );
         }
@@ -738,7 +795,7 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
 
       await act(async () => resolveCreate({ id: "company-new", issuePrefix: "INI" }));
       await flushReact();
-      expect(document.body.textContent).toContain("Create your first agent");
+      expect(document.body.textContent).toContain("Connect a model");
 
       await act(async () => root.unmount());
     });
@@ -1418,10 +1475,19 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flushReact();
+    // The organization is created once the agent has a name too.
+    const agentNameInput = document.querySelector("#onboarding-agent-name") as HTMLInputElement;
+    setControlledValue(agentNameInput, "Ada");
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => isArcPrimary(button.textContent?.trim() ?? ""))!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
 
     expect(mockCompaniesApi.create).toHaveBeenCalledWith({ name: "Created Co" });
     expect(mockCompaniesApi.list).toHaveBeenCalledTimes(2);
-    expect(document.querySelector("#onboarding-agent-name")).not.toBeNull();
+    expect(document.body.textContent).toContain("Connect a model");
 
     await act(async () => {
       resolveRefetch([{ id: "created", name: "Created Co", issuePrefix: "CRE" }]);

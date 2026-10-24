@@ -85,6 +85,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "../lib/utils";
+import { claimOnboardingOffer } from "../lib/onboarding-auto-open";
 import {
   extractModelName,
   extractProviderIdWithFallback
@@ -215,7 +216,25 @@ function adapterConfigHasAnthropicApiKey(config: Record<string, unknown>): boole
  */
 const MODEL_SOURCE_BRAND_MARKS: Record<string, string> = {
   claude_local: "/brands/claude-color.svg",
+  gemini_local: "/brands/adapters/gemini-color.svg",
 };
+
+/** Grok's mark is black on light and white on dark, so it ships as two files. */
+function GrokMark({ className }: { className?: string }) {
+  return (
+    <>
+      <img src="/brands/adapters/grok.svg" alt="" className={cn(className, "dark:hidden")} />
+      <img src="/brands/adapters/grok-dark.svg" alt="" className={cn(className, "hidden dark:block")} />
+    </>
+  );
+}
+
+/**
+ * Sources offered once the customer switches to an API key. They have no
+ * sign-in this step can run, so they only make sense with a key; with a key
+ * they work like the others.
+ */
+const API_KEY_ONLY_SOURCES = new Set(["gemini_local", "grok_local"]);
 
 
 /**
@@ -239,6 +258,7 @@ function OpenAiBlossom({ className }: { className?: string }) {
 
 const MODEL_SOURCE_INLINE_MARKS: Record<string, ComponentType<{ className?: string }>> = {
   codex_local: OpenAiBlossom,
+  grok_local: GrokMark,
 };
 
 /**
@@ -252,6 +272,8 @@ const MODEL_SOURCE_INLINE_MARKS: Record<string, ComponentType<{ className?: stri
 const API_KEY_ENV_KEYS: Record<string, string> = {
   claude_local: ANTHROPIC_API_KEY_ENV_KEY,
   codex_local: "OPENAI_API_KEY",
+  gemini_local: "GEMINI_API_KEY",
+  grok_local: "XAI_API_KEY",
 };
 
 function apiKeyEnvKeyFor(adapterType: string): string {
@@ -741,6 +763,14 @@ function OnboardingWizardInner({
   // either, because it is not set until the request it guards has resolved. A
   // ref is written before the request goes out, so the second caller sees it.
   const creatingCompanyRef = useRef(false);
+  /**
+   * The organization this run created (not one the route or the switcher
+   * handed in), and the name it was created with. Closing the wizard before
+   * its first agent is hired removes it, so an abandoned walk leaves no empty
+   * organization behind.
+   */
+  const createdByWizardRef = useRef<string | null>(null);
+  const createdCompanyNameRef = useRef<string | null>(null);
   // Same shape for the hire. Greptile (round-3 PR): with "Test now" gone the
   // Connect handler re-runs a cached failed probe — and two overlapping
   // submissions could then both pass the fresh probe and both hire. `loading`
@@ -828,12 +858,20 @@ function OnboardingWizardInner({
   // step; the same request re-deriving a fresher value does not.
   useEffect(() => {
     if (!effectiveOnboardingOpen) return;
+    const routeCompanyId = effectiveOnboardingOptions.companyId ?? null;
+    // A request naming the company this run just created, for an earlier
+    // step than the one it is on, is the app catching up, not a new request:
+    // it must not walk the customer back.
+    const catchingUp =
+      routeCompanyId !== null &&
+      routeCompanyId === createdByWizardRef.current &&
+      initialStepRef.current !== undefined &&
+      lastStep.current > initialStepRef.current;
     // If explicit options are provided, they take precedence over saved state
-    if (initialStepRef.current) {
+    if (initialStepRef.current && !catchingUp) {
       setStep(initialStepRef.current);
       setEntryStep(initialStepRef.current);
     }
-    const routeCompanyId = effectiveOnboardingOptions.companyId ?? null;
     if (routeCompanyId) {
       // Claim ownership only when the route *introduces* a company. A route
       // that merely names the one already in hand - the wizard created it,
@@ -1156,6 +1194,14 @@ function OnboardingWizardInner({
       moreAdapters: all.filter((a) => !a.recommended),
     };
   }, [disabledTypes]);
+  /** The tiles on the model step: with an API key, more providers than the two sign-ins. */
+  const sourceOptions = useMemo(
+    () =>
+      credentialMode === "api"
+        ? [...recommendedAdapters, ...moreAdapters.filter((a) => API_KEY_ONLY_SOURCES.has(a.type))]
+        : recommendedAdapters,
+    [credentialMode, recommendedAdapters, moreAdapters],
+  );
 
   /**
    * A source chosen from the visible row. Read off the row rather than off
@@ -1163,7 +1209,7 @@ function OnboardingWizardInner({
    * no longer offers — a selection the customer cannot see.
    */
   const sourceSelected =
-    sourcePicked && recommendedAdapters.some((opt) => opt.type === adapterType);
+    sourcePicked && sourceOptions.some((opt) => opt.type === adapterType);
 
   /**
    * Whether the connect step may advance.
@@ -1624,6 +1670,8 @@ function OnboardingWizardInner({
 
   function reset() {
     onboardingDraftStorage.clear();
+    createdByWizardRef.current = null;
+    createdCompanyNameRef.current = null;
     // Back to the first step — "Name your organization". There is no front
     // door before it anymore, so a fresh run opens here.
     setStep(1);
@@ -1656,6 +1704,15 @@ function OnboardingWizardInner({
   }
 
   function handleClose() {
+    // Created here and never given an agent: nothing in it is worth keeping.
+    const abandoned = createdByWizardRef.current;
+    if (abandoned && abandoned === createdCompanyId && !createdAgentId) {
+      createdByWizardRef.current = null;
+      void companiesApi
+        .remove(abandoned)
+        .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }))
+        .catch(() => undefined);
+    }
     reset();
     closeOnboarding();
     // On the /onboarding route the wizard is also kept open by the route
@@ -1982,15 +2039,41 @@ function OnboardingWizardInner({
     }
   }
 
-  // Step 1 → 3 ("Name your organization"): create the organization, then go
-  // straight to the first agent. There is no mission step between them anymore.
+  // Step 1 → 3 ("Name your organization"): only the name is taken here. The
+  // organization is created once the agent has a name too (step 3 → 4), so
+  // a name typed and abandoned leaves nothing behind. Going back and changing
+  // the name of one already created renames it.
+  async function handleNameCompany() {
+    const name = companyName.trim();
+    if (!name) return;
+    if (createdCompanyId && createdByWizardRef.current && createdCompanyNameRef.current !== name) {
+      try {
+        await companiesApi.update(createdCompanyId, { name });
+        createdCompanyNameRef.current = name;
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+      } catch (err) {
+        setError(err instanceof Error ? `Couldn't rename it: ${err.message}` : "Couldn't rename the organization");
+        return;
+      }
+    }
+    setError(null);
+    setStep(3);
+  }
+
+  // Step 3 → 4: create the organization, now that both names are in, then go
+  // to the model step. There is no mission step between them anymore.
   //
   // No goal is written here: the mission is collected later, in the chat with
   // the first agent, so writing an empty one now would only give the
   // organization a goal it did not choose.
   async function handleCreateCompany() {
     if (createdCompanyId) {
-      setStep(3);
+      setStep(4);
+      return;
+    }
+    if (!companyName.trim()) {
+      setError("Name your organization first.");
+      setStep(1);
       return;
     }
     if (creatingCompanyRef.current) return;
@@ -2000,6 +2083,10 @@ function OnboardingWizardInner({
     const companyIdAtStart = createdCompanyIdRef.current;
     try {
       const company = await companiesApi.create({ name: companyName.trim() });
+      // This wizard is already giving it its first agent. Without the claim the
+      // dashboard behind, seeing a company with no agents, re-opened the wizard
+      // on the agent step and pulled the customer back off the model step.
+      claimOnboardingOffer(company.id);
       rememberCreatedCompany(queryClient, company);
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       // Nothing was in hand when this started, so "unchanged" means still
@@ -2013,9 +2100,11 @@ function OnboardingWizardInner({
       // anything downstream that asks `stillTheSameCompany` in this tick would
       // otherwise be told no.
       createdCompanyIdRef.current = company.id;
+      createdByWizardRef.current = company.id;
+      createdCompanyNameRef.current = companyName.trim();
       setCreatedCompanyPrefix(company.issuePrefix);
       setSelectedCompanyId(company.id);
-      setStep(3);
+      setStep(4);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
@@ -2344,8 +2433,8 @@ function OnboardingWizardInner({
       // handler whose guard is a piece of state the first one has not set
       // yet — two organizations for one name, two agents for one hire.
       if (loading) return;
-      if (step === 1 && companyName.trim()) void handleCreateCompany();
-      else if (step === 3 && agentName.trim()) setStep(4);
+      if (step === 1 && companyName.trim()) void handleNameCompany();
+      else if (step === 3 && agentName.trim()) void handleCreateCompany();
       // `connectStepReady`, the same predicate the step's button uses. Spelling
       // the condition out here again is what let this path hire against a
       // source the tile row had never shown, after the button was gated and
@@ -2650,7 +2739,7 @@ function OnboardingWizardInner({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && companyName.trim()) {
                           e.preventDefault();
-                          void handleCreateCompany();
+                          void handleNameCompany();
                         }
                       }}
                       autoFocus
@@ -2687,7 +2776,7 @@ function OnboardingWizardInner({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.nativeEvent.isComposing && agentName.trim()) {
                           e.preventDefault();
-                          setStep(4);
+                          void handleCreateCompany();
                         }
                       }}
                       autoFocus
@@ -2710,18 +2799,13 @@ function OnboardingWizardInner({
                         question, and answering it is what opens the card. */}
                     <ModelSourceTiles
                       label="Model source"
-                      sources={recommendedAdapters.map((opt) => ({
+                      sources={sourceOptions.map((opt) => ({
                         id: opt.type,
                         label: CONNECT_SOURCE_NAMES[opt.type] ?? opt.label,
                         icon: <ModelSourceMark type={opt.type} Fallback={opt.icon} />,
                       }))}
                       mode={credentialMode}
-                      selectedId={
-                        sourcePicked &&
-                        recommendedAdapters.some((opt) => opt.type === adapterType)
-                          ? adapterType
-                          : null
-                      }
+                      selectedId={sourceSelected ? adapterType : null}
                       collapsed={connectCollapsed}
                       settling={connectPhase === "unwindRow"}
                       onSelect={(id) => {
@@ -2730,6 +2814,7 @@ function OnboardingWizardInner({
                         setSourcePicked(true);
                         setAdapterType(id);
                         if (id === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
+                        else if (id === "gemini_local") setModel(DEFAULT_GEMINI_LOCAL_MODEL);
                         else if (id !== "codex_local") setModel("");
                         setConnectPhase("collapsing");
                       }}
@@ -3142,7 +3227,7 @@ function OnboardingWizardInner({
                   }
                   primaryIcon={step === 4 ? connectCta.icon : undefined}
                   loadingLabel={
-                    step === 1
+                    step === 1 || step === 3
                       ? "Creating..."
                       : step === 4
                         ? "Connecting"
@@ -3155,19 +3240,19 @@ function OnboardingWizardInner({
                   // against work happening in another tab.
                   // Step 4 says what it is doing through `connectCta` instead:
                   // it has four faces and only two of them are the step working.
-                  loading={step === 3 || step === 4 ? false : loading}
+                  loading={step === 4 ? false : loading}
                   primaryDisabled={
                     step === 1
                       ? !companyName.trim() || loading
                       : step === 3
-                        ? !agentName.trim()
+                        ? !agentName.trim() || loading
                         : step === 4
                           ? connectCta.disabled || loading
                           : loading || launchStateIncomplete
                   }
                   onPrimary={() => {
-                    if (step === 1) void handleCreateCompany();
-                    else if (step === 3) setStep(4);
+                    if (step === 1) void handleNameCompany();
+                    else if (step === 3) void handleCreateCompany();
                     // One button, two jobs — start the sign-in, or hire — and
                     // Cmd+Enter has to do the same thing. See
                     // `handleConnectStepPrimary`.
