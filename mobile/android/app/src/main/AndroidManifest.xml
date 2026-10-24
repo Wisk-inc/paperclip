@@ -23,6 +23,12 @@
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
+        <!-- App Inspector: list the apps that have a launcher icon to pick one.
+             Narrower than QUERY_ALL_PACKAGES, and enough for a picker. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <!-- Works on phones, tablets, foldables, and Chromebooks; nothing here needs

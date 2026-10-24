@@ -41,6 +41,8 @@ class AutomaBridge(
     /** Per-process secret in native file URLs, so only this page's scripts can build them. */
     private val token = UUID.randomUUID().toString().replace("-", "")
 
+    private val installedApps = InstalledApps(activity)
+
     /** Per-process key the app's own pages receive as `window.__automaKey`; every method needs it. */
     val pageKey: String = UUID.randomUUID().toString().replace("-", "")
 
@@ -109,6 +111,21 @@ class AutomaBridge(
     @JavascriptInterface
     fun sharedFileUrl(key: String?, path: String): String =
         if (onServerPage(key)) "$NATIVE_PREFIX/shared/$token?path=${Uri.encode(path)}" else ""
+
+    /** Launchable apps on this phone for the App Inspector picker; icons and APKs come from native URLs. */
+    @JavascriptInterface
+    fun listInstalledApps(key: String?, callId: String) {
+        if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
+        executor.execute {
+            val reply = runCatching {
+                installedApps.listJson(
+                    iconUrl = { "$NATIVE_PREFIX/appicon/$token/${Uri.encode(it)}" },
+                    apkUrl = { "$NATIVE_PREFIX/apk/$token/${Uri.encode(it)}" },
+                )
+            }.getOrElse { error(it.message ?: "Could not list the apps on this phone") }
+            resolve(callId, reply)
+        }
+    }
 
     @JavascriptInterface
     fun getIncomingShares(key: String?): String =
@@ -460,6 +477,15 @@ class AutomaBridge(
             "incoming" -> {
                 val item = parts.getOrNull(2)?.let(incoming::find) ?: return notFound()
                 WebResourceResponse(item.contentType ?: "application/octet-stream", null, 200, "OK", noStore(), FileInputStream(item.file))
+            }
+            "appicon" -> {
+                val png = parts.getOrNull(2)?.let { installedApps.iconPng(Uri.decode(it)) } ?: return notFound()
+                WebResourceResponse("image/png", null, 200, "OK", noStore(), ByteArrayInputStream(png))
+            }
+            "apk" -> {
+                val file = parts.getOrNull(2)?.let { installedApps.baseApk(Uri.decode(it)) } ?: return notFound()
+                val headers = noStore() + ("Content-Length" to file.length().toString())
+                WebResourceResponse("application/vnd.android.package-archive", null, 200, "OK", headers, FileInputStream(file))
             }
             else -> notFound()
         }

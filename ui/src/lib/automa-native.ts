@@ -46,6 +46,24 @@ export interface AutomaIncomingShare {
   url: string;
 }
 
+/** An app installed on the phone, as the App Inspector picker shows it. */
+export interface AutomaInstalledApp {
+  package: string;
+  label: string;
+  versionName: string | null;
+  /** Where Android keeps the base APK; readable by Termux on the same phone. */
+  sourceDir: string;
+  /** Split APKs installed beside the base (Play Store apps often have some). */
+  splitCount: number;
+  sizeBytes: number;
+  /** A preinstalled system app that was never updated. */
+  system: boolean;
+  updatedAt: number;
+  /** Same-origin URLs the app serves the icon (PNG) and the base APK on. */
+  iconUrl: string;
+  apkUrl: string;
+}
+
 /** The raw methods the Android shell exposes through `addJavascriptInterface`; `key` is the page key. */
 interface AutomaNativeRaw {
   getInfo(key: string): string;
@@ -71,6 +89,8 @@ interface AutomaNativeRaw {
   signOut?(key: string): void;
   /** Shows the connect screen (sign in again, or pick another server). */
   openConnectScreen?(key: string): void;
+  /** Resolves `{ ok, apps }`: the phone's launchable apps (App Inspector). */
+  listInstalledApps?(key: string, callId: string): void;
 }
 
 export interface AutomaAppAccount {
@@ -232,6 +252,17 @@ export const automaNative = {
     if (!raw?.openConnectScreen) return false;
     raw.openConnectScreen(pageKey());
     return true;
+  },
+  /** True when this app build can list the phone's apps (1.8.0 and newer). */
+  canListInstalledApps(): boolean {
+    return typeof rawBridge()?.listInstalledApps === "function";
+  },
+  /** The phone's launchable apps, with names, icons and APK locations. */
+  installedApps(): Promise<AutomaInstalledApp[]> {
+    return callAsync<{ apps: AutomaInstalledApp[] }>((raw, key, callId) => {
+      if (!raw.listInstalledApps) throw new Error("Update the Automa app to pick apps from this phone");
+      raw.listInstalledApps(key, callId);
+    }).then((reply) => reply.apps ?? []);
   },
   /** Returns false when the app build has no haptic bridge, so callers can fall back. */
   haptic(kind: string): boolean {
