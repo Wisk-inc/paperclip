@@ -1396,9 +1396,12 @@
   width: 0 !important;
   height: 0 !important;
 }
+/* No bounce or glow at the page's edge. Only the page itself: on every
+   element it also stopped a swipe that began on a box already scrolled to
+   its end (a code block, the thinking box, the editor) from moving the page,
+   which made screens feel stuck. Inner boxes never glow in the WebView. */
 :root[data-shell="android"],
-:root[data-shell="android"] body,
-:root[data-shell="android"] * {
+:root[data-shell="android"] body {
   overscroll-behavior: none;
 }
 :root[data-shell="android"] body {

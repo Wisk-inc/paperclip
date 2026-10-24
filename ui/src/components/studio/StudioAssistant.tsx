@@ -15,6 +15,7 @@ import {
   type StudioAssistantTurn,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
+import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
 import { Button } from "@/components/ui/button";
@@ -296,6 +297,7 @@ export function StudioAssistant({
   initialPrompt,
   onInitialPromptUsed,
 }: StudioAssistantProps) {
+  const narrow = useNarrowScreen();
   const [choice, setChoice] = useState<AiChoice>(() => readChoice(storageKey));
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -423,10 +425,10 @@ export function StudioAssistant({
     }
   };
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Provider and model */}
-      <div className="flex flex-col gap-2 border-b border-border p-3">
+  // Provider, model, thinking and key. On a phone they scroll with the
+  // conversation, so the messages get the whole height between the tabs.
+  const header = (
+      <div className="flex flex-col gap-2 border-b border-border p-3" data-testid="studio-assistant-settings">
         <StudioModelSheet
           provider={choice.provider}
           model={choice.model}
@@ -516,6 +518,11 @@ export function StudioAssistant({
           </div>
         )}
       </div>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {narrow ? null : header}
 
       {/* Conversation */}
       <div
@@ -524,9 +531,11 @@ export function StudioAssistant({
           const node = event.currentTarget;
           stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
         }}
-        className="min-h-0 flex-1 overflow-y-auto p-3"
+        className="min-h-0 flex-1 overflow-y-auto"
         data-testid="studio-assistant-log"
       >
+        {narrow ? header : null}
+        <div className="p-3">
         {turns.length === 0 ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
@@ -633,6 +642,7 @@ export function StudioAssistant({
             {running ? <AssistantProgress turns={turns} model={choice.model} /> : null}
           </ol>
         )}
+        </div>
       </div>
 
       {/* Composer */}
