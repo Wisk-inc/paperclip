@@ -24,9 +24,20 @@ export type AgentBasics = {
   name: string;
   adapterType: string;
   runnerProvider: string;
+  /** "api" for the Anthropic API choice: a Claude agent that answers with the API key. */
+  engine?: string;
 };
+
+/**
+ * The Anthropic API is a Claude Code agent set to answer through the API with
+ * your key. It is offered as its own choice because it is the one that works
+ * everywhere, a phone included, and "Claude Code" reads as the desktop
+ * program.
+ */
+export const ANTHROPIC_API_CHOICE = "anthropic_api";
 const brandMarks: Record<string, { src: string; dark?: string }> = {
   claude_local: { src: "/brands/claude-color.svg" },
+  [ANTHROPIC_API_CHOICE]: { src: "/brands/apps/anthropic.svg", dark: "/brands/apps/anthropic-dark.svg" },
   codex_local: { src: "/brands/codex-color.svg" },
   gemini_local: { src: "/brands/adapters/gemini-color.svg" },
   kimi_local: {
@@ -109,8 +120,9 @@ export function AgentBasicsDialog({
     retry: false,
   });
   const [name, setName] = useState("");
-  const [adapterType, setAdapterType] = useState(initialAdapter);
-  const [runnerProvider, setRunnerProvider] = useState("codex");
+  const [choice, setChoice] = useState(initialAdapter);
+  // Claude first: the runner used to start on Codex (OpenAI's CLI).
+  const [runnerProvider, setRunnerProvider] = useState("claude");
   const [step, setStep] = useState<"name" | "adapter">("name");
   const {
     data: adapters,
@@ -132,7 +144,13 @@ export function AgentBasicsDialog({
       !["process", "http"].includes(adapter.type) &&
       !getAdapterDisplay(adapter.type).comingSoon,
   );
-  const validAdapter = choices.some((adapter) => adapter.type === adapterType);
+  const offersAnthropicApi = choices.some((adapter) => adapter.type === "claude_local");
+  const tiles = [
+    ...(offersAnthropicApi ? [{ type: ANTHROPIC_API_CHOICE }] : []),
+    ...choices.map((adapter) => ({ type: adapter.type })),
+  ];
+  const adapterType = choice === ANTHROPIC_API_CHOICE ? "claude_local" : choice;
+  const validAdapter = tiles.some((tile) => tile.type === choice);
   return (
     <Dialog
       open={open}
@@ -169,7 +187,12 @@ export function AgentBasicsDialog({
             if (!name.trim()) return;
             if (step === "name") setStep("adapter");
             else if (validAdapter)
-              onContinue({ name: name.trim(), adapterType, runnerProvider });
+              onContinue({
+                name: name.trim(),
+                adapterType,
+                runnerProvider,
+                ...(choice === ANTHROPIC_API_CHOICE ? { engine: "api" } : {}),
+              });
           }}
         >
           <div className="flex min-h-0 flex-col gap-7 overflow-y-auto px-6 pb-8 sm:px-10">
@@ -226,35 +249,39 @@ export function AgentBasicsDialog({
                     {error.message}
                   </p>
                 )}
-                <div className={cn("grid grid-cols-2 gap-3", choices.length !== 4 && "sm:grid-cols-3")}>
-                  {choices.map((adapter) => {
-                    const display = getAdapterDisplay(adapter.type);
+                <div className={cn("grid grid-cols-2 gap-3", tiles.length !== 4 && "sm:grid-cols-3")}>
+                  {tiles.map((tile) => {
+                    const display = getAdapterDisplay(tile.type);
+                    const selected = choice === tile.type;
                     return (
                       <label
-                        key={adapter.type}
+                        key={tile.type}
                         className="relative cursor-pointer"
                       >
                         <input
                           type="radio"
                           name="new-agent-adapter"
-                          value={adapter.type}
-                          checked={adapterType === adapter.type}
-                          onChange={() => setAdapterType(adapter.type)}
+                          value={tile.type}
+                          checked={selected}
+                          onChange={() => setChoice(tile.type)}
                           className="peer sr-only"
                         />
                         <span
                           className={cn(
                             "flex h-full flex-col items-center gap-2 rounded-lg border px-3 py-4 text-center peer-focus-visible:ring-2 peer-focus-visible:ring-ring hover:bg-accent/40",
-                            adapterType === adapter.type
+                            selected
                               ? "border-foreground/40 bg-accent"
                               : "border-border bg-card",
                           )}
                         >
-                          <AdapterMark type={adapter.type} />
+                          <AdapterMark type={tile.type} />
                           <span className="text-sm font-medium">
                             {display.label}
                           </span>
-                          {adapterType === adapter.type && (
+                          {tile.type === ANTHROPIC_API_CHOICE ? (
+                            <span className="text-xs text-muted-foreground">Your API key · works on phones</span>
+                          ) : null}
+                          {selected && (
                             <Check className="absolute right-2 top-2 size-3.5" />
                           )}
                         </span>
@@ -272,8 +299,8 @@ export function AgentBasicsDialog({
                         setRunnerProvider(event.target.value)
                       }
                     >
-                      <option value="codex">Codex (app server)</option>
                       <option value="claude">Claude (ACPX)</option>
+                      <option value="codex">Codex (OpenAI)</option>
                       <option value="opencode">OpenCode</option>
                     </select>
                   </label>

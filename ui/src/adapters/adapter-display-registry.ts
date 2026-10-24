@@ -74,6 +74,13 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     icon: Sparkles,
     recommended: true,
   },
+  anthropic_api: {
+    label: "Anthropic API",
+    description: "Claude with your Anthropic API key: reads, edits and runs code, on a phone too",
+    icon: Sparkles,
+    recommended: true,
+    hideFromVisualSelection: true,
+  },
   codex_local: {
     label: "Codex",
     description: "Codex CLI harness",
@@ -82,7 +89,7 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
   },
   paperclip_runner: {
     label: "Automa Runner",
-    description: "Experimental Rust runner with a Codex provider",
+    description: "Experimental native runner for Claude, Codex or OpenCode",
     icon: Cpu,
     experimental: true,
   },

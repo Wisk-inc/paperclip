@@ -96,7 +96,7 @@ export function ClaudeLocalAdvancedFields({
         environment owns both, so the managed-sandbox-only policy hides them,
         the same way `runnerManaged` hides them for the Paperclip Runner.
       */}
-      {!managedSandboxOnly && <Field label="Execution engine" hint="Default uses ACP; if it is unavailable and the agent has an Anthropic API key, replies come straight from the API. Anthropic API answers chats without Claude Code (and without tools), which is what runs on a phone.">
+      {!managedSandboxOnly && <Field label="Execution engine" hint="Default uses ACP; if it is unavailable and the agent has an Anthropic API key, replies come straight from the API. Anthropic API works without Claude Code, on a phone too: it reads and edits files, runs commands and uses Automa through its own tools.">
         <select
           className={inputClass}
           value={engine}
@@ -111,7 +111,7 @@ export function ClaudeLocalAdvancedFields({
           <option value="auto">Default (ACP)</option>
           <option value="cli">Claude CLI</option>
           <option value="acp">ACP</option>
-          <option value="api">Anthropic API (no Claude Code)</option>
+          <option value="api">Anthropic API (your key; works on phones)</option>
         </select>
       </Field>}
       {acpSelected && (

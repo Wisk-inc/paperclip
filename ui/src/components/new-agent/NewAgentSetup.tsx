@@ -82,11 +82,12 @@ export function NewAgentSetup() {
     );
   return (
     <Setup
-      key={`${selectedCompanyId}:${params.get("name")}:${params.get("adapterType")}:${params.get("runnerProvider")}`}
+      key={`${selectedCompanyId}:${params.get("name")}:${params.get("adapterType")}:${params.get("runnerProvider")}:${params.get("engine")}`}
       companyId={selectedCompanyId}
       name={params.get("name") ?? ""}
       adapterType={params.get("adapterType") ?? ""}
-      runnerProvider={params.get("runnerProvider") ?? "codex"}
+      runnerProvider={params.get("runnerProvider") ?? "claude"}
+      engine={params.get("engine")}
       createdAgentId={params.get("createdAgentId")}
     />
   );
@@ -97,12 +98,15 @@ function Setup({
   name,
   adapterType,
   runnerProvider,
+  engine,
   createdAgentId,
 }: {
   companyId: string;
   name: string;
   adapterType: string;
   runnerProvider: string;
+  /** "api": a Claude agent that answers through the Anthropic API with its key. */
+  engine?: string | null;
   createdAgentId: string | null;
 }) {
   const navigate = useNavigate();
@@ -347,6 +351,7 @@ function Setup({
         : {}),
     };
     const config = getUIAdapter(adapterType).buildAdapterConfig(values);
+    if (adapterType === "claude_local" && engine === "api") config.engine = "api";
     if (isRunner)
       Object.assign(config, {
         provider: runnerProvider === "claude" ? "acpx" : runnerProvider,
