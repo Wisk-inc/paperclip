@@ -15,6 +15,7 @@ import {
   Repeat,
   Rocket,
   Sparkles,
+  SquareTerminal,
   Users,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -133,6 +134,28 @@ export const TOUR_STOPS: TourStop[] = [
       "Add a key for Anthropic, OpenAI, OpenRouter or xAI",
       "Each key shows what Automa spent this month (and the credit left on OpenRouter)",
       "Set a monthly limit: at the limit, agents and App Studio stop until you raise it",
+    ],
+  },
+  {
+    icon: SquareTerminal, title: "Terminals", pose: "cheering", to: "/terminals",
+    what: "Open a real coding terminal on this device — Claude Code, Codex, Gemini CLI, OpenCode — with its full terminal UI, and use it right here.",
+    why: "The whole desktop tool, on your phone. Wire one to an agent so it works with the agent's key.",
+    steps: [
+      "Open Terminals and tap a tool",
+      "The first time, Automa installs it (and a small Linux layer on a phone)",
+      "Use the key bar for Esc, Tab, Ctrl-C and the arrows",
+      "From an agent's settings, \"Open a terminal as this agent\"",
+    ],
+  },
+  {
+    icon: Boxes, title: "App Inspector", pose: "thinking", to: "/app-inspector",
+    what: "Pick an app on your phone to decode its manifest, resources and code, read the code as Java, ask Claude to explain any file, edit, and rebuild a signed APK to your Downloads.",
+    why: "Look inside an app you made or are authorized to analyze, with Claude to help you read it.",
+    steps: [
+      "Tap an app in the grid (or choose an APK file), then Decode",
+      "Watch each step; Java code appears once jadx finishes",
+      "Open any file and tap Explain with Claude",
+      "Edit in Files, Save, then Rebuild and Save to Downloads",
     ],
   },
   {

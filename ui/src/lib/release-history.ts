@@ -8,6 +8,7 @@ export interface AutomaRelease {
 
 /** Newest first. The first Android app came out on 27 September 2026. */
 export const AUTOMA_RELEASES: AutomaRelease[] = [
+  { version: "1.8.0", date: "2026-10-24", highlights: "Terminals: run Claude Code, Codex and more on the device in their full terminal UI. App Inspector: pick an app on your phone, read its code as Java with Claude, edit and rebuild. Your API balance in your profile" },
   { version: "1.7.0", date: "2026-10-24", highlights: "Anthropic API agents with Claude Code's tools on phones, thinking modes, Gemini 4 Argon and Kimi K3.1 Pro, start-up progress, balances and a spending limit" },
   { version: "1.6.1", date: "2026-10-24", highlights: "Bug fixes across chat, Studio, keys and the phone app; the bell clears when tapped" },
   { version: "1.6.0", date: "2026-10-22", highlights: "Live replies and visible thinking, token and cost counts everywhere, a faster Studio" },

@@ -32,6 +32,12 @@ if ! command -v node >/dev/null 2>&1 || ! command -v pg_ctl >/dev/null 2>&1; the
   # git: tasks that use a project repository check it out before the agent runs.
   pkg install -y nodejs-lts postgresql git
 fi
+# python: the Terminals page's PTY relay. proot-distro: the small Debian layer
+# Claude Code and Codex run in on a phone. Both small; the layer itself is set
+# up from the Terminals page the first time it's needed.
+for tool in python proot-distro; do
+  command -v "$tool" >/dev/null 2>&1 || pkg install -y "$tool" || echo "Could not install $tool now; Terminals will offer to later." >&2
+done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$node_major" -lt 24 ]; then
   echo "Automa needs Node.js 24 or newer (found $(node --version)). Run: pkg upgrade -y" >&2
