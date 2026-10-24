@@ -2,7 +2,7 @@ import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNo
 import { useLiveUpdatesConnected } from "../context/LiveUpdatesProvider";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
-import { AgentStatusAvatar } from "@/components/agent-chat/AgentChatHeader";
+import { AgentSettingsAvatarButton } from "@/components/agent-chat/AgentChatHeader";
 import { ChatOptionsMenu } from "@/components/agent-chat/ChatOptionsMenu";
 import { ChatWelcome } from "@/components/agent-chat/ChatWelcome";
 import { THINKING_LEVELS, currentThinkingLevel, resolveThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "../components/agent-chat/ThinkingDepthControl";
@@ -5475,8 +5475,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     if (conversationAgent) {
       setBreadcrumbs([{
         label: conversationAgent.name,
-        leading: <AgentStatusAvatar agent={conversationAgent} size={24} />,
-        leadingKey: `agent:${conversationAgent.id}:${conversationAgent.status}`,
+        leading: <AgentSettingsAvatarButton agent={conversationAgent} />,
+        // The avatar opens the agent's settings, so it is redrawn when they change.
+        leadingKey: `agent:${conversationAgent.id}:${conversationAgent.status}:${conversationAgent.name}:${String(conversationAgent.adapterConfig?.model ?? "")}:${String(conversationAgent.adapterConfig?.engine ?? "")}:${currentThinkingLevel(conversationAgent)}`,
         trailing: (
           <span className="ml-1 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />

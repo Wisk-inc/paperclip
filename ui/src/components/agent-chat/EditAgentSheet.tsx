@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileText, Loader2, Network, ScrollText, Settings, Trash2, UserRound, Wand2 } from "lucide-react";
+import { Brain, Check, FileText, Loader2, Network, ScrollText, Settings, Trash2, UserRound, Wand2 } from "lucide-react";
 import { AGENT_ROLES, AGENT_ROLE_DESCRIPTIONS, AGENT_ROLE_LABELS, type Agent, type AgentRole } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { useAdapterCapabilities } from "@/adapters/use-adapter-capabilities";
@@ -16,6 +16,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { agentRouteRef, cn } from "@/lib/utils";
 import { agentDetailHref } from "@/pages/agent-detail-navigation";
+import { AgentAiSettings } from "./AgentAiSettings";
 import { RemoveAgentDialog } from "./RemoveAgentDialog";
 import { roleIcon } from "./role-icons";
 
@@ -23,7 +24,7 @@ const NAME_MAX = 60;
 const TITLE_MAX = 80;
 const CAPABILITIES_MAX = 500;
 
-export type EditAgentTab = "profile" | "prompt";
+export type EditAgentTab = "profile" | "prompt" | "ai";
 
 /** A starting system prompt for a role, for agents that have none yet. */
 export function starterPrompt(name: string, role: AgentRole, title: string): string {
@@ -204,14 +205,15 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
           <AgentAvatar agent={{ ...agent, name: trimmedName || agent.name }} size={48} pose="success" />
           <div className="min-w-0">
             <SheetTitle className="truncate text-base">Edit {agent.name}</SheetTitle>
-            <SheetDescription className="text-xs">Name, role, manager, and system prompt</SheetDescription>
+            <SheetDescription className="text-xs">Model, thinking, name, role and system prompt</SheetDescription>
           </div>
         </SheetHeader>
         <div className="px-4 pb-3" role="tablist" aria-label="What to edit">
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
             {([
+              { id: "ai", label: "AI", icon: Brain },
               { id: "profile", label: "Profile", icon: UserRound },
-              { id: "prompt", label: "System prompt", icon: ScrollText },
+              { id: "prompt", label: "Prompt", icon: ScrollText },
             ] as const).map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -244,7 +246,9 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
           }}
         >
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain border-t border-border px-4 pt-4 pb-4">
-            {tab === "prompt" ? (
+            {tab === "ai" ? (
+              <AgentAiSettings agent={agent} onNavigate={() => onOpenChange(false)} />
+            ) : tab === "prompt" ? (
               <>
                 <label className="grid gap-1.5 text-sm font-medium text-foreground">
                   What {trimmedName || agent.name} does
@@ -490,10 +494,17 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
                 All settings
               </Link>
             </Button>
-            <Button type="submit" disabled={!trimmedName || !changed || save.isPending} className="min-w-28">
-              {save.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-              Save
-            </Button>
+            {tab === "ai" ? (
+              // AI settings save as they change.
+              <Button type="button" variant="outline" className="min-w-28" onClick={() => onOpenChange(false)}>
+                Done
+              </Button>
+            ) : (
+              <Button type="submit" disabled={!trimmedName || !changed || save.isPending} className="min-w-28">
+                {save.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                Save
+              </Button>
+            )}
           </div>
         </form>
       </SheetContent>

@@ -37,6 +37,31 @@ export function AgentStatusAvatar({ agent, size = 24 }: { agent: Agent; size?: 2
   );
 }
 
+/**
+ * The agent's avatar in the chat header, as a button: a tap opens the
+ * agent's settings (model, thinking, how it runs, name, prompt).
+ */
+export function AgentSettingsAvatarButton({ agent }: { agent: Agent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          haptic("tick");
+          setOpen(true);
+        }}
+        aria-label={`${agent.name}'s settings`}
+        data-slot="agent-settings-avatar"
+        className="-m-2 inline-flex shrink-0 rounded-full p-2 transition-transform active:scale-95"
+      >
+        <AgentStatusAvatar agent={agent} size={24} />
+      </button>
+      <EditAgentSheet agent={agent} open={open} initialTab="ai" onOpenChange={setOpen} />
+    </>
+  );
+}
+
 /** Opens the Edit agent sheet (rename, role, reports to). */
 export function EditAgentButton({ agent, variant = "icon" }: { agent: Agent; variant?: "icon" | "pill" }) {
   const [open, setOpen] = useState(false);
