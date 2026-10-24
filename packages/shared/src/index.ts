@@ -2825,6 +2825,7 @@ export * from "./connection-routing.js";
 
 export { WORKSPACE_RESTORE_FAILURE_CODES, hasWorkspaceRestoreFailure, safeWorkspaceRestorePath } from "./workspace-restore.js";
 export * from "./studio/index.js";
+export * from "./terminals.js";
 
 export {
   apiModelPrice,

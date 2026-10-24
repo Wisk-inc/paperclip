@@ -194,6 +194,7 @@ const ProductionOrgChart = lazy(() =>
 // Studio loads its code editor only when you open it.
 const Studio = lazy(() => import("./pages/Studio").then((module) => ({ default: module.Studio })));
 const StudioWorkspace = lazy(() => import("./pages/StudioWorkspace").then((module) => ({ default: module.StudioWorkspace })));
+const Terminals = lazy(() => import("./pages/Terminals").then((module) => ({ default: module.Terminals })));
 
 function ProductionSurface({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PaperclipLoading />}>{children}</Suspense>;
@@ -440,6 +441,7 @@ function boardRoutes(streamlinedUiEnabled: boolean) {
       <Route path="device-files" element={<DeviceFiles />} />
       <Route path="studio" element={<ProductionSurface><Studio /></ProductionSurface>} />
       <Route path="studio/:workspaceId" element={<ProductionSurface><StudioWorkspace /></ProductionSurface>} />
+      <Route path="terminals" element={<ProductionSurface><Terminals /></ProductionSurface>} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
       <Route path="approvals/pending" element={<Approvals />} />
       <Route path="approvals/all" element={<Approvals />} />

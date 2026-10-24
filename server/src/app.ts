@@ -26,6 +26,7 @@ import { httpLogger, errorHandler } from "./middleware/index.js";
 import { actorMiddleware } from "./middleware/auth.js";
 import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
 import { shutdownStudio, studioPublicRoutes, studioRoutes } from "./routes/studio.js";
+import { terminalsRoutes } from "./routes/terminals.js";
 import {
   privateHostnameGuard,
   resolvePrivateHostnameAllowSet,
@@ -821,6 +822,7 @@ export async function createApp(
   api.use(inboxDismissalRoutes(db));
   api.use(instanceSettingsRoutes(db));
   api.use(studioRoutes(db));
+  api.use(terminalsRoutes(db, { deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure }));
   if (opts.databaseBackupService) {
     api.use(instanceDatabaseBackupRoutes(opts.databaseBackupService));
   }

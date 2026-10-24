@@ -3116,6 +3116,7 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
    allowlisted concern. Paths are matched by the gate script as a substring
    of the file being checked (repo-relative, POSIX-style).
    * allow ui/src/pages/CompanyEnvironments.tsx — xterm.js terminal theme config (background/foreground/cursor/cursorAccent/selectionBackground hex, fontSize: 12); functional third-party option object, not a rendered CSS value
+   * allow ui/src/components/terminals/TerminalView.tsx — xterm.js terminal theme config (background/foreground/cursor/selectionBackground hex, fontSize: 12); functional third-party option object, not a rendered CSS value
    * allow ui/src/components/issue-properties/IssueProperties.tsx — newLabelColor color-picker seed state persisted into the label-create payload sent to the backend; a var() string would corrupt that payload
    * allow ui/src/pages/CompanySkills.tsx — DISCOVERY_ACCENTS palette array feeds skill.color, persisted/compared JS data (SkillCreateDraft), not just a rendered value; also fontSize: Math.round(size * 0.42), computed at runtime from a prop, not a static literal
    * allow ui/src/components/IssueColumns.tsx — accentColor fallback also feeds pickTextColorForPillBg() contrast math (lib/color-contrast.ts), which needs a real hex string to compute luminance
@@ -3412,6 +3413,7 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   --studio-diff-del-fg: oklch(0.42 0.16 25);
   --studio-diff-del-mark: oklch(0.6 0.2 25);
   --studio-console-bg: oklch(0.17 0.01 270);
+  --terminal-surface: oklch(0.14 0 0); /* the always-dark terminal screen (xterm) */
   --studio-console-fg: oklch(0.9 0.01 270);
   --studio-console-err: oklch(0.72 0.17 25);
   --studio-console-sys: oklch(0.72 0.1 275);

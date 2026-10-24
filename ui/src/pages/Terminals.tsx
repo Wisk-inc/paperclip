@@ -1,0 +1,209 @@
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, CircleStop, Loader2, Play, SquareTerminal, Wrench } from "lucide-react";
+import { TERMINAL_TOOLS, type TerminalSessionSummary, type TerminalToolId, type TerminalToolInfo } from "@paperclipai/shared";
+import { terminalsApi } from "@/api/terminals";
+import { TerminalView } from "@/components/terminals/TerminalView";
+import { Mascot } from "@/components/mascot/Mascot";
+import { Button } from "@/components/ui/button";
+import { useBreadcrumbs } from "@/context/BreadcrumbContext";
+import { useCompany } from "@/context/CompanyContext";
+import { useToastActions } from "@/context/ToastContext";
+import { haptic } from "@/lib/haptics";
+import { cn } from "@/lib/utils";
+
+function ToolLogo({ tool, className }: { tool: TerminalToolInfo; className?: string }) {
+  if (tool.brandDark) {
+    return (
+      <>
+        <img src={tool.brand} alt="" className={cn(className, "dark:hidden")} />
+        <img src={tool.brandDark} alt="" className={cn(className, "hidden dark:block")} />
+      </>
+    );
+  }
+  // The generic terminal glyph is drawn with the current text colour.
+  if (tool.id === "shell") return <SquareTerminal className={cn(className, "text-foreground")} aria-hidden="true" />;
+  return <img src={tool.brand} alt="" className={className} />;
+}
+
+/**
+ * Terminals: open a real coding terminal (Claude Code, Codex, Gemini CLI,
+ * OpenCode, Kimi) or a plain shell on the device Automa runs on, and use it
+ * from here. On a phone the desktop-Linux agents run inside a Debian layer the
+ * first use sets up; on a computer they run directly.
+ */
+export function Terminals() {
+  const { selectedCompanyId: companyId } = useCompany();
+  const { setBreadcrumbs } = useBreadcrumbs();
+  const { pushToast } = useToastActions();
+  const client = useQueryClient();
+  const [open, setOpen] = useState<TerminalSessionSummary | null>(null);
+
+  useEffect(() => {
+    setBreadcrumbs([{ label: "Terminals" }]);
+  }, [setBreadcrumbs]);
+
+  const status = useQuery({
+    queryKey: ["terminals", "status", companyId],
+    queryFn: () => terminalsApi.status(companyId!),
+    enabled: Boolean(companyId),
+  });
+  const sessions = useQuery({
+    queryKey: ["terminals", "sessions", companyId],
+    queryFn: () => terminalsApi.sessions(companyId!),
+    enabled: Boolean(companyId),
+    refetchInterval: open ? false : 4000,
+  });
+
+  const installed = useMemo(() => new Map((status.data?.tools ?? []).map((tool) => [tool.id, tool.installed])), [status.data]);
+  const running = sessions.data?.sessions ?? [];
+  const phone = status.data?.kind === "phone";
+  const linuxReady = status.data?.linuxReady ?? true;
+
+  const start = useMutation({
+    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell" }) =>
+      terminalsApi.start(companyId!, { ...input, cols: 80, rows: 24 }),
+    onSuccess: ({ session }) => {
+      haptic("tick");
+      setOpen(session);
+      void client.invalidateQueries({ queryKey: ["terminals", "sessions", companyId] });
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn't open the terminal", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
+
+  const stop = useMutation({
+    mutationFn: (id: string) => terminalsApi.stop(companyId!, id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["terminals", "sessions", companyId] }),
+  });
+
+  if (!companyId) return null;
+
+  const openTool = (tool: TerminalToolInfo) => {
+    if (tool.id === "shell") return start.mutate({ toolId: "shell", mode: "shell" });
+    if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run" });
+    return start.mutate({ toolId: tool.id, mode: "install" });
+  };
+
+  // Full-screen terminal.
+  if (open) {
+    return (
+      <div className="studio-ide-immersive fixed inset-0 z-40 flex flex-col bg-background pt-(--sz-safe-top) pb-(--sz-safe-bottom)">
+        <div className="flex items-center gap-2 border-b border-border bg-linear-to-r from-primary/10 to-transparent px-2 py-1.5">
+          <Button variant="ghost" size="icon-sm" aria-label="Back to terminals" onClick={() => { haptic("tick"); setOpen(null); }}>
+            <ArrowLeft />
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{open.title}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              stop.mutate(open.id);
+            }}
+            data-testid="terminal-stop"
+          >
+            <CircleStop /> Stop
+          </Button>
+        </div>
+        <TerminalView companyId={companyId} sessionId={open.id} className="min-h-0 flex-1" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5" data-testid="terminals-page">
+      <header className="flex flex-col gap-1">
+        <h1 className="flex items-center gap-2 text-lg font-semibold">
+          <SquareTerminal className="size-5 text-muted-foreground" aria-hidden="true" />
+          Terminals
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Open a real coding terminal on {phone ? "this phone" : "this computer"} — Claude Code, Codex and more — and use it right here.
+          {phone ? " The first time, Automa sets up a small Linux layer for the ones that need it." : ""}
+        </p>
+      </header>
+
+      {status.isPending ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Checking what's installed…</p>
+      ) : status.isError ? (
+        <div className="flex items-center gap-4 rounded-xl border border-dashed border-border p-4">
+          <Mascot pose="confused" size="sm" />
+          <p className="text-sm text-muted-foreground">
+            Terminals run on the device Automa runs on. They&apos;re available when you run Automa for yourself (on this phone, or your own
+            computer), not on a shared server.
+          </p>
+        </div>
+      ) : (
+        <>
+          {phone && !linuxReady ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4" data-testid="terminals-setup">
+              <div className="flex items-center gap-2">
+                <Wrench className="size-4 text-muted-foreground" aria-hidden="true" />
+                <h2 className="text-sm font-semibold">Set up the Linux layer</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Claude Code and Codex are built for desktop Linux, so Automa runs them in a small Debian layer on this phone. Setting it up
+                downloads a few hundred MB, once.
+              </p>
+              <div>
+                <Button size="sm" onClick={() => start.mutate({ toolId: "claude", mode: "setup" })} disabled={start.isPending} data-testid="terminals-setup-start">
+                  {start.isPending ? <Loader2 className="animate-spin" /> : <Play />} Set up now
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {running.length > 0 ? (
+            <section aria-label="Running terminals" className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold">Running now</h2>
+              <ul className="flex flex-col gap-2">
+                {running.map((session) => (
+                  <li key={session.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3" data-testid="terminal-running">
+                    <SquareTerminal className="size-4 text-muted-foreground" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{session.title}</span>
+                    <Button variant="ghost" size="sm" onClick={() => { haptic("tick"); setOpen(session); }}>Open</Button>
+                    <Button variant="ghost" size="sm" onClick={() => stop.mutate(session.id)}>Stop</Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section aria-label="Tools" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {TERMINAL_TOOLS.map((tool) => {
+              const isInstalled = tool.id === "shell" || installed.get(tool.id);
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  disabled={start.isPending}
+                  onClick={() => { haptic("tick"); openTool(tool); }}
+                  className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent/60 disabled:opacity-60"
+                  data-testid="terminal-tool"
+                  data-tool={tool.id}
+                >
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <ToolLogo tool={tool} className="size-6" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">{tool.label}</span>
+                      {tool.id !== "shell" ? (
+                        <span className={cn("rounded-full px-2 py-0.5 text-xs", isInstalled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                          {isInstalled ? "Ready" : "Tap to install"}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{tool.blurb}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
