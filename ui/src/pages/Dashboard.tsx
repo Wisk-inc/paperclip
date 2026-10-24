@@ -390,7 +390,8 @@ export function Dashboard() {
         // A new organization (no runs, no tasks yet) gets its first steps
         // instead of zeros and empty charts.
         const runsSoFar = data.runActivity.reduce((sum, day) => sum + day.total, 0);
-        const fresh = runsSoFar === 0 && (issues?.length ?? 0) === 0;
+        // Only once the task list has loaded, so a busy organization never flashes it.
+        const fresh = runsSoFar === 0 && issues !== undefined && issues.length === 0;
         const agentTotal = data.agents.active + data.agents.running + data.agents.paused + data.agents.error;
         return fresh ? (
           <FirstStepsCard
