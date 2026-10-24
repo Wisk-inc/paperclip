@@ -92,3 +92,24 @@ export function createStudioConsoleStore(): StudioConsoleStore {
 export function useStudioConsoleLines(store: StudioConsoleStore) {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
+
+const noSubscribe = () => () => {};
+
+/** The newest line printed since `since` (an ISO time), without colour codes. */
+export function latestConsoleLine(lines: StudioConsoleLine[], since?: string | null): string {
+  const from = since ? Date.parse(since) : Number.NaN;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]!;
+    if (Number.isFinite(from) && Date.parse(line.at) < from) break;
+    // eslint-disable-next-line no-control-regex
+    const text = line.text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+/** Redraws only when the newest line changes, not on every batch of output. */
+export function useLatestConsoleLine(store: StudioConsoleStore | undefined, since?: string | null) {
+  const read = () => (store ? latestConsoleLine(store.getSnapshot(), since) : "");
+  return useSyncExternalStore(store?.subscribe ?? noSubscribe, read, read);
+}

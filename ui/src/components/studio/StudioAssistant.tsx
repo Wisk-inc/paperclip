@@ -29,6 +29,7 @@ import { modelDisplayName } from "@/lib/model-brand";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { Mascot } from "../mascot/Mascot";
+import { ProgressBar } from "@/components/ui/progress-bar";
 
 /** Claude models where Anthropic retries a declined request on another model. */
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
@@ -209,6 +210,53 @@ function LiveThinking({ text }: { text: string }) {
         <MarkdownBody softBreaks>{settleStreamingMarkdown(text)}</MarkdownBody>
       </div>
     </div>
+  );
+}
+
+/** Seconds as "42s" or "3:05". */
+function formatElapsed(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * While the assistant works: what it is doing this moment, how many steps it
+ * has taken, how long it has been, and a bar that keeps moving, so a long
+ * install never looks frozen.
+ */
+function AssistantProgress({ turns, model }: { turns: StudioAssistantTurn[]; model: string }) {
+  const lastUser = turns.findLast((turn) => turn.role === "user");
+  const current = turns.at(-1)?.role === "assistant" ? turns.at(-1) : undefined;
+  const startedAt = Date.parse(current?.createdAt ?? lastUser?.createdAt ?? "") || Date.now();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const steps = current?.steps.filter((step) => step.tool !== "say" && step.tool !== "think").length ?? 0;
+  const doing = current?.activity
+    ? `${current.activity}…`
+    : current?.liveThinking
+      ? "Thinking it through…"
+      : current?.live
+        ? "Writing the reply…"
+        : steps > 0
+          ? "Deciding what to do next…"
+          : `Waiting for ${modelDisplayName(current?.model ?? model)}…`;
+  const elapsed = formatElapsed(Math.max(0, Math.round((now - startedAt) / 1000)));
+  return (
+    <li className="flex items-center gap-3" data-testid="studio-assistant-working">
+      <Mascot pose="thinking" size="sm" className="size-12 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="truncate text-sm font-medium text-foreground" aria-live="polite" data-testid="studio-assistant-activity">
+          {doing}
+        </span>
+        <ProgressBar label="The assistant is working" valueText={doing} />
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {steps === 1 ? "1 step done" : `${steps} steps done`} · {elapsed}
+        </span>
+      </div>
+    </li>
   );
 }
 
@@ -582,14 +630,7 @@ export function StudioAssistant({
                 </li>
               ),
             )}
-            {running ? (
-              <li className="flex items-center gap-3 text-sm text-muted-foreground" data-testid="studio-assistant-working">
-                <Mascot pose="thinking" size="sm" className="size-12" />
-                <span className="flex items-center gap-2">
-                  <LoaderCircle className="size-4 animate-spin" /> Working on it…
-                </span>
-              </li>
-            ) : null}
+            {running ? <AssistantProgress turns={turns} model={choice.model} /> : null}
           </ol>
         )}
       </div>

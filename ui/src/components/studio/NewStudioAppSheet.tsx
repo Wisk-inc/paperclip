@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { cn } from "@/lib/utils";
 import { LanguageLogo } from "./LanguageLogo";
 import { GitHubMark } from "./GitHubMark";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { Mascot } from "../mascot/Mascot";
 
 export interface NewStudioAppInput {
@@ -346,9 +347,7 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
             <div className="flex items-center gap-2 text-base font-semibold">
               <GitHubMark /> Cloning {gitUrl.replace(/^https:\/\/(www\.)?github\.com\//, "").replace(/\.git$/, "")}
             </div>
-            <div className="h-1.5 w-56 overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
-            </div>
+            <ProgressBar label="Cloning" className="w-56" />
             <p className="max-w-xs text-sm text-muted-foreground">Downloading the code to this device. Big projects can take a minute.</p>
           </div>
         ) : null}

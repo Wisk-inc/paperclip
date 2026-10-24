@@ -131,3 +131,14 @@ describe("Studio assistant thinking levels", () => {
     expect(auto.reasoning_effort).toBeUndefined();
   });
 });
+
+describe("Studio assistant activity", () => {
+  it("says what a tool is about to do", async () => {
+    const { describeActivity } = await import("../services/studio/assistant.js");
+    expect(describeActivity("run_command", { command: "npm   install" })).toBe("Running npm install");
+    expect(describeActivity("write_file", { path: "src/App.tsx", content: "x" })).toBe("Writing src/App.tsx");
+    expect(describeActivity("start_app", {})).toBe("Starting the app");
+    expect(describeActivity("run_command", { command: "x".repeat(200) })).toBe(`Running ${"x".repeat(79)}…`);
+    expect(describeActivity("mystery", null)).toBe("Working");
+  });
+});

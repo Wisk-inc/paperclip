@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, ExternalLink, Globe, LoaderCircle, Play, RefreshCw, Rocket, SquareTerminal, X } from "lucide-react";
 import type { StudioRunState } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { Mascot } from "../mascot/Mascot";
+import { useLatestConsoleLine, type StudioConsoleStore } from "./console-store";
 
 interface StudioPreviewProps {
   run: StudioRunState | null;
@@ -13,6 +15,8 @@ interface StudioPreviewProps {
   /** Absent for collaborators, who can't start the app. */
   onRun?: () => void;
   onShowConsole: () => void;
+  /** The console, so starting up can say what the app is printing. */
+  consoleStore?: StudioConsoleStore;
   /** Public links are for the owner only. */
   publicLink?: {
     cloudflaredInstalled: boolean;
@@ -27,7 +31,41 @@ interface StudioPreviewProps {
  * as you in Automa). The owner can also open a public Cloudflare link that
  * points at this app's own port, served from this device.
  */
-export function StudioPreview({ run, consoleApp, onRun, onShowConsole, publicLink }: StudioPreviewProps) {
+/** Seconds as "42s" or "3:05". */
+function formatElapsed(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * While the app starts: a moving bar, what it is doing (installing or
+ * starting), the newest line it printed, and how long it has been.
+ */
+function StartingProgress({ run, consoleStore }: { run: StudioRunState | null; consoleStore?: StudioConsoleStore }) {
+  const latest = useLatestConsoleLine(consoleStore, run?.startedAt);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const startedAt = run?.startedAt ? Date.parse(run.startedAt) : Number.NaN;
+  const seconds = Number.isFinite(startedAt) ? Math.max(0, Math.round((now - startedAt) / 1000)) : null;
+  const installing = /\b(?:install|ci|add|pip|bundle|cargo (?:build|fetch)|go mod)\b/i.test(run?.command ?? "") || /\b(?:installing|added \d+ packages|downloading|resolving)\b/i.test(latest);
+  const phase = installing ? "Installing what your app needs" : run?.status === "running" ? "Waiting for your app to answer" : "Starting your app";
+  return (
+    <div className="flex w-full max-w-sm flex-col items-center gap-3" data-testid="studio-preview-starting">
+      <Mascot pose="thinking" size="sm" />
+      <p className="text-sm font-medium text-foreground" aria-live="polite">{phase}…</p>
+      <ProgressBar label={phase} />
+      <p className="w-full truncate font-mono text-xs text-muted-foreground" title={latest || undefined} data-testid="studio-preview-latest">
+        {latest || "The preview opens as soon as it answers."}
+      </p>
+      {seconds !== null ? <span className="text-xs tabular-nums text-muted-foreground">{formatElapsed(seconds)}</span> : null}
+    </div>
+  );
+}
+
+export function StudioPreview({ run, consoleApp, onRun, onShowConsole, consoleStore, publicLink }: StudioPreviewProps) {
   const [frameKey, setFrameKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [working, setWorking] = useState<"open" | "close" | "install" | null>(null);
@@ -89,10 +127,7 @@ export function StudioPreview({ run, consoleApp, onRun, onShowConsole, publicLin
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             {running && !consoleApp ? (
               <>
-                <Mascot pose="thinking" size="sm" />
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircle className="size-4 animate-spin" /> Starting your app. The preview opens when it answers.
-                </p>
+                <StartingProgress run={run} consoleStore={consoleStore} />
                 <Button variant="outline" size="sm" onClick={onShowConsole}>
                   <SquareTerminal /> Watch the console
                 </Button>

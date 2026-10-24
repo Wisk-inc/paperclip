@@ -442,7 +442,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
 
   const sidePanes = {
     console: <StudioConsole store={consoleStore} run={run} />,
-    preview: <StudioPreview run={run} consoleApp={false} onShowConsole={() => setPane("console")} />,
+    preview: <StudioPreview run={run} consoleApp={false} consoleStore={consoleStore} onShowConsole={() => setPane("console")} />,
     chat: (
       <StudioChat
         messages={messages}

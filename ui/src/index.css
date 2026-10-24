@@ -279,6 +279,8 @@
   --motion-mascot-float: 4800ms;                      /* one idle float cycle */
   --motion-skeleton-shimmer: 1600ms;                  /* one skeleton highlight sweep */
   --motion-skeleton-glow: 2400ms;                     /* one skeleton halo breath */
+  --motion-progress-sweep: 1500ms;                    /* one pass of an indeterminate progress bar */
+  --motion-progress-fill: var(--motion-duration-slow); /* a progress bar easing to its next value */
   --motion-fab-sheet-enter: var(--motion-duration-slow); /* new-task sheet growing out of the tab-bar button */
   --motion-fab-sheet-exit: var(--motion-duration-fast);
   --motion-hero-enter: var(--motion-duration-slow);   /* empty-state hero rising in */
@@ -876,6 +878,7 @@
     --motion-mascot-float: 0ms;
     --motion-skeleton-shimmer: 0ms;
     --motion-skeleton-glow: 0ms;
+    --motion-progress-fill: 0ms;
   }
 }
 
@@ -1511,6 +1514,22 @@
   }
   [data-slot="skeleton"]::after {
     animation: skeleton-shimmer var(--motion-skeleton-shimmer) var(--motion-ease-standard) infinite;
+  }
+}
+
+/* Progress bars: a known amount eases to its value; an unknown one sweeps a
+   band across the track so a long wait still shows something moving. Under
+   reduced motion the band rests in place. */
+[data-slot="progress-bar"] [data-slot="progress-fill"] {
+  transition: width var(--motion-progress-fill) var(--motion-ease-standard);
+}
+@keyframes progress-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="progress-bar"][data-indeterminate] [data-slot="progress-fill"] {
+    animation: progress-sweep var(--motion-progress-sweep) var(--motion-ease-standard) infinite;
   }
 }
 

@@ -305,6 +305,8 @@ export interface StudioAssistantTurn {
   live?: string;
   /** What the model is thinking right now, summarized (live updates only). */
   liveThinking?: string;
+  /** The step it is taking right now, e.g. "Running npm install" (live updates only). */
+  activity?: string;
   /** Tokens and list-price cost of this reply, once it is done. */
   usage?: { inputTokens: number; outputTokens: number; costUsd: number | null };
   /** On your message: the checkpoint saved just before the assistant started. */

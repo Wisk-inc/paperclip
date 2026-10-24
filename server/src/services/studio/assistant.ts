@@ -148,6 +148,40 @@ function clip(text: string, max = MAX_TOOL_OUTPUT) {
   return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters cut off)` : text;
 }
 
+/** What a tool call is about to do, said the way the panel says it. */
+export function describeActivity(name: string, rawInput: unknown): string {
+  const input = rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+  const text = (value: unknown, max = 80) => {
+    const one = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+    return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+  };
+  const target = text(input.path);
+  switch (name) {
+    case "list_files":
+      return "Looking through the files";
+    case "read_file":
+      return target ? `Reading ${target}` : "Reading a file";
+    case "write_file":
+      return target ? `Writing ${target}` : "Writing a file";
+    case "edit_file":
+      return target ? `Editing ${target}` : "Editing a file";
+    case "delete_path":
+      return target ? `Deleting ${target}` : "Deleting a file";
+    case "run_command": {
+      const command = text(input.command);
+      return command ? `Running ${command}` : "Running a command";
+    }
+    case "read_console":
+      return "Reading the console";
+    case "start_app":
+      return "Starting the app";
+    case "stop_app":
+      return "Stopping the app";
+    default:
+      return "Working";
+  }
+}
+
 interface ToolOutcome {
   ok: boolean;
   output: string;
@@ -384,11 +418,13 @@ async function startTurn(
   await writeJson(transcriptFile, transcript.slice(-200));
   let liveThinking = "";
   let live = "";
+  let activity = "";
   const snapshot = (): StudioAssistantTurn => ({
     ...turn,
     steps: [...turn.steps],
     ...(live ? { live: live.trimStart() } : {}),
     ...(liveThinking ? { liveThinking } : {}),
+    ...(activity ? { activity } : {}),
   });
   liveTurns.set(context.workspaceId, snapshot);
   const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, { type: "assistant", turn: done ? { ...turn, steps: [...turn.steps] } : snapshot(), done });
@@ -440,7 +476,13 @@ async function startTurn(
   };
 
   const onStep = (step: StudioAssistantStep) => {
+    activity = "";
     turn.steps.push(step);
+    publish(false);
+  };
+  // Said before a tool runs, so a long install shows what it is waiting on.
+  const onToolStart = (name: string, rawInput: unknown) => {
+    activity = describeActivity(name, rawInput);
     publish(false);
   };
   // Text the model is still writing (and its thinking); shown live, then
@@ -489,9 +531,9 @@ async function startTurn(
       const message = input.message || (images.length ? "Look at the attached image." : "See the attached files.");
       const prompt = `${message}${attachedText}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
       if (input.provider === "anthropic") {
-        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onText, onDelta, onThinkingDelta, onThought, onUsage });
+        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onDelta, onThinkingDelta, onThought, onUsage });
       } else {
-        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onText, onUsage });
+        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onUsage });
       }
     } catch (error) {
       turn.error = describeProviderError(error, controller.signal.aborted);
@@ -551,6 +593,7 @@ async function runAnthropic(input: {
   credentials: ProviderCredentials;
   signal: AbortSignal;
   onStep: (step: StudioAssistantStep) => void;
+  onToolStart: (name: string, rawInput: unknown) => void;
   onText: (text: string) => void;
   onDelta: (delta: string) => void;
   onThinkingDelta: (delta: string) => void;
@@ -674,6 +717,7 @@ async function runAnthropic(input: {
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const use of toolUses) {
       if (input.signal.aborted) throw new Error("Stopped.");
+      input.onToolStart(use.name, use.input);
       const outcome = await runTool(context, use.name, use.input, input.signal);
       input.onStep(outcome.step);
       results.push({ type: "tool_result", tool_use_id: use.id, content: outcome.output, ...(outcome.ok ? {} : { is_error: true }) });
@@ -703,6 +747,7 @@ async function runOpenAiCompatible(input: {
   credentials: ProviderCredentials;
   signal: AbortSignal;
   onStep: (step: StudioAssistantStep) => void;
+  onToolStart: (name: string, rawInput: unknown) => void;
   onText: (text: string) => void;
   onUsage: (usage: StudioAiUsage) => Promise<void>;
 }) {
@@ -802,6 +847,7 @@ async function runOpenAiCompatible(input: {
       } catch {
         args = null;
       }
+      if (args !== null) input.onToolStart(call.function.name, args);
       const outcome = args === null
         ? { ok: false, output: "The tool arguments were not valid JSON.", step: { tool: call.function.name, summary: call.function.name, ok: false, detail: "Invalid arguments" } }
         : await runTool(context, call.function.name, args, input.signal);

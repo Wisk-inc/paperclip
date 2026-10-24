@@ -52,7 +52,8 @@ import { StudioCheckpointsSheet } from "../components/studio/StudioCheckpointsSh
 import { STUDIO_AI_PROVIDERS, STUDIO_AI_PROVIDER_INFO, type StudioAiProvider } from "@paperclipai/shared";
 import { CodeEditor } from "../components/studio/CodeEditor";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
-import { createStudioConsoleStore } from "@/components/studio/console-store";
+import { createStudioConsoleStore, useLatestConsoleLine, type StudioConsoleStore } from "@/components/studio/console-store";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { StudioConsole } from "../components/studio/StudioConsole";
 import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioAssistant } from "../components/studio/StudioAssistant";
@@ -99,6 +100,20 @@ function readAiChoice(companyId: string): { provider: StudioAiProvider; model: s
   return { provider: "anthropic", model: "" };
 }
 const DRAFT_INTERVAL_MS = 150;
+
+/** Installing a language: a moving bar and the newest line the installer printed. */
+function ToolchainInstallProgress({ requires, consoleStore }: { requires: string; consoleStore: StudioConsoleStore }) {
+  // Only lines from this install, not the run before it.
+  const [since] = useState(() => new Date().toISOString());
+  const latest = useLatestConsoleLine(consoleStore, since);
+  return (
+    <div className="flex flex-col gap-1.5 border-b border-border bg-muted px-3 py-2" data-testid="studio-toolchain-installing">
+      <span className="text-sm font-medium" aria-live="polite">Installing {requires} on this device…</span>
+      <ProgressBar label={`Installing ${requires}`} />
+      <span className="truncate font-mono text-xs text-muted-foreground">{latest || "Getting the installer ready…"}</span>
+    </div>
+  );
+}
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";
@@ -786,7 +801,9 @@ export function StudioWorkspace() {
 
   const consolePane = (
     <div className="flex h-full min-h-0 flex-col">
-      {missingToolchain ? (
+      {missingToolchain && busy === "install" ? (
+        <ToolchainInstallProgress requires={missingToolchain.requires ?? "the language"} consoleStore={consoleStore} />
+      ) : missingToolchain ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
           <TriangleAlert className="size-4 shrink-0 text-destructive" />
           <span className="min-w-0 flex-1">
@@ -826,6 +843,7 @@ export function StudioWorkspace() {
     <StudioPreview
       run={run}
       consoleApp={consoleApp}
+      consoleStore={consoleStore}
       onRun={() => void runApp()}
       onShowConsole={() => {
         setPane("console");
