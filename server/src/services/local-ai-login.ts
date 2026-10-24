@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { adapterAuthSessions, ADAPTER_AUTH_SESSION_ACTIVE_STATES, environments, type Db } from "@paperclipai/db";
@@ -35,6 +36,42 @@ async function prepareHome(id: string, provider: string) {
     await writeFile(path.join(directory, "config.toml"), 'cli_auth_credentials_store = "file"\n', { mode: 0o600 });
   }
 }
+/** The program each subscription sign-in runs, and how to get it. */
+const LOGIN_PROGRAMS: Record<string, { command: string; name: string; keyName: string; install: string | null }> = {
+  anthropic: { command: "claude", name: "Claude Code", keyName: "an Anthropic API key", install: null },
+  openai: { command: "codex", name: "Codex", keyName: "an OpenAI API key", install: "npm install -g @openai/codex" },
+  xai: { command: "grok", name: "the Grok CLI", keyName: "an xAI API key", install: null },
+};
+
+async function onPath(command: string): Promise<boolean> {
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+    try {
+      await access(path.join(dir, command), fsConstants.X_OK);
+      return true;
+    } catch {
+      // not in this directory
+    }
+  }
+  return false;
+}
+
+/**
+ * On a phone (Automa in Termux) the subscription programs are usually not
+ * installed, and the sign-in would only fail inside the terminal with
+ * "command not found". Say so up front, with what works instead.
+ */
+export async function assertLoginProgramAvailable(provider: string, platform: NodeJS.Platform = process.platform) {
+  if (platform !== "android") return;
+  const program = LOGIN_PROGRAMS[provider];
+  if (!program || (await onPath(program.command))) return;
+  throw unprocessable(
+    `Signing in with a subscription needs ${program.name} (${program.command}) where Automa runs, and it isn't installed on this phone. ` +
+      `Use ${program.keyName} instead: it works on phones.` +
+      (program.install ? ` Or install it in Termux: ${program.install}` : ""),
+    { code: "ai_login_program_missing", program: program.command },
+  );
+}
+
 function sameTarget(a: AiConnectionLoginIntent, b: AiConnectionLoginIntent) {
   return a.provider === b.provider && a.method === b.method && a.ownership === b.ownership &&
     a.connectionId === b.connectionId && a.allAgents === b.allAgents &&
@@ -67,6 +104,7 @@ export function localAiLoginService(db: Db) {
   async function start(companyId: string, userId: string, intent: AiConnectionLoginIntent, restart = false): Promise<LocalAiLoginAttempt> {
     if (intent.provider !== "openai" && intent.provider !== "xai" && intent.provider !== "anthropic")
       throw unprocessable("This provider does not use a separate local login home.");
+    await assertLoginProgramAvailable(intent.provider);
     await reapExpired();
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`ai-local-login:${companyId}:${userId}:${intent.provider}`}, 0))`);

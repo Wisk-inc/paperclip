@@ -1,3 +1,4 @@
+import { NETWORK_ERROR_MESSAGE } from "./client";
 import {
   authSessionSchema,
   currentUserProfileSchema,
@@ -122,6 +123,8 @@ async function authPost(path: string, body: Record<string, unknown>): Promise<un
     });
   } catch (networkError) {
     logAuthNetworkFailure("POST", path, networkError);
+    // The sign-in form shows this, not the browser's bare "Failed to fetch".
+    if (networkError instanceof TypeError) throw new AuthApiError(NETWORK_ERROR_MESSAGE, 0, null, "network_error");
     throw networkError;
   }
   const payload = await res.json().catch(() => null);

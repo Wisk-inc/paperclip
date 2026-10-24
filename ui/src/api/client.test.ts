@@ -3,7 +3,7 @@ import {
   createTenantSessionRecoveryCoordinator,
   tenantSessionRecovery,
 } from "@/lib/tenant-session-recovery";
-import { __inflightGetCount, api, detachInflightGet } from "./client";
+import { __inflightGetCount, api, detachInflightGet, isNetworkError, NETWORK_ERROR_MESSAGE } from "./client";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -197,5 +197,44 @@ describe("per-caller abort semantics", () => {
       name: "AbortError",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("dropped connections", () => {
+  it("tries a read again and succeeds once the server answers", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }));
+      const result = api.get<{ ok: boolean }>("/health-retry");
+      await vi.advanceTimersByTimeAsync(700);
+      await expect(result).resolves.toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says what is wrong instead of 'Failed to fetch' once the retries run out", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+      const result = api.get("/still-down").catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(3000);
+      const error = await result;
+      expect(isNetworkError(error)).toBe(true);
+      expect((error as Error).message).toBe(NETWORK_ERROR_MESSAGE);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never sends a write twice", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    const error = await api.post("/issues", { title: "x" }).catch((caught: unknown) => caught);
+    expect(isNetworkError(error)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

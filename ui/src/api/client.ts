@@ -15,6 +15,40 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * What a request that never reached the server says, instead of the
+ * browser's bare "Failed to fetch" / "Load failed". Status 0: no response.
+ */
+export const NETWORK_ERROR_MESSAGE =
+  "Can't reach Automa right now. Check your connection (on a phone, that Automa is running in Termux), then try again.";
+
+export function isNetworkError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 0;
+}
+
+/** A `fetch` that failed before any response: offline, refused, reset. Not an abort. */
+function isConnectionFailure(error: unknown): boolean {
+  return error instanceof TypeError;
+}
+
+/** Waits before trying a read again: the server may be restarting (a phone's Termux, a deploy). */
+const READ_RETRY_DELAYS_MS = [600, 1500];
+
+function sleep(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError());
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export interface RequestOptions {
   /** Abort signal wired through to `fetch` and coalescing (per-caller). */
   signal?: AbortSignal;
@@ -50,11 +84,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   applyObservabilityHeaders(headers);
 
-  const res = await fetch(`${BASE}${path}`, {
-    headers,
-    credentials: "include",
-    ...init,
-  });
+  // Reads are tried again a couple of times when the connection drops; a
+  // write is not (it may have reached the server), and says so plainly.
+  const method = (init?.method ?? "GET").toUpperCase();
+  const retries = method === "GET" || method === "HEAD" ? READ_RETRY_DELAYS_MS : [];
+  let res: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        headers,
+        credentials: "include",
+        ...init,
+      });
+      break;
+    } catch (error) {
+      if (!isConnectionFailure(error) || init?.signal?.aborted) throw error;
+      if (attempt >= retries.length) throw new ApiError(NETWORK_ERROR_MESSAGE, 0, null);
+      await sleep(retries[attempt]!, init?.signal);
+    }
+  }
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
     const recovery = tenantSessionRecovery.recoverIfNeeded(res.status, errorBody);
