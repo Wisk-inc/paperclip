@@ -1588,6 +1588,50 @@
   }
 }
 
+@keyframes hold-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px) rotate(-0.4deg); }
+  40% { transform: translateX(2px) rotate(0.4deg); }
+  60% { transform: translateX(-1.5px) rotate(-0.25deg); }
+  80% { transform: translateX(1.5px) rotate(0.25deg); }
+}
+.hold-shake {
+  animation: hold-shake 0.4s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hold-shake { animation: none; }
+}
+
+@keyframes bond-kiss-in {
+  0% { opacity: 0; transform: translateX(var(--bond-from)) rotate(0deg) scale(0.8); }
+  70% { transform: translateX(var(--bond-over)) rotate(var(--bond-tilt)) scale(1.04); }
+  100% { opacity: 1; transform: translateX(0) rotate(var(--bond-tilt)) scale(1); }
+}
+@keyframes bond-lean {
+  0%, 100% { transform: rotate(var(--bond-tilt)) translateX(0); }
+  50% { transform: rotate(var(--bond-tilt-deep)) translateX(var(--bond-nudge)); }
+}
+.bond-logo {
+  animation: bond-kiss-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both, bond-lean 3.2s ease-in-out 0.5s infinite;
+}
+.bond-logo-left {
+  --bond-from: 10px;
+  --bond-over: -3px;
+  --bond-tilt: -7deg;
+  --bond-tilt-deep: -10deg;
+  --bond-nudge: 1.5px;
+}
+.bond-logo-right {
+  --bond-from: -10px;
+  --bond-over: 3px;
+  --bond-tilt: 7deg;
+  --bond-tilt-deep: 10deg;
+  --bond-nudge: -1.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bond-logo { animation: bond-kiss-in 0.01s both; }
+}
+
 @keyframes shimmer-text-slide {
   0% { background-position: 100% center; }
   60% { background-position: 0% center; }

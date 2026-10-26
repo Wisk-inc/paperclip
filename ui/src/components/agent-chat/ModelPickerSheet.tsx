@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { BondedModelLogos } from "@/components/BondedModelLogos";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
@@ -229,7 +230,15 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
       </div>
       {imageOptions.length ? (
         <div className="mt-3 border-t border-border pt-2.5">
-          <div className="mb-1.5 text-sm text-foreground">Paired image model</div>
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="text-sm text-foreground">Paired image model</span>
+            {boundImage ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 py-0.5 pl-1 pr-2 text-xs font-medium text-primary" data-testid="free-bond-mark">
+                <BondedModelLogos chatModelId={typeof config.model === "string" ? config.model : ""} imageModelId={boundImage} size="xs" />
+                Bonded
+              </span>
+            ) : null}
+          </div>
           <div className="mb-1.5 text-xs text-muted-foreground">The agent can draw pictures in its replies with this model.</div>
           <div className="flex flex-wrap gap-1.5">
             {[{ id: "", name: "None" }, ...imageOptions].map((option) => (
