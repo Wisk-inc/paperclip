@@ -566,7 +566,7 @@ export function Costs({
   const overviewError = spendError ?? financeError;
   return (
     <div className="space-y-6">
-      {selectedCompanyId ? <FreeModelsSavingsCard companyId={selectedCompanyId} /> : null}
+      {showSummaryChrome && selectedCompanyId ? <FreeModelsSavingsCard companyId={selectedCompanyId} /> : null}
       {showSummaryChrome ? (
         <div className="space-y-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
