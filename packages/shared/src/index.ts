@@ -2838,3 +2838,20 @@ export {
   type ClaudeModelPrice,
   type ClaudeUsageForPricing,
 } from "./model-pricing.js";
+
+// Free models (Puter)
+export {
+  PUTER_MODELS,
+  PUTER_MODEL_LIST,
+  PUTER_MODEL_META,
+  puterChat,
+  puterConvo,
+  puterBatch,
+  puterClearConvo,
+  puterPickModel,
+  type PuterModelKey,
+  type PuterModelId,
+  type PuterMessage,
+  type PuterChatOptions,
+  type PuterConvoOptions,
+} from "./puter-ai.js";
