@@ -6,12 +6,14 @@ import { AppActionsSheet, AppIcon, type PickerApp } from "@/components/app-inspe
 import { formatBytes } from "@/components/app-inspector/file-kinds";
 import { ProjectExplorer } from "@/components/app-inspector/ProjectExplorer";
 import { Mascot } from "@/components/mascot/Mascot";
+import { isServerTooOld, PhoneServerOutdated } from "@/components/device/PhoneServerOutdated";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useToastActions } from "@/context/ToastContext";
+import { useAskClaude } from "@/hooks/useAskClaude";
 import { automaNative } from "@/lib/automa-native";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
@@ -49,6 +51,7 @@ export function AppInspector() {
   const [sort, setSort] = useState<Sort>("name");
   const [phase, setPhase] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const askClaude = useAskClaude(companyId);
 
   useEffect(() => setBreadcrumbs([{ label: "App Inspector" }]), [setBreadcrumbs]);
 
@@ -218,7 +221,9 @@ export function AppInspector() {
         />
       </header>
 
-      {status.isError ? (
+      {status.isError && isServerTooOld(status.error) ? (
+        <PhoneServerOutdated feature="The App Inspector" onRetry={() => void status.refetch()} />
+      ) : status.isError ? (
         <div className="flex items-center gap-4 rounded-xl border border-dashed border-border p-4">
           <Mascot pose="confused" size="sm" />
           <p className="text-sm text-muted-foreground">The App Inspector runs on the device Automa runs on. Run Automa for yourself to use it.</p>
@@ -429,6 +434,16 @@ export function AppInspector() {
         phase={phase}
         onDecompile={(app, options) => decompile.mutate({ app, options })}
         onExtract={nativeAvailable ? (app) => extract.mutate(app) : null}
+        onAsk={
+          askClaude.ready
+            ? (app) => {
+                haptic("tick");
+                askClaude.ask(
+                  `Tell me about the app ${app.label} (${app.package}) on my phone${app.versionName ? `, version ${app.versionName}` : ""}. I can decompile it in Automa's App Inspector and share any of its files with you. What should I look at first?`,
+                );
+              }
+            : null
+        }
         onOpenChange={(open) => {
           if (!open && !decompile.isPending) setSheetApp(null);
         }}

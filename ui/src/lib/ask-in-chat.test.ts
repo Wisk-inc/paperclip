@@ -1,0 +1,32 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Agent } from "@paperclipai/shared";
+import { agentChatDraftKey, openChatWithDraft, pickChatAgent } from "./ask-in-chat";
+import { loadDraft } from "./composer-draft";
+
+// Only the fields the helper reads matter here.
+function agent(overrides: Partial<Agent> = {}): Agent {
+  return { id: "a1", companyId: "c1", name: "Ada", adapterType: "codex_local", urlKey: "ada", ...overrides } as unknown as Agent;
+}
+
+describe("ask in chat", () => {
+  afterEach(() => sessionStorage.clear());
+
+  it("prefers a Claude agent, else the first one", () => {
+    const codex = agent({ id: "codex", adapterType: "codex_local" } as Partial<Agent>);
+    const claude = agent({ id: "claude", adapterType: "claude_local" } as Partial<Agent>);
+    const api = agent({ id: "api", adapterType: "anthropic_api" } as Partial<Agent>);
+    expect(pickChatAgent([codex, claude])?.id).toBe("claude");
+    expect(pickChatAgent([codex, api])?.id).toBe("api");
+    expect(pickChatAgent([codex])?.id).toBe("codex");
+    expect(pickChatAgent([])).toBeNull();
+  });
+
+  it("writes the question where the chat composer looks, then opens that chat", () => {
+    const navigate = vi.fn();
+    const ada = agent();
+    openChatWithDraft(navigate, { companyId: "c1", userId: "u1", agent: ada, text: "What does this app do?" });
+    expect(loadDraft(agentChatDraftKey("c1", "u1", "a1"))).toBe("What does this app do?");
+    expect(navigate).toHaveBeenCalledWith("/chats/ada");
+  });
+});

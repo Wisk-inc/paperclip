@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { Boxes, Copy, Download, FileCode2, Loader2 } from "lucide-react";
+import { Boxes, Copy, Download, FileCode2, Loader2, Sparkles } from "lucide-react";
 import type { InspectorDecodeOptions } from "@/api/app-inspector";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -51,6 +51,7 @@ export function AppActionsSheet({
   phase,
   onDecompile,
   onExtract,
+  onAsk,
   onOpenChange,
 }: {
   app: PickerApp | null;
@@ -58,6 +59,8 @@ export function AppActionsSheet({
   phase: string | null;
   onDecompile: (app: PickerApp, options: InspectorDecodeOptions) => void;
   onExtract: ((app: PickerApp) => void) | null;
+  /** Opens a chat with an agent about this app; null when the organization has no agents yet. */
+  onAsk: ((app: PickerApp) => void) | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const [options, setOptions] = useState<InspectorDecodeOptions>({ resources: true, sources: true, java: true });
@@ -112,6 +115,18 @@ export function AppActionsSheet({
                 {busy ? <Loader2 className="animate-spin" /> : <FileCode2 />} {busy ? phase ?? "Starting…" : "Decompile"}
               </Button>
               <div className="overflow-hidden rounded-xl border border-border bg-card">
+                {onAsk ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onAsk(app)}
+                    className="flex min-h-12 w-full items-center gap-3 border-b border-border px-3 text-left text-sm hover:bg-accent/60 disabled:opacity-60"
+                    data-testid="inspector-ask-app"
+                  >
+                    <Sparkles className="size-4 text-primary" aria-hidden="true" />
+                    <span className="flex-1">Ask Claude about this app</span>
+                  </button>
+                ) : null}
                 {onExtract && app.apkUrl ? (
                   <button
                     type="button"

@@ -5,6 +5,7 @@ import { TERMINAL_TOOLS, type TerminalSessionSummary, type TerminalToolId, type 
 import { terminalsApi } from "@/api/terminals";
 import { TerminalView } from "@/components/terminals/TerminalView";
 import { Mascot } from "@/components/mascot/Mascot";
+import { isServerTooOld, PhoneServerOutdated } from "@/components/device/PhoneServerOutdated";
 import { Button } from "@/components/ui/button";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
@@ -147,6 +148,8 @@ export function Terminals() {
 
       {status.isPending ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Checking what's installed…</p>
+      ) : status.isError && isServerTooOld(status.error) ? (
+        <PhoneServerOutdated feature="Terminals" onRetry={() => void status.refetch()} />
       ) : status.isError ? (
         <div className="flex items-center gap-4 rounded-xl border border-dashed border-border p-4">
           <Mascot pose="confused" size="sm" />

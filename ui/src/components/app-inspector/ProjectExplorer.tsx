@@ -13,6 +13,7 @@ import {
   Loader2,
   Search,
   ShieldAlert,
+  Sparkles,
   TerminalSquare,
   X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToastActions } from "@/context/ToastContext";
+import { useAskClaude } from "@/hooks/useAskClaude";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { fileKind, formatBytes } from "./file-kinds";
@@ -325,6 +327,18 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
     enabled: viewReady && tab !== "info" && debouncedQuery.length >= (mode === "text" ? 2 : 1),
   });
 
+  const askClaude = useAskClaude(companyId);
+  const askAboutApp = () => {
+    const name = info.data?.label ?? p?.label ?? "this app";
+    const pkg = info.data?.packageName ?? p?.packageName;
+    const ok = askClaude.ask(
+      `I decompiled ${name}${pkg ? ` (${pkg})` : ""} with Automa's App Inspector. Help me understand this app: what it does, how it is built, and what is worth a closer look.\n\n` +
+        "The decoded files (AndroidManifest.xml, res/, smali/) and the Java jadx produced are in the App Inspector project. Tell me which file to open and I'll paste it here, or open a Terminal to read them yourself.",
+    );
+    if (ok) haptic("tick");
+    else pushToast({ title: "No agent to ask yet", body: "Hire an agent first (Agents), then come back.", tone: "error" });
+  };
+
   const build = useMutation({
     mutationFn: () => appInspectorApi.rebuild(companyId, projectId),
     onSuccess: ({ project: next }) => {
@@ -367,6 +381,9 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
             {[info.data?.packageName ?? p?.packageName, info.data?.versionName].filter(Boolean).join(" · ")}
           </span>
         </span>
+        <Button variant="ghost" size="icon-sm" aria-label="Ask Claude about this app" onClick={askAboutApp} data-testid="inspector-ask">
+          <Sparkles />
+        </Button>
         {p?.decoded ? (
           <Button size="sm" disabled={build.isPending || busy} onClick={() => build.mutate()} data-testid="inspector-rebuild">
             {p.status === "building" ? <Loader2 className="animate-spin" /> : <Hammer />} Build

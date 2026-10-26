@@ -120,6 +120,7 @@ cat > "$PREFIX/bin/automa" <<LAUNCHER
 #        automa start      the same, in the background (the Automa app and Termux:Boot use this)
 #        automa stop       stops Automa started with automa start
 #        automa status     says whether Automa is running
+#        automa update     installs the newer server the Automa app sent (~/downloads/automa-server.tar.xz)
 #        automa link       hands the app key to the Automa app again (prints it too)
 #        automa adb link   links this phone's own Wireless debugging, so agents can run adb shell
 #        (or any paperclipai command: automa doctor, automa onboard)
@@ -175,6 +176,15 @@ case "\${1:-}" in
       exit 1
     fi
     exit 0
+    ;;
+  update)
+    # The app saves its bundled server as ~/downloads/automa-server.tar.xz
+    # (Send to Termux). Its installer updates in place and keeps the data.
+    bundle="\$HOME/downloads/automa-server.tar.xz"
+    [ -s "\$bundle" ] || { echo "No new server to install. In the Automa app, open the setup screen and tap Send to Termux, then run: automa update" >&2; exit 1; }
+    rm -rf "\$TMPDIR/automa-server"
+    tar -xf "\$bundle" -C "\$TMPDIR"
+    exec bash "\$TMPDIR/automa-server/install.sh"
     ;;
   link)
     echo "App key for the Automa app (Run Automa on this phone -> paste the app key):"
