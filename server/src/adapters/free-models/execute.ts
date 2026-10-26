@@ -21,7 +21,7 @@ import { drawAndUploadImage, loadThread, postReply, readCommentPictures, threadA
 import { freeDirectToolRuntime } from "./direct-runtime.js";
 
 const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
-const DEFAULT_MAX_TOOL_TURNS = 24;
+const DEFAULT_MAX_TOOL_TURNS = 40;
 
 function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;

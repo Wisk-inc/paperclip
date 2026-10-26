@@ -5,7 +5,9 @@
  */
 
 const UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36";
-const MAX_RESULTS = 6;
+const DEFAULT_RESULTS = 8;
+const MAX_RESULTS = 60;
+// DuckDuckGo's HTML endpoint returns roughly this many results per page.
 const MAX_PAGE_BYTES = 2_000_000;
 const MAX_TEXT_CHARS = 12_000;
 
@@ -35,25 +37,45 @@ function realUrl(href: string): string {
   return href;
 }
 
-export async function webSearch(query: string, signal?: AbortSignal): Promise<WebSearchResult[]> {
-  const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-    headers: { "user-agent": UA, accept: "text/html" },
-    signal: signal ?? AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`Search answered ${response.status}`);
-  const html = await response.text();
-  const results: WebSearchResult[] = [];
+function parsePage(html: string): WebSearchResult[] {
   const linkPattern = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
   const snippetPattern = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
   const snippets: string[] = [];
   for (let match = snippetPattern.exec(html); match; match = snippetPattern.exec(html)) snippets.push(stripTags(match[1]!));
+  const results: WebSearchResult[] = [];
   let index = 0;
-  for (let match = linkPattern.exec(html); match && results.length < MAX_RESULTS; match = linkPattern.exec(html)) {
+  for (let match = linkPattern.exec(html); match; match = linkPattern.exec(html)) {
     const url = realUrl(match[1]!);
     const title = stripTags(match[2]!);
     if (!title || !/^https?:/.test(url)) { index += 1; continue; }
     results.push({ title, url, snippet: snippets[index] ?? "" });
     index += 1;
+  }
+  return results;
+}
+
+/**
+ * One web search across the whole index (not a fixed shortlist), returning up
+ * to `limit` de-duplicated results. Deep pagination needs a per-session token
+ * the scraper can't mint, so breadth across thousands of sites comes from the
+ * agent running many searches with different queries and reading many pages in
+ * one run — which its tool loop is sized for.
+ */
+export async function webSearch(query: string, limit = DEFAULT_RESULTS, signal?: AbortSignal): Promise<WebSearchResult[]> {
+  const want = Math.max(1, Math.min(limit, MAX_RESULTS));
+  const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+    headers: { "user-agent": UA, accept: "text/html" },
+    signal: signal ?? AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`Search answered ${response.status}`);
+  const seen = new Set<string>();
+  const results: WebSearchResult[] = [];
+  for (const result of parsePage(await response.text())) {
+    const key = result.url.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(result);
+    if (results.length >= want) break;
   }
   return results;
 }

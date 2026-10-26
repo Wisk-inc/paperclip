@@ -45,8 +45,8 @@ const WEB_SEARCH_TOOL: PuterTool = {
   type: "function",
   function: {
     name: "WebSearch",
-    description: "Search the web and get the top results (title, URL, snippet). Use it to find current information, then WebFetch a result to read it.",
-    parameters: { type: "object", properties: { query: { type: "string", description: "What to search for" } }, required: ["query"] },
+    description: "Search the whole web and get results (title, URL, snippet). Set count for a broad sweep (up to 60 at a time); run several searches with different queries to cover thousands of sites, then WebFetch the promising results to read them.",
+    parameters: { type: "object", properties: { query: { type: "string", description: "What to search for" }, count: { type: "integer", description: "How many results to return (default 8, up to 60)" } }, required: ["query"] },
   },
 };
 
@@ -145,9 +145,10 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
       return { content: outcome.content, isError: outcome.isError };
     }
     if (name === "WebSearch") {
-      const results = await webSearch(str(input, "query"), ctx.signal);
+      const count = typeof input.count === "number" ? input.count : Number(input.count) || undefined;
+      const results = await webSearch(str(input, "query"), count, ctx.signal);
       if (results.length === 0) return { content: "No results.", isError: false };
-      return { content: results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n\n"), isError: false };
+      return { content: `${results.length} results:\n\n` + results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n\n"), isError: false };
     }
     if (name === "WebFetch") {
       const page = await webFetch(str(input, "url"), ctx.signal);
