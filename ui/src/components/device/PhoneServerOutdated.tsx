@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Loader2, RefreshCw, TerminalSquare } from "lucide-react";
+import { ArrowUpCircle, RefreshCw, TerminalSquare } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Mascot } from "@/components/mascot/Mascot";
@@ -12,11 +12,16 @@ const UPDATE_COMMAND = "pkg update -y && tar -xf ~/downloads/automa-server.tar.x
 
 /**
  * True when an error means the Automa server on this phone is older than the
- * app: the route does not exist, so the server replies 404. (A current server
- * that simply refuses a non-operator replies 403.)
+ * app: the route does not exist, so the server's catch-all replies 404 with
+ * "API route not found". A 404 that says something else (a proxy's page, a
+ * route reporting a missing record) is not that. A current server that simply
+ * refuses a non-operator replies 403.
  */
 export function isServerTooOld(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 404;
+  if (!(error instanceof ApiError) || error.status !== 404) return false;
+  const body = error.body as { error?: unknown } | null;
+  if (body == null) return true;
+  return typeof body === "object" && typeof body.error === "string" && /route not found/i.test(body.error);
 }
 
 /**
@@ -85,27 +90,4 @@ export function PhoneServerOutdated({ feature, onRetry }: { feature: string; onR
       ) : null}
     </div>
   );
-}
-
-/** Convenience: a spinner while a status loads, the outdated panel on a 404, null otherwise. */
-export function DeviceFeatureGate({
-  feature,
-  pending,
-  error,
-  onRetry,
-}: {
-  feature: string;
-  pending: boolean;
-  error: unknown;
-  onRetry?: () => void;
-}) {
-  if (pending) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Checking this phone…
-      </p>
-    );
-  }
-  if (isServerTooOld(error)) return <PhoneServerOutdated feature={feature} onRetry={onRetry} />;
-  return null;
 }

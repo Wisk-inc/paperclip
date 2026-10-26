@@ -87,6 +87,17 @@ else
     say "npm stays quiet until it finishes. Keep Termux open and the phone on charge."
   fi
   # The app ships the packages unpacked (xz-compressed); npm installs tarballs.
+  # A running Automa keeps the old code loaded (and npm would replace files
+  # under it), so stop it first; the new server starts at the end of this install.
+  if [ -s "$automa_home/automa.pid" ] && kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+    say "Stopping the running Automa server so the update takes effect"
+    kill -TERM "$(cat "$automa_home/automa.pid")" 2>/dev/null || true
+    for _ in $(seq 1 30); do kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null || break; sleep 1; done
+    rm -f "$automa_home/automa.pid"
+  fi
+  if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null; then
+    echo "An Automa server is still running (started in another Termux session?). Stop it there with Ctrl+C, or the old version keeps answering until the phone restarts." >&2
+  fi
   tarballs="$here/tarballs"
   rm -rf "$tarballs"
   mkdir -p "$tarballs" "$server_dir"

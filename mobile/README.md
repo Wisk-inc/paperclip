@@ -179,9 +179,11 @@ Updating: a new APK does not update the server in Termux. When a page in
 the app needs a newer server (for example Terminals or the App Inspector on
 a phone that installed Automa before they existed), the page says so and
 offers **Update Automa on this phone**, which opens the setup screen: tap
-**Send to Termux**, then run `automa update` in Termux (or paste the same
-install command as the first time). The installer sees the installed version
-and updates in place, reusing npm's download cache. The first install downloads about 380 packages and took 46
+**Send to Termux**, then paste the command it shows in Termux (the same one as
+the first install; it works whatever version is installed). Once a 1.8.2 or
+newer server is installed, `automa update` does the same. The installer stops
+the running server, installs the new one in place reusing npm's download
+cache, and starts it again. The first install downloads about 380 packages and took 46
 minutes on one phone's connection; the installer holds a Termux wake lock so
 Android does not pause it.
 

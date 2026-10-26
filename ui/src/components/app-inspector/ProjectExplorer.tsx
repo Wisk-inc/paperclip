@@ -336,7 +336,7 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
       `I decompiled ${name}${pkg ? ` (${pkg})` : ""} with Automa's App Inspector. Help me understand this app: what it does, how it is built, and what is worth a closer look.\n\n` +
         `The project is ${where}: decoded/ holds AndroidManifest.xml, res/ and smali/ from apktool, and java/sources/ holds the Java that jadx produced. Read them from there if you have file tools; otherwise tell me which file to open and I'll paste it here.` +
         (pkg
-          ? `\n\nThe app is installed on this phone. If adb is linked (automa adb link in Termux), you can launch it with \`adb shell monkey -p ${pkg} 1\`, take a screenshot with \`adb shell screencap -p /sdcard/shot.png\` and read it, tap and type with \`adb shell input\`, and read its logs with \`adb logcat\`.`
+          ? `\n\nIf this app is installed on this phone and adb is linked (automa adb link in Termux), you can launch it with \`adb shell monkey -p ${pkg} 1\`, take a screenshot with \`adb shell screencap -p /sdcard/shot.png\` and read it, tap and type with \`adb shell input\`, and read its logs with \`adb logcat\`.`
           : ""),
     );
     if (ok) haptic("tick");
