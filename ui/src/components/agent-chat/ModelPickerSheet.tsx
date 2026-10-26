@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
@@ -174,6 +175,85 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
   );
 }
 
+/** Reads a config toggle that defaults to on. */
+function toggleOn(value: unknown): boolean {
+  return value !== false && value !== "off" && value !== "false" && value !== "none";
+}
+
+const FREE_TOOL_ROWS: { key: string; label: string; hint: string }[] = [
+  { key: "freeWeb", label: "Web search & reading", hint: "Search the web and read pages" },
+  { key: "freeFiles", label: "Files & commands", hint: "Read and change files, run commands" },
+  { key: "freeTeammates", label: "Teammates & tasks", hint: "Message agents, create and update tasks, write plans" },
+  { key: "freeConnections", label: "Connected apps", hint: "Use Gmail, Slack, GitHub and more" },
+];
+
+/** Tools and a paired image model for an agent running on a free chat model. */
+function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: { id: string; name: string }[] }) {
+  const client = useQueryClient();
+  const { pushToast } = useToastActions();
+  const config = (agent.adapterConfig ?? {}) as Record<string, unknown>;
+  const boundImage = typeof config.imageModel === "string" ? config.imageModel : "";
+
+  const update = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => agentsApi.update(agent.id, { adapterConfig: patch }, agent.companyId),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) }),
+        client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
+      ]);
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn’t change the setting", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
+
+  return (
+    <div data-testid="free-tools" className="mx-1 mb-2 rounded-lg border border-border bg-card px-3 py-2.5">
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">What this agent can do</h4>
+      <div className="flex flex-col gap-2.5">
+        {FREE_TOOL_ROWS.map((row) => (
+          <label key={row.key} className="flex items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block text-sm text-foreground">{row.label}</span>
+              <span className="block text-xs text-muted-foreground">{row.hint}</span>
+            </span>
+            <ToggleSwitch
+              checked={toggleOn(config[row.key])}
+              disabled={update.isPending}
+              onCheckedChange={(next) => { haptic("tick"); update.mutate({ [row.key]: next }); }}
+              aria-label={row.label}
+            />
+          </label>
+        ))}
+      </div>
+      {imageOptions.length ? (
+        <div className="mt-3 border-t border-border pt-2.5">
+          <div className="mb-1.5 text-sm text-foreground">Paired image model</div>
+          <div className="mb-1.5 text-xs text-muted-foreground">The agent can draw pictures in its replies with this model.</div>
+          <div className="flex flex-wrap gap-1.5">
+            {[{ id: "", name: "None" }, ...imageOptions].map((option) => (
+              <button
+                key={option.id || "none"}
+                type="button"
+                aria-pressed={boundImage === option.id}
+                disabled={update.isPending}
+                onClick={() => { haptic("tick"); update.mutate({ imageModel: option.id }); }}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition-colors",
+                  boundImage === option.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-accent",
+                )}
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "", returnFocusRef }: {
   agent: Agent;
   open: boolean;
@@ -239,6 +319,11 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     [runsOnOpenRouter, runsFree, runtimeModels.data, agent.adapterType],
   );
   const freeEntries = useMemo(() => toEntries(freeModels.data, "free", FREE_MODELS_ADAPTER_TYPE), [freeModels.data]);
+  const freeImageOptions = useMemo(
+    () => (freeModels.data ?? []).filter((model) => model.id.startsWith("@cf/")).map((model) => ({ id: model.id, name: modelDisplayName(model.id, model.label).replace(/ · image$/i, "") })),
+    [freeModels.data],
+  );
+  const runsFreeChat = runsFree && !currentModel.startsWith("@cf/");
   const catalogEntries = useMemo(
     () => toEntries(catalog.data, "openrouter", "opencode_local").sort(byRecency),
     [catalog.data],
@@ -362,6 +447,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
         </SheetHeader>
 
         <ThinkingDepthControl agent={agent} className="px-4 pb-3" />
+        {runsFreeChat ? <FreeToolsPanel agent={agent} imageOptions={freeImageOptions} /> : null}
 
         <div className="space-y-2 px-4 pb-2">
           <div className="relative">

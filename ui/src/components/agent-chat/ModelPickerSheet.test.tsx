@@ -217,6 +217,25 @@ describe("ModelPickerSheet", () => {
     }, "company-1");
   });
 
+  it("shows tool toggles and an image bond for an agent on a free chat model", async () => {
+    await render(<ModelPickerSheet agent={agent({ adapterType: "free_models", adapterConfig: { model: "deepseek/deepseek-v4.1-flash:free", freeWeb: false } })} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="free-tools"]')).not.toBeNull());
+    const panel = document.querySelector('[data-testid="free-tools"]')!;
+    const web = panel.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Web search & reading"]')!;
+    expect(web.getAttribute("aria-checked")).toBe("false");
+    await act(async () => web.click());
+    await settle(() => expect(mockAgentsApi.update).toHaveBeenCalledWith("agent-1", { adapterConfig: { freeWeb: true } }, "company-1"));
+    const bond = [...panel.querySelectorAll("button")].find((b) => /SDXL Lightning/.test(b.textContent ?? ""))!;
+    await act(async () => bond.click());
+    expect(mockAgentsApi.update).toHaveBeenCalledWith("agent-1", { adapterConfig: { imageModel: "@cf/bytedance/stable-diffusion-xl-lightning" } }, "company-1");
+  });
+
+  it("hides the tool panel for an agent not on a free model", async () => {
+    await render(<ModelPickerSheet agent={agent()} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="free-models"]')).not.toBeNull());
+    expect(document.querySelector('[data-testid="free-tools"]')).toBeNull();
+  });
+
   it("filters to free models and resets free usage", async () => {
     await render(<ModelPickerSheet agent={agent({ adapterType: "free_models", adapterConfig: { model: "deepseek/deepseek-v4.1-flash:free" } })} open onOpenChange={() => {}} />);
     await settle(() => expect(document.querySelector('[data-testid="free-usage"]')).not.toBeNull());
