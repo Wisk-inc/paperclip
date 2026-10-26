@@ -14,6 +14,7 @@ import type {
 } from "./task-chat-model";
 import { TaskChatTurn } from "./TaskChatTurn";
 import { TaskChatBubble } from "./TaskChatBubble";
+import { HeldActionsContext } from "./held-actions-context";
 import { TaskChatMarker } from "./TaskChatMarker";
 import { TaskChatStatusPill } from "./TaskChatStatusPill";
 import { TaskChatToolCard } from "./TaskChatToolCard";
@@ -59,6 +60,8 @@ interface TaskChatThreadViewProps {
    * fixtures omit it and the bubbles render actionless.
    */
   renderMessageActions?: (item: TaskChatMessageItem) => ReactNode;
+  /** Full action row for any message, shown in its press-and-hold menu. */
+  renderHeldMessageActions?: (item: TaskChatMessageItem) => ReactNode;
   /** Renders an interrupt action beside a queued human message. */
   renderQueuedAction?: (item: TaskChatMessageItem) => ReactNode;
   /** Requeues a blocked task from its no-live-execution-path failure surfaces. */
@@ -407,6 +410,7 @@ export function TaskChatThreadView({
   renderInteraction,
   renderBrief,
   renderMessageActions,
+  renderHeldMessageActions,
   renderQueuedAction,
   onTryAgainNoLiveExecutionPath,
   tryAgainNoLiveExecutionPathPending = false,
@@ -420,6 +424,27 @@ export function TaskChatThreadView({
   onOpenSkill,
 }: TaskChatThreadViewProps) {
   const streamlined = useStreamlinedTaskChatPresentation();
+  const latestAgentMessageId = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.author === "agent") return item.id;
+    }
+    return null;
+  }, [items]);
+  const heldActionsValue = useMemo(
+    () => ({ latestAgentMessageId, renderHeldActions: renderHeldMessageActions }),
+    [latestAgentMessageId, renderHeldMessageActions],
+  );
+  // Inline actions ride only the newest agent reply; older and human messages
+  // reveal them on press-and-hold through HeldActionsContext instead.
+  const inlineMessageActions = useMemo(
+    () =>
+      renderMessageActions
+        ? (item: TaskChatMessageItem) =>
+            item.author === "agent" && item.id === latestAgentMessageId ? renderMessageActions(item) : null
+        : undefined,
+    [renderMessageActions, latestAgentMessageId],
+  );
   const retryableMarkerId =
     onRetryFailedRun || onTryAgainNoLiveExecutionPath
       ? [...items]
@@ -468,7 +493,7 @@ export function TaskChatThreadView({
             onRuntimeRequestDecision={onRuntimeRequestDecision}
             renderInteraction={renderInteraction}
             renderBrief={renderBrief}
-            renderMessageActions={renderMessageActions}
+            renderMessageActions={inlineMessageActions}
             renderQueuedAction={renderQueuedAction}
             onTryAgainNoLiveExecutionPath={onTryAgainNoLiveExecutionPath}
             tryAgainNoLiveExecutionPathPending={tryAgainNoLiveExecutionPathPending}
@@ -483,7 +508,7 @@ export function TaskChatThreadView({
     );
   }, [
     stableItems, streamlined, minute, onApprovalDecision, onRuntimeRequestDecision,
-    renderInteraction, renderBrief, renderMessageActions, renderQueuedAction,
+    renderInteraction, renderBrief, inlineMessageActions, renderQueuedAction,
     onTryAgainNoLiveExecutionPath, tryAgainNoLiveExecutionPathPending,
     retryableMarkerId, onRetryFailedRun, retryFailedRunId, stableAttachments, onOpenSkill,
   ]);
@@ -508,11 +533,12 @@ export function TaskChatThreadView({
     </div>
   );
 
-  if (!scroll) return body;
+  const wrapped = <HeldActionsContext.Provider value={heldActionsValue}>{body}</HeldActionsContext.Provider>;
+  if (!scroll) return wrapped;
 
   return (
     <TaskMessageScroller contentKey={contentKey ?? taskChatContentKey(items)}>
-      {body}
+      {wrapped}
     </TaskMessageScroller>
   );
 }

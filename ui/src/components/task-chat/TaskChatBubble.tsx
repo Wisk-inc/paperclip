@@ -6,7 +6,10 @@ import { useEmailComment } from "@/components/EmailMessageCard";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { IssueGalleryContext } from "@/context/IssueGalleryContext";
 import { cn } from "@/lib/utils";
+import { haptic } from "@/lib/haptics";
+import { useLongPress } from "@/lib/use-long-press";
 import { useStreamlinedTaskChatPresentation } from "./presentation-mode";
+import { HeldActionsContext } from "./held-actions-context";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import {
   ImageGalleryModal,
@@ -140,6 +143,16 @@ function TaskChatBubbleContent({
   tryAgainNoLiveExecutionPathPending,
 }: TaskChatBubbleProps) {
   const streamlined = useStreamlinedTaskChatPresentation();
+  // The newest agent reply shows its actions inline; every other message hides
+  // them and reveals them on press-and-hold (see HeldActionsContext).
+  const { latestAgentMessageId, renderHeldActions } = useContext(HeldActionsContext);
+  const isNewestAgent = item.author === "agent" && item.id === latestAgentMessageId;
+  const heldActions = !isNewestAgent && !item.optimistic ? renderHeldActions?.(item) : null;
+  const holdable = Boolean(heldActions);
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [shake, setShake] = useState(false);
+  const reveal = useCallback(() => { setHeldOpen(true); setShake(true); haptic("thud"); }, []);
+  const hold = useLongPress(reveal);
   // Task attachments share the page gallery; standalone images retain the bubble viewer.
   const openIssueGallery = useContext(IssueGalleryContext);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -217,8 +230,31 @@ function TaskChatBubbleContent({
         "flex w-full flex-col gap-1",
         animateEntry && "tc-enter-bubble",
         isHuman ? "items-end" : "items-start",
+        holdable && "relative select-none",
+        shake && "hold-shake",
       )}
+      {...(holdable ? hold : {})}
+      onAnimationEnd={holdable ? () => setShake(false) : undefined}
     >
+      {holdable && heldOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close message actions"
+            className="fixed inset-0 z-40 cursor-default"
+            onPointerDown={() => setHeldOpen(false)}
+          />
+          <div
+            data-testid="task-chat-held-actions"
+            className={cn(
+              "absolute bottom-full z-50 mb-1 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 shadow-md",
+              isHuman ? "right-0" : "left-0",
+            )}
+          >
+            {heldActions}
+          </div>
+        </>
+      ) : null}
       {beforeTurn ? <div className="w-full pb-1">{beforeTurn}</div> : null}
       {!isHuman && item.authorName && !hideAgentIdentity ? (
         <TaskChatAgentIdentity
@@ -384,7 +420,7 @@ function TaskChatBubbleContent({
         >
           {attachedTurn}
         </div>
-      ) : actions ? (
+      ) : actions && !holdable ? (
         streamlined ? (
           <div className="flex w-full items-center justify-between gap-2 px-1">
             {item.timestamp ? (

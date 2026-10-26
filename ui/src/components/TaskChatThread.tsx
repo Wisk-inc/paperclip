@@ -2960,6 +2960,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                     renderInteraction={renderInteraction}
                     renderBrief={renderBrief}
                     renderMessageActions={renderMessageActions}
+                    renderHeldMessageActions={renderMessageActions}
                     renderQueuedAction={renderQueuedAction}
                     onTryAgainNoLiveExecutionPath={
                       issueStatus === "blocked" &&
