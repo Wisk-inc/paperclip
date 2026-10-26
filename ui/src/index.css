@@ -1632,6 +1632,21 @@
   .bond-logo { animation: bond-kiss-in 0.01s both; }
 }
 
+@keyframes skeleton-sheen {
+  0% { background-position: -150% 0; }
+  100% { background-position: 250% 0; }
+}
+.skeleton-shimmer {
+  background-color: var(--muted);
+  background-image: linear-gradient(100deg, transparent 20%, color-mix(in oklch, var(--foreground) 10%, transparent) 45%, color-mix(in oklch, var(--foreground) 14%, transparent) 55%, transparent 80%);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer { animation: none; }
+}
+
 @keyframes shimmer-text-slide {
   0% { background-position: 100% center; }
   60% { background-position: 0% center; }

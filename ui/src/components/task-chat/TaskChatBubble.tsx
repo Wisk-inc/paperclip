@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
 import { useLongPress } from "@/lib/use-long-press";
 import { useStreamlinedTaskChatPresentation } from "./presentation-mode";
+import { ChatImage } from "@/components/ChatImage";
 import { HeldActionsContext } from "./held-actions-context";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import {
@@ -313,11 +314,11 @@ function TaskChatBubbleContent({
                   aria-label={`Open ${ref.name || `image ${index + 1}`}`}
                   onClick={() => openImage(ref.url)}
                 >
-                  <img
+                  <ChatImage
                     src={ref.openPath ?? ref.url}
                     alt={ref.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform group-hover:scale-(--s-1_02)"
+                    className="h-full w-full"
+                    imgClassName="h-full w-full object-cover transition-transform group-hover:scale-(--s-1_02)"
                   />
                 </button>
               ))}
