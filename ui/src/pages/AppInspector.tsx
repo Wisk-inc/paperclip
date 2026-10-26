@@ -439,7 +439,8 @@ export function AppInspector() {
             ? (app) => {
                 haptic("tick");
                 askClaude.ask(
-                  `Tell me about the app ${app.label} (${app.package}) on my phone${app.versionName ? `, version ${app.versionName}` : ""}. I can decompile it in Automa's App Inspector and share any of its files with you. What should I look at first?`,
+                  `Tell me about the app ${app.label} (${app.package}) on my phone${app.versionName ? `, version ${app.versionName}` : ""}. I can decompile it in Automa's App Inspector and share any of its files with you. ` +
+                    `If adb is linked on this phone (automa adb link in Termux), you can launch it with \`adb shell monkey -p ${app.package} 1\`, take screenshots with \`adb shell screencap -p /sdcard/shot.png\`, and drive it with \`adb shell input\`. What should I look at first?`,
                 );
               }
             : null

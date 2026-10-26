@@ -10,6 +10,8 @@ export interface InspectorProjectView {
   id: string;
   label: string;
   packageName: string | null;
+  /** The project folder on the device that runs Automa (decoded/, java/sources/). */
+  dir: string;
   splitCount: number;
   options: InspectorDecodeOptions;
   status: "decoding" | "ready" | "building" | "built" | "failed";

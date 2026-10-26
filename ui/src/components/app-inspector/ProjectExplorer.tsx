@@ -331,9 +331,13 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   const askAboutApp = () => {
     const name = info.data?.label ?? p?.label ?? "this app";
     const pkg = info.data?.packageName ?? p?.packageName;
+    const where = p?.dir ? `on this device at ${p.dir}` : "in the App Inspector project";
     const ok = askClaude.ask(
       `I decompiled ${name}${pkg ? ` (${pkg})` : ""} with Automa's App Inspector. Help me understand this app: what it does, how it is built, and what is worth a closer look.\n\n` +
-        "The decoded files (AndroidManifest.xml, res/, smali/) and the Java jadx produced are in the App Inspector project. Tell me which file to open and I'll paste it here, or open a Terminal to read them yourself.",
+        `The project is ${where}: decoded/ holds AndroidManifest.xml, res/ and smali/ from apktool, and java/sources/ holds the Java that jadx produced. Read them from there if you have file tools; otherwise tell me which file to open and I'll paste it here.` +
+        (pkg
+          ? `\n\nThe app is installed on this phone. If adb is linked (automa adb link in Termux), you can launch it with \`adb shell monkey -p ${pkg} 1\`, take a screenshot with \`adb shell screencap -p /sdcard/shot.png\` and read it, tap and type with \`adb shell input\`, and read its logs with \`adb logcat\`.`
+          : ""),
     );
     if (ok) haptic("tick");
     else pushToast({ title: "No agent to ask yet", body: "Hire an agent first (Agents), then come back.", tone: "error" });

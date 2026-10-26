@@ -162,6 +162,8 @@ function publicView(project: InspectorProject) {
     id: project.id,
     label: project.label,
     packageName: project.packageName,
+    // Where the decoded files live on this device, for agents with file tools.
+    dir: project.dir,
     splitCount: project.splitCount,
     options: project.options,
     status: project.status,
