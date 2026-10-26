@@ -13,6 +13,7 @@ import type {
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSign, ReceiptText, Code2 } from "lucide-react";
 import { budgetsApi } from "../api/budgets";
 import { costsApi } from "../api/costs";
+import { FreeModelsSavingsCard } from "../components/FreeModelsSavingsCard";
 import { BillerSpendCard } from "../components/BillerSpendCard";
 import { BudgetIncidentCard } from "../components/BudgetIncidentCard";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
@@ -565,6 +566,7 @@ export function Costs({
   const overviewError = spendError ?? financeError;
   return (
     <div className="space-y-6">
+      {selectedCompanyId ? <FreeModelsSavingsCard companyId={selectedCompanyId} /> : null}
       {showSummaryChrome ? (
         <div className="space-y-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

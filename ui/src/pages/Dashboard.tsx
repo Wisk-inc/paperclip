@@ -15,6 +15,7 @@ import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
 import { buildCompanyUserProfileMap } from "../lib/company-members";
+import { FreeModelsSavingsCard } from "../components/FreeModelsSavingsCard";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -326,6 +327,8 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       {error && <p className="text-sm text-destructive">{error.message}</p>}
+
+      {selectedCompanyId ? <FreeModelsSavingsCard companyId={selectedCompanyId} /> : null}
 
       {pausedBanner?.kind === "imported" ? (
         <InlineBanner
