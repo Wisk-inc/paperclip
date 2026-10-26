@@ -90,10 +90,30 @@ export type PuterContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
 
-export interface PuterMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string | PuterContentPart[];
+export interface PuterToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
 }
+
+export interface PuterMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | PuterContentPart[] | null;
+  tool_calls?: PuterToolCall[];
+  tool_call_id?: string;
+}
+
+/** An OpenAI-style function the model may call. */
+export interface PuterTool {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+export type PuterStreamEvent =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'done'; usage: PuterUsage; stopReason: string };
 
 export interface PuterUsage {
   inputTokens: number;
@@ -143,7 +163,7 @@ function resolveToken(explicit?: string): string {
   return explicit || fromEnv || EMBEDDED_TOKEN;
 }
 
-class PuterHttpError extends Error {
+export class PuterHttpError extends Error {
   constructor(readonly status: number, body: string) {
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
   }
@@ -286,4 +306,89 @@ export async function puterImage(
   // Puter labels every image image/png; sniff the real format so uploads get the right type.
   const mimeType = bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png' : (match[1] ?? 'image/png');
   return { bytes, mimeType, model };
+}
+
+export interface PuterStreamOptions {
+  model?: string;
+  tools?: PuterTool[];
+  token?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * One streamed chat call: text and reasoning arrive in pieces, a tool call
+ * arrives whole, and the last event carries the usage. Throws PuterHttpError
+ * (with its status) when the call is refused, so callers can retry or fall back.
+ */
+export async function* puterStream(messages: PuterMessage[], opts: PuterStreamOptions = {}): AsyncGenerator<PuterStreamEvent> {
+  const response = await fetch(PUTER_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;actually=json' },
+    body: JSON.stringify({
+      interface: 'puter-chat-completion',
+      driver: 'ai-chat',
+      method: 'complete',
+      args: { messages, model: resolveModel(opts.model), stream: true, ...(opts.tools?.length ? { tools: opts.tools } : {}) },
+      auth_token: resolveToken(opts.token),
+      app_uid: APP_UID,
+    }),
+    signal: opts.signal ?? AbortSignal.timeout(300_000),
+  });
+  if (!response.ok || !response.body) throw new PuterHttpError(response.status, await response.text().catch(() => ''));
+  if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
+    // A refusal arrives as one JSON object instead of a stream.
+    const body = await response.text();
+    const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown }; } catch { return null; } })();
+    if (parsed?.success === false || parsed?.error) throw new PuterHttpError(400, body);
+    throw new PuterHttpError(502, body);
+  }
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  let buffer = '';
+  let finished = false;
+  const parse = (line: string): PuterStreamEvent | null => {
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(line) as Record<string, unknown>; } catch { return null; }
+    if (event.type === 'text' && typeof event.text === 'string') return { type: 'text', text: event.text };
+    if (event.type === 'reasoning' && typeof event.reasoning === 'string') return { type: 'reasoning', text: event.reasoning };
+    if (event.type === 'tool_use' && typeof event.name === 'string') {
+      return { type: 'tool_use', id: typeof event.id === 'string' ? event.id : `call_${Math.random().toString(36).slice(2)}`, name: event.name, input: event.input ?? {} };
+    }
+    if (event.type === 'usage') {
+      const usage = event.usageDetails as { inputTokens?: number; outputTokens?: number } | undefined;
+      const raw = event.usage as { prompt?: number; completion?: number } | undefined;
+      return {
+        type: 'done',
+        usage: { inputTokens: Number(usage?.inputTokens ?? raw?.prompt ?? 0) || 0, outputTokens: Number(usage?.outputTokens ?? raw?.completion ?? 0) || 0 },
+        stopReason: typeof event.stopReason === 'string' ? event.stopReason : 'end_turn',
+      };
+    }
+    if (event.success === false || event.error) throw new PuterHttpError(502, JSON.stringify(event.error ?? event));
+    return null;
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+      if (!line) continue;
+      const event = parse(line);
+      if (!event) continue;
+      if (event.type === 'done') finished = true;
+      yield event;
+    }
+  }
+  const tail = buffer.trim();
+  if (tail) {
+    const event = parse(tail);
+    if (event) {
+      if (event.type === 'done') finished = true;
+      yield event;
+    }
+  }
+  if (!finished) yield { type: 'done', usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'end_turn' };
 }

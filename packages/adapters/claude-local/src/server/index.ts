@@ -132,3 +132,14 @@ export const sessionCodec: AdapterSessionCodec = {
     );
   },
 };
+
+export {
+  clipOutput,
+  directApiToolDefinitions,
+  directToolRuntime,
+  runDirectTool,
+  toolInputForLog,
+  type DirectToolOutcome,
+  type DirectToolRuntime,
+} from "./direct-api-tools.js";
+export { parseReplayLines, readConversationReplay } from "./direct-api.js";
