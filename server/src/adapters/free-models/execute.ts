@@ -51,6 +51,41 @@ function readToggles(config: Record<string, unknown>, imageModel: PuterImageMode
   };
 }
 
+interface Profile {
+  role: string;
+  title: string;
+  teammates: string[];
+  personName: string;
+  /** Lookups that failed, for the run log; never shown to the person. */
+  notes: string[];
+}
+
+/** Who the agent is and who it works with, read as the agent; anything that fails is simply left out. */
+async function loadProfile(api: ThreadApi, companyId: string, agentId: string, personId: string | null): Promise<Profile> {
+  const profile: Profile = { role: "", title: "", teammates: [], personName: "", notes: [] };
+  try {
+    const me = await api.json<{ role?: string; title?: string | null }>("/api/agents/me");
+    profile.role = typeof me.role === "string" ? me.role : "";
+    profile.title = typeof me.title === "string" ? me.title : "";
+  } catch (error) { profile.notes.push(error instanceof Error ? error.message : String(error)); }
+  try {
+    const agents = await api.json<Array<{ id: string; name: string; role?: string; title?: string | null; status?: string }>>(`/api/companies/${companyId}/agents`);
+    profile.teammates = agents
+      .filter((agent) => agent.id !== agentId && agent.status !== "terminated")
+      .slice(0, 20)
+      .map((agent) => `${agent.name}${agent.title ? ` (${agent.title})` : agent.role ? ` (${agent.role})` : ""}`);
+  } catch (error) { profile.notes.push(error instanceof Error ? error.message : String(error)); }
+  if (personId) {
+    try {
+      // The user directory is readable by the company's own agents; the members list is not.
+      const directory = await api.json<{ users?: Array<{ principalId: string; user?: { name?: string | null } | null }> }>(`/api/companies/${companyId}/user-directory`);
+      const person = directory.users?.find((entry) => entry.principalId === personId);
+      profile.personName = (person?.user?.name ?? "").trim();
+    } catch (error) { profile.notes.push(error instanceof Error ? error.message : String(error)); }
+  }
+  return profile;
+}
+
 function logLine(event: Record<string, unknown>): string {
   return `${JSON.stringify(event)}\n`;
 }
@@ -117,7 +152,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   // Only the vision model reads attached photos; other chat models are told they can't.
   const pictures = lastUser && model === VISION_MODEL ? await readCommentPictures(api, issueId, lastUser.id) : [];
-  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0 });
+  const profile = await loadProfile(api, issue.companyId, agent.id, readId((issue as { conversationUserId?: unknown }).conversationUserId));
+  for (const note of profile.notes) await onLog("stdout", `[paperclip] Profile lookup skipped: ${note}\n`);
+  await onLog("stdout", `[paperclip] Profile: ${profile.title || profile.role || "no role"}; person ${profile.personName || "unknown"}; ${profile.teammates.length} teammates\n`);
+  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, profile });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
@@ -147,11 +185,16 @@ interface BuildInput {
   level: ReturnType<typeof readThinkingLevel>;
   pictures: string[];
   hasTools: boolean;
+  profile: Profile;
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, level: ReturnType<typeof readThinkingLevel>): string {
+function systemPrompt(agentName: string, hasTools: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile): string {
+  const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
-    `You are ${agentName}, an AI agent on the person's team in Automa, chatting with them in the app.`,
+    `You are ${agentName}${who ? ` (${who})` : ""}, an AI agent on the person's team in Automa, chatting with them in the app.${profile.personName ? ` The person you are talking to is ${profile.personName}; use their name naturally.` : ""}`,
+    profile.teammates.length
+      ? `Your teammates in this company: ${profile.teammates.join("; ")}. You can message them and hand them tasks through the Automa API.`
+      : "",
     hasTools
       ? "You have tools and you use them to get real answers and do real work: read and search the web, read and change files, run commands, call the Automa API as yourself (talk to teammates, create and update tasks, write plans), use the person's connected apps, and draw pictures. Prefer finding the real answer with a tool over guessing. When you say you did something, a tool must actually have done it."
       : "Answer in text only in this reply.",
@@ -161,7 +204,7 @@ function systemPrompt(agentName: string, hasTools: boolean, level: ReturnType<ty
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.level) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.level, input.profile) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });

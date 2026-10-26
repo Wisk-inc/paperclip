@@ -1,7 +1,8 @@
 import { ArtifactPreview } from "@/components/artifacts/ArtifactCard";
 import { isVideoLikeOutput } from "@/lib/issue-output";
 import { AgentAvatar, type AvatarAgent } from "../AgentAvatar";
-import { useCallback, useContext, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 import { useEmailComment } from "@/components/EmailMessageCard";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { IssueGalleryContext } from "@/context/IssueGalleryContext";
@@ -146,7 +147,7 @@ function TaskChatBubbleContent({
   const streamlined = useStreamlinedTaskChatPresentation();
   // The newest agent reply shows its actions inline; every other message hides
   // them and reveals them on press-and-hold (see HeldActionsContext).
-  const { latestAgentMessageId, renderHeldActions } = useContext(HeldActionsContext);
+  const { latestAgentMessageId, renderHeldActions, sendMessage } = useContext(HeldActionsContext);
   const isNewestAgent = item.author === "agent" && item.id === latestAgentMessageId;
   const heldActions = !isNewestAgent && !item.optimistic ? renderHeldActions?.(item) : null;
   const holdable = Boolean(heldActions);
@@ -154,6 +155,20 @@ function TaskChatBubbleContent({
   const [shake, setShake] = useState(false);
   const reveal = useCallback(() => { setHeldOpen(true); setShake(true); haptic("thud"); }, []);
   const hold = useLongPress(reveal);
+  // The newest reply's inline actions fade in on hover; on touch a tap on the
+  // bubble opens them and a tap anywhere else closes them.
+  const [tapOpen, setTapOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!tapOpen) return;
+    const close = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && rootRef.current.contains(event.target)) return;
+      setTapOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [tapOpen]);
+  const [redrawing, setRedrawing] = useState<string | null>(null);
   // Task attachments share the page gallery; standalone images retain the bubble viewer.
   const openIssueGallery = useContext(IssueGalleryContext);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -188,6 +203,9 @@ function TaskChatBubbleContent({
   const { refs: linkedRefs, text: bodyWithoutAttachmentLinks } =
     extractAttachmentRefs(item.text);
   const embeddedImageRefs = extractImageRefs(bodyWithoutAttachmentLinks);
+  // A drawn picture keeps its prompt as the markdown alt text; hydration swaps
+  // the label for the file name, so remember the prompt by URL for Draw again.
+  const promptByUrl = new Map(embeddedImageRefs.map((ref) => [ref.url.split("?")[0], ref.name] as const));
   const bodyText = stripStandaloneImageEmbeds(bodyWithoutAttachmentLinks);
   const hydratedLinkedRefs = hydrateAttachmentRefs(linkedRefs, attachments);
   const hydratedEmbeddedRefs = hydrateAttachmentRefs(
@@ -227,14 +245,25 @@ function TaskChatBubbleContent({
       : Math.max(0, mediaRefs.findIndex((ref) => ref.url === lightboxSrc));
   return (
     <div
+      ref={rootRef}
       className={cn(
-        "flex w-full flex-col gap-1",
+        "group/bubble flex w-full flex-col gap-1",
         animateEntry && "tc-enter-bubble",
         isHuman ? "items-end" : "items-start",
         holdable && "relative select-none",
         shake && "hold-shake",
       )}
+      data-actions-open={heldOpen || tapOpen ? "true" : undefined}
       {...(holdable ? hold : {})}
+      onClick={
+        actions && !holdable
+          ? (event) => {
+              // Taps on links, buttons and images do their own thing.
+              if (event.target instanceof Element && event.target.closest("a, button, img, textarea, input")) return;
+              setTapOpen((open) => !open);
+            }
+          : undefined
+      }
       onAnimationEnd={holdable ? () => setShake(false) : undefined}
     >
       {holdable && heldOpen ? (
@@ -247,8 +276,9 @@ function TaskChatBubbleContent({
           />
           <div
             data-testid="task-chat-held-actions"
+            data-actions-open="true"
             className={cn(
-              "absolute bottom-full z-50 mb-1 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 shadow-md",
+              "tc-pop-in absolute bottom-full z-50 mb-1 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 shadow-md",
               isHuman ? "right-0" : "left-0",
             )}
           >
@@ -306,22 +336,46 @@ function TaskChatBubbleContent({
           <div className="grid grid-cols-4 gap-2">
             {imageRefs
               .slice(0, imageRefs.length > 4 ? 3 : 4)
-              .map((ref, index) => (
-                <button
-                  key={ref.url}
-                  type="button"
-                  className="group aspect-video min-w-0 overflow-hidden rounded-md bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={`Open ${ref.name || `image ${index + 1}`}`}
-                  onClick={() => openImage(ref.url)}
-                >
-                  <ChatImage
-                    src={ref.openPath ?? ref.url}
-                    alt={ref.name}
-                    className="h-full w-full"
-                    imgClassName="h-full w-full object-cover transition-transform group-hover:scale-(--s-1_02)"
-                  />
-                </button>
-              ))}
+              .map((ref, index) => {
+                // A generated picture carries its prompt as the alt text; a
+                // file name means it was attached, not drawn.
+                const alt = promptByUrl.get(ref.url.split("?")[0]) ?? "";
+                const prompt = !isHuman && sendMessage && alt && !/\.[a-z0-9]{2,4}$/i.test(alt) ? alt : null;
+                return (
+                  <span key={ref.url} className="relative min-w-0">
+                    <button
+                      type="button"
+                      className="group aspect-video w-full min-w-0 overflow-hidden rounded-md bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Open ${ref.name || `image ${index + 1}`}`}
+                      onClick={() => openImage(ref.url)}
+                    >
+                      <ChatImage
+                        src={ref.openPath ?? ref.url}
+                        alt={ref.name}
+                        className="h-full w-full"
+                        imgClassName="h-full w-full object-cover transition-transform group-hover:scale-(--s-1_02)"
+                      />
+                    </button>
+                    {prompt ? (
+                      <button
+                        type="button"
+                        data-testid="task-chat-draw-again"
+                        aria-label="Draw this again"
+                        title="Draw again"
+                        disabled={redrawing === ref.url}
+                        onClick={async () => {
+                          haptic("tick");
+                          setRedrawing(ref.url);
+                          try { await sendMessage?.(prompt); } finally { setRedrawing(null); }
+                        }}
+                        className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent disabled:opacity-60"
+                      >
+                        <RefreshCw className={cn("h-3 w-3", redrawing === ref.url && "animate-spin")} aria-hidden />
+                      </button>
+                    ) : null}
+                  </span>
+                );
+              })}
             {imageRefs.length > 4 ? (
               <button
                 type="button"

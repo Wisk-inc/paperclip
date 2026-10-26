@@ -4,6 +4,7 @@ import { AGENT_ROLE_LABELS, type Agent, type AgentRole } from "@paperclipai/shar
 import type { OrgNode } from "@/api/agents";
 import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
 import { roleIcon } from "@/components/agent-chat/role-icons";
+import { BondedModelLogos } from "@/components/BondedModelLogos";
 import { ModelLogo } from "@/components/ModelLogo";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
@@ -58,7 +59,11 @@ function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Ag
               </span>
               {model ? (
                 <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground/80">
-                  <ModelLogo modelId={model} adapterType={agent.adapterType} size="xs" tile={false} />
+                  {agent.adapterType === "free_models" && typeof agent.adapterConfig?.imageModel === "string" ? (
+                    <BondedModelLogos chatModelId={model} imageModelId={agent.adapterConfig.imageModel} size="xs" tile={false} />
+                  ) : (
+                    <ModelLogo modelId={model} adapterType={agent.adapterType} size="xs" tile={false} />
+                  )}
                   <span className="truncate">{modelDisplayName(model)}</span>
                 </span>
               ) : null}

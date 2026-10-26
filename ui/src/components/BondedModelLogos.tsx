@@ -10,11 +10,13 @@ export function BondedModelLogos({
   chatModelId,
   imageModelId,
   size = "sm",
+  tile = true,
   className,
 }: {
   chatModelId: string;
   imageModelId: string;
   size?: "xs" | "sm" | "md";
+  tile?: boolean;
   className?: string;
 }) {
   return (
@@ -24,10 +26,10 @@ export function BondedModelLogos({
       className={cn("relative inline-flex items-center", className)}
     >
       <span className="bond-logo bond-logo-left relative z-10 drop-shadow-sm">
-        <ModelLogo modelId={chatModelId} size={size} />
+        <ModelLogo modelId={chatModelId} size={size} tile={tile} />
       </span>
       <span className="bond-logo bond-logo-right relative z-20 -ml-1.5 drop-shadow-sm">
-        <ModelLogo modelId={imageModelId} size={size} />
+        <ModelLogo modelId={imageModelId} size={size} tile={tile} />
       </span>
     </span>
   );

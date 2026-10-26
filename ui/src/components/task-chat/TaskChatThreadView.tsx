@@ -62,6 +62,8 @@ interface TaskChatThreadViewProps {
   renderMessageActions?: (item: TaskChatMessageItem) => ReactNode;
   /** Full action row for any message, shown in its press-and-hold menu. */
   renderHeldMessageActions?: (item: TaskChatMessageItem) => ReactNode;
+  /** Sends a message as the person, used by a bubble's "Draw again". */
+  sendMessage?: (text: string) => Promise<void> | void;
   /** Renders an interrupt action beside a queued human message. */
   renderQueuedAction?: (item: TaskChatMessageItem) => ReactNode;
   /** Requeues a blocked task from its no-live-execution-path failure surfaces. */
@@ -411,6 +413,7 @@ export function TaskChatThreadView({
   renderBrief,
   renderMessageActions,
   renderHeldMessageActions,
+  sendMessage,
   renderQueuedAction,
   onTryAgainNoLiveExecutionPath,
   tryAgainNoLiveExecutionPathPending = false,
@@ -432,8 +435,8 @@ export function TaskChatThreadView({
     return null;
   }, [items]);
   const heldActionsValue = useMemo(
-    () => ({ latestAgentMessageId, renderHeldActions: renderHeldMessageActions }),
-    [latestAgentMessageId, renderHeldMessageActions],
+    () => ({ latestAgentMessageId, renderHeldActions: renderHeldMessageActions, sendMessage }),
+    [latestAgentMessageId, renderHeldMessageActions, sendMessage],
   );
   // Inline actions ride only the newest agent reply; older and human messages
   // reveal them on press-and-hold through HeldActionsContext instead.

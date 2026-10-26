@@ -1647,6 +1647,33 @@
   .skeleton-shimmer { animation: none; }
 }
 
+/* Message action rows: hidden until the bubble is hovered (fine pointers),
+   tapped open (touch), or shown in a press-and-hold menu. */
+.tc-hover-actions {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+@media (hover: hover) {
+  .group\/bubble:hover .tc-hover-actions,
+  .group\/bubble:focus-within .tc-hover-actions {
+    opacity: 1;
+  }
+}
+[data-actions-open="true"] .tc-hover-actions {
+  opacity: 1;
+}
+@keyframes tc-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tc-pop-in {
+  animation: tc-pop-in 0.18s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-hover-actions { transition: none; }
+  .tc-pop-in { animation: none; }
+}
+
 @keyframes shimmer-text-slide {
   0% { background-position: 100% center; }
   60% { background-position: 0% center; }

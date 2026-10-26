@@ -2578,6 +2578,16 @@ export function TaskChatThread(props: TaskChatThreadProps) {
   // copy · 👍 · 👎 cluster for an agent bubble's footer line (PAP-413). Human
   // and system bubbles get nothing; copy is always available, and the feedback
   // buttons render only when the host wired a vote handler.
+  // Lets a bubble ask for something as the person (e.g. draw a picture again).
+  const sendChatMessage = useCallback(
+    async (text: string) => {
+      if (!issueId) return;
+      // Chat messages carry a client request id so a retry never double-posts.
+      await issuesApi.addComment(issueId, text, undefined, undefined, undefined, crypto.randomUUID());
+    },
+    [issueId],
+  );
+
   const renderMessageActions = useCallback(
     (item: TaskChatMessageItem) => {
       if (item.optimistic) return null;
@@ -2588,10 +2598,11 @@ export function TaskChatThread(props: TaskChatThreadProps) {
           ? () => onDeleteComment(item.id)
           : undefined;
       if (item.author === "human") {
-        return <TaskChatBubbleActions copyText={item.text} onDelete={onDelete} />;
+        return <span className="tc-hover-actions"><TaskChatBubbleActions copyText={item.text} onDelete={onDelete} /></span>;
       }
       if (item.author !== "agent") return null;
       return (
+        <span className="tc-hover-actions">
         <TaskChatBubbleActions
           copyText={item.text}
           onDelete={onDelete}
@@ -2606,6 +2617,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
               : null
           }
         />
+        </span>
       );
     },
     [
@@ -2961,6 +2973,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                     renderBrief={renderBrief}
                     renderMessageActions={renderMessageActions}
                     renderHeldMessageActions={renderMessageActions}
+                    sendMessage={sendChatMessage}
                     renderQueuedAction={renderQueuedAction}
                     onTryAgainNoLiveExecutionPath={
                       issueStatus === "blocked" &&

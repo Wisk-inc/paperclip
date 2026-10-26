@@ -146,9 +146,18 @@ Talk to an agent like a teammate.
   card at the top of the section counts the tokens and pictures used ($0.00
   charged), shows what the same work would have cost at paid prices, and
   **Reset** starts the count again; Home and Costs show the same as "saved".
-- **Message actions**: copy, delete and thumbs up/down sit under the newest
-  reply only. Press and hold any other message (yours or the agent's) for a
-  little shake and the same menu; tap anywhere else to close it.
+- **Message actions**: copy, delete and thumbs up/down belong to the newest
+  reply only, and even there they stay out of the way: they fade in when you
+  hover the reply (on a computer) or tap it (on the phone), and fade out when
+  you tap anywhere else. Press and hold any other message (yours or the
+  agent's) for a little shake and the same menu; tap elsewhere to close it.
+- **Draw again**: every picture an agent drew has a small refresh button in
+  its corner; tap it to ask for the same picture again and get a fresh take.
+- **The agent knows who it is**: a free-model agent is told its role and
+  title, its teammates (so it can message them and hand off tasks through
+  the Automa API), and your profile name, so it can address you properly.
+  The bonded pair's logos also show on the chat header's model chip and on
+  the org chart.
 - **Attachments**: tap + under the message box for photos, screenshots, PDFs
   or any file. The picker offers every type the page accepts.
 - **Slash commands**: type `/` for `/plan`, `/ask`, `/auto`, `/model`,

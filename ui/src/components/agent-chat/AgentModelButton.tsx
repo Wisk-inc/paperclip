@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
+import { BondedModelLogos } from "@/components/BondedModelLogos";
 import { ModelLogo } from "@/components/ModelLogo";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
@@ -13,6 +14,7 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
   const name = modelDisplayName(model);
+  const imageModel = agent.adapterType === "free_models" && typeof agent.adapterConfig?.imageModel === "string" ? agent.adapterConfig.imageModel : "";
   return (
     <>
       <button
@@ -20,7 +22,7 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
         type="button"
         data-slot="agent-model-button"
         aria-haspopup="dialog"
-        aria-label={`Model: ${name}. Change model`}
+        aria-label={`Model: ${name}${imageModel ? ` with ${modelDisplayName(imageModel)}` : ""}. Change model`}
         onClick={() => {
           haptic("tick");
           setOpen(true);
@@ -31,7 +33,11 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
           className,
         )}
       >
-        <ModelLogo modelId={model} adapterType={agent.adapterType} size="sm" tile={false} />
+        {imageModel ? (
+          <BondedModelLogos chatModelId={model} imageModelId={imageModel} size="sm" tile={false} />
+        ) : (
+          <ModelLogo modelId={model} adapterType={agent.adapterType} size="sm" tile={false} />
+        )}
         {/* On phones narrower than 28rem the chat title needs the room, so
             the header shows just the model's logo (the label still names it). */}
         <span className="hidden min-w-0 truncate @md/header:inline">{name}</span>
