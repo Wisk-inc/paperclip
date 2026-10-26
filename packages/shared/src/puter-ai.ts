@@ -163,10 +163,56 @@ function resolveToken(explicit?: string): string {
   return explicit || fromEnv || EMBEDDED_TOKEN;
 }
 
+/**
+ * A refused call. `code` and `upstream` are read out of the service's JSON
+ * (for example `upstream_provider_unavailable` with the provider's own
+ * message), so callers can tell a busy provider from a rejected request and
+ * say which it was.
+ */
 export class PuterHttpError extends Error {
-  constructor(readonly status: number, body: string) {
+  readonly code: string | null;
+  readonly upstream: string | null;
+  constructor(readonly status: number, readonly body: string) {
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
+    let code: string | null = null;
+    let upstream: string | null = null;
+    try {
+      const parsed = JSON.parse(body) as {
+        code?: unknown; message?: unknown; error?: unknown;
+        attempts?: Array<{ status?: unknown; error?: unknown; upstreamMessage?: unknown }>;
+      };
+      if (typeof parsed.code === 'string') code = parsed.code;
+      const attempt = Array.isArray(parsed.attempts) ? parsed.attempts[0] : undefined;
+      const detail = [attempt?.upstreamMessage, attempt?.error, parsed.message, parsed.error].find((v) => typeof v === 'string' && v.trim());
+      if (typeof detail === 'string') upstream = detail.replace(/\s+/g, ' ').trim().slice(0, 200);
+    } catch {
+      // Not JSON: the body is the message.
+      if (body.trim() && body.length < 200) upstream = body.trim();
+    }
+    this.code = code;
+    this.upstream = upstream;
   }
+}
+
+/** A refusal that may pass on a retry of the same model: rate limits, outages, timeouts. */
+export function isTransientPuterError(error: unknown): boolean {
+  if (!(error instanceof PuterHttpError)) return false;
+  if (error.status === 429 || error.status === 408 || error.status >= 500) return true;
+  return error.code === 'upstream_rate_limited' || error.code === 'upstream_timeout' || error.code === 'upstream_provider_unavailable';
+}
+
+/** The refusal in plain words, naming the model, for the chat. Never suggests Automa switched models: it did not. */
+export function describePuterError(error: unknown, modelLabel: string, retries = 0): Error {
+  if (!(error instanceof PuterHttpError)) return error instanceof Error ? error : new Error(String(error));
+  const why = error.status === 429 || error.code === 'upstream_rate_limited'
+    ? 'is rate-limited right now'
+    : error.code === 'upstream_provider_unavailable'
+      ? `could not be reached${error.upstream ? ` (${error.upstream})` : ''}`
+      : error.status >= 500
+        ? `had a server error (${error.status})`
+        : `rejected the request${error.upstream ? `: ${error.upstream}` : ` (${error.status})`}`;
+  const tried = retries > 0 ? ` Automa stayed on this model and retried ${retries} time${retries === 1 ? '' : 's'}.` : '';
+  return new Error(`${modelLabel} ${why}.${tried} Send the message again in a minute, or pick a different model in the switcher if it keeps happening.`);
 }
 
 async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal): Promise<unknown> {
@@ -211,39 +257,31 @@ async function callChat(
   return { text: '', reasoning, usage };
 }
 
-/** Chat with retry: waits on 429, moves to the next free model when one is unavailable. */
+/** Chat on the chosen model, retrying it (never another model) when the provider is busy. */
 export async function puterComplete(
   messages: PuterMessage[],
   opts: PuterChatOptions = {},
 ): Promise<{ text: string; reasoning: string; model: string; usage: PuterUsage }> {
   const token = resolveToken(opts.token);
-  const requested = resolveModel(opts.model);
-  const retries = opts.retries ?? 5;
-  let idx = PUTER_MODEL_LIST.indexOf(requested as PuterModelId);
+  const model = resolveModel(opts.model);
+  const retries = Math.max(1, opts.retries ?? 3);
   let lastError: unknown;
   const spent: PuterUsage = { inputTokens: 0, outputTokens: 0 };
   for (let i = 0; i < retries; i++) {
-    const model = i === 0 || idx < 0 ? requested : PUTER_MODEL_LIST[idx % PUTER_MODEL_LIST.length]!;
     try {
       const { text, reasoning, usage } = await callChat(messages, model, token, opts.signal);
       spent.inputTokens += usage.inputTokens;
       spent.outputTokens += usage.outputTokens;
-      if (text.trim()) return { text, reasoning, model, usage: spent };
+      if (text.trim() || reasoning.trim()) return { text, reasoning, model, usage: spent };
       lastError = new Error(`${model} returned an empty reply`);
-      if (idx < 0) idx = 0; else idx++;
     } catch (e) {
       lastError = e;
       if (opts.signal?.aborted) throw e;
-      const status = e instanceof PuterHttpError ? e.status : 0;
-      if (status === 429) { await new Promise((r) => setTimeout(r, 2000 * (i + 1))); continue; }
-      if (status === 400 || status === 402 || status === 404 || status === 502 || status === 503) {
-        if (idx < 0) idx = 0; else idx++;
-        continue;
-      }
-      throw e;
+      if (!isTransientPuterError(e)) throw e;
     }
+    if (i + 1 < retries) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
-  throw lastError instanceof Error ? lastError : new Error('The free models are busy. Try again in a minute.');
+  throw lastError instanceof Error ? lastError : new Error('The free model is busy. Try again in a minute.');
 }
 
 /** One-shot chat. */

@@ -54,10 +54,13 @@ export interface LoadedThread {
 export async function loadThread(api: ThreadApi, issueId: string, agentId: string): Promise<LoadedThread> {
   const issue = await api.json<IssueSummary>(`/api/issues/${issueId}`);
   // Newest first from the API, so a long chat keeps its latest messages; reversed into reading order.
-  const comments = (await api.json<ThreadComment[]>(`/api/issues/${issueId}/comments?order=desc&limit=${MAX_HISTORY_COMMENTS * 2}`))
+  const all = (await api.json<ThreadComment[]>(`/api/issues/${issueId}/comments?order=desc&limit=${MAX_HISTORY_COMMENTS * 2}`))
     .reverse()
-    .filter((comment) => comment.authorType !== "system" && comment.presentation?.kind !== "system_notice" && comment.body.trim())
-    .slice(-MAX_HISTORY_COMMENTS);
+    .filter((comment) => comment.authorType !== "system" && comment.presentation?.kind !== "system_notice" && comment.body.trim());
+  // "/new" starts a fresh session: the chat stays on screen, but the model
+  // starts over from the message after it, and never sees the command itself.
+  const boundary = all.reduce((found, comment, index) => (comment.authorAgentId !== agentId && comment.body.trim() === "/new" ? index : found), -1);
+  const comments = all.slice(boundary + 1).slice(-MAX_HISTORY_COMMENTS);
   const lastUser = [...comments].reverse().find((comment) => comment.authorAgentId !== agentId) ?? null;
   return { issue, comments, lastUser };
 }

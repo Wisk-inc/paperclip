@@ -1,13 +1,17 @@
 import {
+  describePuterError,
   isPuterImageModel,
+  isTransientPuterError,
   puterComplete,
   puterStream,
   PUTER_IMAGE_MODELS,
   PUTER_MODELS,
+  PUTER_MODEL_META,
   PuterHttpError,
   type PuterContentPart,
   type PuterImageModelId,
   type PuterMessage,
+  type PuterModelKey,
   type PuterToolCall,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
@@ -22,6 +26,47 @@ import { freeDirectToolRuntime } from "./direct-runtime.js";
 
 const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
 const DEFAULT_MAX_TOOL_TURNS = 40;
+/** Same-model retries for a busy provider, and how long to wait between them (short under test). */
+const MAX_TRANSIENT_RETRIES = 3;
+const RETRY_BASE_MS = process.env.VITEST ? 10 : 1500;
+/** The same tool call with the same arguments past this many times is a loop, not research. */
+const MAX_IDENTICAL_CALLS = 2;
+
+/** The model's display name for status lines and errors. */
+function modelLabel(model: string): string {
+  const key = (Object.keys(PUTER_MODELS) as PuterModelKey[]).find((k) => PUTER_MODELS[k] === model);
+  return key ? PUTER_MODEL_META[key].label : model;
+}
+
+/**
+ * The tool exchanges rewritten as plain text. Some free routes refuse
+ * `tool`-role messages or assistant tool calls in the history outright;
+ * the same facts as text get the same model to carry on.
+ */
+function toolHistoryAsText(messages: PuterMessage[]): PuterMessage[] {
+  const names = new Map<string, string>();
+  const out: PuterMessage[] = [];
+  const pushUser = (text: string) => {
+    const last = out[out.length - 1];
+    if (last && last.role === "user" && typeof last.content === "string") last.content = `${last.content}\n\n${text}`;
+    else out.push({ role: "user", content: text });
+  };
+  for (const message of messages) {
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      for (const call of message.tool_calls) names.set(call.id, call.function.name);
+      const calls = message.tool_calls.map((call) => `[Called ${call.function.name} ${call.function.arguments || "{}"}]`).join("\n");
+      const text = typeof message.content === "string" ? message.content.trim() : "";
+      out.push({ role: "assistant", content: text ? `${text}\n\n${calls}` : calls });
+    } else if (message.role === "tool") {
+      pushUser(`[${names.get(message.tool_call_id ?? "") ?? "Tool"} result]\n${typeof message.content === "string" ? message.content : ""}`);
+    } else if (message.role === "user" && typeof message.content === "string") {
+      pushUser(message.content);
+    } else {
+      out.push(message);
+    }
+  }
+  return out;
+}
 
 function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -198,7 +243,7 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
       ? `Your teammates in this company: ${profile.teammates.join("; ")}. You can message them and hand them tasks through the Automa API.`
       : "",
     hasTools
-      ? "You have tools and you use them to get real answers and do real work: read and search the web, read and change files, run commands, call the Automa API as yourself (talk to teammates, create and update tasks, write plans), use the person's connected apps, and draw pictures. Prefer finding the real answer with a tool over guessing. When you say you did something, a tool must actually have done it."
+      ? "You have tools and you use them to get real answers and do real work: read and search the web, read and change files, run commands, call the Automa API as yourself (talk to teammates, create and update tasks, write plans), use the person's connected apps, and draw pictures. Prefer finding the real answer with a tool over guessing. When you say you did something, a tool must actually have done it. Never repeat a tool call with the same arguments: if a result did not help, change the query, open a different page, or answer with what you have."
       : "Answer in text only in this reply.",
     canDraw
       ? "When the person asks for a picture, image, drawing, illustration, logo, poster, wallpaper or photo of something, call GenerateImage with a detailed prompt (subject, style, lighting, composition). Never say you cannot draw, and never describe the picture instead of drawing it. Then say in a line what you drew."
@@ -244,11 +289,21 @@ interface LoopInput {
 
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
   const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage } = input;
+  const model = input.model;
+  const label = modelLabel(model);
   let useTools = input.tools.length > 0;
-  let answeredBy = input.model;
+  const answeredBy = model;
   let lastAnswer = "";
   let lastReasoning = "";
   let stopReason = "end_turn";
+  // Recovery, always on this model: the tool history as text, then no tools,
+  // then a few waits for a busy provider. Each step is tried once per run.
+  let textHistory = false;
+  let retries = 0;
+  let triedPlain = false;
+  // Identical tool calls, to cut a loop short.
+  const callCounts = new Map<string, number>();
+  let repeated = 0;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     if (ctx.signal?.aborted) break;
@@ -264,8 +319,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       else text += piece.text;
       await onLog("stdout", logLine({ type: "acpx.text_delta", text: piece.text, ...(piece.channel === "thinking" ? { channel: "thinking" } : {}) }));
     };
+    const attempt = textHistory ? toolHistoryAsText(messages) : messages;
     try {
-      for await (const event of puterStream(messages, { model: input.model, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
+      for await (const event of puterStream(attempt, { model, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
         if (event.type === "text") { for (const piece of splitter.push(event.text)) await emit(piece); }
         else if (event.type === "reasoning") { reasoning += event.text; await onLog("stdout", logLine({ type: "acpx.text_delta", text: event.text, channel: "thinking" })); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
@@ -274,25 +330,47 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       for (const piece of splitter.flush()) await emit(piece);
     } catch (error) {
       if (ctx.signal?.aborted) break;
-      // A model that can't take tools: drop them and let it answer in text.
-      if (useTools && error instanceof PuterHttpError) {
-        await onLog("stdout", logLine({ type: "acpx.status", message: "This model can't use tools; answering in text." }));
-        useTools = false;
+      if (!(error instanceof PuterHttpError)) throw error;
+      const status = `${error.status}${error.code ? ` ${error.code}` : ""}`;
+      // The provider refused the history with tool turns in it: say the same things as text.
+      if (!textHistory && messages.some((message) => message.role === "tool")) {
+        textHistory = true;
+        await onLog("stdout", logLine({ type: "acpx.status", message: `${label} refused the tool history (${status}); sending it as text and trying again.` }));
+        turn -= 1;
         continue;
       }
-      // Streaming failed outright: fall back to a plain reply with model fallback.
-      if (turn === 1) {
-        const reply = await puterComplete(messages, { model: input.model, signal: ctx.signal });
-        addUsage(reply.model, reply.usage);
-        const split = splitThinking(reply.text, reply.reasoning);
-        if (split.thinking) await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.thinking, channel: "thinking" }));
-        await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.answer }));
-        return { answer: split.answer, thinking: split.thinking, answeredBy: reply.model, stopReason: "end_turn", hitTurnLimit: false };
+      // A rate limit is a wait, not a reason to take the tools away.
+      if (useTools && error.status !== 429) {
+        useTools = false;
+        await onLog("stdout", logLine({ type: "acpx.status", message: `${label} did not take the tools (${status}); answering in text.` }));
+        turn -= 1;
+        continue;
       }
-      throw error;
+      if (retries < MAX_TRANSIENT_RETRIES && isTransientPuterError(error)) {
+        retries += 1;
+        await onLog("stdout", logLine({ type: "acpx.status", message: `${label} is busy (${status}); retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).` }));
+        await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MS * retries));
+        turn -= 1;
+        continue;
+      }
+      // Last resort on the first turn: the same model without streaming.
+      if (turn === 1 && !triedPlain) {
+        triedPlain = true;
+        try {
+          const reply = await puterComplete(attempt, { model, retries: 1, signal: ctx.signal });
+          addUsage(reply.model, reply.usage);
+          const split = splitThinking(reply.text, reply.reasoning);
+          if (split.thinking) await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.thinking, channel: "thinking" }));
+          await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.answer }));
+          return { answer: split.answer, thinking: split.thinking, answeredBy, stopReason: "end_turn", hitTurnLimit: false };
+        } catch {
+          // Reported below, with the streaming refusal.
+        }
+      }
+      throw describePuterError(error, label, retries);
     }
 
-    addUsage(input.model, usage);
+    addUsage(model, usage);
     // `text` already has its <thinking> tags routed to `reasoning` by the splitter.
     if (text.trim()) lastAnswer = text.trim();
     if (reasoning.trim()) lastReasoning = reasoning.trim();
@@ -302,15 +380,30 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     }
     if (turn >= maxTurns) return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: true };
 
-    messages.push({ role: "assistant", content: text || null, tool_calls: calls });
+    // Never an empty assistant message beside a tool call: some providers
+    // (Nemotron 3 Ultra among them) reject the whole conversation for it.
+    const spoken = text.trim() || `Calling ${[...new Set(calls.map((call) => call.function.name))].join(", ")}.`;
+    messages.push({ role: "assistant", content: spoken, tool_calls: calls });
     for (const call of calls) {
       if (ctx.signal?.aborted) break;
       let args: unknown = {};
       try { args = JSON.parse(call.function.arguments || "{}"); } catch { args = {}; }
       await onLog("stdout", logLine({ type: "acpx.tool_call", name: call.function.name, toolUseId: call.id, input: args }));
-      const result = await runFreeTool(toolCtx, call.function.name, args);
+      const key = `${call.function.name}:${JSON.stringify(args)}`;
+      const seen = (callCounts.get(key) ?? 0) + 1;
+      callCounts.set(key, seen);
+      const result = seen > MAX_IDENTICAL_CALLS
+        ? (repeated += 1, { content: `You already ran ${call.function.name} with exactly these arguments ${seen - 1} times and the result did not change. Do not run it again: use what you have, change the arguments, or answer now.`, isError: true })
+        : await runFreeTool(toolCtx, call.function.name, args);
       await onLog("stdout", logLine({ type: "acpx.tool_result", name: call.function.name, toolUseId: call.id, content: result.content.slice(0, 4_000), ...(result.isError ? { isError: true } : {}) }));
       messages.push({ role: "tool", tool_call_id: call.id, content: result.content });
+    }
+    if (repeated >= 3 && useTools) {
+      // Still looping after being told twice: the tools go away and the model
+      // writes its answer from what it has.
+      useTools = false;
+      await onLog("stdout", logLine({ type: "acpx.status", message: "Repeating the same tool calls; asking for the answer now." }));
+      messages.push({ role: "user", content: "(Automa) You are repeating the same tool calls. Stop using tools and answer now with what you have." });
     }
   }
   return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: false };

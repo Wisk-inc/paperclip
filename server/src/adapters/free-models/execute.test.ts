@@ -130,6 +130,110 @@ describe("free models engine", () => {
     expect(result.usage).toEqual({ inputTokens: 80, outputTokens: 18 });
   });
 
+  /** A fetch stub whose free-model calls answer from a list of responses, in order; the last one repeats. */
+  function stubPuter(responses: Array<() => Response>) {
+    const calls: Call[] = [];
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const url = String(input);
+      calls.push({ url, method: init.method ?? "GET", headers: {}, body: init.body });
+      const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.startsWith("https://api.puter.com/")) return responses[Math.min(n++, responses.length - 1)]!();
+      if (url === `${API}/api/issues/issue-1`) return json({ companyId: "company-1", title: "Chat", conversationAgentId: "agent-1" });
+      if (url.startsWith(`${API}/api/issues/issue-1/comments`) && (init.method ?? "GET") === "GET") return json([{ id: "c1", authorType: "user", authorAgentId: null, body: "Hi" }]);
+      if (url === `${API}/api/issues/issue-1/comments`) return json({ id: "reply" });
+      if (url === `${API}/api/agents/me`) return json({ id: "agent-1", name: "Atlas" });
+      return new Response("nf", { status: 404 });
+    }));
+    const puterModels = () => calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => (JSON.parse(String(c.body)) as { args: { model: string } }).args.model);
+    const posted = () => JSON.parse(String(calls.find((c) => c.url === `${API}/api/issues/issue-1/comments` && c.method === "POST")!.body)).body as string;
+    return { calls, puterModels, posted };
+  }
+  const refusal = (status: number, body: Record<string, unknown>) => () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const NEMOTRON = "nvidia/nemotron-3-ultra-550b-a55b:free";
+  const NO_TOOLS = { freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false, imageModel: "none" };
+
+  it("keeps the chosen model and retries it when the provider is busy", async () => {
+    const net = stubPuter([
+      refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited" }),
+      () => ndjson([{ type: "text", text: "Back now." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]),
+    ]);
+    await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
+    expect(net.puterModels()).toEqual([NEMOTRON, NEMOTRON]);
+    expect(net.posted()).toBe("Back now.");
+  });
+
+  it("never switches to another model when the chosen one keeps refusing, and says which refused", async () => {
+    const net = stubPuter([
+      refusal(400, { error: "AI provider unavailable", code: "upstream_provider_unavailable", attempts: [{ status: 400, error: "400 Provider returned error", upstreamMessage: "Provider returned error" }] }),
+    ]);
+    const outcome = await execute(context({ model: NEMOTRON, ...NO_TOOLS })).then((r) => r.errorMessage ?? "", (e: Error) => e.message);
+    expect(new Set(net.puterModels())).toEqual(new Set([NEMOTRON]));
+    expect(outcome).toContain("Nemotron 3 Ultra 550B");
+    expect(outcome).toContain("Provider returned error");
+    expect(outcome).not.toMatch(/instead|switched|fell back/i);
+  });
+
+  it("sends a tool turn with text in it, which strict providers require", async () => {
+    const net = stubNetwork({ chatTurns: [
+      [{ type: "tool_use", id: "t1", name: "Automa", input: { method: "GET", path: "/api/agents/me" } }, { type: "usage", usageDetails: { inputTokens: 30, outputTokens: 10 }, stopReason: "tool_use" }],
+      [{ type: "text", text: "You are Atlas." }, { type: "usage", usageDetails: { inputTokens: 50, outputTokens: 8 }, stopReason: "end_turn" }],
+    ] });
+    await execute(context({ model: NEMOTRON, freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    const followUp = net.puterBodies()[1]!.args as { messages: Array<{ role: string; content: unknown; tool_calls?: unknown[] }> };
+    const toolTurn = followUp.messages.find((m) => m.role === "assistant" && m.tool_calls?.length);
+    expect(typeof toolTurn?.content === "string" && toolTurn.content.trim().length > 0).toBe(true);
+  });
+
+  it("resends the tool history as text when the provider refuses it, on the same model", async () => {
+    const net = stubPuter([
+      () => ndjson([{ type: "tool_use", id: "t1", name: "Automa", input: { method: "GET", path: "/api/agents/me" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]),
+      refusal(400, { error: "AI provider unavailable", code: "upstream_provider_unavailable" }),
+      () => ndjson([{ type: "text", text: "You are Atlas." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]),
+    ]);
+    await execute(context({ model: NEMOTRON, freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    expect(net.puterModels()).toEqual([NEMOTRON, NEMOTRON, NEMOTRON]);
+    const third = JSON.parse(String(net.calls.filter((c) => c.url.startsWith("https://api.puter.com/"))[2]!.body)) as { args: { messages: Array<{ role: string; content: unknown }> } };
+    expect(third.args.messages.some((m) => m.role === "tool")).toBe(false);
+    expect(third.args.messages.some((m) => m.role === "user" && String(m.content).includes("[Automa result]"))).toBe(true);
+    expect(net.posted()).toBe("You are Atlas.");
+  });
+
+  it("cuts a loop of identical tool calls short", async () => {
+    const same = () => ndjson([{ type: "tool_use", id: `t${Math.random()}`, name: "Automa", input: { method: "GET", path: "/api/agents/me" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]);
+    const net = stubPuter([same, same, same, same, same, () => ndjson([{ type: "text", text: "Done looking." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }])]);
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    // Two real tool runs (plus the profile lookup every run starts with); the
+    // rest were answered without running the tool again.
+    expect(net.calls.filter((c) => c.url === `${API}/api/agents/me`).length).toBe(3);
+    expect(net.posted()).toBe("Done looking.");
+  });
+
+  it("starts over after /new: the model sees only what came after it", async () => {
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const url = String(input);
+      calls.push({ url, method: init.method ?? "GET", headers: {}, body: init.body });
+      const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.startsWith("https://api.puter.com/")) return ndjson([{ type: "text", text: "Fresh start." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]);
+      if (url === `${API}/api/issues/issue-1`) return json({ companyId: "company-1", title: "Chat", conversationAgentId: "agent-1" });
+      if (url.startsWith(`${API}/api/issues/issue-1/comments`) && (init.method ?? "GET") === "GET") return json([
+        { id: "c3", authorType: "user", authorAgentId: null, body: "What did I say first?" },
+        { id: "c2", authorType: "user", authorAgentId: null, body: "/new" },
+        { id: "a1", authorType: "agent", authorAgentId: "agent-1", body: "Noted: the password is tiger." },
+        { id: "c1", authorType: "user", authorAgentId: null, body: "The password is tiger." },
+      ]);
+      if (url === `${API}/api/issues/issue-1/comments`) return json({ id: "reply" });
+      return new Response("nf", { status: 404 });
+    }));
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS }));
+    const sent = JSON.parse(String(calls.find((c) => c.url.startsWith("https://api.puter.com/"))!.body)) as { args: { messages: Array<{ role: string; content: unknown }> } };
+    const texts = sent.args.messages.map((m) => String(m.content));
+    expect(texts.some((t) => t.includes("tiger"))).toBe(false);
+    expect(texts.some((t) => t === "/new")).toBe(false);
+    expect(texts.some((t) => t.startsWith("What did I say first?"))).toBe(true);
+  });
+
   it("drops tools and answers in text when the model can't take them", async () => {
     const calls: Call[] = [];
     let streamCall = 0;
