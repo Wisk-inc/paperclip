@@ -298,8 +298,20 @@ or copy the APK to the phone and open it (allow "install unknown apps").
    ./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk     → direct install / testing
    ```
 
-Release builds are shrunk with R8; `proguard-rules.pro` keeps the
-JavaScript bridge methods.
+Release builds are obfuscated and shrunk with R8 in full mode
+(`isMinifyEnabled`/`isShrinkResources`, `android.enableR8.fullMode=true`).
+R8 renames every class, method and field it can to short names, flattens the
+package tree into a single unnamed package (`-repackageclasses ''`,
+`-allowaccessmodification`), strips `android.util.Log` calls, and renames
+source-file attributes, so decompiling the APK yields little readable code.
+Only names resolved by string survive: the manifest entry points
+(`MainActivity`, `AutomaApplication`, `PushMessagingService`) and the
+`@JavascriptInterface` methods on `AutomaBridge` (the WebView calls them by
+name as `window.AutomaNative`; `proguard-rules.pro` keeps those). The repo
+source is unchanged and readable — only the compiled DEX is obfuscated. R8
+writes `app/build/outputs/mapping/release/mapping.txt`; keep it to
+de-obfuscate crash reports, and never commit it (it is the de-obfuscation
+key, and is git-ignored under `build/`).
 
 ## Firebase: "Continue with Google" and push notifications
 
