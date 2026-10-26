@@ -540,6 +540,16 @@ describe("MarkdownBody", () => {
     expect(html).toContain('class="lucide lucide-github mr-1 inline h-3.5 w-3.5 align-(--va-0_125em)"');
   });
 
+  it("shows the site favicon before a non-GitHub source link", () => {
+    const html = renderMarkdown("[docs](https://example.com/docs)");
+    expect(html).toContain("icons.duckduckgo.com/ip3/example.com.ico");
+  });
+
+  it("does not show a favicon on GitHub or internal links", () => {
+    expect(renderMarkdown("[pr](https://github.com/paperclipai/paperclip/pull/1)")).not.toContain("icons.duckduckgo.com");
+    expect(renderMarkdown("[settings](/company/settings)")).not.toContain("icons.duckduckgo.com");
+  });
+
   it("does not prefix non-GitHub markdown links with the GitHub icon", () => {
     const html = renderMarkdown("[docs](https://example.com/docs)");
 

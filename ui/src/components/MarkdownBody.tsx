@@ -1,6 +1,6 @@
 import { isValidElement, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, WrapText } from "lucide-react";
+import { Check, Copy, ExternalLink, Globe, WrapText } from "lucide-react";
 import Markdown, { defaultUrlTransform, type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../lib/utils";
@@ -165,6 +165,38 @@ function MarkdownCaseLink({
     >
       {children}
     </Link>
+  );
+}
+
+/** The host of an http(s) URL, or null — used to show a site's favicon. */
+function hostOf(href: string | undefined): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A website's favicon beside a source link, falling back to a globe. */
+function SiteFavicon({ host }: { host: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <Globe aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-(--va-0_125em) text-muted-foreground" />;
+  }
+  return (
+    <img
+      src={`https://icons.duckduckgo.com/ip3/${host}.ico`}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      decoding="async"
+      width={14}
+      height={14}
+      onError={() => setFailed(true)}
+      className="mr-1 inline h-3.5 w-3.5 rounded-xs align-(--va-0_125em) object-contain"
+    />
   );
 }
 
@@ -902,8 +934,11 @@ function MarkdownBodyImpl({
 
       const isGitHubLink = isGitHubUrl(href);
       const isExternal = isExternalHttpUrl(href);
+      const externalHost = isExternal && !isGitHubLink ? hostOf(href) : null;
       const leadingIcon = isGitHubLink ? (
         <GithubIcon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-(--va-0_125em)" />
+      ) : externalHost ? (
+        <SiteFavicon host={externalHost} />
       ) : null;
       const trailingIcon = isExternal && !isGitHubLink ? (
         <ExternalLink aria-hidden="true" className="ml-1 inline h-3 w-3 align-(--va-0_125em)" />
