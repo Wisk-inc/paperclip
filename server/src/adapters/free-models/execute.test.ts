@@ -91,9 +91,23 @@ describe("free models engine", () => {
     expect(sent.stream).toBe(true);
     expect(sent.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
     expect(sent.messages.at(-1)!.content).toContain("Think step by step carefully");
-    expect(postedBody(net.calls)).toBe("> **Thinking**\n>\n> 3 x 12 = 36; 36 - 7 = 29.\n\n29 apples.");
+    expect(postedBody(net.calls)).toBe("29 apples.");
     expect(ctx.logs.some((line) => line.includes('"channel":"thinking"'))).toBe(true);
     expect(result).toMatchObject({ exitCode: 0, costUsd: 0, provider: "free_models", usage: { inputTokens: 40, outputTokens: 60 }, resultJson: { freeUsage: { images: 0, equivalentUsd: 0.001 } } });
+  });
+
+  it("streams a tag-based model's thinking to the panel, not the reply", async () => {
+    const net = stubNetwork({ chatTurns: [[
+      { type: "text", text: "<thinking>3 x 12 = 36; minus 7 is 29.</thinking>29 apples." },
+      { type: "usage", usageDetails: { inputTokens: 8, outputTokens: 12 } },
+    ]] });
+    const ctx = context({ model: "deepseek/deepseek-v4.1-flash:free", effort: "high", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false });
+    await execute(ctx);
+    expect(postedBody(net.calls)).toBe("29 apples.");
+    const thinkingDeltas = ctx.logs.filter((line) => line.includes('"channel":"thinking"')).map((line) => JSON.parse(line).text).join("");
+    expect(thinkingDeltas).toBe("3 x 12 = 36; minus 7 is 29.");
+    const textDeltas = ctx.logs.filter((line) => line.includes('acpx.text_delta') && !line.includes('"channel"')).map((line) => JSON.parse(line).text).join("");
+    expect(textDeltas).toBe("29 apples.");
   });
 
   it("keeps thinking out of the reply on Auto", async () => {

@@ -15,7 +15,7 @@ import type { FreeModelRunUsage } from "@paperclipai/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
-import { formatWithThinking, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
+import { createThinkingTagSplitter, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
 import { freeToolDefinitions, runFreeTool, type FreeToolContext, type FreeToolToggles } from "./tools.js";
 import { drawAndUploadImage, loadThread, postReply, readCommentPictures, threadApi, type ThreadApi } from "./thread.js";
 import { freeDirectToolRuntime } from "./direct-runtime.js";
@@ -122,15 +122,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
 
-  const { answer, thinking, answeredBy, stopReason, hitTurnLimit } = await runToolLoop({
+  const { answer, answeredBy, stopReason, hitTurnLimit } = await runToolLoop({
     ctx, model, messages, tools, toolCtx, level, onLog, addUsage,
     maxTurns: Math.max(1, asNumber(config.maxTurnsPerRun, 0) || DEFAULT_MAX_TOOL_TURNS),
   });
 
   const imageMarkdown = drawn.filter((image) => !answer.includes(image.attachmentId)).map((image) => image.markdown).join("\n\n");
   const note = hitTurnLimit ? "\n\n(Stopped after the tool-use limit. Ask me to continue.)" : "";
-  const shown = level ? formatWithThinking(thinking, answer) : answer;
-  const body = [shown, imageMarkdown].filter(Boolean).join("\n\n")
+  // Thinking streams into the collapsible panel live, never into the reply.
+  const body = [answer, imageMarkdown].filter(Boolean).join("\n\n")
     + (answeredBy !== model ? `\n\n_${model} was busy, so ${answeredBy} answered._` : "")
     + note;
 
@@ -208,13 +208,22 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     let reasoning = "";
     const calls: PuterToolCall[] = [];
     let usage: PuterUsage = { inputTokens: 0, outputTokens: 0 };
+    // Routes <thinking> tags in the text stream to the thinking panel live, so
+    // every model's thinking shows in the collapsible panel, never in the reply.
+    const splitter = createThinkingTagSplitter();
+    const emit = async (piece: { channel: "text" | "thinking"; text: string }) => {
+      if (piece.channel === "thinking") reasoning += piece.text;
+      else text += piece.text;
+      await onLog("stdout", logLine({ type: "acpx.text_delta", text: piece.text, ...(piece.channel === "thinking" ? { channel: "thinking" } : {}) }));
+    };
     try {
       for await (const event of puterStream(messages, { model: input.model, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
-        if (event.type === "text") { text += event.text; await onLog("stdout", logLine({ type: "acpx.text_delta", text: event.text })); }
+        if (event.type === "text") { for (const piece of splitter.push(event.text)) await emit(piece); }
         else if (event.type === "reasoning") { reasoning += event.text; await onLog("stdout", logLine({ type: "acpx.text_delta", text: event.text, channel: "thinking" })); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
         else if (event.type === "done") { usage = event.usage; stopReason = event.stopReason; }
       }
+      for (const piece of splitter.flush()) await emit(piece);
     } catch (error) {
       if (ctx.signal?.aborted) break;
       // A model that can't take tools: drop them and let it answer in text.
@@ -236,9 +245,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     }
 
     addUsage(input.model, usage);
-    const split = splitThinking(text, reasoning);
-    if (split.answer) lastAnswer = split.answer;
-    if (split.thinking) lastReasoning = split.thinking;
+    // `text` already has its <thinking> tags routed to `reasoning` by the splitter.
+    if (text.trim()) lastAnswer = text.trim();
+    if (reasoning.trim()) lastReasoning = reasoning.trim();
 
     if (calls.length === 0 || stopReason !== "tool_use") {
       return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: false };

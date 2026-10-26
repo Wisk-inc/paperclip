@@ -27,12 +27,59 @@ export function splitThinking(text: string, nativeReasoning: string): { thinking
   return { thinking, answer: answer || text.trim() };
 }
 
-const MAX_SHOWN_THINKING = 1500;
 
-/** Thinking as a quoted block above the answer, trimmed so long chains stay readable on a phone. */
-export function formatWithThinking(thinking: string, answer: string): string {
-  if (!thinking) return answer;
-  const shown = thinking.length > MAX_SHOWN_THINKING ? `${thinking.slice(0, MAX_SHOWN_THINKING).trimEnd()}…` : thinking;
-  const quoted = shown.split("\n").map((line) => `> ${line}`).join("\n");
-  return `> **Thinking**\n>\n${quoted}\n\n${answer}`;
+export interface ThinkingPiece {
+  channel: "text" | "thinking";
+  text: string;
+}
+
+/**
+ * Routes a streamed reply into answer text and thinking as it arrives, so a
+ * model that writes its thinking inside <thinking></thinking> tags shows that
+ * thinking in the collapsible panel (not in the reply) exactly like a model
+ * that streams native reasoning. Tags may be split across deltas, so partial
+ * tag text is held back until the tag completes.
+ */
+export function createThinkingTagSplitter() {
+  let inside = false;
+  let buffer = "";
+  const OPEN = "<thinking>";
+  const CLOSE = "</thinking>";
+
+  // The longest tag prefix at the end of `text` that might still grow into a tag.
+  function heldPrefix(text: string): number {
+    const tag = inside ? CLOSE : OPEN;
+    for (let length = Math.min(tag.length - 1, text.length); length > 0; length -= 1) {
+      if (tag.startsWith(text.slice(text.length - length))) return length;
+    }
+    return 0;
+  }
+
+  function drain(final: boolean): ThinkingPiece[] {
+    const pieces: ThinkingPiece[] = [];
+    for (;;) {
+      const tag = inside ? CLOSE : OPEN;
+      const at = buffer.indexOf(tag);
+      if (at === -1) break;
+      const before = buffer.slice(0, at);
+      if (before) pieces.push({ channel: inside ? "thinking" : "text", text: before });
+      buffer = buffer.slice(at + tag.length);
+      inside = !inside;
+    }
+    const hold = final ? 0 : heldPrefix(buffer);
+    const emit = buffer.slice(0, buffer.length - hold);
+    buffer = buffer.slice(buffer.length - hold);
+    if (emit) pieces.push({ channel: inside ? "thinking" : "text", text: emit });
+    return pieces;
+  }
+
+  return {
+    push(delta: string): ThinkingPiece[] {
+      buffer += delta;
+      return drain(false);
+    },
+    flush(): ThinkingPiece[] {
+      return drain(true);
+    },
+  };
 }

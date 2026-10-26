@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWithThinking, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
+import { createThinkingTagSplitter, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
 
 describe("free model thinking", () => {
   it("accepts only the levels the picker offers", () => {
@@ -21,9 +21,27 @@ describe("free model thinking", () => {
     expect(splitThinking("Just an answer", "")).toEqual({ thinking: "", answer: "Just an answer" });
   });
 
-  it("quotes the thinking above the answer and trims long chains", () => {
-    expect(formatWithThinking("step one\nstep two", "Done.")).toBe("> **Thinking**\n>\n> step one\n> step two\n\nDone.");
-    expect(formatWithThinking("", "Done.")).toBe("Done.");
-    expect(formatWithThinking("x".repeat(2000), "Done.")).toContain("x…\n\nDone.");
+});
+
+describe("thinking tag splitter", () => {
+  function run(chunks: string[]) {
+    const splitter = createThinkingTagSplitter();
+    const out: { channel: string; text: string }[] = [];
+    for (const chunk of chunks) out.push(...splitter.push(chunk));
+    out.push(...splitter.flush());
+    const join = (channel: string) => out.filter((p) => p.channel === channel).map((p) => p.text).join("");
+    return { text: join("text"), thinking: join("thinking") };
+  }
+
+  it("routes tagged thinking to the thinking channel and the rest to text", () => {
+    expect(run(["<thinking>36-7=29</thinking>", "29 apples."])).toEqual({ thinking: "36-7=29", text: "29 apples." });
+  });
+
+  it("handles a tag split across deltas", () => {
+    expect(run(["<think", "ing>a", "b</thin", "king>answer"])).toEqual({ thinking: "ab", text: "answer" });
+  });
+
+  it("passes plain text through untouched", () => {
+    expect(run(["Just ", "an answer."])).toEqual({ thinking: "", text: "Just an answer." });
   });
 });

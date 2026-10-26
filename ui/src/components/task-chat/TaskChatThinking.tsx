@@ -76,7 +76,7 @@ export function TaskChatThinking({
         ) : (
           <span className="min-w-0 flex-1" />
         )}
-        <ChevronRight className={cn("tc-hover-disclosure-caret h-3 w-3 shrink-0 transition-[opacity,transform] group-hover/thinking:opacity-80 group-focus-visible/thinking:opacity-80", open || liveOpen ? "rotate-90 opacity-80" : "opacity-0")} aria-hidden />
+        <ChevronRight className={cn("tc-hover-disclosure-caret h-3 w-3 shrink-0 transition-[opacity,transform] group-hover/thinking:opacity-80 group-focus-visible/thinking:opacity-80", open || liveOpen ? "rotate-90 opacity-80" : "opacity-0 pointer-coarse:opacity-50")} aria-hidden />
       </button>
       {liveOpen && !open ? (
         <div
