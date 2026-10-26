@@ -12,6 +12,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 automa_home="${AUTOMA_HOME:-$HOME/.automa}"
 server_dir="$automa_home/server"
 pgdata="${AUTOMA_PGDATA:-$PREFIX/var/lib/postgresql}"
+# Where Automa keeps its own hourly database backups (the server writes them
+# while it runs); the installer and `automa backup` add theirs here too.
+backup_dir="${PAPERCLIP_HOME:-$HOME/.paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-default}/data/backups"
 version="$(cat "$here/VERSION")"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -54,6 +57,24 @@ if [ ! -s "$db_password_file" ]; then
   (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$db_password_file")
 fi
 db_user="$(id -un)"
+pg_major="$(pg_ctl --version | grep -oE '[0-9]+' | head -n 1)"
+if [ -f "$pgdata/PG_VERSION" ] && [ "$(cat "$pgdata/PG_VERSION")" != "$pg_major" ]; then
+  # Termux upgraded PostgreSQL across a major version (pkg upgrade). The new
+  # server cannot open the old files, and this installer never replaces them:
+  # they are the board, the chats and the agents.
+  cat >&2 <<MISMATCH
+Your Automa database was written by PostgreSQL $(cat "$pgdata/PG_VERSION"), but Termux now has PostgreSQL $pg_major.
+Nothing was changed. To keep your data:
+  1. Find the newest backup:   ls -t $backup_dir | head
+     (Automa saves one every hour while it runs; each is a complete copy.)
+  2. Move the old files aside:  mv "$pgdata" "$pgdata.pg$(cat "$pgdata/PG_VERSION")"
+  3. Run this installer again, then:  automa restore
+     (it offers the newest backup).
+If there is no backup, install the matching postgresql package back
+(pkg install postgresql=$(cat "$pgdata/PG_VERSION")*) and run: automa backup
+MISMATCH
+  exit 1
+fi
 if [ ! -f "$pgdata/PG_VERSION" ]; then
   mkdir -p "$pgdata"
   initdb --auth=scram-sha-256 --pwfile="$db_password_file" "$pgdata" >/dev/null
@@ -81,6 +102,18 @@ if [ "$installed_version" = "$version" ] && [ -f "$server_dir/node_modules/paper
 else
   if [ -n "$installed_version" ]; then
     say "Updating the Automa server $installed_version -> $version (reuses what is already downloaded)"
+    # A complete copy of the database first, so an update can never cost the
+    # board. `automa restore` lists these.
+    if psql -h 127.0.0.1 -d automa -tAc "select 1" >/dev/null 2>&1; then
+      mkdir -p "$backup_dir"
+      pre_update_backup="$backup_dir/automa-before-$version-$(date +%Y%m%d-%H%M%S).sql.gz"
+      if pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "$pre_update_backup"; then
+        say "Database backed up to $pre_update_backup"
+      else
+        rm -f "$pre_update_backup"
+        echo "Could not back up the database; continuing without a fresh backup (automa restore lists the hourly ones)." >&2
+      fi
+    fi
   else
     say "Installing the Automa server $version"
     say "The first install downloads about 380 packages: 10 to 45 minutes depending on your connection."
@@ -132,6 +165,8 @@ cat > "$PREFIX/bin/automa" <<LAUNCHER
 #        automa stop       stops Automa started with automa start
 #        automa status     says whether Automa is running
 #        automa update     installs the newer server the Automa app sent (~/downloads/automa-server.tar.xz)
+#        automa backup     saves a complete copy of the database (Automa also saves one every hour)
+#        automa restore    puts a backup back (lists them; pass a file to pick one)
 #        automa link       hands the app key to the Automa app again (prints it too)
 #        automa adb link   links this phone's own Wireless debugging, so agents can run adb shell
 #        (or any paperclipai command: automa doctor, automa onboard)
@@ -196,6 +231,49 @@ case "\${1:-}" in
     rm -rf "\$TMPDIR/automa-server"
     tar -xf "\$bundle" -C "\$TMPDIR"
     exec bash "\$TMPDIR/automa-server/install.sh"
+    ;;
+  backup)
+    # Same shape as the server's hourly backups, so automa restore reads both.
+    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+    export PGPASSWORD="\$(cat "$db_password_file")"
+    mkdir -p "$backup_dir"
+    file="$backup_dir/automa-manual-\$(date +%Y%m%d-%H%M%S).sql.gz"
+    pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "\$file"
+    echo "Database backed up to \$file"
+    exit 0
+    ;;
+  restore)
+    # Puts a backup back in place of the current database. Destructive, so it
+    # says what it will replace and asks first (automa restore FILE --yes skips the question).
+    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+    export PGPASSWORD="\$(cat "$db_password_file")"
+    file="\${2:-}"
+    if [ "\$file" = "--yes" ]; then file=""; fi
+    if [ -z "\$file" ]; then
+      echo "Backups (newest first) in $backup_dir:"
+      ls -t "$backup_dir"/*.sql.gz 2>/dev/null | head -n 10 | while read -r f; do printf '  %s  (%s)\n' "\$f" "\$(du -h "\$f" | cut -f1)"; done
+      file="\$(ls -t "$backup_dir"/*.sql.gz 2>/dev/null | head -n 1)"
+      [ -n "\$file" ] || { echo "No backups yet. automa backup makes one; Automa saves one every hour while it runs." >&2; exit 1; }
+      echo "Newest: \$file"
+    fi
+    [ -s "\$file" ] || { echo "No such backup: \$file" >&2; exit 1; }
+    if [ "\${2:-}" != "--yes" ] && [ "\${3:-}" != "--yes" ]; then
+      printf 'Replace the current Automa database with %s? Type yes to continue: ' "\$file"
+      read -r answer
+      [ "\$answer" = "yes" ] || { echo "Nothing changed."; exit 1; }
+    fi
+    # Keep what is there now, so a restore can itself be undone.
+    mkdir -p "$backup_dir"
+    before="$backup_dir/automa-before-restore-\$(date +%Y%m%d-%H%M%S).sql.gz"
+    pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa 2>/dev/null | gzip > "\$before" || rm -f "\$before"
+    "\$0" stop >/dev/null 2>&1 || true
+    psql -h 127.0.0.1 -d postgres -tAc "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'automa' and pid <> pg_backend_pid()" >/dev/null || true
+    dropdb -h 127.0.0.1 --if-exists automa
+    createdb -h 127.0.0.1 automa
+    gunzip -c "\$file" | psql -h 127.0.0.1 -d automa --quiet --no-psqlrc --set=ON_ERROR_STOP=0 >/dev/null
+    echo "Restored \$file. The copy from before this restore is \$before"
+    echo "Start Automa again with: automa run"
+    exit 0
     ;;
   link)
     echo "App key for the Automa app (Run Automa on this phone -> paste the app key):"

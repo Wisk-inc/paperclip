@@ -167,7 +167,7 @@
           <div>
             <strong>Paste this in Termux</strong>
             <span>Installs Node.js, a database and Automa, then starts it. The first time takes 10 to 45 minutes depending on your connection; updates are much faster. To update later, send the new version from a newer app and paste the same command.</span>
-            <pre id="setup-cmd">pkg update -y &amp;&amp; tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR &amp;&amp; bash $TMPDIR/automa-server/install.sh</pre>
+            <pre id="setup-cmd">tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR &amp;&amp; bash $TMPDIR/automa-server/install.sh</pre>
             <button type="button" id="copy-setup" class="secondary">Copy command</button>
           </div>
         </li>

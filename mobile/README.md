@@ -110,7 +110,7 @@ Termux app with no computer:
    Termux**. Termux asks what to do with `automa-server.tar.xz`; tap **Open
    directory** (it is saved as `~/downloads/automa-server.tar.xz`).
 3. Paste the copied command in Termux:
-   `pkg update -y && tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR && bash $TMPDIR/automa-server/install.sh`
+   `tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR && bash $TMPDIR/automa-server/install.sh`
    It installs Node.js and PostgreSQL from Termux packages, creates a local
    `automa` database, installs the server packages with npm, adds an `automa`
    command, and starts Automa on `127.0.0.1:3100`.
@@ -181,9 +181,12 @@ a phone that installed Automa before they existed), the page says so and
 offers **Update Automa on this phone**, which opens the setup screen: tap
 **Send to Termux**, then paste the command it shows in Termux (the same one as
 the first install; it works whatever version is installed). Once a 1.8.2 or
-newer server is installed, `automa update` does the same. The installer stops
-the running server, installs the new one in place reusing npm's download
-cache, and starts it again. The first install downloads about 380 packages and took 46
+newer server is installed, `automa update` does the same. The installer backs
+up the database, stops the running server, installs the new one in place
+reusing npm's download cache, and starts it again. It never deletes or
+re-creates the database. Automa also saves a complete copy of the database
+every hour while it runs (`~/.paperclip/instances/default/data/backups/`);
+`automa backup` saves one now and `automa restore` puts the newest back. The first install downloads about 380 packages and took 46
 minutes on one phone's connection; the installer holds a Termux wake lock so
 Android does not pause it.
 

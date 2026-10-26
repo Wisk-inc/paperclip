@@ -342,8 +342,16 @@ agent exactly these commands.
   newer server, it shows **Update Automa on this phone**: tap it, tap **Send
   to Termux**, paste the command the setup screen shows (the same as the
   first install). From a 1.8.2 or newer server, `automa update` does the same.
-  The installer stops the running server, installs the new one in place
-  (reusing npm's cache), and starts it again.
+  The installer backs up the database first, stops the running server,
+  installs the new one in place (reusing npm's cache), and starts it again.
+- **Backups**: Automa saves a complete copy of its database every hour while
+  it runs, in `~/.paperclip/instances/default/data/backups/`, and the
+  installer saves one before every update. `automa backup` saves one now;
+  `automa restore` lists them and puts the newest back (or
+  `automa restore FILE`), keeping a copy of what it replaced. The installer
+  never deletes or re-creates the database: if Termux upgraded PostgreSQL to
+  a new major version, it stops and says how to move the old files aside and
+  restore a backup.
 
 ---
 
@@ -406,6 +414,8 @@ bundle Termux installs.
 | "Organization not found / No organization matches prefix" | A page was opened without an organization in the URL (fixed in 1.8.1). | Update the app. |
 | The connect screen keeps counting down | The server isn't up yet or the address is wrong. | Check `automa status` in Termux, or the address (not the Wireless debugging one). |
 | "Automa needs Node.js 24 or newer" in Termux | Termux packages are old. | `pkg upgrade -y`, then run the install command again. |
+| The board is empty after an update: onboarding again, chats gone | The server is not reading the database it used to (a PostgreSQL major upgrade, or a database re-created elsewhere), not deleted data. | In Termux: `automa restore` lists the hourly backups and puts the newest back. "Your Automa database was written by PostgreSQL N" says the exact steps. |
+| "Connect a model" with no key to give | A first agent needs a model. | Tap **Skip for now: start on the free models**; add a key or subscription under Settings later. |
 | Chat says Agent Chat is turned off | The experimental switch is off. | Settings → Experimental → Agent Chat. |
 
 ---
@@ -414,6 +424,7 @@ bundle Termux installs.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.8.5 | 2026-10-26 | Skip for now on the model step hires the first agent on the free models; Anthropic and Cursor tiles with an API key; a database backup before every server update, `automa backup` / `automa restore`, and a guard that never re-creates a database written by another PostgreSQL version. |
 | 1.8.4 | 2026-10-26 | Free models in chat (19 chat, 2 image) that stream, think at a chosen depth, search and read the web, work with files, teammates, tasks and connected apps, and draw with a paired image model; favicons on source links; collapsible thinking on every model; message actions on the newest reply with press-and-hold menus; free-model savings on Home and Costs. |
 | 1.8.3 | 2026-10-26 | Server update takes effect at once; Ask Claude waits for sign-in, keeps your draft, skips offboarded agents; outdated-server check is specific. |
 | 1.8.2 | 2026-10-26 | Outdated-server panel on Terminals and App Inspector; Ask Claude from any app or decoded project; `automa update`. |

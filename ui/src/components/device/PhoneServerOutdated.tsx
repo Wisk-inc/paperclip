@@ -8,7 +8,7 @@ import { haptic } from "@/lib/haptics";
 import { useToastActions } from "@/context/ToastContext";
 
 /** The command that updates the Automa server in Termux from the app's bundle. */
-const UPDATE_COMMAND = "pkg update -y && tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR && bash $TMPDIR/automa-server/install.sh";
+const UPDATE_COMMAND = "tar -xf ~/downloads/automa-server.tar.xz -C $TMPDIR && bash $TMPDIR/automa-server/install.sh";
 
 /**
  * True when an error means the Automa server on this phone is older than the

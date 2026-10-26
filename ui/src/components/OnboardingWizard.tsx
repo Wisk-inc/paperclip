@@ -20,7 +20,7 @@ import type {
   Environment,
   InstanceSettings,
 } from "@paperclipai/shared";
-import { AGENT_ROLES, AGENT_ROLE_LABELS, ADAPTER_AUTH_MISSING_CHECK_CODE } from "@paperclipai/shared";
+import { AGENT_ROLES, AGENT_ROLE_LABELS, ADAPTER_AUTH_MISSING_CHECK_CODE, DEFAULT_FREE_CHAT_MODEL, FREE_MODELS_ADAPTER_TYPE } from "@paperclipai/shared";
 import { AdapterLoginPanel } from "./AgentConfigForm";
 import {
   CONNECT_SOURCE_NAMES,
@@ -140,6 +140,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Gift,
   Loader2,
   ChevronDown,
 } from "lucide-react";
@@ -219,14 +220,23 @@ const MODEL_SOURCE_BRAND_MARKS: Record<string, string> = {
   gemini_local: "/brands/adapters/gemini-color.svg",
 };
 
-/** Grok's mark is black on light and white on dark, so it ships as two files. */
-function GrokMark({ className }: { className?: string }) {
+/**
+ * A mark that is black on light and white on dark ships as two files; the
+ * reader's theme picks one. Grok and Cursor are drawn this way.
+ */
+function DualMark({ light, dark, className }: { light: string; dark: string; className?: string }) {
   return (
     <>
-      <img src="/brands/adapters/grok.svg" alt="" className={cn(className, "dark:hidden")} />
-      <img src="/brands/adapters/grok-dark.svg" alt="" className={cn(className, "hidden dark:block")} />
+      <img src={light} alt="" className={cn(className, "dark:hidden")} />
+      <img src={dark} alt="" className={cn(className, "hidden dark:block")} />
     </>
   );
+}
+function GrokMark({ className }: { className?: string }) {
+  return <DualMark light="/brands/adapters/grok.svg" dark="/brands/adapters/grok-dark.svg" className={className} />;
+}
+function CursorMark({ className }: { className?: string }) {
+  return <DualMark light="/brands/adapters/cursor.svg" dark="/brands/adapters/cursor-dark.svg" className={className} />;
 }
 
 /**
@@ -234,7 +244,17 @@ function GrokMark({ className }: { className?: string }) {
  * sign-in this step can run, so they only make sense with a key; with a key
  * they work like the others.
  */
-const API_KEY_ONLY_SOURCES = new Set(["gemini_local", "grok_local"]);
+const API_KEY_ONLY_SOURCES = new Set(["gemini_local", "grok_local", "cursor"]);
+
+/**
+ * What a source is called once the customer is holding a key for it. The
+ * subscription names say which account you sign in to ("Claude"); the key is
+ * issued by the company, and "Anthropic API key" is what the console calls it.
+ */
+const API_SOURCE_NAMES: Record<string, string> = {
+  claude_local: "Anthropic",
+  cursor: "Cursor",
+};
 
 
 /**
@@ -259,6 +279,7 @@ function OpenAiBlossom({ className }: { className?: string }) {
 const MODEL_SOURCE_INLINE_MARKS: Record<string, ComponentType<{ className?: string }>> = {
   codex_local: OpenAiBlossom,
   grok_local: GrokMark,
+  cursor: CursorMark,
 };
 
 /**
@@ -274,6 +295,7 @@ const API_KEY_ENV_KEYS: Record<string, string> = {
   codex_local: "OPENAI_API_KEY",
   gemini_local: "GEMINI_API_KEY",
   grok_local: "XAI_API_KEY",
+  cursor: "CURSOR_API_KEY",
 };
 
 function apiKeyEnvKeyFor(adapterType: string): string {
@@ -797,7 +819,9 @@ function OnboardingWizardInner({
    */
   const skipCredentialRef = useRef(false);
   /** The hire went through "Skip for now": the last step says what is still missing. */
-  const [skippedCredential] = useState(false);
+  const [skippedCredential, setSkippedCredential] = useState(false);
+  /** "Skip for now" was pressed: hire on the free models once that switch has landed in state. */
+  const [freeHirePending, setFreeHirePending] = useState(false);
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
   const managedProvider = aiProviderForAdapter(adapterType);
@@ -1194,6 +1218,9 @@ function OnboardingWizardInner({
       moreAdapters: all.filter((a) => !a.recommended),
     };
   }, [disabledTypes]);
+  /** The tile's name for a source: the account in subscription mode, the key's issuer with a key. */
+  const sourceLabelFor = (type: string, fallback: string): string =>
+    (credentialMode === "api" ? API_SOURCE_NAMES[type] : undefined) ?? CONNECT_SOURCE_NAMES[type] ?? fallback;
   /** The tiles on the model step: with an API key, more providers than the two sign-ins. */
   const sourceOptions = useMemo(
     () =>
@@ -1482,6 +1509,32 @@ function OnboardingWizardInner({
    * a check. This one would be worse: Cmd+Enter would hire before the sign-in
    * it is meant to start, against a source with no credential.
    */
+  /**
+   * "Skip for now": hire the first agent on the free models, which need no key
+   * and no sign-in, and leave a paid provider for Settings whenever one is
+   * wanted. The hire reads the adapter from state, so it runs from the effect
+   * below once the switch has landed rather than from this press.
+   */
+  function skipToFreeModels() {
+    if (loading || connectPhase !== "idle") return;
+    skipCredentialRef.current = true;
+    setSkippedCredential(true);
+    setSourcePicked(false);
+    setApiKey("");
+    setError(null);
+    setAdapterType(FREE_MODELS_ADAPTER_TYPE);
+    setModel(DEFAULT_FREE_CHAT_MODEL);
+    setFreeHirePending(true);
+  }
+  useEffect(() => {
+    if (!freeHirePending || loading || adapterType !== FREE_MODELS_ADAPTER_TYPE) return;
+    setFreeHirePending(false);
+    void handleGiveHeartbeat();
+    // handleGiveHeartbeat is a plain function of the latest render; the effect
+    // keys on the state that must have landed before it may run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freeHirePending, loading, adapterType]);
+
   function handleConnectStepPrimary() {
     // Mid-sequence the button belongs to the sign-in, not to the step.
     if (connectPhase === "ready" && connectStepNeedsLogin) {
@@ -1537,6 +1590,9 @@ function OnboardingWizardInner({
     // external adapter is indistinguishable from a disabled one - and snapping
     // would replace the customer's choice with a built-in and persist it.
     if (!adapterRegistryLoaded) return;
+    // The free models are never on the row (they have no key to connect), so
+    // the row cannot vouch for them; "Skip for now" chooses them on purpose.
+    if (adapterType === FREE_MODELS_ADAPTER_TYPE) return;
     const visible = [...recommendedAdapters, ...moreAdapters].filter(
       (a) => !a.comingSoon,
     );
@@ -2700,9 +2756,9 @@ function OnboardingWizardInner({
                       <p className="pt-2 text-base leading-relaxed text-muted-foreground">
                         <motion.span key={step} {...titleSwapMotion} className="inline-block">
                           {step === 4
-                            ? "Automa works with your subscription or API keys."
+                            ? "Automa works with your subscription or API keys. No key yet? Skip and start on the free models."
                             : skippedCredential
-                              ? `${agentName.trim() || "Your first agent"} is hired. Add a key or sign in under Settings before the first run.`
+                              ? `${agentName.trim() || "Your first agent"} is ready on the free models. Add a key or sign in under Settings any time for more.`
                               : `${agentName.trim() || "Your first agent"} is ready to work!`}
                         </motion.span>
                       </p>
@@ -2801,7 +2857,7 @@ function OnboardingWizardInner({
                       label="Model source"
                       sources={sourceOptions.map((opt) => ({
                         id: opt.type,
-                        label: CONNECT_SOURCE_NAMES[opt.type] ?? opt.label,
+                        label: sourceLabelFor(opt.type, opt.label),
                         icon: <ModelSourceMark type={opt.type} Fallback={opt.icon} />,
                       }))}
                       mode={credentialMode}
@@ -2811,6 +2867,9 @@ function OnboardingWizardInner({
                       onSelect={(id) => {
                         if (connectPhase !== "idle") return;
                         autoConnectStartedRef.current = false;
+                        // A tile answers the question a skip would have waived.
+                        skipCredentialRef.current = false;
+                        setSkippedCredential(false);
                         setSourcePicked(true);
                         setAdapterType(id);
                         if (id === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
@@ -2848,6 +2907,35 @@ function OnboardingWizardInner({
                         {credentialMode === "subscription" && authSignalStatus === "present" && <p className="px-3 text-sm text-muted-foreground">An existing provider connection is available.</p>}
                       </div>
                     </motion.div>
+
+                    {/* No key and no subscription is a fine answer: the free
+                        models need neither. Offered only while nothing is
+                        running — once a sign-in has started, Back is the way
+                        out of it. Stays through the hire so the step says what
+                        it is doing. */}
+                    {connectPhase === "idle" && (
+                      <div className="mt-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="lg"
+                          className="w-full rounded-full"
+                          onClick={skipToFreeModels}
+                          disabled={loading}
+                          data-testid="onboarding-skip-connect"
+                        >
+                          {loading && skippedCredential ? (
+                            <Loader2 className="mr-1 size-4 animate-spin" />
+                          ) : (
+                            <Gift className="mr-1 size-4" />
+                          )}
+                          {loading && skippedCredential ? "Hiring on the free models…" : "Skip for now: start on the free models"}
+                        </Button>
+                        <p className="mt-2 px-3 text-center text-xs text-muted-foreground">
+                          No key needed. Add a subscription or key under Settings any time.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/*
@@ -2894,7 +2982,7 @@ function OnboardingWizardInner({
                     ) : credentialMode === "api" ? (
                       <OnboardingLoginCard
                         instruction={savedKeys.options.length ? "Choose a saved API key or enter a new one" : `Provide your ${
-                          CONNECT_SOURCE_NAMES[adapterType] ?? adapterType
+                          sourceLabelFor(adapterType, adapterType)
                         } API key to connect`}
                       >
                         <SavedProviderKeySelect {...savedKeys} disabled={loading || adapterEnvLoading} value={selectedApiKey?.id ?? ""} onChange={(id) => {

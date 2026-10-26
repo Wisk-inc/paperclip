@@ -2841,6 +2841,7 @@ export {
 
 
 export {
+  DEFAULT_FREE_CHAT_MODEL,
   FREE_MODELS_ADAPTER_TYPE,
   type FreeModelRunUsage,
   type FreeModelUsageSummary,

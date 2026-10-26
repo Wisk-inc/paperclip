@@ -480,9 +480,42 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await clickByText((t) => t.includes("Use API key instead"));
       const labels = tiles();
       await act(async () => root.unmount());
-      expect(labels.some((label) => label.startsWith("Claude"))).toBe(true);
+      // With a key the Claude tile is named for the key's issuer.
+      expect(labels.some((label) => label.startsWith("Anthropic"))).toBe(true);
+      expect(labels.some((label) => label.startsWith("Claude"))).toBe(false);
       expect(labels.some((label) => label.startsWith("Gemini"))).toBe(true);
       expect(labels.some((label) => label.startsWith("Grok"))).toBe(true);
+    });
+
+    it("hires on the free models when the model step is skipped, with no key and no probe", async () => {
+      // A customer with no subscription and no API key must still get past
+      // "Connect a model". Skip for now hires the first agent on the free
+      // models: no credential is stored, no sign-in starts, and the
+      // environment test — which would report missing authentication — is
+      // not run. The agent works the moment the wizard closes.
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      mockAgentsApi.hire.mockResolvedValue({ agent: { id: "agent-free" }, approval: null });
+      const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate("Ada");
+      expect(document.body.textContent).toContain("Connect a model");
+
+      const skip = document.body.querySelector('[data-testid="onboarding-skip-connect"]') as HTMLButtonElement;
+      expect(skip, "the connect step should offer a way past it").toBeTruthy();
+      await act(async () => {
+        skip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      for (let i = 0; i < 8; i++) await flushReact();
+
+      expect(mockAgentsApi.hire).toHaveBeenCalledTimes(1);
+      const payload = (mockAgentsApi.hire.mock.calls.at(-1) as unknown[])[1] as { adapterType: string; name: string };
+      expect(payload.adapterType).toBe("free_models");
+      expect(payload.name).toBe("Ada");
+      expect(mockAgentsApi.testEnvironment).not.toHaveBeenCalled();
+      expect(managedApi.create).not.toHaveBeenCalled();
+      expect(document.body.textContent).toContain("Ada is ready on the free models");
+
+      await act(async () => root.unmount());
     });
 
     it("removes the organization it created when closed before the first agent is hired", async () => {
