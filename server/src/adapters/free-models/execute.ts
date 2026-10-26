@@ -11,7 +11,7 @@ import {
   type PuterToolCall,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
-import type { FreeModelRunUsage } from "@paperclipai/shared";
+import { pairedFreeImageModel, type FreeModelRunUsage } from "@paperclipai/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
@@ -33,9 +33,9 @@ function boolToggle(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-/** The paired image model for a chat model, when one is set and valid. */
+/** The paired image model for a chat model: the chosen one, the default when none is chosen, none when switched off. */
 function bondedImageModel(config: Record<string, unknown>): PuterImageModelId | null {
-  const raw = asString(config.imageModel, "").trim();
+  const raw = pairedFreeImageModel(config);
   if (!raw) return null;
   if (raw in PUTER_IMAGE_MODELS) return PUTER_IMAGE_MODELS[raw as keyof typeof PUTER_IMAGE_MODELS];
   return isPuterImageModel(raw) ? raw : null;
@@ -155,7 +155,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const profile = await loadProfile(api, issue.companyId, agent.id, readId((issue as { conversationUserId?: unknown }).conversationUserId));
   for (const note of profile.notes) await onLog("stdout", `[paperclip] Profile lookup skipped: ${note}\n`);
   await onLog("stdout", `[paperclip] Profile: ${profile.title || profile.role || "no role"}; person ${profile.personName || "unknown"}; ${profile.teammates.length} teammates\n`);
-  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, profile });
+  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
@@ -185,10 +185,12 @@ interface BuildInput {
   level: ReturnType<typeof readThinkingLevel>;
   pictures: string[];
   hasTools: boolean;
+  /** GenerateImage is among the tools: a paired image model is ready. */
+  canDraw: boolean;
   profile: Profile;
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile): string {
+function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile): string {
   const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
     `You are ${agentName}${who ? ` (${who})` : ""}, an AI agent on the person's team in Automa, chatting with them in the app.${profile.personName ? ` The person you are talking to is ${profile.personName}; use their name naturally.` : ""}`,
@@ -198,13 +200,16 @@ function systemPrompt(agentName: string, hasTools: boolean, level: ReturnType<ty
     hasTools
       ? "You have tools and you use them to get real answers and do real work: read and search the web, read and change files, run commands, call the Automa API as yourself (talk to teammates, create and update tasks, write plans), use the person's connected apps, and draw pictures. Prefer finding the real answer with a tool over guessing. When you say you did something, a tool must actually have done it."
       : "Answer in text only in this reply.",
+    canDraw
+      ? "When the person asks for a picture, image, drawing, illustration, logo, poster, wallpaper or photo of something, call GenerateImage with a detailed prompt (subject, style, lighting, composition). Never say you cannot draw, and never describe the picture instead of drawing it. Then say in a line what you drew."
+      : "",
     "Write the way you would to a teammate: answer first, then the detail that matters, in Markdown.",
     level ? thinkingInstruction(level) : "",
   ].filter(Boolean).join("\n\n");
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.level, input.profile) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });

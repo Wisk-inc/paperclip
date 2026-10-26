@@ -1,7 +1,7 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Gift, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
-import { aiConnectionBindingSchema, FREE_MODELS_ADAPTER_TYPE, type Agent, type AiProvider } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, pairedFreeImageModel, type Agent, type AiProvider } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { freeModelsApi } from "@/api/free-models";
@@ -193,7 +193,8 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
   const client = useQueryClient();
   const { pushToast } = useToastActions();
   const config = (agent.adapterConfig ?? {}) as Record<string, unknown>;
-  const boundImage = typeof config.imageModel === "string" ? config.imageModel : "";
+  // Paired by default, so drawing works before anyone opens this panel.
+  const boundImage = pairedFreeImageModel(config);
 
   const update = useMutation({
     mutationFn: (patch: Record<string, unknown>) => agentsApi.update(agent.id, { adapterConfig: patch }, agent.companyId),
@@ -239,18 +240,18 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
               </span>
             ) : null}
           </div>
-          <div className="mb-1.5 text-xs text-muted-foreground">The agent can draw pictures in its replies with this model.</div>
+          <div className="mb-1.5 text-xs text-muted-foreground">Ask for a picture and the agent draws it with this model.</div>
           <div className="flex flex-wrap gap-1.5">
-            {[{ id: "", name: "None" }, ...imageOptions].map((option) => (
+            {[{ id: FREE_IMAGE_MODEL_NONE, name: "None" }, ...imageOptions].map((option) => (
               <button
-                key={option.id || "none"}
+                key={option.id}
                 type="button"
-                aria-pressed={boundImage === option.id}
+                aria-pressed={option.id === FREE_IMAGE_MODEL_NONE ? !boundImage : boundImage === option.id}
                 disabled={update.isPending}
                 onClick={() => { haptic("tick"); update.mutate({ imageModel: option.id }); }}
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs transition-colors",
-                  boundImage === option.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-accent",
+                  (option.id === FREE_IMAGE_MODEL_NONE ? !boundImage : boundImage === option.id) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-accent",
                 )}
               >
                 {option.name}
@@ -455,10 +456,17 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
           </SheetDescription>
         </SheetHeader>
 
+        {/* Everything under the title scrolls as one column. The thinking
+            depth and the free-model tools panel used to sit above the list,
+            outside its scroll area; with a free agent on a phone they took
+            most of the sheet's height and left the models a sliver that could
+            not scroll past the first rows. The search bar and maker chips
+            stick to the top of the column so filtering is always in reach. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="model-picker-scroll">
         <ThinkingDepthControl agent={agent} className="px-4 pb-3" />
         {runsFreeChat ? <FreeToolsPanel agent={agent} imageOptions={freeImageOptions} /> : null}
 
-        <div className="space-y-2 px-4 pb-2">
+        <div className="sticky top-0 z-10 space-y-2 bg-background px-4 pt-1 pb-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
@@ -487,7 +495,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-border px-2 pt-2 pb-4">
+        <div className="border-t border-border px-2 pt-2 pb-4">
           {!runsOnOpenRouter && visibleRuntime.length > 0 ? (
             <section aria-label={`${getAdapterLabel(agent.adapterType)} models`} className="pb-2">
               <h3 className="px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -600,6 +608,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
           </section>}
 
           <ByokKeysCard connected={connected} className="mx-1 mt-4" />
+        </div>
         </div>
       </SheetContent>
     </Sheet>

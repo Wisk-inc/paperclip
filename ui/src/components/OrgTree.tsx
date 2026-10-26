@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Crown, UserRoundPlus, Users } from "lucide-react";
-import { AGENT_ROLE_LABELS, type Agent, type AgentRole } from "@paperclipai/shared";
+import { AGENT_ROLE_LABELS, pairedFreeImageModel, type Agent, type AgentRole } from "@paperclipai/shared";
 import type { OrgNode } from "@/api/agents";
 import { AgentStatusAvatar, EditAgentButton } from "@/components/agent-chat/AgentChatHeader";
 import { roleIcon } from "@/components/agent-chat/role-icons";
@@ -59,8 +59,8 @@ function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Ag
               </span>
               {model ? (
                 <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground/80">
-                  {agent.adapterType === "free_models" && typeof agent.adapterConfig?.imageModel === "string" ? (
-                    <BondedModelLogos chatModelId={model} imageModelId={agent.adapterConfig.imageModel} size="xs" tile={false} />
+                  {agent.adapterType === "free_models" && !model.startsWith("@cf/") && pairedFreeImageModel(agent.adapterConfig) ? (
+                    <BondedModelLogos chatModelId={model} imageModelId={pairedFreeImageModel(agent.adapterConfig)} size="xs" tile={false} />
                   ) : (
                     <ModelLogo modelId={model} adapterType={agent.adapterType} size="xs" tile={false} />
                   )}

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import type { Agent } from "@paperclipai/shared";
+import { pairedFreeImageModel, type Agent } from "@paperclipai/shared";
 import { BondedModelLogos } from "@/components/BondedModelLogos";
 import { ModelLogo } from "@/components/ModelLogo";
 import { haptic } from "@/lib/haptics";
@@ -14,7 +14,8 @@ export function AgentModelButton({ agent, className }: { agent: Agent; className
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
   const name = modelDisplayName(model);
-  const imageModel = agent.adapterType === "free_models" && typeof agent.adapterConfig?.imageModel === "string" ? agent.adapterConfig.imageModel : "";
+  // A free chat model is paired with an image model by default; an image model itself has no pairing.
+  const imageModel = agent.adapterType === "free_models" && !model.startsWith("@cf/") ? pairedFreeImageModel(agent.adapterConfig) : "";
   return (
     <>
       <button

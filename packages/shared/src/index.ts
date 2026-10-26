@@ -2842,7 +2842,10 @@ export {
 
 export {
   DEFAULT_FREE_CHAT_MODEL,
+  DEFAULT_FREE_IMAGE_MODEL,
+  FREE_IMAGE_MODEL_NONE,
   FREE_MODELS_ADAPTER_TYPE,
+  pairedFreeImageModel,
   type FreeModelRunUsage,
   type FreeModelUsageSummary,
 } from "./free-models.js";

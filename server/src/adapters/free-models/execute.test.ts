@@ -152,6 +152,30 @@ describe("free models engine", () => {
     expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 4 });
   });
 
+  it("offers GenerateImage with nothing paired and draws when the model calls it", async () => {
+    // A first agent hired with no image model chosen still draws: the default
+    // pairing is on, and the prompt tells the model to draw when asked.
+    const net = stubNetwork({ chatTurns: [
+      [{ type: "tool_use", id: "t1", name: "GenerateImage", input: { prompt: "a red fox in snow at night, cinematic" } }, { type: "usage", usageDetails: { inputTokens: 30, outputTokens: 10 }, stopReason: "tool_use" }],
+      [{ type: "text", text: "Here is your fox." }, { type: "usage", usageDetails: { inputTokens: 50, outputTokens: 8 }, stopReason: "end_turn" }],
+    ] });
+    const result = await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false }));
+
+    const first = net.puterBodies()[0]!.args as { tools?: Array<{ function: { name: string } }>; messages: Array<{ role: string; content: string }> };
+    expect(first.tools?.map((tool) => tool.function.name)).toEqual(["GenerateImage"]);
+    expect(first.messages[0]!.content).toContain("call GenerateImage");
+    expect(net.calls.some((call) => call.url.endsWith("/attachments") && call.method === "POST")).toBe(true);
+    expect(postedBody(net.calls)).toContain("![a red fox in snow at night, cinematic](/api/attachments/att-1/content)");
+    expect(result.resultJson).toMatchObject({ freeUsage: { images: 1 } });
+  });
+
+  it("offers no GenerateImage when the pairing is switched off", async () => {
+    const net = stubNetwork();
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", imageModel: "none", freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false }));
+    const first = net.puterBodies()[0]!.args as { tools?: unknown[] };
+    expect(first.tools ?? []).toEqual([]);
+  });
+
   it("draws with an image model, uploads the picture, and embeds it", async () => {
     const net = stubNetwork();
     const result = await execute(context({ model: "@cf/bytedance/stable-diffusion-xl-lightning" }));
