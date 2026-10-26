@@ -15,6 +15,7 @@ import {
   Sparkles,
   Terminal,
   Cpu,
+  Gift,
 } from "lucide-react";
 import { OpenCodeLogoIcon } from "@/components/OpenCodeLogoIcon";
 
@@ -158,6 +159,12 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     description: "Internal HTTP adapter",
     icon: Cpu,
     comingSoon: true,
+  },
+  free_models: {
+    label: "Free models",
+    description: "Free chat and image models, no key needed",
+    icon: Gift,
+    hideFromVisualSelection: true,
   },
 };
 

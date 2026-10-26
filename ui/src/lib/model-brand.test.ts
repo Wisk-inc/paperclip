@@ -17,6 +17,12 @@ describe("modelDisplayName", () => {
     expect(modelDisplayName("")).toBe("Default model");
   });
 
+  it("names free image models by their maker, not their host", () => {
+    expect(modelDisplayName("@cf/bytedance/stable-diffusion-xl-lightning")).toBe("Stable Diffusion XL Lightning");
+    expect(modelProvider("@cf/bytedance/stable-diffusion-xl-lightning")).toBe("bytedance");
+    expect(modelProvider("deepseek/deepseek-v4.1-flash:free")).toBe("deepseek");
+  });
+
   it("keeps an adapter label that is already readable, without the catalog's vendor prefix", () => {
     expect(modelDisplayName("claude-sonnet-4-5", "Claude Sonnet 4.5 (1M)")).toBe("Claude Sonnet 4.5 (1M)");
     expect(modelDisplayName("gpt-5", "gpt-5")).toBe("GPT-5");

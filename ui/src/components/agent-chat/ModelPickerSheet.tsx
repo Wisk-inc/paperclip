@@ -1,13 +1,15 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
-import { aiConnectionBindingSchema, type Agent, type AiProvider } from "@paperclipai/shared";
+import { Check, Gift, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
+import { aiConnectionBindingSchema, FREE_MODELS_ADAPTER_TYPE, type Agent, type AiProvider } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
+import { freeModelsApi } from "@/api/free-models";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { ModelLogo } from "@/components/ModelLogo";
 import { ByokKeysCard, connectKeyHref } from "./ByokKeysCard";
 import { ThinkingDepthControl, currentThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "./ThinkingDepthControl";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -26,8 +28,8 @@ interface ModelEntry {
   id: string;
   name: string;
   provider: ModelProvider;
-  /** `runtime`: the agent's current runtime; `openrouter`: any model through your OpenRouter key. */
-  source: "runtime" | "openrouter";
+  /** `runtime`: the agent's current runtime; `openrouter`: any model through your OpenRouter key; `free`: free models, no key. */
+  source: "runtime" | "openrouter" | "free";
 }
 
 function toEntries(models: AdapterModel[] | undefined, source: ModelEntry["source"], adapterType: string): ModelEntry[] {
@@ -93,6 +95,7 @@ function ModelRow({ entry, current, locked, busy, onSelect }: {
         <span className="block truncate text-sm font-medium text-foreground">{entry.name}</span>
         <span className="block truncate font-mono text-xs text-muted-foreground">{entry.id}</span>
       </span>
+      {entry.source === "free" ? <Badge variant="secondary" data-slot="free-tag">Free</Badge> : null}
       {current ? <Check className="size-4 shrink-0 text-primary" aria-label="Current model" /> : null}
       {!current && locked ? <KeyRound className="size-4 shrink-0 text-muted-foreground" aria-label="Needs your OpenRouter key" /> : null}
     </button>
@@ -123,6 +126,54 @@ function ProviderChip({ provider, label, count, active, onClick }: {
   );
 }
 
+const smallUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumSignificantDigits: 2 });
+const wholeUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const usd = (value: number) => (value > 0 && value < 0.01 ? smallUsd : wholeUsd).format(value);
+
+/** Tokens and images spent on free models, what paid prices would have charged, and a reset. */
+function FreeUsageCard({ companyId }: { companyId: string }) {
+  const client = useQueryClient();
+  const { pushToast } = useToastActions();
+  const usage = useQuery({
+    queryKey: queryKeys.freeModels.usage(companyId),
+    queryFn: () => freeModelsApi.usage(companyId),
+  });
+  const reset = useMutation({
+    mutationFn: () => freeModelsApi.resetUsage(companyId),
+    onSuccess: (data) => {
+      haptic("success");
+      client.setQueryData(queryKeys.freeModels.usage(companyId), data);
+      pushToast({ title: "Free usage reset", tone: "success" });
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn’t reset free usage", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
+  if (usage.error) {
+    return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{usage.error instanceof Error ? usage.error.message : "Could not load free usage."}</p>;
+  }
+  if (!usage.data) return null;
+  const { inputTokens, outputTokens, images, equivalentUsd, since } = usage.data;
+  const tokens = inputTokens + outputTokens;
+  return (
+    <div data-testid="free-usage" className="mx-1 mb-2 flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="min-w-0 flex-1 text-xs">
+        <p className="font-medium text-foreground">
+          {tokens.toLocaleString()} tokens{images ? ` · ${images} ${images === 1 ? "image" : "images"}` : ""} · $0.00 charged
+        </p>
+        <p className="text-muted-foreground">
+          Would have cost {usd(equivalentUsd)} at paid prices{since ? ` · since ${new Date(since).toLocaleDateString()}` : ""}
+        </p>
+      </div>
+      <Button variant="outline" size="sm" disabled={reset.isPending || (tokens === 0 && images === 0)} onClick={() => reset.mutate()}>
+        {reset.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+        Reset
+      </Button>
+    </div>
+  );
+}
+
 export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "", returnFocusRef }: {
   agent: Agent;
   open: boolean;
@@ -138,6 +189,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   const currentModel = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
   const binding = aiConnectionBindingSchema.safeParse((agent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection).data;
   const runsOnOpenRouter = agent.adapterType === "opencode_local" && binding?.provider === "openrouter";
+  const runsFree = agent.adapterType === FREE_MODELS_ADAPTER_TYPE;
   const [query, setQuery] = useState(initialQuery);
   // Each time the sheet opens, it starts from the search it was opened with.
   const [openedWith, setOpenedWith] = useState<string | null>(null);
@@ -146,13 +198,19 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     setOpenedWith(openKey);
     if (open) setQuery(initialQuery);
   }
-  const [filter, setFilter] = useState<ModelProvider | "all">("all");
+  const [filter, setFilter] = useState<ModelProvider | "all" | "free">("all");
   const [expanded, setExpanded] = useState<Set<ModelProvider>>(() => new Set());
 
   const runtimeModels = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, agent.adapterType, null),
     queryFn: () => agentsApi.adapterModels(companyId, agent.adapterType),
-    enabled: open && !runsOnOpenRouter,
+    enabled: open && !runsOnOpenRouter && !runsFree,
+    staleTime: 5 * 60_000,
+  });
+  const freeModels = useQuery({
+    queryKey: queryKeys.agents.adapterModels(companyId, FREE_MODELS_ADAPTER_TYPE, null),
+    queryFn: () => agentsApi.adapterModels(companyId, FREE_MODELS_ADAPTER_TYPE),
+    enabled: open,
     staleTime: 5 * 60_000,
   });
   const catalog = useQuery({
@@ -177,9 +235,10 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   const hasOpenRouterKey = connected.has("openrouter");
 
   const runtimeEntries = useMemo(
-    () => (runsOnOpenRouter ? [] : toEntries(runtimeModels.data, "runtime", agent.adapterType)),
-    [runsOnOpenRouter, runtimeModels.data, agent.adapterType],
+    () => (runsOnOpenRouter || runsFree ? [] : toEntries(runtimeModels.data, "runtime", agent.adapterType)),
+    [runsOnOpenRouter, runsFree, runtimeModels.data, agent.adapterType],
   );
+  const freeEntries = useMemo(() => toEntries(freeModels.data, "free", FREE_MODELS_ADAPTER_TYPE), [freeModels.data]);
   const catalogEntries = useMemo(
     () => toEntries(catalog.data, "openrouter", "opencode_local").sort(byRecency),
     [catalog.data],
@@ -203,6 +262,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
 
   const searching = query.trim().length > 0;
   const visibleRuntime = runtimeEntries.filter((entry) => matches(entry, query) && (filter === "all" || entry.provider === filter));
+  const visibleFree = freeEntries.filter((entry) => matches(entry, query) && (filter === "all" || filter === "free" || entry.provider === filter));
   const visibleGroups = groups
     .filter((group) => filter === "all" || group.provider === filter)
     .map((group) => ({ ...group, entries: group.entries.filter((entry) => matches(entry, query)) }))
@@ -210,6 +270,13 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
 
   const select = useMutation({
     mutationFn: async (entry: ModelEntry) => {
+      if (entry.source === "free") {
+        if (runsFree) return agentsApi.update(agent.id, { adapterConfig: { model: entry.id } }, companyId);
+        // Free models need no key, so the switch drops any key binding.
+        const runtimeConfig = { ...((agent.runtimeConfig as Record<string, unknown> | undefined) ?? {}) };
+        delete runtimeConfig.aiConnection;
+        return agentsApi.update(agent.id, { adapterType: FREE_MODELS_ADAPTER_TYPE, adapterConfig: { model: entry.id }, runtimeConfig }, companyId);
+      }
       if (entry.source === "runtime" || runsOnOpenRouter) {
         // A thinking level the new model doesn't take is cleared with the switch.
         const level = currentThinkingLevel(agent);
@@ -246,7 +313,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   });
 
   const choose = (entry: ModelEntry) => {
-    if (entry.id === currentModel) return;
+    if (entry.id === currentModel && (entry.source !== "free" || runsFree)) return;
     if (entry.source === "openrouter" && !hasOpenRouterKey && !runsOnOpenRouter) {
       haptic("warning");
       pushToast({
@@ -263,11 +330,11 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
 
   const providerCounts = useMemo(() => {
     const counts = new Map<ModelProvider, number>();
-    for (const entry of [...runtimeEntries, ...catalogEntries]) counts.set(entry.provider, (counts.get(entry.provider) ?? 0) + 1);
+    for (const entry of [...runtimeEntries, ...freeEntries, ...catalogEntries]) counts.set(entry.provider, (counts.get(entry.provider) ?? 0) + 1);
     return counts;
-  }, [runtimeEntries, catalogEntries]);
+  }, [runtimeEntries, freeEntries, catalogEntries]);
   const chipProviders = MODEL_PROVIDERS.filter((provider) => provider !== "other" && (providerCounts.get(provider) ?? 0) > 0);
-  const totalCount = runtimeEntries.length + catalogEntries.length;
+  const totalCount = runtimeEntries.length + freeEntries.length + catalogEntries.length;
   const busyId = select.isPending ? select.variables?.id : null;
 
   return (
@@ -309,6 +376,9 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
           </div>
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" role="group" aria-label="Filter by maker">
             <ProviderChip label="All" count={totalCount} active={filter === "all"} onClick={() => setFilter("all")} />
+            {freeEntries.length ? (
+              <ProviderChip label="Free" count={freeEntries.length} active={filter === "free"} onClick={() => setFilter(filter === "free" ? "all" : "free")} />
+            ) : null}
             {chipProviders.map((provider) => (
               <ProviderChip
                 key={provider}
@@ -339,6 +409,26 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
             </div>
           ) : null}
 
+          {visibleFree.length > 0 ? (
+            <section aria-label="Free models" className="pb-2" data-testid="free-models">
+              <h3 className="flex items-center gap-1.5 px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Gift className="size-3.5" aria-hidden="true" />
+                Free models · no key needed
+              </h3>
+              <FreeUsageCard companyId={companyId} />
+              {visibleFree.map((entry) => (
+                <ModelRow
+                  key={`free-${entry.id}`}
+                  entry={entry}
+                  current={runsFree && entry.id === currentModel}
+                  locked={false}
+                  busy={busyId === entry.id}
+                  onSelect={choose}
+                />
+              ))}
+            </section>
+          ) : null}
+
           {!searching && filter === "all" && newest.length > 0 ? (
             <section aria-label="Newest models" className="pb-2" data-testid="newest-models">
               <h3 className="flex items-center gap-1.5 px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -358,7 +448,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
             </section>
           ) : null}
 
-          <section aria-label="Models with your OpenRouter key" className="pt-1">
+          {filter === "free" ? null : <section aria-label="Models with your OpenRouter key" className="pt-1">
             <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-1">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {runsOnOpenRouter ? "With your OpenRouter key" : "Every model · your OpenRouter key"}
@@ -409,10 +499,10 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
                 </div>
               );
             })}
-            {!catalog.isPending && !catalog.error && visibleGroups.length === 0 && visibleRuntime.length === 0 ? (
+            {!catalog.isPending && !catalog.error && visibleGroups.length === 0 && visibleRuntime.length === 0 && visibleFree.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">No models match “{query}”.</p>
             ) : null}
-          </section>
+          </section>}
 
           <ByokKeysCard connected={connected} className="mx-1 mt-4" />
         </div>

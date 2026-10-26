@@ -28,6 +28,7 @@ import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
 import { shutdownStudio, studioPublicRoutes, studioRoutes } from "./routes/studio.js";
 import { terminalsRoutes } from "./routes/terminals.js";
 import { appInspectorRoutes } from "./routes/app-inspector.js";
+import { freeModelRoutes } from "./routes/free-models.js";
 import {
   privateHostnameGuard,
   resolvePrivateHostnameAllowSet,
@@ -825,6 +826,7 @@ export async function createApp(
   api.use(studioRoutes(db));
   api.use(terminalsRoutes(db, { deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure }));
   api.use(appInspectorRoutes(db, { deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure }));
+  api.use(freeModelRoutes(db));
   if (opts.databaseBackupService) {
     api.use(instanceDatabaseBackupRoutes(opts.databaseBackupService));
   }

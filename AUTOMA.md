@@ -125,6 +125,19 @@ Talk to an agent like a teammate.
 - **Model switcher** in the chat header: Claude, GPT, Gemini, DeepSeek, Llama,
   Qwen and more, with each provider's key status. **Thinking depth**: Auto,
   Quick, Balanced, Deep, Deeper, Max (also `/think deep`).
+- **Free models**: the model switcher has a **Free** filter and a "Free models
+  · no key needed" section, each row tagged **Free**: 19 chat models (DeepSeek
+  V4.1 Flash, Nemotron 3 Ultra 550B, Gemma 4, Qwen 3.8, North Mini Code and
+  more) and two image models (SDXL Lightning, SDXL Base). Picking one switches
+  the agent to Free models; no key or account is needed. Thinking depth works
+  on the chat models (Quick, Balanced, Deep, Deeper): the model thinks harder
+  and its thinking shows above the answer. On an image model, describe a
+  picture to get one, or attach a photo and say what to change; the model
+  reads it and redraws it with the change (a redraw, not a pixel edit). Tap a
+  picture, then Download, to save it to the phone. The card at the top of the
+  section counts the tokens and pictures used ($0.00 charged), shows what the
+  same work would have cost at paid prices, and **Reset** starts the count
+  again.
 - **Attachments**: tap + under the message box for photos, screenshots, PDFs
   or any file. The picker offers every type the page accepts.
 - **Slash commands**: type `/` for `/plan`, `/ask`, `/auto`, `/model`,
@@ -381,6 +394,7 @@ bundle Termux installs.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.8.4 | 2026-10-26 | Free models in chat (19 chat, 2 image) with thinking depth, image generation and photo redraws, and a free-usage card with paid-price equivalent and reset. |
 | 1.8.3 | 2026-10-26 | Server update takes effect at once; Ask Claude waits for sign-in, keeps your draft, skips offboarded agents; outdated-server check is specific. |
 | 1.8.2 | 2026-10-26 | Outdated-server panel on Terminals and App Inspector; Ask Claude from any app or decoded project; `automa update`. |
 | 1.8.1 | 2026-10-24 | "Organization not found" on device pages fixed; one-tap fix when Termux blocks Automa. |

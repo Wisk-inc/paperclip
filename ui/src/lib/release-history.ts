@@ -8,6 +8,7 @@ export interface AutomaRelease {
 
 /** Newest first. The first Android app came out on 27 September 2026. */
 export const AUTOMA_RELEASES: AutomaRelease[] = [
+  { version: "1.8.4", date: "2026-10-26", highlights: "Free models in chat: pick one tagged Free in the model switcher, no key needed. 19 chat models with thinking depth, and image models that draw from a description or redraw an attached photo; save pictures to the phone. A card counts free tokens and pictures, shows what paid prices would have charged, and resets" },
   { version: "1.8.3", date: "2026-10-26", highlights: "Updating the server in Termux now restarts it, so the update takes effect at once. Ask Claude waits for your sign-in, keeps what you had typed, and skips offboarded agents. The first update uses the command from the setup screen; automa update works from then on" },
   { version: "1.8.2", date: "2026-10-26", highlights: "When the Automa server on your phone is older than the app, Terminals and the App Inspector say so and offer the update (instead of \"API route not found\"); automa update in Termux installs it. Ask Claude about any app: from the app list or a decoded project, a chat opens with the question ready" },
   { version: "1.8.1", date: "2026-10-24", highlights: "Fixes \"Organization not found\" on Terminals, App Inspector and every tab after them; a one-tap fix when Termux blocks Automa from starting, instead of repeated Termux error reports" },

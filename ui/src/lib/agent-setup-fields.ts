@@ -38,6 +38,9 @@ export function setupEfforts(adapter: string, model = ""): string[] {
       return ["off", "minimal", "low", "medium", "high", "xhigh"];
     case "grok_local":
       return [...grokLocalReasoningEffortsForModel(model)];
+    case "free_models":
+      // Image models draw; they have nothing to think about.
+      return model.startsWith("@cf/") ? [] : ["low", "medium", "high", "xhigh"];
     default:
       return [];
   }

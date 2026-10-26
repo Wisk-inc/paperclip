@@ -10,9 +10,11 @@ import { byRecency, modelVersion, ModelPickerSheet } from "./ModelPickerSheet";
 const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn() }));
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockPushToast = vi.hoisted(() => vi.fn());
+const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn() }));
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
+vi.mock("@/api/free-models", () => ({ freeModelsApi: mockFreeModelsApi }));
 vi.mock("@/context/ToastContext", () => ({ useToastActions: () => ({ pushToast: mockPushToast }), useOptionalToastActions: () => ({ pushToast: mockPushToast }) }));
 vi.mock("@/lib/router", () => ({
   Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => <a href={to} {...rest}>{children}</a>,
@@ -31,6 +33,12 @@ const OPENROUTER_MODELS = [
   { id: "openrouter/meta-llama/llama-4-maverick", label: "Meta: Llama 4 Maverick" },
   { id: "openrouter/anthropic/claude-sonnet-5", label: "Anthropic: Claude Sonnet 5" },
 ];
+
+const FREE_MODELS = [
+  { id: "deepseek/deepseek-v4.1-flash:free", label: "DeepSeek V4.1 Flash" },
+  { id: "@cf/bytedance/stable-diffusion-xl-lightning", label: "SDXL Lightning (fast) · image" },
+];
+const USAGE = { since: null, replies: 3, images: 1, inputTokens: 1200, outputTokens: 800, equivalentUsd: 0.0031 };
 
 function agent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -79,8 +87,10 @@ function row(id: string) {
 
 beforeEach(() => {
   mockAgentsApi.adapterModels.mockImplementation((_company: string, type: string, options?: { provider?: string }) =>
-    Promise.resolve(type === "opencode_local" && options?.provider === "openrouter" ? OPENROUTER_MODELS : CLAUDE_MODELS));
+    Promise.resolve(type === "opencode_local" && options?.provider === "openrouter" ? OPENROUTER_MODELS : type === "free_models" ? FREE_MODELS : CLAUDE_MODELS));
   mockAgentsApi.update.mockResolvedValue({});
+  mockFreeModelsApi.usage.mockResolvedValue(USAGE);
+  mockFreeModelsApi.resetUsage.mockResolvedValue({ ...USAGE, since: "2026-10-26T00:00:00.000Z", replies: 0, images: 0, inputTokens: 0, outputTokens: 0, equivalentUsd: 0 });
   mockAiConnectionsApi.list.mockResolvedValue({ currentUserId: "user-1", connections: [] });
 });
 
@@ -188,5 +198,36 @@ describe("ModelPickerSheet", () => {
         aiConnection: { provider: "openrouter", method: "api_key", mode: "responsible_user" },
       },
     }, "company-1");
+  });
+
+  it("tags free models, shows what they would have cost, and moves the agent onto them without a key", async () => {
+    await render(<ModelPickerSheet agent={agent({ runtimeConfig: { aiConnection: { provider: "anthropic", method: "api_key", mode: "responsible_user" } } })} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="free-usage"]')).not.toBeNull());
+    const free = document.querySelector('[data-testid="free-models"]')!;
+    expect(free.querySelectorAll('[data-slot="free-tag"]')).toHaveLength(2);
+    expect(free.textContent).not.toMatch(/puter/i);
+    expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("2,000 tokens · 1 image · $0.00 charged");
+    expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("Would have cost $0.0031 at paid prices");
+    await act(async () => free.querySelector<HTMLButtonElement>('[data-model-id="deepseek/deepseek-v4.1-flash:free"]')!.click());
+    await settle(() => expect(mockAgentsApi.update).toHaveBeenCalled());
+    expect(mockAgentsApi.update).toHaveBeenCalledWith("agent-1", {
+      adapterType: "free_models",
+      adapterConfig: { model: "deepseek/deepseek-v4.1-flash:free" },
+      runtimeConfig: {},
+    }, "company-1");
+  });
+
+  it("filters to free models and resets free usage", async () => {
+    await render(<ModelPickerSheet agent={agent({ adapterType: "free_models", adapterConfig: { model: "deepseek/deepseek-v4.1-flash:free" } })} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="free-usage"]')).not.toBeNull());
+    const chip = [...document.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Free"))!;
+    await act(async () => chip.click());
+    expect(document.querySelector('[aria-label="Models with your OpenRouter key"]')).toBeNull();
+    expect(row("deepseek/deepseek-v4.1-flash:free")?.getAttribute("aria-pressed")).toBe("true");
+    const reset = [...document.querySelectorAll("button")].find((button) => button.textContent === "Reset")!;
+    await act(async () => reset.click());
+    await settle(() => expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toMatch(/^0 tokens · \$0\.00 charged/));
+    expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("Would have cost $0.00 at paid prices");
+    expect(mockFreeModelsApi.resetUsage).toHaveBeenCalledWith("company-1");
   });
 });

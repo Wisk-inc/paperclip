@@ -161,7 +161,8 @@ const ADAPTER_PROVIDERS: Record<string, ModelProvider> = {
 /** Splits "openrouter/deepseek/deepseek-v4-pro" into its vendor and model parts. */
 function idParts(modelId: string): { vendor: string; bare: string } {
   const segments = modelId.toLowerCase().split("/").filter(Boolean).map((segment) => segment.replace(/^~/, ""));
-  if (segments.length > 2 && segments[0] === "openrouter") segments.shift();
+  // Router prefixes ("openrouter/x/y", "@cf/x/y") name a host, not the maker.
+  if (segments.length > 2 && (segments[0] === "openrouter" || segments[0] === "@cf")) segments.shift();
   if (segments.length < 2) return { vendor: "", bare: segments[0] ?? "" };
   return { vendor: segments[0]!, bare: segments.slice(1).join("/") };
 }
@@ -195,6 +196,7 @@ export function vendorDisplayName(modelId: string | null | undefined): string {
 
 const WORD_OVERRIDES: Record<string, string> = {
   gpt: "GPT",
+  xl: "XL",
   glm: "GLM",
   claude: "Claude",
   gemini: "Gemini",

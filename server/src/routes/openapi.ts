@@ -1354,6 +1354,7 @@ const BOARD_ONLY_PREFIXES = [
 ];
 
 const BOARD_ONLY_OPERATIONS = new Set([
+  "POST /api/companies/{companyId}/free-models/usage/reset",
   "POST /api/companies/{companyId}/devices",
   "PATCH /api/devices/{deviceId}",
   "POST /api/devices/{deviceId}/heartbeat",
@@ -7814,6 +7815,8 @@ registerCurrentRoute({
   }),
 });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/terminals/sessions/{id}/stop", tags: ["terminals"], summary: "Stop a terminal" });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/free-models/usage", tags: ["free-models"], summary: "Tokens and images spent on free models since the last reset, with what paid prices would have charged" });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/free-models/usage/reset", tags: ["free-models"], summary: "Start the free-model usage count again from now" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/status", tags: ["app-inspector"], summary: "Whether apktool and jadx are installed, and the phone's apps when Automa runs on it" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects", tags: ["app-inspector"], summary: "List decoded apps" });
 registerCurrentRoute({
