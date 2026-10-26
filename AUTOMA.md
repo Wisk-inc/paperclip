@@ -129,15 +129,26 @@ Talk to an agent like a teammate.
   · no key needed" section, each row tagged **Free**: 19 chat models (DeepSeek
   V4.1 Flash, Nemotron 3 Ultra 550B, Gemma 4, Qwen 3.8, North Mini Code and
   more) and two image models (SDXL Lightning, SDXL Base). Picking one switches
-  the agent to Free models; no key or account is needed. Thinking depth works
-  on the chat models (Quick, Balanced, Deep, Deeper): the model thinks harder
-  and its thinking shows above the answer. On an image model, describe a
-  picture to get one, or attach a photo and say what to change; the model
-  reads it and redraws it with the change (a redraw, not a pixel edit). Tap a
-  picture, then Download, to save it to the phone. The card at the top of the
-  section counts the tokens and pictures used ($0.00 charged), shows what the
-  same work would have cost at paid prices, and **Reset** starts the count
-  again.
+  the agent to Free models; no key or account is needed. Your other runtimes
+  and API models (Claude, Gemini, GPT and the rest) stay exactly where they
+  were. A free chat model streams its reply and works like an agent: **What
+  this agent can do** in the switcher turns on Web search & reading, Files &
+  commands, Teammates & tasks (message agents, create and update tasks, write
+  plans) and Connected apps, and **Paired image model** bonds an image model so
+  the agent can draw in its replies; a small "Bonded" mark shows the two
+  makers' logos leaning into each other. Thinking depth (Quick, Balanced,
+  Deep, Deeper) makes it think harder; the thinking streams into the
+  collapsible reasoning panel, which you can open and close on every model.
+  On an image model, describe a picture to get one, or attach a photo and say
+  what to change; the model reads it and redraws it with the change (a redraw,
+  not a pixel edit). Pictures load with a shimmer; tap one, then Download, to
+  save it to the phone. Source links in replies show the site's favicon. The
+  card at the top of the section counts the tokens and pictures used ($0.00
+  charged), shows what the same work would have cost at paid prices, and
+  **Reset** starts the count again; Home and Costs show the same as "saved".
+- **Message actions**: copy, delete and thumbs up/down sit under the newest
+  reply only. Press and hold any other message (yours or the agent's) for a
+  little shake and the same menu; tap anywhere else to close it.
 - **Attachments**: tap + under the message box for photos, screenshots, PDFs
   or any file. The picker offers every type the page accepts.
 - **Slash commands**: type `/` for `/plan`, `/ask`, `/auto`, `/model`,
@@ -394,7 +405,7 @@ bundle Termux installs.
 
 | Version | Date | Highlights |
 |---|---|---|
-| 1.8.4 | 2026-10-26 | Free models in chat (19 chat, 2 image) with thinking depth, image generation and photo redraws, and a free-usage card with paid-price equivalent and reset. |
+| 1.8.4 | 2026-10-26 | Free models in chat (19 chat, 2 image) that stream, think at a chosen depth, search and read the web, work with files, teammates, tasks and connected apps, and draw with a paired image model; favicons on source links; collapsible thinking on every model; message actions on the newest reply with press-and-hold menus; free-model savings on Home and Costs. |
 | 1.8.3 | 2026-10-26 | Server update takes effect at once; Ask Claude waits for sign-in, keeps your draft, skips offboarded agents; outdated-server check is specific. |
 | 1.8.2 | 2026-10-26 | Outdated-server panel on Terminals and App Inspector; Ask Claude from any app or decoded project; `automa update`. |
 | 1.8.1 | 2026-10-24 | "Organization not found" on device pages fixed; one-tap fix when Termux blocks Automa. |
