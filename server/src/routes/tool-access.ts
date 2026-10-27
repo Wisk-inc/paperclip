@@ -70,6 +70,7 @@ import { runtimeCanonicalOrigin } from "../services/cloud-runtime-identity.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import {
   completePaperclipCloudConnectorEnrollment,
+  paperclipCloudConnectorEnrollmentOffered,
   loadPaperclipCloudConnectorIdentity,
   startPaperclipCloudConnectorEnrollment,
 } from "../services/paperclip-cloud-connector-enrollment.js";
@@ -1000,7 +1001,8 @@ function connectorEnrollmentPrincipal(req: Request): string {
 
   router.get("/tools/oauth/cloud-connector/enrollment", async (req, res) => {
     assertBoard(req);
-    res.json(await reconcilePaperclipCloudConnectorEnrollmentStatus());
+    const status = await reconcilePaperclipCloudConnectorEnrollmentStatus();
+    res.json({ ...status, enrollmentAvailable: status.configured || paperclipCloudConnectorEnrollmentOffered() });
   });
 
   router.post("/tools/oauth/cloud-connector/enrollment", async (req, res) => {
@@ -1008,6 +1010,12 @@ function connectorEnrollmentPrincipal(req: Request): string {
     const companyId = typeof req.body?.companyId === "string" ? req.body.companyId : "";
     if (!companyId) throw badRequest("Paperclip Cloud enrollment requires a company");
     assertCompanyAccess(req, companyId);
+    if (!paperclipCloudConnectorEnrollmentOffered()) {
+      // Never send people to a cloud this instance is not part of.
+      throw unprocessable("This server connects apps with your own credentials; Paperclip Cloud sign-in is not available here.", {
+        code: "paperclip_cloud_connector_enrollment_unavailable",
+      });
+    }
     const origin = new URL(oauthRedirectUri(req)).origin;
     const returnTo = normalizeCloudConnectorEnrollmentReturnTo(
       typeof req.body?.returnTo === "string" ? req.body.returnTo : undefined,

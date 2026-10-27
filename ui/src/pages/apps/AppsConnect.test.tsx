@@ -74,7 +74,10 @@ vi.mock("@/api/tools", () => ({
       finishAppMock(companyId, connectionId, input),
     putConnectionInstalls: (connectionId: string, installs: unknown) =>
       putConnectionInstallsMock(connectionId, installs),
-    getCloudConnectorEnrollment: () => getCloudConnectorEnrollmentMock(),
+    // These tests describe a server that offers Cloud enrollment unless a test
+    // says otherwise; Automa's own default (not offered) has its own test.
+    getCloudConnectorEnrollment: () => Promise.resolve(getCloudConnectorEnrollmentMock()).then((status) =>
+      status && typeof status === "object" ? { enrollmentAvailable: true, ...status } : status),
     startCloudConnectorEnrollment: (companyId: string, label?: string, returnTo?: string) =>
       startCloudConnectorEnrollmentMock(companyId, label, returnTo),
   },
@@ -1061,6 +1064,35 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     expect(navigateTopLevelMock).toHaveBeenCalledWith(
       "https://my-staging.paperclip.app/connections/enroll?id=enroll-test",
     );
+  });
+
+  it("offers Gmail's own-OAuth sign-in, never Cloud registration, when the server does not offer enrollment", async () => {
+    mockParams.appKey = "gmail";
+    listGalleryMock.mockResolvedValue({
+      apps: [{
+        ...GMAIL,
+        methods: GMAIL.methods.filter((method) => !method.oauthStrategy),
+        ownershipAvailability: { platform_shared: false, customer: true, dcr: true },
+      }],
+    });
+    getCloudConnectorEnrollmentMock.mockResolvedValue({
+      configured: false,
+      status: "not_configured",
+      brokerBaseUrl: "https://my.paperclip.app",
+      instanceId: null,
+      environment: "production",
+      origins: [],
+      enrollmentAvailable: false,
+    });
+
+    await render();
+    await passAccessStep();
+
+    expect(container.textContent).not.toContain("Connect with Automa");
+    expect(container.textContent).not.toContain("You must connect this instance to Automa");
+    expect(container.textContent).toContain("Your OAuth app");
+    expect(startCloudConnectorEnrollmentMock).not.toHaveBeenCalled();
+    expect(navigateTopLevelMock).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("retains task access and interaction through enrollment (popup blocked: %s)", async (popupBlocked) => {

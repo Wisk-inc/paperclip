@@ -208,6 +208,7 @@ import {
 import { buildAgentMentionHref } from "@paperclipai/shared";
 import { useComposerStop } from "@/hooks/useComposerStop";
 import { cn, formatDateTime, formatShortDate } from "../lib/utils";
+import { effectiveFeedbackSharingPreference } from "@/lib/feedback-sharing";
 import { liveBlueBadge } from "../lib/status-colors";
 import {
   nextWorkMode,
@@ -2750,7 +2751,7 @@ function IssueChatAssistantMessage({
 
 function IssueChatFeedbackButtons({
   activeVote,
-  sharingPreference = "prompt",
+  sharingPreference: requestedSharingPreference = "prompt",
   termsUrl,
   onVote,
 }: {
@@ -2762,6 +2763,7 @@ function IssueChatFeedbackButtons({
     options?: { allowSharing?: boolean; reason?: string },
   ) => Promise<void>;
 }) {
+  const sharingPreference = effectiveFeedbackSharingPreference(requestedSharingPreference);
   const [isSaving, setIsSaving] = useState(false);
   const [optimisticVote, setOptimisticVote] =
     useState<FeedbackVoteValue | null>(null);

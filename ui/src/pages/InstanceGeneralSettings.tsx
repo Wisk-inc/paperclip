@@ -16,6 +16,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { cn } from "../lib/utils";
+import { FEEDBACK_SHARING_AVAILABLE } from "@/lib/feedback-sharing";
 import { useSignOut } from "@/hooks/useSignOut";
 
 const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "https://paperclip.ing/tos";
@@ -84,7 +85,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
   const showCensorUsernameInLogs = !hiddenSettings.has("instance.general.censorUsernameInLogs");
   const showKeyboardShortcuts = !hiddenSettings.has("instance.general.keyboardShortcuts");
   const showBackupRetention = !hiddenSettings.has("instance.general.backupRetention");
-  const showFeedbackDataSharing = !hiddenSettings.has("instance.general.feedbackDataSharingPreference");
+  const showFeedbackDataSharing = FEEDBACK_SHARING_AVAILABLE && !hiddenSettings.has("instance.general.feedbackDataSharingPreference");
   const showSignOut = !hiddenSettings.has("instance.general.signOut");
   const visibleTopics = [
     ...(showCensorUsernameInLogs ? ["log display"] : []),

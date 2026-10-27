@@ -311,7 +311,9 @@ export function Connections() {
 
   return (
     <div className="max-w-5xl space-y-5">
-      {!connectorEnrollmentQuery.isLoading ? (
+      {/* Paperclip Cloud sign-in is shown only where the server offers it; Automa connects apps with your own credentials. */}
+      {!connectorEnrollmentQuery.isLoading
+        && (connectorEnrollmentQuery.data?.configured || connectorEnrollmentQuery.data?.enrollmentAvailable) ? (
         <CloudConnectorEnrollmentBanner
           status={connectorEnrollmentQuery.data}
           unavailable={connectorEnrollmentQuery.isError}

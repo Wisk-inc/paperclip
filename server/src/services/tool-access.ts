@@ -477,7 +477,7 @@ export function oauthClientIdMetadataDocument(input: {
 }): Record<string, unknown> {
   return {
     client_id: input.clientId,
-    client_name: `Paperclip (${new URL(input.redirectUri).host})`,
+    client_name: `Automa (${new URL(input.redirectUri).host})`,
     client_uri: new URL("/", input.clientId).toString(),
     redirect_uris: [input.redirectUri],
     grant_types: ["authorization_code", "refresh_token"],
@@ -9581,7 +9581,7 @@ export function toolAccessService(
 
     const host = new URL(input.redirectUri).host;
     const requestedMetadata = {
-      client_name: `Paperclip (${host})`,
+      client_name: `Automa (${host})`,
       redirect_uris: [input.redirectUri],
       grant_types: [
         "authorization_code",

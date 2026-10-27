@@ -10884,7 +10884,7 @@ describeEmbeddedPostgres("tool access service", () => {
     ).toBe("notion-dcr-client");
     expect(registrationBodies).toEqual([
       {
-        client_name: "Paperclip (paperclip-dev.tail29c1aa.ts.net)",
+        client_name: "Automa (paperclip-dev.tail29c1aa.ts.net)",
         redirect_uris: [redirectUri],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],

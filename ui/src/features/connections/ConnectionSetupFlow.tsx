@@ -981,7 +981,7 @@ function StandardConnectionSetupFlow({
   const fullRequestedDefinition = requestedAppKey
     ? getConnectableAppDefinition(requestedAppKey)
     : null;
-  const requestedDefinitionUsesManagedConnector = Boolean(
+  const definitionHasManagedConnector = Boolean(
     fullRequestedDefinition?.methods.some((candidate) =>
       candidate.oauthStrategy === "paperclip_cloud_connector"
       || candidate.oauthStrategy === "paperclip_id_connector"
@@ -998,11 +998,6 @@ function StandardConnectionSetupFlow({
   // needs the managed method's identity model, labels, and defaults because the
   // next step is enrollment for that exact method—not the visible PAT/BYO
   // compatibility fallback.
-  const preEnrollmentManagedMethod = entry
-    && requestedDefinitionUsesManagedConnector
-    && !entryAdvertisesManagedConnector
-    ? recommendedManagedConnectorMethod(fullRequestedDefinition)
-    : null;
   const [enrollmentAuthorizationUrl, setEnrollmentAuthorizationUrl] = useState<string | null>(null);
   const connectorEnrollmentQuery = useQuery({
     queryKey: ["cloud-connector", "enrollment"],
@@ -1010,10 +1005,24 @@ function StandardConnectionSetupFlow({
     refetchInterval: enrollmentAuthorizationUrl ? 2_000 : false,
     enabled: Boolean(
       selectedCompanyId
-      && requestedDefinitionUsesManagedConnector
+      && definitionHasManagedConnector
       && !entryAdvertisesManagedConnector
     ),
   });
+  // Automa does not enroll with Paperclip Cloud: when the server says
+  // enrollment is not offered, the managed method is not a next step, and the
+  // setup falls back to the methods this instance advertises (a personal
+  // token, your own OAuth app). While the lookup is in flight, or if it fails,
+  // the managed intent is kept and the screen says what went wrong.
+  const managedEnrollmentOffered = connectorEnrollmentQuery.data
+    ? connectorEnrollmentQuery.data.configured === true || connectorEnrollmentQuery.data.enrollmentAvailable === true
+    : true;
+  const requestedDefinitionUsesManagedConnector = definitionHasManagedConnector && managedEnrollmentOffered;
+  const preEnrollmentManagedMethod = entry
+    && requestedDefinitionUsesManagedConnector
+    && !entryAdvertisesManagedConnector
+    ? recommendedManagedConnectorMethod(fullRequestedDefinition)
+    : null;
   const [connectorEnrollmentError, setConnectorEnrollmentError] = useState<string | null>(null);
   const closeEnrollmentPopup = useCallback(() => {
     oauthPopupRef.current?.close();
@@ -1578,6 +1587,7 @@ function StandardConnectionSetupFlow({
     connectionsQuery.isFetchedAfterMount,
     connectorEnrollmentQuery.data?.configured,
     connectorEnrollmentQuery.isLoading,
+    requestedDefinitionUsesManagedConnector,
     connectionMethodKey,
     credentialSource,
     entry?.slug,

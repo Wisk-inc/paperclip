@@ -68,7 +68,8 @@ describe("TrustPresetSection", () => {
     expect(view.text()).toContain("Containment active");
     expect(view.text()).toContain("Boundary type");
     expect(view.text()).toContain("Automa App");
-    expect(view.text()).toContain("Get Automa EE.");
+    // No upsell to an edition that does not exist.
+    expect(view.text()).not.toContain("Get Automa EE.");
     expect(view.text()).not.toContain("Managed by EE/API");
   });
 

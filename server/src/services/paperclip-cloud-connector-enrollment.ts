@@ -55,6 +55,17 @@ export type PaperclipCloudConnectorEnrollmentStatus = {
   expiresAt?: string;
 };
 
+/**
+ * Whether this server offers Paperclip Cloud enrollment. Automa connects apps
+ * with the person's own credentials (personal tokens, their own OAuth apps,
+ * provider-hosted sign-in), so enrollment is off unless an operator turns it
+ * on with PAPERCLIP_CLOUD_CONNECTOR_ENROLLMENT=on. An instance that is already
+ * enrolled keeps working either way.
+ */
+export function paperclipCloudConnectorEnrollmentOffered(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|on|yes)$/i.test((env.PAPERCLIP_CLOUD_CONNECTOR_ENROLLMENT ?? "").trim());
+}
+
 export function paperclipCloudConnectorIdentityPath(): string {
   return path.join(resolvePaperclipInstanceRoot(), "secrets", ENROLLMENT_FILE);
 }

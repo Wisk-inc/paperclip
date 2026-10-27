@@ -12,11 +12,12 @@ import {
 } from "@/components/ui/dialog";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { cn } from "../lib/utils";
+import { effectiveFeedbackSharingPreference } from "../lib/feedback-sharing";
 
 export function OutputFeedbackButtons({
   activeVote,
   disabled = false,
-  sharingPreference = "prompt",
+  sharingPreference: requestedSharingPreference = "prompt",
   termsUrl = null,
   onVote,
   rightSlot,
@@ -30,6 +31,7 @@ export function OutputFeedbackButtons({
   rightSlot?: React.ReactNode;
   inline?: boolean;
 }) {
+  const sharingPreference = effectiveFeedbackSharingPreference(requestedSharingPreference);
   const [pendingVote, setPendingVote] = useState<{
     vote: FeedbackVoteValue;
     reason?: string;

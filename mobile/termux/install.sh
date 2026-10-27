@@ -286,6 +286,9 @@ if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
   pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
 fi
 export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un):\$(cat "$db_password_file")@127.0.0.1:5432/automa}"
+# Automa sends no usage data anywhere: the upstream telemetry endpoint belongs
+# to another company. Set PAPERCLIP_TELEMETRY_DISABLED=0 to opt back in.
+export PAPERCLIP_TELEMETRY_DISABLED="\${PAPERCLIP_TELEMETRY_DISABLED:-1}"
 # A running server holds a wake lock so Android does not pause it, and the app
 # is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then

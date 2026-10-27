@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, SIDEBAR_RAIL_HIDDEN_LABEL } from "../lib/utils";
+import { SUPPORT_DISCORD_URL } from "@/lib/support";
 import { ThemeToggle } from "./ThemeToggle";
 import { SidebarServerInfo } from "./SidebarServerInfo";
 import { useAccountProfile } from "../hooks/useAccountProfile";
@@ -28,7 +29,8 @@ import { AccountSheet } from "./account/AccountSheet";
 
 const PROFILE_SETTINGS_PATH = "/company/settings/instance/profile";
 const DOCS_URL = "https://docs.paperclip.ing/";
-const FEEDBACK_URL = "https://paperclip.ing/feedback";
+// Feedback goes to the Automa community, not the upstream project's form.
+const FEEDBACK_URL = SUPPORT_DISCORD_URL;
 
 interface SidebarAccountMenuProps {
   deploymentMode?: DeploymentMode;

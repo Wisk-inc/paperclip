@@ -106,6 +106,8 @@ export type CloudConnectorEnrollmentStatus = {
   origins: string[];
   verificationUrl?: string;
   expiresAt?: string;
+  /** Whether this server offers Paperclip Cloud enrollment at all (Automa does not by default). */
+  enrollmentAvailable?: boolean;
 };
 export type CreateGatewayTokenInput = Omit<CreateToolMcpGatewayToken, "expiresAt"> & {
   expiresAt?: string | Date | null;
