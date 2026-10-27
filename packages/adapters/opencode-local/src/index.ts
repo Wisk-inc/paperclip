@@ -53,7 +53,10 @@ export function isValidOpenCodeModelId(value: unknown): value is string {
 
 export const models: Array<{ id: string; label: string }> = [
   { id: DEFAULT_OPENCODE_LOCAL_MODEL, label: DEFAULT_OPENCODE_LOCAL_MODEL },
+  { id: "openai/gpt-6.1-terra", label: "openai/gpt-6.1-terra" },
+  { id: "openai/gpt-6.1-terra-pro", label: "openai/gpt-6.1-terra-pro" },
   { id: "openai/gpt-6.1-sol", label: "openai/gpt-6.1-sol" },
+  { id: "openai/gpt-6.1-sol-pro", label: "openai/gpt-6.1-sol-pro" },
   { id: "openai/gpt-6-astra", label: "openai/gpt-6-astra" },
   { id: "openai/gpt-6-sol", label: "openai/gpt-6-sol" },
   { id: "openai/gpt-6-luna", label: "openai/gpt-6-luna" },

@@ -222,7 +222,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-6.1-sol",
     completionModel: "gpt-6-luna",
-    models: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.5"],
+    models: ["gpt-6.1-terra", "gpt-6.1-terra-pro", "gpt-6.1-sol", "gpt-6.1-sol-pro", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.5"],
     keyUrl: "https://platform.openai.com/api-keys",
   },
   openrouter: {
@@ -231,7 +231,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "anthropic/claude-opus-5.5",
     completionModel: "anthropic/claude-haiku-5.5",
-    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-4-argon", "moonshotai/kimi-k3.1-pro", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7"],
+    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-terra", "openai/gpt-6.1-sol", "google/gemini-4-argon", "moonshotai/kimi-k3.1-pro", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7", "minimax/minimax-m3.1-flash", "mistralai/mistral-large-4-0", "qwen/qwen3.8-max-prime", "z-ai/glm-5.3-prime", "meta/muse-spark-open"],
     keyUrl: "https://openrouter.ai/keys",
   },
   google: {

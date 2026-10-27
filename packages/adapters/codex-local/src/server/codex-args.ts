@@ -99,7 +99,7 @@ export function buildCodexExecArgs(
     fastModeApplied,
     fastModeIgnoredReason:
       fastModeRequested && !fastModeApplied
-        ? `Configured fast mode is currently only supported on ${formatFastModeSupportedModels()}; Paperclip will ignore it for model ${model || "(default)"}.`
+        ? `Configured fast mode is currently only supported on ${formatFastModeSupportedModels()}; Automa will ignore it for model ${model || "(default)"}.`
         : null,
   };
 }

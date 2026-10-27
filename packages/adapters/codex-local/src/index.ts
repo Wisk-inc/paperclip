@@ -13,6 +13,7 @@ export const SANDBOX_INSTALL_COMMAND = "npm install -g @openai/codex";
 export const DEFAULT_CODEX_LOCAL_MODEL = PAPERCLIP_RUNNER_DEFAULT_MODELS.codex;
 export const DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX = true;
 export const CODEX_LOCAL_FAST_MODE_SUPPORTED_MODELS = [
+  "gpt-6.1-terra",
   "gpt-6.1-sol",
   "gpt-6-astra",
   "gpt-6-sol",
@@ -71,6 +72,7 @@ export function codexLocalReasoningEffortsForModel(
 ): readonly CodexLocalReasoningEffort[] {
   const normalizedModel = normalizeCodexModel(model);
   switch (normalizedModel) {
+    case "gpt-6.1-terra":
     case "gpt-6.1-sol":
     case "gpt-6-astra":
     case "gpt-6-sol":
@@ -111,6 +113,7 @@ export function isCodexLocalFastModeSupported(model: string | null | undefined):
 export const models = [
   // DEFAULT_CODEX_LOCAL_MODEL is gpt-5.6-sol, so it doubles as the first (default) 5.6 entry.
   { id: DEFAULT_CODEX_LOCAL_MODEL, label: DEFAULT_CODEX_LOCAL_MODEL },
+  { id: "gpt-6.1-terra", label: "gpt-6.1-terra" },
   { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
   { id: "gpt-6-astra", label: "gpt-6-astra" },
   { id: "gpt-6-sol", label: "gpt-6-sol" },
