@@ -52,9 +52,11 @@ async function readFeed(source: MoanSource, signal?: AbortSignal): Promise<FeedI
   let lastError = "no feed address";
   for (const url of [source.url, ...(source.alternatives ?? [])]) {
     try {
-      const items = parseFeed(await fetchText(url, signal));
+      const text = await fetchText(url, signal);
+      const items = parseFeed(text);
       if (items.length) return items;
-      lastError = `${url} had no items`;
+      // A bot check or a login page comes back as HTML with a 2xx status.
+      lastError = /<(rss|feed|rdf:RDF)\b/i.test(text) ? `${url} had no items` : `${url} answered with a web page instead of a feed (a bot check, most likely)`;
     } catch (error) {
       lastError = `${url} ${error instanceof Error ? error.message : String(error)}`;
     }

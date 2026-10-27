@@ -31,7 +31,7 @@ export const MOAN_SOURCES: MoanSource[] = [
   { id: "jis", name: "Jamaica Information Service", topic: "government", kind: "rss", url: "https://jis.gov.jm/feed/", alternatives: ["https://jis.gov.jm/news/feed/"], everyMinutes: 3 * H, maxItems: 20 },
   { id: "gleaner", name: "The Gleaner", topic: "news", kind: "rss", url: "https://jamaica-gleaner.com/feed/headlines/rss.xml", alternatives: ["https://jamaica-gleaner.com/feed/rss.xml", "https://jamaica-gleaner.com/rss"], everyMinutes: 3 * H, maxItems: 25 },
   { id: "observer", name: "Jamaica Observer", topic: "news", kind: "rss", url: "https://www.jamaicaobserver.com/feed/", alternatives: ["https://www.jamaicaobserver.com/rss/", "https://www.jamaicaobserver.com/feed"], everyMinutes: 3 * H, maxItems: 25 },
-  { id: "rjr", name: "Radio Jamaica News", topic: "news", kind: "rss", url: "https://radiojamaicanewsonline.com/feed", alternatives: ["https://radiojamaicanewsonline.com/rss", "https://radiojamaicanewsonline.com/feed/"], everyMinutes: 3 * H, maxItems: 20 },
+  { id: "rjr", name: "Radio Jamaica News", topic: "news", kind: "crawl", url: "https://radiojamaicanewsonline.com/local", alternatives: ["https://radiojamaicanewsonline.com/"], everyMinutes: 3 * H, maxItems: 15, match: "radiojamaicanewsonline\\.com/(local|business|regional|sport|politics)/[a-z0-9-]{12,}" },
   { id: "nationwide", name: "Nationwide 90FM", topic: "news", kind: "rss", url: "https://nationwideradiojm.com/feed/", everyMinutes: 4 * H, maxItems: 15 },
   { id: "loop", name: "Loop Jamaica", topic: "news", kind: "rss", url: "https://jamaica.loopnews.com/rss.xml", alternatives: ["https://jamaica.loopnews.com/feed"], everyMinutes: 4 * H, maxItems: 15 },
   { id: "star", name: "The Star", topic: "culture", kind: "rss", url: "https://jamaica-star.com/feed/rss.xml", alternatives: ["https://jamaica-star.com/rss"], everyMinutes: 6 * H, maxItems: 10 },
@@ -48,7 +48,6 @@ export const MOAN_SOURCES: MoanSource[] = [
   { id: "jtb", name: "Jamaica Tourist Board", topic: "economy", kind: "page", url: "https://www.jtbonline.org/", everyMinutes: 2 * DAY, maxItems: 1 },
   // Parliament and the law.
   { id: "parliament", name: "Houses of Parliament", topic: "law", kind: "crawl", url: "https://www.japarliament.gov.jm/", everyMinutes: 12 * H, maxItems: 10, match: "japarliament\\.gov\\.jm/.*(bill|publication|sitting|hansard|news|order-paper|act)" },
-  { id: "ecj", name: "Electoral Commission of Jamaica", topic: "government", kind: "page", url: "https://ecj.com.jm/", everyMinutes: DAY, maxItems: 1 },
   { id: "courts", name: "Supreme Court of Jamaica", topic: "law", kind: "crawl", url: "https://supremecourt.gov.jm/", everyMinutes: DAY, maxItems: 8, match: "supremecourt\\.gov\\.jm/.*(judgment|notice|news|practice|rule)" },
   {
     id: "laws",
@@ -65,7 +64,9 @@ export const MOAN_SOURCES: MoanSource[] = [
   { id: "wiki-jamaica", name: "Wikipedia: Jamaica", topic: "history", kind: "page", url: "https://en.wikipedia.org/wiki/Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
   { id: "wiki-history", name: "Wikipedia: History of Jamaica", topic: "history", kind: "page", url: "https://en.wikipedia.org/wiki/History_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
   { id: "wiki-politics", name: "Wikipedia: Politics of Jamaica", topic: "government", kind: "page", url: "https://en.wikipedia.org/wiki/Politics_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
-  { id: "wiki-law", name: "Wikipedia: Law of Jamaica", topic: "law", kind: "page", url: "https://en.wikipedia.org/wiki/Law_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
+  { id: "wiki-constitution", name: "Wikipedia: Constitution of Jamaica", topic: "law", kind: "page", url: "https://en.wikipedia.org/wiki/Constitution_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
+  { id: "wiki-judiciary", name: "Wikipedia: Judiciary of Jamaica", topic: "law", kind: "page", url: "https://en.wikipedia.org/wiki/Judiciary_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
+  { id: "wiki-hurricanes", name: "Wikipedia: List of Jamaica hurricanes", topic: "weather", kind: "page", url: "https://en.wikipedia.org/wiki/List_of_Jamaica_hurricanes", everyMinutes: 30 * DAY, maxItems: 1 },
   { id: "wiki-economy", name: "Wikipedia: Economy of Jamaica", topic: "economy", kind: "page", url: "https://en.wikipedia.org/wiki/Economy_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
   { id: "wiki-culture", name: "Wikipedia: Culture of Jamaica", topic: "culture", kind: "page", url: "https://en.wikipedia.org/wiki/Culture_of_Jamaica", everyMinutes: 30 * DAY, maxItems: 1 },
   { id: "wiki-patois", name: "Wikipedia: Jamaican Patois", topic: "culture", kind: "page", url: "https://en.wikipedia.org/wiki/Jamaican_Patois", everyMinutes: 30 * DAY, maxItems: 1 },

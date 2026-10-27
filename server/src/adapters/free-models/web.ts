@@ -176,14 +176,7 @@ export async function webFetch(
   }
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
   const title = titleMatch ? stripTags(titleMatch[1]!) : response.url;
-  const main = body
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<\/(p|div|section|article|h[1-6]|li|br|tr)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "- ");
-  const text = stripTags(main).replace(/\n\s*\n+/g, "\n\n");
+  const text = readableText(body);
   return {
     url: response.url,
     title,
@@ -192,6 +185,60 @@ export async function webFetch(
     totalChars: text.length,
     ...found,
   };
+}
+
+/** Drops whole elements of a kind (nested ones too, roughly) from HTML. */
+function dropElements(html: string, names: string[]): string {
+  let out = html;
+  for (const name of names) {
+    out = out.replace(new RegExp(`<${name}\\b[^>]*>[\\s\\S]*?<\\/${name}>`, "gi"), " ");
+  }
+  return out;
+}
+
+/**
+ * The readable text of a page: the article when the page marks one (the
+ * longest <article>, else <main>), with navigation, headers, footers,
+ * sidebars, forms and scripts left out, so an article reads as the article
+ * and not the site around it.
+ */
+export function readableText(html: string): string {
+  const cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<template[\s\S]*?<\/template>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  // Block ends become line breaks and paragraph breaks survive, so a page
+  // chunks and reads the way it was laid out.
+  const toText = (fragment: string) => decodeEntities(
+    fragment
+      .replace(/<\/(p|div|section|article|h[1-6]|blockquote|pre|figcaption|dd|dt)>/gi, "\n\n")
+      .replace(/<\/(li|tr)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<li[^>]*>/gi, "- ")
+      .replace(/<h([1-6])[^>]*>/gi, "\n\n")
+      .replace(/<[^>]+>/g, ""),
+  )
+    .replace(/[ \t\r\f\v]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const chrome = ["nav", "aside", "form", "footer", "header"];
+  const longest = (fragments: string[]) => fragments
+    .map((fragment) => toText(dropElements(fragment, chrome)))
+    .filter((text) => text.length >= 400)
+    .sort((a, b) => b.length - a.length)[0];
+  // The longest <article> is the story (the others are teasers); <main> is the
+  // next best guess; the body is the last.
+  const article = longest([...cleaned.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi)].map((match) => match[1]!));
+  if (article) return article;
+  const main = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(cleaned)?.[1];
+  const mainText = main ? longest([main]) : undefined;
+  if (mainText) return mainText;
+  const bodyOnly = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(cleaned)?.[1] ?? cleaned;
+  return toText(dropElements(bodyOnly, chrome));
 }
 
 export interface CrawledPage {

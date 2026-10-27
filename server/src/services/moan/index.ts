@@ -102,7 +102,7 @@ function createMoanKnowledge(db: Db): MoanKnowledge {
         const started = Date.now();
         const result = await ingestSource(db, source, signal);
         const seconds = Math.round((Date.now() - started) / 1000);
-        if (result.error) logger.warn({ source: source.id, error: result.error, seconds }, "moan knowledge: source failed");
+        if (result.error) logger.warn({ source: source.id, reason: result.error, seconds }, "moan knowledge: source failed");
         else logger.info({ source: source.id, items: result.items, stored: result.stored, seconds }, "moan knowledge: source refreshed");
       }
     } finally {
