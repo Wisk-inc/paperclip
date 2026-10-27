@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TranscriptEntry } from "../../adapters";
 import type { ToolRunDecision } from "@paperclipai/shared";
-import { MarkdownBody, type MarkdownExternalReferenceMap } from "../MarkdownBody";
+import { MarkdownBody, SiteFavicon, hostOf, type MarkdownExternalReferenceMap } from "../MarkdownBody";
 import { cn, formatTokens } from "../../lib/utils";
 import { runningLabelText } from "../../lib/status-colors";
 import {
@@ -262,6 +262,36 @@ function mergeToolInput(previous: unknown, incoming: unknown): unknown {
     return previousRecord ? { ...previousRecord, ...incomingRecord } : incoming;
   }
   return incoming;
+}
+
+/** The sites a web tool call touched: the page it read, or the first result hosts of a search. */
+function toolSiteHosts(name: string, input: unknown, result: string | null | undefined): string[] {
+  if (!/^Web(Search|Fetch|Crawl|Download)$/.test(name)) return [];
+  const record = asRecord(input);
+  const hosts: string[] = [];
+  const add = (href: unknown) => {
+    const host = typeof href === "string" ? hostOf(href) : null;
+    if (host && !hosts.includes(host)) hosts.push(host);
+  };
+  add(record?.url);
+  if (name === "WebSearch" && typeof result === "string") {
+    for (const match of result.matchAll(/https?:\/\/[^\s)]+/g)) {
+      add(match[0]);
+      if (hosts.length >= 5) break;
+    }
+  }
+  return hosts.slice(0, 5);
+}
+
+/** Favicons of the sites a web tool is working with, in front of its summary line. */
+function ToolSiteFavicons({ name, input, result }: { name: string; input: unknown; result: string | null | undefined }) {
+  const hosts = toolSiteHosts(name, input, result);
+  if (hosts.length === 0) return null;
+  return (
+    <span className="mr-1 inline-flex items-center gap-0.5 align-middle" aria-label={`Sites: ${hosts.join(", ")}`}>
+      {hosts.map((host) => <SiteFavicon key={host} host={host} />)}
+    </span>
+  );
 }
 
 function summarizeToolInput(name: string, input: unknown, density: TranscriptDensity): string {
@@ -1095,6 +1125,7 @@ function TranscriptToolCard({
             <ToolDecisionBadge decision={decision} />
           </div>
           <div className={cn("mt-1 break-words text-foreground/80", compact ? "text-xs" : "text-sm")}>
+            <ToolSiteFavicons name={block.name} input={block.input} result={block.result} />
             {summary}
           </div>
           <ToolDecisionInlineDetail decision={decision} />

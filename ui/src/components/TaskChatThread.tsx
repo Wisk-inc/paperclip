@@ -2601,11 +2601,18 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         return <span className="tc-hover-actions"><TaskChatBubbleActions copyText={item.text} onDelete={onDelete} /></span>;
       }
       if (item.author !== "agent") return null;
+      // The question this reply answered, so Retry can ask it again.
+      const index = items.findIndex((entry) => entry.kind === "message" && entry.id === item.id);
+      const asked = index > 0
+        ? [...items.slice(0, index)].reverse().find((entry): entry is TaskChatMessageItem => entry.kind === "message" && entry.author === "human")
+        : undefined;
+      const onRetry = conversationMode && asked?.text.trim() ? () => sendChatMessage(asked.text) : undefined;
       return (
         <span className="tc-hover-actions">
         <TaskChatBubbleActions
           copyText={item.text}
           onDelete={onDelete}
+          onRetry={onRetry}
           feedback={
             onVote
               ? {
@@ -2621,6 +2628,8 @@ export function TaskChatThread(props: TaskChatThreadProps) {
       );
     },
     [
+      items,
+      sendChatMessage,
       onVote,
       onDeleteComment,
       conversationMode,

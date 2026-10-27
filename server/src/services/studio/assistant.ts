@@ -16,6 +16,19 @@ import {
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
+import {
+  describePuterError,
+  isTransientPuterError,
+  puterComplete,
+  puterStream,
+  PuterHttpError,
+  type PuterMessage,
+  type PuterTool,
+  type PuterToolCall,
+  type PuterUsage,
+} from "@paperclipai/shared/puter-ai";
+import { createThinkingTagSplitter, readThinkingLevel, thinkingInstruction } from "../../adapters/free-models/thinking.js";
+import { modelLabel, toolHistoryAsText } from "../../adapters/free-models/execute.js";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -53,6 +66,54 @@ export interface StudioAssistantContext {
   onFileChanged: (relativePath: string) => Promise<void>;
   /** Records what each model call used (Costs counts App Studio too). */
   onUsage?: (usage: StudioAiUsage) => Promise<void> | void;
+  /** Other models the lead can hand tasks to this turn (set per turn, never nested). */
+  team?: TeamRuntime;
+}
+
+/** A model that works for the lead: its provider, name, and the key that pays for it. */
+export interface StudioTeamMember {
+  provider: StudioAiProvider;
+  model: string;
+  credentials: ProviderCredentials;
+}
+
+interface TeamRuntime {
+  members: StudioTeamMember[];
+  /** Runs one task on a teammate and returns its written report. */
+  delegate: (member: StudioTeamMember, task: string, signal: AbortSignal) => Promise<string>;
+}
+
+/** A teammate as the lead names it: by model id, a number, or a word of the name. */
+function pickTeammate(members: StudioTeamMember[], who: string): StudioTeamMember | undefined {
+  const wanted = who.trim().toLowerCase();
+  if (!wanted) return members[0];
+  const index = Number(wanted);
+  if (Number.isInteger(index) && index >= 1 && index <= members.length) return members[index - 1];
+  return members.find((m) => m.model.toLowerCase() === wanted)
+    ?? members.find((m) => m.model.toLowerCase().includes(wanted) || modelLabel(m.model).toLowerCase().includes(wanted) || m.provider === wanted);
+}
+
+function askTeammateTool(members: StudioTeamMember[]) {
+  const list = members.map((m, i) => `${i + 1}. ${modelLabel(m.model)} (${m.provider}; id "${m.model}")`).join("; ");
+  return {
+    name: "ask_teammate",
+    description: `Hand a self-contained task to a teammate model and get its written report. Teammates: ${list}. They have the same file, command and app tools as you, see the project as it is now, and report what they changed with file paths. Give one clear task with everything needed (which files, what behaviour, how to test); split work across teammates for different parts; review their changes afterwards.`,
+    schema: z.object({ teammate: z.string().min(1), task: z.string().min(1).max(20_000) }),
+    parameters: {
+      type: "object",
+      properties: {
+        teammate: { type: "string", description: "The teammate's number, model id, or a word from its name" },
+        task: { type: "string", description: "The whole task, self-contained" },
+      },
+      required: ["teammate", "task"],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** The tools this turn offers: the project tools, plus ask_teammate when the lead has a team. */
+function toolsFor(context: StudioAssistantContext) {
+  return context.team?.members.length ? [...TOOLS, askTeammateTool(context.team.members)] : TOOLS;
 }
 
 const MAX_STEPS = 30;
@@ -177,6 +238,10 @@ export function describeActivity(name: string, rawInput: unknown): string {
       return "Starting the app";
     case "stop_app":
       return "Stopping the app";
+    case "ask_teammate": {
+      const who = text(input.teammate, 40);
+      return who ? `Asking ${who}` : "Asking a teammate";
+    }
     default:
       return "Working";
   }
@@ -189,7 +254,7 @@ interface ToolOutcome {
 }
 
 async function runTool(context: StudioAssistantContext, name: string, rawInput: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
-  const def = TOOLS.find((tool) => tool.name === name);
+  const def = toolsFor(context).find((tool) => tool.name === name);
   if (!def) return { ok: false, output: `Unknown tool ${name}`, step: { tool: name, summary: name, ok: false, detail: "Unknown tool" } };
   const parsed = def.schema.safeParse(rawInput ?? {});
   if (!parsed.success) {
@@ -197,6 +262,23 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
     return { ok: false, output: message, step: { tool: name, summary: name, ok: false, detail: message } };
   }
   const input = parsed.data as Record<string, unknown>;
+  if (name === "ask_teammate") {
+    const members = context.team?.members ?? [];
+    const member = pickTeammate(members, String(input.teammate ?? ""));
+    if (!member || !context.team) {
+      const message = `No such teammate. Teammates: ${members.map((m, i) => `${i + 1}. ${m.model}`).join("; ") || "(none)"}`;
+      return { ok: false, output: message, step: { tool: name, summary: "ask_teammate", ok: false, detail: message } };
+    }
+    const task = String(input.task ?? "");
+    const who = modelLabel(member.model);
+    try {
+      const report = await context.team.delegate(member, task, signal ?? new AbortController().signal);
+      return { ok: true, output: `${who} reports:\n\n${clip(report, 12_000)}`, step: { tool: name, summary: `${who} reported back`, ok: true, detail: clip(report, 4000) } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, output: `${who} could not finish: ${message}`, step: { tool: name, summary: `${who} could not finish`, ok: false, detail: message } };
+    }
+  }
   const dirs = studioWorkspaceDirs(context.companyId, context.workspaceId);
   const runtime = studioRuntime(context.workspaceId);
   try {
@@ -276,7 +358,43 @@ function systemPrompt(context: StudioAssistantContext) {
     "How to work: look at the files before changing them; use edit_file for small changes and write_file for new or rewritten files; after changing code, run it (start_app for apps and servers, run_command for scripts and tests) and read the output to confirm it works, then fix what fails.",
     "When the user describes an app in plain words, build all of it: the UI, the logic, and storage (for Node.js, the built-in node:sqlite module needs no install; for Python, sqlite3).",
     "Keep replies short: say what you changed and how to use it. Never print secrets or API keys, and do not touch anything outside the project folder.",
+    ...(context.team?.members.length
+      ? [
+          `You lead a team of models. Teammates: ${context.team.members.map((m, i) => `${i + 1}. ${modelLabel(m.model)}`).join("; ")}. Use ask_teammate to hand them self-contained tasks (one part of the app each, a review, a tricky bug) while you keep the overall plan; they report back in writing. Check their work before you tell the user it is done.`,
+        ]
+      : []),
   ].join("\n");
+}
+
+/** What a teammate is told on top of the project prompt. */
+const TEAMMATE_SYSTEM = "You are a teammate model working for the lead on one task in this project. Do the task with the tools, test it where you can, and finish with a short written report: what you changed (file paths), what works, what is left or unclear. Do not ask questions; make reasonable choices and say which you made.";
+
+/**
+ * The conversation so far as plain user/assistant text, from the transcript
+ * every provider shares. Used when the person switches providers mid-chat:
+ * the new provider's own history is empty, and the model would otherwise
+ * start from nothing.
+ */
+function historyFromTranscript(turns: StudioAssistantTurn[]): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const turn of turns) {
+    const steps = turn.steps.filter((step) => step.tool !== "say" && step.tool !== "think").map((step) => `${step.tool} ${step.summary}`.trim());
+    const text = turn.role === "assistant"
+      ? [turn.text.trim(), steps.length ? `[Steps taken: ${steps.join("; ").slice(0, 1500)}]` : "", turn.error ? `[This reply failed: ${turn.error}]` : ""].filter(Boolean).join("\n\n")
+      : turn.text.trim();
+    if (!text) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === turn.role) last.content = `${last.content}\n\n${text}`;
+    else out.push({ role: turn.role, content: text });
+  }
+  // Providers want the first message from the user.
+  while (out.length && out[0]!.role !== "user") out.shift();
+  return out;
+}
+
+/** User messages in a provider history that are the person speaking (not tool results). */
+function spokenUserTurns(messages: Array<{ role: string; content: unknown }>): number {
+  return messages.filter((m) => m.role === "user" && (typeof m.content === "string" || (Array.isArray(m.content) && m.content.some((part) => (part as { type?: string }).type === "text" || (part as { type?: string }).type === "image" || (part as { type?: string }).type === "image_url")))).length;
 }
 
 async function projectOverview(context: StudioAssistantContext) {
@@ -377,6 +495,8 @@ export async function runAssistantTurn(input: {
   attachments?: StudioAssistantAttachmentInput[];
   /** How long the model thinks; ignored where the model has no such setting. */
   thinking?: StudioThinkingLevel;
+  /** Models the lead can delegate to this turn. */
+  team?: StudioTeamMember[];
 }) {
   const { context } = input;
   if (running.has(context.workspaceId)) throw conflict("The assistant is still working; wait or tap Stop");
@@ -396,7 +516,9 @@ async function startTurn(
   input: Parameters<typeof runAssistantTurn>[0],
   controller: AbortController,
 ) {
-  const { context } = input;
+  // A copy per turn: the team is this turn's, and a teammate's own turn runs
+  // without one (no nesting).
+  const context: StudioAssistantContext = { ...input.context, team: undefined };
   const attachments = input.attachments ?? [];
   const images = attachments.filter((item) => item.encoding === "base64" && (STUDIO_ASSISTANT_IMAGE_TYPES as readonly string[]).includes(item.type));
   const texts = attachments.filter((item) => item.encoding === "text");
@@ -525,15 +647,58 @@ async function startTurn(
     publish(false);
   };
 
+  // Teammates: each runs its task in its own short conversation with the
+  // same tools, reporting steps into this turn under its name.
+  if (input.team?.length) {
+    context.team = {
+      members: input.team,
+      delegate: async (member, task, signal) => {
+        const who = modelLabel(member.model);
+        const texts: string[] = [];
+        const mateContext: StudioAssistantContext = { ...context, team: undefined };
+        const common = {
+          context: mateContext,
+          prompt: `${task}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`,
+          images: [] as StudioAssistantAttachmentInput[],
+          model: member.model,
+          credentials: member.credentials,
+          signal,
+          onStep: (step: StudioAssistantStep) => onStep({ ...step, summary: `${who} · ${step.summary}` }),
+          onToolStart,
+          onText: (text: string) => { texts.push(text); },
+          onDelta: () => undefined,
+          onThinkingDelta: () => undefined,
+          onThought: () => undefined,
+          onUsage,
+          historyName: `teammate-${member.model.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.json`,
+          fresh: true,
+          systemExtra: TEAMMATE_SYSTEM,
+          maxSteps: 20,
+        };
+        activity = `${who} is working`;
+        publish(false);
+        if (member.provider === "anthropic") await runAnthropic(common);
+        else if (member.provider === "free") await runFreeModels(common);
+        else await runOpenAiCompatible({ ...common, provider: member.provider });
+        return texts.join("\n\n").trim() || "(No report: the teammate finished without writing one.)";
+      },
+    };
+  }
+  // Earlier turns from every provider, for a model that was just switched in.
+  const earlier = transcript.slice(0, -1);
+
   void (async () => {
     try {
       const attachedText = texts.map((item) => `\n\nAttached file "${item.name}":\n\`\`\`\n${item.data}\n\`\`\``).join("");
       const message = input.message || (images.length ? "Look at the attached image." : "See the attached files.");
       const prompt = `${message}${attachedText}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
+      const common = { ...input, context, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onDelta, onThinkingDelta, onThought, onUsage, transcript: earlier };
       if (input.provider === "anthropic") {
-        await runAnthropic({ ...input, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onDelta, onThinkingDelta, onThought, onUsage });
+        await runAnthropic(common);
+      } else if (input.provider === "free") {
+        await runFreeModels(common);
       } else {
-        await runOpenAiCompatible({ ...input, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onUsage });
+        await runOpenAiCompatible(common);
       }
     } catch (error) {
       turn.error = describeProviderError(error, controller.signal.aborted);
@@ -560,6 +725,7 @@ function danglingAnthropicToolUses(messages: Anthropic.Beta.BetaMessageParam[]):
 
 function describeProviderError(error: unknown, aborted: boolean): string {
   if (aborted) return "Stopped.";
+  if (error instanceof PuterHttpError) return describePuterError(error, "The free model").message;
   if (error instanceof Anthropic.AuthenticationError) return "Anthropic rejected the API key. Check it in Studio's AI settings.";
   if (error instanceof Anthropic.PermissionDeniedError) return "This Anthropic key can't use that model.";
   if (error instanceof Anthropic.NotFoundError) return "Anthropic doesn't know that model name.";
@@ -599,6 +765,15 @@ async function runAnthropic(input: {
   onThinkingDelta: (delta: string) => void;
   onThought: (text: string) => void;
   onUsage: (usage: StudioAiUsage) => Promise<void>;
+  /** Where this conversation's messages live (a teammate's task gets its own). */
+  historyName?: string;
+  /** Start with no history (a teammate's task). */
+  fresh?: boolean;
+  /** Added to the system prompt (a teammate's brief). */
+  systemExtra?: string;
+  maxSteps?: number;
+  /** Everyone's earlier turns, to seed a provider that was just switched to. */
+  transcript?: StudioAssistantTurn[];
 }) {
   const { context } = input;
   const baseURL = input.credentials.baseUrl || process.env.PAPERCLIP_STUDIO_ANTHROPIC_BASE_URL || undefined;
@@ -610,10 +785,14 @@ async function runAnthropic(input: {
     baseURL,
     maxRetries: 2,
   });
-  const historyFile = metaFile(context, "assistant-anthropic.json");
-  let messages = await readJson<Anthropic.Beta.BetaMessageParam[]>(historyFile, []);
+  const historyFile = metaFile(context, input.historyName ?? "assistant-anthropic.json");
+  let messages = input.fresh ? [] : await readJson<Anthropic.Beta.BetaMessageParam[]>(historyFile, []);
   // A fresh conversation instead of trimming: earlier turns are never edited.
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
+  // Switched to this provider mid-chat: carry the conversation over as text.
+  if (!input.fresh && input.transcript && spokenUserTurns(messages) < input.transcript.filter((turn) => turn.role === "user").length) {
+    messages = historyFromTranscript(input.transcript);
+  }
   // A turn cut off mid-step (length limit, Stop, a restart) leaves tool calls
   // without results, and the API then refuses every later message. They are
   // answered as interrupted at the start of this message.
@@ -639,7 +818,7 @@ async function runAnthropic(input: {
 
   // Large file writes stream in as they are written. Proxies behind a custom
   // base URL may not accept the field, so it is only sent to Anthropic.
-  const tools: Anthropic.Beta.BetaTool[] = TOOLS.map((tool) => ({
+  const tools: Anthropic.Beta.BetaTool[] = toolsFor(context).map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.parameters as Anthropic.Beta.BetaTool.InputSchema,
@@ -649,15 +828,16 @@ async function runAnthropic(input: {
   // High unless the person picked another level the model takes.
   const effort = supportsEffort(input.model) ? thinkingLevelFor("anthropic", input.model, input.thinking) ?? "high" : null;
   let jsonRetries = 0;
+  const maxSteps = input.maxSteps ?? MAX_STEPS;
 
-  for (let step = 0; step < MAX_STEPS; step += 1) {
+  for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
     const stream = client.beta.messages.stream(
       {
         model: input.model,
         // The deepest levels think and act at length; they get room to finish.
         max_tokens: effort === "xhigh" || effort === "max" ? 64000 : 32000,
-        system: [{ type: "text", text: systemPrompt(context), cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
         // Thinking is shown in the panel as it happens (summarized).
@@ -726,7 +906,7 @@ async function runAnthropic(input: {
     messages.push({ role: "user", content: results });
     await writeJson(historyFile, withoutImages(messages));
   }
-  input.onText(`(I stopped after ${MAX_STEPS} steps. Ask me to keep going.)`);
+  input.onText(`(I stopped after ${maxSteps} steps. Ask me to keep going.)`);
 }
 
 type ChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
@@ -750,14 +930,22 @@ async function runOpenAiCompatible(input: {
   onToolStart: (name: string, rawInput: unknown) => void;
   onText: (text: string) => void;
   onUsage: (usage: StudioAiUsage) => Promise<void>;
+  historyName?: string;
+  fresh?: boolean;
+  systemExtra?: string;
+  maxSteps?: number;
+  transcript?: StudioAssistantTurn[];
 }) {
   const { context } = input;
   const info = STUDIO_AI_PROVIDER_INFO[input.provider];
   const baseUrl = (input.credentials.baseUrl || info.baseUrl || "").replace(/\/+$/, "");
   if (!baseUrl) throw new Error("Add the API's base URL in Studio's AI settings.");
-  const historyFile = metaFile(context, `assistant-${input.provider}.json`);
-  let messages = await readJson<ChatMessage[]>(historyFile, []);
+  const historyFile = metaFile(context, input.historyName ?? `assistant-${input.provider}.json`);
+  let messages = input.fresh ? [] : await readJson<ChatMessage[]>(historyFile, []);
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
+  if (!input.fresh && input.transcript && spokenUserTurns(messages) < input.transcript.filter((turn) => turn.role === "user").length) {
+    messages = historyFromTranscript(input.transcript);
+  }
   // Tool calls left unanswered by an interrupted turn get an "interrupted"
   // result, or the provider refuses the whole conversation.
   const lastMessage = messages.at(-1);
@@ -775,10 +963,12 @@ async function runOpenAiCompatible(input: {
         ]
       : input.prompt,
   });
-  const tools = TOOLS.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } }));
+  const tools = toolsFor(context).map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } }));
   const reasoningEffort = thinkingLevelFor(input.provider, input.model, input.thinking);
+  const system = input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context);
+  const maxSteps = input.maxSteps ?? MAX_STEPS;
 
-  for (let step = 0; step < MAX_STEPS; step += 1) {
+  for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -790,7 +980,7 @@ async function runOpenAiCompatible(input: {
       },
       body: JSON.stringify({
         model: input.model,
-        messages: [{ role: "system", content: systemPrompt(context) }, ...messages],
+        messages: [{ role: "system", content: system }, ...messages],
         tools,
         tool_choice: "auto",
         // OpenRouter adds the call's cost to its usage report when asked.
@@ -856,7 +1046,118 @@ async function runOpenAiCompatible(input: {
     }
     await writeJson(historyFile, withoutImages(messages));
   }
-  input.onText(`(I stopped after ${MAX_STEPS} steps. Ask me to keep going.)`);
+  input.onText(`(I stopped after ${maxSteps} steps. Ask me to keep going.)`);
+}
+
+/**
+ * The free models (no key): the same tool loop over the keyless chat service,
+ * streaming text and thinking live. Stays on the chosen model: a provider that
+ * refuses the tool history gets it as text, one that takes no tools answers
+ * without them, a busy one is retried.
+ */
+async function runFreeModels(input: {
+  context: StudioAssistantContext;
+  prompt: string;
+  images: StudioAssistantAttachmentInput[];
+  model: string;
+  thinking?: StudioThinkingLevel;
+  credentials: ProviderCredentials;
+  signal: AbortSignal;
+  onStep: (step: StudioAssistantStep) => void;
+  onToolStart: (name: string, rawInput: unknown) => void;
+  onText: (text: string) => void;
+  onDelta: (delta: string) => void;
+  onThinkingDelta: (delta: string) => void;
+  onThought: (text: string) => void;
+  onUsage: (usage: StudioAiUsage) => Promise<void>;
+  historyName?: string;
+  fresh?: boolean;
+  systemExtra?: string;
+  maxSteps?: number;
+  transcript?: StudioAssistantTurn[];
+}) {
+  const { context } = input;
+  const label = modelLabel(input.model);
+  const historyFile = metaFile(context, input.historyName ?? "assistant-free.json");
+  let messages = input.fresh ? [] : await readJson<ChatMessage[]>(historyFile, []);
+  if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
+  if (!input.fresh && input.transcript && spokenUserTurns(messages) < input.transcript.filter((turn) => turn.role === "user").length) {
+    messages = historyFromTranscript(input.transcript);
+  }
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role === "assistant" && lastMessage.tool_calls?.length) {
+    for (const call of lastMessage.tool_calls) messages.push({ role: "tool", tool_call_id: call.id, content: "This step was interrupted before it finished." });
+  }
+  const level = readThinkingLevel(input.thinking === "max" ? "xhigh" : input.thinking);
+  const promptText = level ? `${input.prompt}\n\n${thinkingInstruction(level)}` : input.prompt;
+  messages.push({
+    role: "user",
+    content: input.images.length
+      ? [...input.images.map((image) => ({ type: "image_url" as const, image_url: { url: `data:${image.type};base64,${image.data}` } })), { type: "text" as const, text: promptText }]
+      : promptText,
+  });
+  const tools: PuterTool[] = toolsFor(context).map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters as Record<string, unknown> } }));
+  const system = input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context);
+  const maxSteps = input.maxSteps ?? MAX_STEPS;
+  let useTools = true;
+  let textHistory = false;
+  let retries = 0;
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    if (input.signal.aborted) throw new Error("Stopped.");
+    const history = (textHistory ? toolHistoryAsText(messages as PuterMessage[]) : (messages as PuterMessage[]));
+    const sent: PuterMessage[] = [{ role: "system", content: system }, ...history];
+    let text = "";
+    let reasoning = "";
+    const calls: PuterToolCall[] = [];
+    let usage: PuterUsage = { inputTokens: 0, outputTokens: 0 };
+    const splitter = createThinkingTagSplitter();
+    const emit = (piece: { channel: "text" | "thinking"; text: string }) => {
+      if (piece.channel === "thinking") { reasoning += piece.text; input.onThinkingDelta(piece.text); }
+      else { text += piece.text; input.onDelta(piece.text); }
+    };
+    try {
+      for await (const event of puterStream(sent, { model: input.model, tools: useTools && tools.length ? tools : undefined, signal: input.signal })) {
+        if (event.type === "text") for (const piece of splitter.push(event.text)) emit(piece);
+        else if (event.type === "reasoning") { reasoning += event.text; input.onThinkingDelta(event.text); }
+        else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
+        else if (event.type === "done") usage = event.usage;
+      }
+      for (const piece of splitter.flush()) emit(piece);
+    } catch (error) {
+      if (input.signal.aborted) throw new Error("Stopped.");
+      if (!(error instanceof PuterHttpError)) throw error;
+      if (!textHistory && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
+      if (useTools && error.status !== 429) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
+      if (retries < 3 && isTransientPuterError(error)) { retries += 1; await new Promise((r) => setTimeout(r, 1500 * retries)); step -= 1; continue; }
+      throw describePuterError(error, label, retries);
+    }
+    await input.onUsage({ provider: "free", model: input.model, inputTokens: usage.inputTokens, cachedInputTokens: 0, outputTokens: usage.outputTokens, costUsd: 0 });
+    if (reasoning.trim()) input.onThought(reasoning);
+    const spoken = text.trim();
+    if (spoken) input.onText(spoken);
+    const assistant: ChatMessage = {
+      role: "assistant",
+      content: spoken || (calls.length ? `Calling ${[...new Set(calls.map((call) => call.function.name))].join(", ")}.` : ""),
+      ...(calls.length ? { tool_calls: calls } : {}),
+    };
+    messages.push(assistant);
+    await writeJson(historyFile, withoutImages(messages));
+    if (!calls.length) return;
+    for (const call of calls) {
+      if (input.signal.aborted) throw new Error("Stopped.");
+      let args: unknown = {};
+      try { args = call.function.arguments ? JSON.parse(call.function.arguments) : {}; } catch { args = null; }
+      if (args !== null) input.onToolStart(call.function.name, args);
+      const outcome = args === null
+        ? { ok: false, output: "The tool arguments were not valid JSON.", step: { tool: call.function.name, summary: call.function.name, ok: false, detail: "Invalid arguments" } }
+        : await runTool(context, call.function.name, args, input.signal);
+      input.onStep(outcome.step);
+      messages.push({ role: "tool", tool_call_id: call.id, content: outcome.output });
+    }
+    await writeJson(historyFile, withoutImages(messages));
+  }
+  input.onText(`(I stopped after ${maxSteps} steps. Ask me to keep going.)`);
 }
 
 /** Confines a model-supplied path to the project (exported for tests). */
@@ -920,6 +1221,14 @@ export async function completeCode(input: {
     if (response.stop_reason === "refusal") return "";
     const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
     return cleanCompletion(text, input.prefix);
+  }
+  if (input.provider === "free") {
+    const reply = await puterComplete(
+      [{ role: "system", content: COMPLETION_SYSTEM }, { role: "user", content: prompt }],
+      { model: input.model, retries: 1, signal: input.signal ?? AbortSignal.timeout(20_000) },
+    );
+    input.onUsage?.({ provider: "free", model: reply.model, inputTokens: reply.usage.inputTokens, cachedInputTokens: 0, outputTokens: reply.usage.outputTokens, costUsd: 0 });
+    return cleanCompletion(reply.text, input.prefix);
   }
   const info = STUDIO_AI_PROVIDER_INFO[input.provider];
   const baseUrl = (input.credentials.baseUrl || info.baseUrl || "").replace(/\/+$/, "");

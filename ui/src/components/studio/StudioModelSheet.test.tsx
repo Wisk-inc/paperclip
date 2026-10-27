@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { StudioModelSheet } from "./StudioModelSheet";
 
@@ -12,8 +13,14 @@ describe("StudioModelSheet", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     const onChange = vi.fn();
+    // The sheet reads the OpenRouter catalog through a query, so it needs a client.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const draw = (model: string) =>
-      act(async () => root.render(<StudioModelSheet provider="custom" model={model} keys={[]} onChange={onChange} />));
+      act(async () => root.render(
+        <QueryClientProvider client={client}>
+          <StudioModelSheet provider="custom" model={model} keys={[]} onChange={onChange} />
+        </QueryClientProvider>,
+      ));
     try {
       await draw("");
       await act(async () => (container.querySelector('[data-testid="studio-model-button"]') as HTMLButtonElement).click());

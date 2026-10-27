@@ -8,6 +8,7 @@ import { useOptionalToastActions } from "@/context/ToastContext";
 import { setupEfforts } from "@/lib/agent-setup-fields";
 import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
+import { patchAgentCache } from "@/lib/optimistic-agent";
 import { cn } from "@/lib/utils";
 import { handleRadioGroupKeyDown, radioTabIndex } from "@/lib/radio-group-keys";
 
@@ -84,6 +85,8 @@ export function useSetThinkingLevel(agent: Agent, onSaved?: (level: string) => v
   const toast = useOptionalToastActions();
   return useMutation({
     mutationFn: (effort: string) => agentsApi.update(agent.id, { adapterConfig: thinkingLevelPatch(agent, effort) }, agent.companyId),
+    // The chosen level is shown on the tap; the server confirms it.
+    onMutate: (effort) => patchAgentCache(client, agent.id, agent.companyId, { adapterConfig: thinkingLevelPatch(agent, effort) }),
     onSuccess: async (_updated, effort) => {
       onSaved?.(effort);
       haptic("success");
@@ -97,6 +100,8 @@ export function useSetThinkingLevel(agent: Agent, onSaved?: (level: string) => v
     onError: (error) => {
       haptic("warning");
       toast?.pushToast({ title: "Couldn’t change thinking", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
     },
   });
 }

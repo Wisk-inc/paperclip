@@ -45,7 +45,10 @@ async function hostHas(command: string): Promise<boolean> {
 async function linuxHas(commands: string[]): Promise<Set<string>> {
   if (!linuxInstalled()) return new Set();
   try {
-    const probe = commands.map((c) => `command -v ${c} >/dev/null 2>&1 && echo ${c}`).join("; ");
+    // The installers put tools in ~/.local/bin, which a login shell in the
+    // layer does not always add to PATH; named here so a fresh install shows
+    // as installed.
+    const probe = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; ` + commands.map((c) => `command -v ${c} >/dev/null 2>&1 && echo ${c}`).join("; ");
     const { stdout } = await run(
       `proot-distro login ${LINUX_DISTRO} -- bash -lc ${JSON.stringify(probe)}`,
       { timeout: 20000 },

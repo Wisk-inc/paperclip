@@ -25,6 +25,8 @@ const startSchema = z.object({
   rows: z.number().int().min(1).max(1000).optional(),
   cwd: z.string().max(4096).optional(),
   agentId: z.string().uuid().optional(),
+  /** A model name for the tool's own flag; letters, digits, dots, slashes, colons and dashes only. */
+  model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/).optional(),
 });
 
 /**
@@ -88,6 +90,7 @@ export function terminalsRoutes(
         cols: body.cols ?? 80,
         rows: body.rows ?? 24,
         cwd: body.cwd,
+        ...(body.model ? { model: body.model } : {}),
         agentId: body.agentId ?? null,
         ...(env ? { env } : {}),
       });

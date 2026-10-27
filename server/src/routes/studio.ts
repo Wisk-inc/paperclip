@@ -836,14 +836,22 @@ export function studioRoutes(db: Db) {
       await assertStudioAiAllowed(workspace.companyId);
       const credentials = await svc.resolveAiKey(workspace.companyId, actor(req), req.body.provider);
       if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
+      // Each teammate model brings its own key; a missing one stops the turn
+      // before anything is spent, naming the provider.
+      const team: Parameters<typeof runAssistantTurn>[0]["team"] = [];
+      for (const mate of (req.body.team ?? []) as Array<{ provider: StudioAiProvider; model: string }>) {
+        const mateCredentials = await svc.resolveAiKey(workspace.companyId, actor(req), mate.provider);
+        if (!mateCredentials) throw unprocessable(`Add your API key for ${STUDIO_AI_PROVIDER_INFO[mate.provider].name} first (teammate ${mate.model})`, { code: "studio_ai_key_missing" });
+        team.push({ provider: mate.provider, model: mate.model, credentials: mateCredentials });
+      }
       // Saved first, so whatever the assistant does can be undone.
       const checkpoint = await createCheckpoint(workspace.companyId, workspace.id, {
         label: `Before AI: ${(req.body.message || req.body.attachments?.[0]?.name || "attachment").replace(/\s+/g, " ").slice(0, 80)}`,
         kind: "assistant",
         by: "AI assistant",
       }).catch(() => null);
-      const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body);
-      await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null, thinking: req.body.thinking ?? null });
+      const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body, team);
+      await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null, thinking: req.body.thinking ?? null, team: team.map((mate) => `${mate.provider}:${mate.model}`) });
       res.status(202).json({ turn: userTurn });
     } finally {
       startingAssistant.delete(workspace.id);
@@ -861,9 +869,11 @@ export function studioRoutes(db: Db) {
       attachments?: Parameters<typeof runAssistantTurn>[0]["attachments"];
       thinking?: Parameters<typeof runAssistantTurn>[0]["thinking"];
     },
+    team: Parameters<typeof runAssistantTurn>[0]["team"] = [],
   ) {
     return runAssistantTurn({
       checkpointId,
+      team,
       context: {
         workspaceId: workspace.id,
         companyId: workspace.companyId,

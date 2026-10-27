@@ -16,6 +16,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { BondedModelLogos } from "@/components/BondedModelLogos";
+import { patchAgentCache } from "@/lib/optimistic-agent";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
@@ -198,6 +199,8 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
 
   const update = useMutation({
     mutationFn: (patch: Record<string, unknown>) => agentsApi.update(agent.id, { adapterConfig: patch }, agent.companyId),
+    // The switch moves on the tap; the server's answer confirms or undoes it.
+    onMutate: (patch) => patchAgentCache(client, agent.id, agent.companyId, { adapterConfig: patch }),
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) }),
@@ -207,6 +210,8 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
     onError: (error) => {
       haptic("warning");
       pushToast({ title: "Couldn’t change the setting", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
     },
   });
 
@@ -392,6 +397,11 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
         },
       }, companyId);
     },
+    // The new model shows in the header on the tap, not after the round trip.
+    onMutate: (entry) => {
+      const adapterType = entry.source === "free" ? FREE_MODELS_ADAPTER_TYPE : entry.source === "runtime" || runsOnOpenRouter ? agent.adapterType : "opencode_local";
+      patchAgentCache(client, agent.id, companyId, { adapterType, adapterConfig: { model: entry.id } });
+    },
     onSuccess: async (_updated, entry) => {
       haptic("success");
       pushToast({ title: `${agent.name} now uses ${entry.name}`, tone: "success" });
@@ -404,6 +414,8 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     onError: (error) => {
       haptic("warning");
       pushToast({ title: "Couldn’t switch the model", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) });
+      void client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
     },
   });
 

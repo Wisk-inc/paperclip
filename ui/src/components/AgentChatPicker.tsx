@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Agent } from "@paperclipai/shared";
 import { AgentIcon } from "@/components/AgentIconPicker";
+import { AgentMakerLogo } from "@/components/AgentMakerLogo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
@@ -71,7 +72,7 @@ function AgentChatPickerResults({ agents, onSelect, loading, error, onRetry }: O
               >
                 <AgentIcon icon={agent.icon} className="size-4 shrink-0" />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate font-medium">{agent.name}</span>
+                  <span className="flex min-w-0 items-center gap-1.5"><span className="truncate font-medium">{agent.name}</span><AgentMakerLogo agent={agent} /></span>
                   <span className="truncate text-xs text-muted-foreground">{agent.title ?? agent.role}</span>
                 </span>
                 {agent.status === "paused" && <span className="text-xs text-(--status-agent-paused)">Paused</span>}

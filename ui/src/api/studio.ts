@@ -1,4 +1,5 @@
 import type {
+  StudioTeammate,
   StudioAiKeyStatus,
   StudioAiProvider,
   StudioAssistantTurn,
@@ -154,7 +155,7 @@ export const studioApi = {
   assistant: (id: string) => api.get<{ turns: StudioAssistantTurn[]; running: boolean }>(`${ws(id)}/assistant`, { cache: "no-store" }),
   askAssistant: (
     id: string,
-    input: { message: string; provider: StudioAiProvider; model: string; attachments?: StudioAssistantAttachmentInput[]; thinking?: StudioThinkingLevel },
+    input: { message: string; provider: StudioAiProvider; model: string; attachments?: StudioAssistantAttachmentInput[]; thinking?: StudioThinkingLevel; team?: StudioTeammate[] },
   ) =>
     api.post<{ turn: StudioAssistantTurn }>(`${ws(id)}/assistant`, input),
   stopAssistant: (id: string) => api.post<{ ok: true }>(`${ws(id)}/assistant/stop`, {}),

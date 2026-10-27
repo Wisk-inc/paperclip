@@ -6,6 +6,7 @@
  * The command is a closed, in-code set keyed by the tool id. Opening a terminal
  * can only ever start one of these — never an arbitrary process a caller named.
  */
+import { fileURLToPath } from "node:url";
 import { terminalToolInfo, type AiProvider, type TerminalToolId } from "@paperclipai/shared";
 
 export { TERMINAL_TOOLS, isTerminalToolId, type TerminalToolId } from "@paperclipai/shared";
@@ -23,7 +24,13 @@ interface ToolCommand {
   runInLinux?: string[];
 }
 
+/** The free-models chat, shipped with the server (copied to dist/services/scripts by the build). */
+function freeChatScript(): string {
+  return fileURLToPath(new URL("../scripts/terminals/free-chat.mjs", import.meta.url));
+}
+
 const COMMANDS: Record<TerminalToolId, ToolCommand> = {
+  freechat: { probe: "node", run: ["node", freeChatScript()] },
   claude: { probe: "claude", run: ["claude"], runInLinux: ["claude"] },
   codex: { probe: "codex", run: ["codex"], runInLinux: ["codex"] },
   gemini: { probe: "gemini", run: ["gemini"] },
@@ -34,6 +41,25 @@ const COMMANDS: Record<TerminalToolId, ToolCommand> = {
 
 export function terminalCommand(id: TerminalToolId): ToolCommand {
   return COMMANDS[id];
+}
+
+/** The flag each tool takes a model name with; tools without one ignore the choice. */
+const MODEL_FLAG: Partial<Record<TerminalToolId, string>> = {
+  freechat: "--model",
+  claude: "--model",
+  codex: "-m",
+  gemini: "-m",
+  opencode: "-m",
+};
+
+/** A model name as it may appear on a command line: ids like `openrouter/deepseek/deepseek-v4.1-flash:free`. */
+export const TERMINAL_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+
+/** The tool's argv with the chosen model added, when the tool takes one. */
+export function withModel(argv: string[], toolId: TerminalToolId, model: string | undefined): string[] {
+  const flag = MODEL_FLAG[toolId];
+  if (!flag || !model || !TERMINAL_MODEL_PATTERN.test(model)) return argv;
+  return [...argv, flag, model];
 }
 
 /**

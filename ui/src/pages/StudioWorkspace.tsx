@@ -880,6 +880,7 @@ export function StudioWorkspace() {
       turns={turns}
       running={assistantRunning}
       keys={keys}
+      companyId={companyId}
       storageKey={`automa.studio.ai.${companyId}`}
       initialPrompt={initialPrompt}
       onInitialPromptUsed={() => setInitialPrompt(null)}
@@ -891,7 +892,7 @@ export function StudioWorkspace() {
         await studioApi.deleteAiKey(companyId, provider);
         await queryClient.invalidateQueries({ queryKey: queryKeys.studio.aiKeys(companyId) });
       }}
-      onSend={async (message, provider, model, attachments, thinking) => {
+      onSend={async (message, provider, model, attachments, thinking, team) => {
         await save();
         const sent = await studioApi.askAssistant(workspaceId, {
           message,
@@ -899,6 +900,7 @@ export function StudioWorkspace() {
           model,
           ...(attachments?.length ? { attachments } : {}),
           ...(thinking ? { thinking } : {}),
+          ...(team?.length ? { team } : {}),
         });
         // Shown at once, whether or not the live socket is connected.
         setTurns((current) => upsertTurn(current, sent.turn));

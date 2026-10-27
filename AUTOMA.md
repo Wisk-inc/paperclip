@@ -424,6 +424,7 @@ bundle Termux installs.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.8.7 | 2026-10-27 | Free agents keep their model and recover in place; instant taps and a fresh header; Retry on replies; raw JS/JSON reading, crawling and downloads with favicons; App Studio free provider, OpenRouter catalog search, model teams, memory across providers; terminal model choice and a Free models chat; maker logos on agents; proot-distro, apt-cache and Claude Code installer repairs; parallel decoding. |
 | 1.8.6 | 2026-10-26 | Free chat agents are paired with SDXL Lightning by default and draw when asked; the model switcher scrolls to the end on phones (one scroll column, search stays on top). |
 | 1.8.5 | 2026-10-26 | Skip for now on the model step hires the first agent on the free models; Anthropic and Cursor tiles with an API key; a database backup before every server update, `automa backup` / `automa restore`, and a guard that never re-creates a database written by another PostgreSQL version. |
 | 1.8.4 | 2026-10-26 | Free models in chat (19 chat, 2 image) that stream, think at a chosen depth, search and read the web, work with files, teammates, tasks and connected apps, and draw with a paired image model; favicons on source links; collapsible thinking on every model; message actions on the newest reply with press-and-hold menus; free-model savings on Home and Costs. |

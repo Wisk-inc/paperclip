@@ -548,6 +548,8 @@ export function studioService(db: Db) {
       aiConnectionService(db).list(companyId, userId).catch(() => []),
     ]);
     return STUDIO_AI_PROVIDERS.map((provider) => {
+      // The free models need no key from anyone: always ready.
+      if (provider === "free") return { provider, connected: true, last4: null, baseUrl: null, updatedAt: null, source: "automa" as const };
       const row = rows.find((item) => item.provider === provider);
       const organizationProvider = ORGANIZATION_KEY_PROVIDERS[provider];
       const shared = organizationProvider
@@ -591,6 +593,8 @@ export function studioService(db: Db) {
   }
 
   async function resolveAiKey(companyId: string, userId: string, provider: StudioAiProvider) {
+    // No key: the free models answer with the service's own access.
+    if (provider === "free") return { apiKey: "free", baseUrl: null };
     const [row] = await db
       .select()
       .from(studioAiKeys)

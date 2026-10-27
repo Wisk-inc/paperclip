@@ -20,7 +20,11 @@ need() {
   command -v "$cmd" >/dev/null 2>&1 && return 0
   if on_phone; then
     say "Installing $pkg (first time only)"
-    pkg install -y "$pkg" 2>&1
+    # apt moves each download from archives/partial into archives; on some
+    # phones those folders are missing and the install ends with "rename
+    # failed, No such file or directory" after the whole download.
+    mkdir -p "$PREFIX/../cache/apt/archives/partial" 2>/dev/null || true
+    pkg install -y "$pkg" 2>&1 || apt-get install -y --fix-missing "$pkg" 2>&1 || true
     command -v "$cmd" >/dev/null 2>&1 && return 0
   fi
   echo "$cmd is not installed. $hint" >&2
@@ -84,7 +88,10 @@ case "${1:-}" in
     ensure_java_runtime
     say "Decoding $(basename "$apk") with apktool"
     rm -rf "$out"
-    apktool d -f ${flags[@]+"${flags[@]}"} "$apk" -o "$out"
+    # Every core: apktool 2.9+ decodes resources and smali in parallel jobs.
+    jobs="$(nproc 2>/dev/null || echo 2)"
+    apktool d -f --jobs "$jobs" ${flags[@]+"${flags[@]}"} "$apk" -o "$out" 2>/dev/null \
+      || apktool d -f ${flags[@]+"${flags[@]}"} "$apk" -o "$out"
     say "Decoded. Browse and edit the files, then rebuild when you are done."
     ;;
   java)
@@ -93,7 +100,9 @@ case "${1:-}" in
     say "Decompiling the code to Java with jadx (this can take a few minutes)"
     rm -rf "$out"
     # jadx exits non-zero when a few methods can't be decompiled; the rest is still useful.
-    jadx --no-res --show-bad-code --deobf -j 2 -d "$out" "$apk" || say "jadx finished with some errors; most of the code is still readable."
+    # All cores, no debug-info or line numbers: markedly faster on a phone.
+    jobs="$(nproc 2>/dev/null || echo 2)"
+    jadx --no-res --no-debug-info --show-bad-code --deobf -j "$jobs" -d "$out" "$apk" || say "jadx finished with some errors; most of the code is still readable."
     [ -d "$out/sources" ] || { echo "jadx produced no Java." >&2; exit 4; }
     say "Java is ready to read."
     ;;

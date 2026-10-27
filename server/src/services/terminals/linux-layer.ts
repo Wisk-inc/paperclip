@@ -20,7 +20,9 @@ function termuxFilesDir(): string {
  * bound in, so the tool sees the same files as the rest of Automa.
  */
 export function linuxRunArgv(toolArgv: string[], cwd?: string): string[] {
-  const inner = `cd ${shq(cwd && cwd.length > 0 ? cwd : termuxFilesDir() + "/home")} 2>/dev/null; exec ${toolArgv.map(shq).join(" ")}`;
+  // ~/.local/bin is where the Claude Code installer puts the tool; a login
+  // shell in the layer does not always read the ~/.bashrc that names it.
+  const inner = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; cd ${shq(cwd && cwd.length > 0 ? cwd : termuxFilesDir() + "/home")} 2>/dev/null; exec ${toolArgv.map(shq).join(" ")}`;
   return [
     "proot-distro",
     "login",

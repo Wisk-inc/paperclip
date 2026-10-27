@@ -8,7 +8,7 @@ export const terminalsApi = {
     api.get<{ sessions: TerminalSessionSummary[] }>(`/companies/${companyId}/terminals/sessions`, { cache: "no-store" }),
   start: (
     companyId: string,
-    input: { toolId: TerminalToolId; mode: TerminalSessionMode; cols: number; rows: number; cwd?: string; agentId?: string },
+    input: { toolId: TerminalToolId; mode: TerminalSessionMode; cols: number; rows: number; cwd?: string; agentId?: string; model?: string },
   ) => api.post<{ session: TerminalSessionSummary }>(`/companies/${companyId}/terminals/sessions`, input),
   stop: (companyId: string, id: string) =>
     api.post<{ ok: boolean }>(`/companies/${companyId}/terminals/sessions/${id}/stop`, {}),

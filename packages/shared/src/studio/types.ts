@@ -159,7 +159,7 @@ export interface StudioMessage {
   createdAt: string;
 }
 
-export const STUDIO_AI_PROVIDERS = ["anthropic", "openai", "openrouter", "google", "moonshot", "deepseek", "xai", "groq", "mistral", "custom"] as const;
+export const STUDIO_AI_PROVIDERS = ["anthropic", "free", "openai", "openrouter", "google", "moonshot", "deepseek", "xai", "groq", "mistral", "custom"] as const;
 export type StudioAiProvider = (typeof STUDIO_AI_PROVIDERS)[number];
 
 export interface StudioAiProviderInfo {
@@ -175,6 +175,27 @@ export interface StudioAiProviderInfo {
   keyUrl: string | null;
 }
 
+/** The free chat models Studio offers, the ones that take tools first. */
+export const STUDIO_FREE_MODELS = [
+  "deepseek/deepseek-v4.1-flash:free",
+  "qwen/qwen3.8-27b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "google/gemma-4-31b-it:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "nvidia/nemotron-3.5-lightning:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "thinkingmachines/inkling:free",
+  "thinkingmachines/inkling-small:free",
+  "cohere/north-mini-code:free",
+  "qwen/qwen3.8-27b-abliterated-cyber:free",
+  "recursive/flint-v1.0:free",
+  "internlm/atria-dawn-preview:free",
+  "apodex/apodex-1.1-mini:free",
+  "xingchen-agi/xing4.0-29b-a4b:free",
+  "liquid/lfm-2.5-2.6b:free",
+] as const;
+
 export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {
   anthropic: {
     id: "anthropic",
@@ -184,6 +205,15 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     completionModel: "claude-haiku-5-5",
     models: ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
     keyUrl: "https://console.anthropic.com/settings/keys",
+  },
+  free: {
+    id: "free",
+    name: "Free models (no key)",
+    baseUrl: null,
+    defaultModel: "deepseek/deepseek-v4.1-flash:free",
+    completionModel: "deepseek/deepseek-v4.1-flash:free",
+    models: STUDIO_FREE_MODELS,
+    keyUrl: null,
   },
   openai: {
     id: "openai",
@@ -432,8 +462,18 @@ export function studioThinkingLevels(provider: StudioAiProvider, model: string):
   }
   if (provider === "openai") return /^(?:gpt-[5-9]|o[1-9])/.test(id) && !id.includes("-chat") ? ["low", "medium", "high"] : [];
   if (provider === "openrouter" || provider === "google") return id ? ["low", "medium", "high"] : [];
+  // Free models think through a hidden instruction at the level picked.
+  if (provider === "free") return id ? ["low", "medium", "high", "xhigh"] : [];
   return [];
 }
+
+/** A model that works for the lead model in Studio: a provider and a model, with its own key. */
+export const studioTeammateSchema = z.object({
+  provider: z.enum(STUDIO_AI_PROVIDERS),
+  model: z.string().trim().min(1).max(200),
+});
+export type StudioTeammate = z.infer<typeof studioTeammateSchema>;
+export const STUDIO_MAX_TEAMMATES = 4;
 
 export const studioAssistantMessageSchema = z
   .object({
@@ -442,6 +482,8 @@ export const studioAssistantMessageSchema = z
     model: z.string().trim().min(1).max(200),
     attachments: z.array(studioAssistantAttachmentSchema).max(STUDIO_ASSISTANT_MAX_ATTACHMENTS).optional(),
     thinking: z.enum(STUDIO_THINKING_LEVELS).optional(),
+    /** Other models the lead can hand tasks to during this turn. */
+    team: z.array(studioTeammateSchema).max(STUDIO_MAX_TEAMMATES).optional(),
   })
   .refine((value) => value.message.length > 0 || (value.attachments?.length ?? 0) > 0, {
     message: "Write a message or attach a file",

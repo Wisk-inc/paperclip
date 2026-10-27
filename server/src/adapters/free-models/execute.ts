@@ -33,7 +33,7 @@ const RETRY_BASE_MS = process.env.VITEST ? 10 : 1500;
 const MAX_IDENTICAL_CALLS = 2;
 
 /** The model's display name for status lines and errors. */
-function modelLabel(model: string): string {
+export function modelLabel(model: string): string {
   const key = (Object.keys(PUTER_MODELS) as PuterModelKey[]).find((k) => PUTER_MODELS[k] === model);
   return key ? PUTER_MODEL_META[key].label : model;
 }
@@ -43,7 +43,7 @@ function modelLabel(model: string): string {
  * `tool`-role messages or assistant tool calls in the history outright;
  * the same facts as text get the same model to carry on.
  */
-function toolHistoryAsText(messages: PuterMessage[]): PuterMessage[] {
+export function toolHistoryAsText(messages: PuterMessage[]): PuterMessage[] {
   const names = new Map<string, string>();
   const out: PuterMessage[] = [];
   const pushUser = (text: string) => {

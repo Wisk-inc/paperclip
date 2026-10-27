@@ -5479,13 +5479,16 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         leading: <AgentSettingsAvatarButton agent={conversationAgent} />,
         // The avatar opens the agent's settings, so it is redrawn when they change.
         leadingKey: `agent:${conversationAgent.id}:${conversationAgent.status}:${conversationAgent.name}:${String(conversationAgent.adapterConfig?.model ?? "")}:${String(conversationAgent.adapterConfig?.engine ?? "")}:${currentThinkingLevel(conversationAgent)}`,
+        // Any adapter setting (the tool switches, the paired image model, the
+        // thinking level) must redraw the model button, or its sheet keeps
+        // showing the agent as it was when the bar was last drawn.
         trailing: (
           <span className="ml-1 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />
             <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
           </span>
         ),
-        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${String(conversationAgent.adapterConfig?.model ?? "")}:${currentThinkingLevel(conversationAgent)}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
+        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${JSON.stringify(conversationAgent.adapterConfig ?? null)}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }

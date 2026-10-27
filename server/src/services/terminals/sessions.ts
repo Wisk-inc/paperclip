@@ -7,6 +7,7 @@ import { logger } from "../../middleware/logger.js";
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { terminalCommand, terminalTool, type TerminalToolId } from "./registry.js";
 import { linuxRunArgv, setupScriptArgv } from "./linux-layer.js";
+import { withModel } from "./registry.js";
 
 /** A terminal running on the device, streamed to the browser. */
 export interface TerminalSession {
@@ -76,6 +77,8 @@ export interface StartTerminalInput {
   agentId?: string | null;
   /** Extra environment for the child (e.g. an API key for an agent's run). */
   env?: Record<string, string>;
+  /** The model to open the tool with, from the tool's own list. */
+  model?: string;
 }
 
 /** The argv the relay should launch, by tool and mode. A closed set — never a caller string. */
@@ -94,9 +97,9 @@ function resolveCommand(input: StartTerminalInput): { argv: string[]; toolId: Te
   }
   const command = terminalCommand(input.toolId);
   if (onPhone && tool.linuxOnPhone) {
-    return { argv: linuxRunArgv(command.runInLinux ?? command.run, input.cwd), toolId: input.toolId };
+    return { argv: linuxRunArgv(withModel(command.runInLinux ?? command.run, input.toolId, input.model), input.cwd), toolId: input.toolId };
   }
-  return { argv: command.run, toolId: input.toolId };
+  return { argv: withModel(command.run, input.toolId, input.model), toolId: input.toolId };
 }
 
 export function startTerminalSession(input: StartTerminalInput): TerminalSession {

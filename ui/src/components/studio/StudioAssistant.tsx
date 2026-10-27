@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Brain, Check, ChevronRight, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { Brain, Check, ChevronRight, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, Users, X } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
@@ -7,12 +7,14 @@ import {
   STUDIO_ASSISTANT_MAX_ATTACHMENTS,
   STUDIO_ASSISTANT_MAX_IMAGE_BYTES,
   STUDIO_ASSISTANT_MAX_TEXT_BYTES,
+  STUDIO_MAX_TEAMMATES,
   STUDIO_THINKING_LEVELS,
   type StudioAiKeyStatus,
   type StudioAiProvider,
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
+  type StudioTeammate,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { useNarrowScreen } from "@/hooks/useNarrowScreen";
@@ -43,6 +45,7 @@ const SUGGESTIONS = [
 ];
 
 const TOOL_LABEL: Record<string, string> = {
+  ask_teammate: "Asked a teammate",
   list_files: "Looked at the files",
   read_file: "Read",
   write_file: "Wrote",
@@ -66,6 +69,7 @@ interface StudioAssistantProps {
     model: string,
     attachments?: StudioAssistantAttachmentInput[],
     thinking?: StudioThinkingLevel,
+    team?: StudioTeammate[],
   ) => Promise<void>;
   onStop: () => Promise<void>;
   onClear: () => Promise<void>;
@@ -76,27 +80,42 @@ interface StudioAssistantProps {
   /** A first message to send once a key is ready (from "describe your app"). */
   initialPrompt?: string | null;
   onInitialPromptUsed?: () => void;
+  /** For the OpenRouter catalog in the model sheet. */
+  companyId?: string;
 }
 
 interface AiChoice {
   provider: StudioAiProvider;
   model: string;
   thinking?: StudioThinkingLevel;
+  /** Models the lead hands tasks to. */
+  team?: StudioTeammate[];
+}
+
+function readTeam(value: unknown): StudioTeammate[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is { provider: string; model: string } => Boolean(entry) && typeof entry === "object" && typeof (entry as { provider?: unknown }).provider === "string" && typeof (entry as { model?: unknown }).model === "string")
+    .filter((entry) => (STUDIO_AI_PROVIDERS as readonly string[]).includes(entry.provider) && entry.model.trim())
+    .slice(0, STUDIO_MAX_TEAMMATES)
+    .map((entry) => ({ provider: entry.provider as StudioAiProvider, model: entry.model.trim() }));
 }
 
 function readChoice(storageKey: string): AiChoice {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (raw) {
-      const parsed = JSON.parse(raw) as { provider?: string; model?: string; thinking?: string };
+      const parsed = JSON.parse(raw) as { provider?: string; model?: string; thinking?: string; team?: unknown };
       if (parsed.provider && (STUDIO_AI_PROVIDERS as readonly string[]).includes(parsed.provider)) {
         const thinking = (STUDIO_THINKING_LEVELS as readonly string[]).includes(parsed.thinking ?? "")
           ? (parsed.thinking as StudioThinkingLevel)
           : undefined;
+        const team = readTeam(parsed.team);
         return {
           provider: parsed.provider as StudioAiProvider,
           model: parsed.model || STUDIO_AI_PROVIDER_INFO[parsed.provider as StudioAiProvider].defaultModel,
           ...(thinking ? { thinking } : {}),
+          ...(team.length ? { team } : {}),
         };
       }
     }
@@ -296,6 +315,7 @@ export function StudioAssistant({
   storageKey,
   initialPrompt,
   onInitialPromptUsed,
+  companyId,
 }: StudioAssistantProps) {
   const narrow = useNarrowScreen();
   const [choice, setChoice] = useState<AiChoice>(() => readChoice(storageKey));
@@ -394,6 +414,7 @@ export function StudioAssistant({
         choice.model.trim(),
         attachments.map((item) => item.input),
         effectiveStudioThinking(choice.provider, choice.model.trim(), choice.thinking),
+        choice.team,
       );
       haptic("tick");
       setMessage("");
@@ -433,12 +454,38 @@ export function StudioAssistant({
           provider={choice.provider}
           model={choice.model}
           keys={keys}
+          companyId={companyId}
+          team={choice.team ?? []}
+          onTeamChange={(team) => setChoice(({ team: _old, ...rest }) => (team.length ? { ...rest, team } : rest))}
           onChange={(next) => {
             if (next.provider !== choice.provider) setEditingKey(false);
-            // The level carries over to the next model when it takes it too.
-            setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}) });
+            // The level and the team carry over to the next model.
+            setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}), ...(choice.team?.length ? { team: choice.team } : {}) });
           }}
         />
+        {choice.team?.length ? (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="studio-team-chips">
+            <Users className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <span className="text-xs text-muted-foreground">Team:</span>
+            {choice.team.map((mate) => (
+              <span key={`${mate.provider}:${mate.model}`} className="inline-flex items-center gap-1 rounded-full border border-border bg-card py-0.5 pl-1 pr-1.5 text-xs">
+                <ModelLogo modelId={mate.model} size="xs" tile={false} />
+                <span className="max-w-32 truncate">{modelDisplayName(mate.model)}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${modelDisplayName(mate.model)} from the team`}
+                  className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => setChoice(({ team: current = [], ...rest }) => {
+                    const next = current.filter((m) => !(m.provider === mate.provider && m.model === mate.model));
+                    return next.length ? { ...rest, team: next } : rest;
+                  })}
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <StudioThinkingControl
           provider={choice.provider}
           model={choice.model}

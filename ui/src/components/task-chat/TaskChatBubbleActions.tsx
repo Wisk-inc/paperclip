@@ -5,7 +5,7 @@ import type {
 import { useCopyAction } from "@/lib/use-copy-action";
 import { IssueChatFeedbackButtons } from "@/components/AgentBubbleActionRow";
 import { useEffect, useState } from "react";
-import { Check, Copy, Trash2, X } from "lucide-react";
+import { Check, Copy, RotateCcw, Trash2, X } from "lucide-react";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 
@@ -32,13 +32,17 @@ export function TaskChatBubbleActions({
   copyText,
   feedback,
   onDelete,
+  onRetry,
 }: {
   copyText: string;
   feedback?: TaskChatBubbleFeedback | null;
   /** Deletes the message; the first tap arms it, the second deletes. */
   onDelete?: () => Promise<void> | void;
+  /** Asks the agent the same question again, for a fresh reply. */
+  onRetry?: () => Promise<void> | void;
 }) {
   const { copied, failed, copy } = useCopyAction(2000);
+  const [retrying, setRetrying] = useState(false);
   const label = failed ? "Couldn’t copy message" : "Copy message";
   const [armed, setArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -67,6 +71,23 @@ export function TaskChatBubbleActions({
           <Copy className="h-3.5 w-3.5" />
         )}
       </button>
+      {onRetry ? (
+        <button
+          type="button"
+          data-testid="task-chat-retry"
+          disabled={retrying}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          title="Ask again for a new reply"
+          aria-label="Retry: ask again for a new reply"
+          onClick={() => {
+            haptic("tick");
+            setRetrying(true);
+            void Promise.resolve(onRetry()).finally(() => setRetrying(false));
+          }}
+        >
+          <RotateCcw className={cn("h-3.5 w-3.5", retrying && "animate-spin")} />
+        </button>
+      ) : null}
       {onDelete ? (
         <button
           type="button"

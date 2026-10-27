@@ -1,6 +1,7 @@
 import { Star, SquarePen } from "lucide-react";
 import { SidebarNavItem } from "@/components/SidebarNavItem";
 import { AgentIcon } from "@/components/AgentIconPicker";
+import { AgentMakerLogo } from "@/components/AgentMakerLogo";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/context/SidebarContext";
 import type { Agent } from "@paperclipai/shared";
@@ -36,7 +37,10 @@ export function AgentChatSidebar({
           label={agent.name}
           active={activeId === agent.id}
           iconNode={
-            <AgentIcon icon={agent.icon} className="h-4 w-4 shrink-0" />
+            <span className="flex shrink-0 items-center gap-1">
+              <AgentIcon icon={agent.icon} className="h-4 w-4 shrink-0" />
+              {!rail ? <AgentMakerLogo agent={agent} /> : null}
+            </span>
           }
           className={rail ? undefined : "pr-9"}
         />

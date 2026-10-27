@@ -1,4 +1,5 @@
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentMakerLogo } from "@/components/AgentMakerLogo";
 import { useAgentChatEnabled } from "../hooks/useAgentChatEnabled";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { Link, useNavigate, useLocation } from "@/lib/router";
@@ -423,7 +424,10 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         leading={hasInvalidOrgChain ? (
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500" aria-label="Invalid reporting chain" />
         ) : (
-          <AgentAvatar agent={agent} size={32} />
+          <span className="relative inline-flex">
+            <AgentAvatar agent={agent} size={32} />
+            <span className="absolute -right-1 -bottom-1 rounded-full bg-background p-px"><AgentMakerLogo agent={agent} /></span>
+          </span>
         )}
         secondaryRow={
           <>

@@ -274,11 +274,13 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
   projects.set(id, project);
   persist(project);
   const flags = [...(project.options.resources ? [] : ["--no-res"]), ...(project.options.sources ? [] : ["--no-src"])];
+  // jadx reads the APK on its own, so it runs alongside apktool instead of
+  // after it: the Java view is ready about as soon as the file tree is.
+  if (project.options.java) startJava(project);
   runScript(project, ["decode", inputApk(project), decodedDir(project), ...flags], (code) => {
     if (code === 0 && existsSync(decodedDir(project))) {
       project.status = "ready";
       project.decoded = true;
-      if (project.options.java) startJava(project);
     } else {
       project.status = "failed";
       project.error = "apktool could not decode this APK. See the log.";

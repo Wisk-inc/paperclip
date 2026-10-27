@@ -169,7 +169,7 @@ function MarkdownCaseLink({
 }
 
 /** The host of an http(s) URL, or null — used to show a site's favicon. */
-function hostOf(href: string | undefined): string | null {
+export function hostOf(href: string | undefined): string | null {
   if (!href) return null;
   try {
     const url = new URL(href);
@@ -180,7 +180,7 @@ function hostOf(href: string | undefined): string | null {
 }
 
 /** A website's favicon beside a source link, falling back to a globe. */
-function SiteFavicon({ host }: { host: string }) {
+export function SiteFavicon({ host }: { host: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return <Globe aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-(--va-0_125em) text-muted-foreground" />;

@@ -12,6 +12,7 @@ import { useCompany } from "@/context/CompanyContext";
 import { useSearchParams } from "@/lib/router";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
+import { modelDisplayName } from "@/lib/model-brand";
 import { cn } from "@/lib/utils";
 
 function ToolLogo({ tool, className }: { tool: TerminalToolInfo; className?: string }) {
@@ -63,7 +64,7 @@ export function Terminals() {
   const linuxReady = status.data?.linuxReady ?? true;
 
   const start = useMutation({
-    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string }) =>
+    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string; model?: string }) =>
       terminalsApi.start(companyId!, { ...input, cols: 80, rows: 24 }),
     onSuccess: ({ session }) => {
       haptic("tick");
@@ -102,9 +103,25 @@ export function Terminals() {
 
   if (!companyId) return null;
 
+  // The model each tool opens with, remembered per tool on this device.
+  const [models, setModels] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("automa.terminals.models") ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const chooseModel = (toolId: string, model: string) => {
+    setModels((current) => {
+      const next = { ...current, [toolId]: model };
+      try { window.localStorage.setItem("automa.terminals.models", JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
+  };
   const openTool = (tool: TerminalToolInfo) => {
     if (tool.id === "shell") return start.mutate({ toolId: "shell", mode: "shell" });
-    if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run" });
+    const model = models[tool.id];
+    if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run", ...(model ? { model } : {}) });
     return start.mutate({ toolId: tool.id, mode: "install" });
   };
 
@@ -220,6 +237,19 @@ export function Terminals() {
                       ) : null}
                     </span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">{tool.blurb}</span>
+                    {tool.models?.length ? (
+                      <select
+                        aria-label={`Model for ${tool.label}`}
+                        value={models[tool.id] ?? ""}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => { event.stopPropagation(); chooseModel(tool.id, event.target.value); }}
+                        className="mt-2 h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                        data-testid="terminal-model"
+                      >
+                        <option value="">{tool.id === "freechat" ? `Default (${modelDisplayName(tool.models[0]!)})` : "The tool's own default model"}</option>
+                        {tool.models.map((id) => <option key={id} value={id}>{modelDisplayName(id)} · {id}</option>)}
+                      </select>
+                    ) : null}
                   </span>
                 </button>
               );
