@@ -143,7 +143,7 @@ export function pageLinks(html: string, base: string): { links: { url: string; t
 export async function webFetch(
   url: string,
   signal?: AbortSignal,
-  options: { mode?: "text" | "raw"; offset?: number } = {},
+  options: { mode?: "text" | "raw"; offset?: number; maxChars?: number } = {},
 ): Promise<WebPage> {
   if (!/^https?:\/\//i.test(url)) throw new Error("URL must start with http:// or https://");
   const response = await fetch(url, {
@@ -168,7 +168,7 @@ export async function webFetch(
     return {
       url: response.url,
       title: titleMatch ? stripTags(titleMatch[1]!) : response.url,
-      text: body.slice(offset, offset + MAX_RAW_CHARS),
+      text: body.slice(offset, offset + (options.maxChars ?? MAX_RAW_CHARS)),
       contentType: type.split(";")[0] || "text/plain",
       totalChars: body.length,
       ...found,
@@ -187,7 +187,7 @@ export async function webFetch(
   return {
     url: response.url,
     title,
-    text: text.slice(offset, offset + MAX_TEXT_CHARS) || "(No readable text on this page.)",
+    text: text.slice(offset, offset + (options.maxChars ?? MAX_TEXT_CHARS)) || "(No readable text on this page.)",
     contentType: type.split(";")[0] || "text/html",
     totalChars: text.length,
     ...found,

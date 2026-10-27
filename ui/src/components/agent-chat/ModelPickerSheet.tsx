@@ -1,7 +1,7 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Gift, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
-import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, pairedFreeImageModel, type Agent, type AiProvider } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, isMoanModel, pairedFreeImageModel, type Agent, type AiProvider } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { freeModelsApi } from "@/api/free-models";
@@ -96,7 +96,11 @@ function ModelRow({ entry, current, locked, busy, onSelect }: {
       <ModelLogo modelId={entry.id} provider={entry.provider === "other" ? undefined : entry.provider} size="md" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-foreground">{entry.name}</span>
-        <span className="block truncate font-mono text-xs text-muted-foreground">{entry.id}</span>
+        {entry.id === MOAN_MODEL_ID ? (
+          <span className="line-clamp-2 text-xs text-muted-foreground" data-slot="model-blurb">{MOAN_BLURB}</span>
+        ) : (
+          <span className="block truncate font-mono text-xs text-muted-foreground">{entry.id}</span>
+        )}
       </span>
       {entry.source === "free" ? <Badge variant="secondary" data-slot="free-tag">Free</Badge> : null}
       {current ? <Check className="size-4 shrink-0 text-primary" aria-label="Current model" /> : null}
@@ -175,6 +179,70 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
       </Button>
     </div>
   );
+}
+
+/** Moan's Jamaican knowledge index: how much it holds, when it last read its sources, and a refresh. */
+function MoanKnowledgeCard() {
+  const client = useQueryClient();
+  const { pushToast } = useToastActions();
+  const status = useQuery({
+    queryKey: queryKeys.freeModels.moan(),
+    queryFn: () => freeModelsApi.moanStatus(),
+    refetchInterval: (query) => (query.state.data?.running ? 10_000 : false),
+  });
+  const refresh = useMutation({
+    mutationFn: () => freeModelsApi.moanRefresh(false),
+    onSuccess: (data) => {
+      haptic("success");
+      client.setQueryData(queryKeys.freeModels.moan(), data.status);
+      pushToast({ title: data.started ? `Reading ${data.sources} Jamaican source${data.sources === 1 ? "" : "s"}` : "Everything is up to date", tone: "success" });
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn’t refresh Moan’s knowledge", body: error instanceof Error ? error.message : String(error), tone: "error" });
+    },
+  });
+  if (status.error) {
+    return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{status.error instanceof Error ? status.error.message : "Could not load Moan’s knowledge."}</p>;
+  }
+  if (!status.data) return null;
+  const data = status.data;
+  const okSources = data.sources.filter((source) => source.pages > 0).length;
+  const failing = data.sources.filter((source) => source.lastError && source.pages === 0).length;
+  const refreshed = data.lastFetchedAt ? new Date(data.lastFetchedAt) : null;
+  const ago = refreshed ? relativeTime(refreshed) : null;
+  return (
+    <div data-testid="moan-knowledge" className="mx-1 mb-2 flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
+      <ModelLogo modelId={MOAN_MODEL_ID} size="md" />
+      <div className="min-w-0 flex-1 text-xs">
+        <p className="font-medium text-foreground">
+          Jamaica knowledge · {data.pages.toLocaleString()} {data.pages === 1 ? "page" : "pages"} from {okSources} {okSources === 1 ? "source" : "sources"}
+        </p>
+        <p className="text-muted-foreground">
+          {data.running
+            ? "Reading Jamaican sources now…"
+            : data.pages === 0
+              ? data.enabled ? "Fills in the background from the first Moan reply." : "Starts filling once a Moan agent is in use."
+              : `Refreshed ${ago}${failing ? ` · ${failing} ${failing === 1 ? "source" : "sources"} unreachable` : ""}`}
+        </p>
+      </div>
+      <Button variant="outline" size="sm" disabled={refresh.isPending || data.running} onClick={() => refresh.mutate()}>
+        {refresh.isPending || data.running ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
+/** "just now", "5 minutes ago", "3 hours ago", "2 days ago". */
+function relativeTime(date: Date): string {
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60_000));
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
 /** Reads a config toggle that defaults to on. */
@@ -477,6 +545,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="model-picker-scroll">
         <ThinkingDepthControl agent={agent} className="px-4 pb-3" />
         {runsFreeChat ? <FreeToolsPanel agent={agent} imageOptions={freeImageOptions} /> : null}
+        {runsFreeChat && isMoanModel(currentModel) ? <MoanKnowledgeCard /> : null}
 
         <div className="sticky top-0 z-10 space-y-2 bg-background px-4 pt-1 pb-2">
           <div className="relative">

@@ -45,6 +45,7 @@ import detectPort from "detect-port";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
+import { moanKnowledge } from "./services/moan/index.js";
 import { setStartupRecoveryPhase } from "./startup-recovery-state.js";
 import {
   StartupRefusalError,
@@ -1204,6 +1205,9 @@ async function startServerWithDatabaseTeardown(
     pluginWorkerManager,
     enabled: async () => (await instanceSettingsService(db).getExperimental()).enableExternalObjects === true,
   });
+  // Moan's Jamaican knowledge index refreshes itself while a Moan agent exists.
+  const moanIndex = moanKnowledge(db);
+  moanIndex.start();
   const scheduleExternalObjectRefreshSweep = (now = new Date()) => {
     if (heartbeatSchedulerStopped) return;
     trackHeartbeatSchedulerWork(externalObjects
@@ -1937,6 +1941,7 @@ async function startServerWithDatabaseTeardown(
   ) => {
     await systemdNotify(["--stopping", `--status=Stopping after ${signal}`]);
     heartbeatSchedulerStopped = true;
+    moanIndex.stop();
     clearInterval(executionControlInterval);
     if (heartbeatSchedulerInterval) {
       clearInterval(heartbeatSchedulerInterval);

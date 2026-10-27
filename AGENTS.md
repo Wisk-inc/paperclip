@@ -79,6 +79,11 @@ keyed by user and announcement so they persist across companies. Their audit
 context must still validate company membership. The announcement publication-ID
 registry is instance-level feed metadata; it contains no company or user data.
 
+Explicit exception: Moan's Jamaican knowledge index (`moan_knowledge`,
+`moan_sources`) is instance-level. It holds only public pages fetched from
+Jamaican news, government, law and reference sites, never company or user
+data, and every company's Moan agent reads the same index. See `doc/moan.md`.
+
 2. Keep contracts synchronized.
 If you change schema/API behavior, update all impacted layers:
 - `packages/db` schema and exports

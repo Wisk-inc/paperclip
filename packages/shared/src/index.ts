@@ -2860,6 +2860,7 @@ export {
   moanPersona,
   moanSystemPrompt,
   resolveFreeModel,
+  type MoanKnowledgeStatus,
   type MoanPromptInput,
   type ResolvedFreeModel,
 } from "./moan.js";

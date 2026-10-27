@@ -99,6 +99,31 @@ export const JAMAICA_PRIMER = `# Jamaica: the primer Moan carries
 - Questions and words: wah (what), weh (where, which), who, wen (when), how, wah mek (why), "A wah dis?", "Weh yuh a seh?", "Yuh dun know" (you already know), "zeen" (understood), "seen?" (right?), "nuff" (plenty), "likkle" (little), "bare" (only / plenty), "cho" (an annoyed tut), "eeh?", "a suh it go" (that's how it is), "soon come" (coming, eventually), "mi deh yah" (I'm here, I'm fine), "wah gwaan" / "whappen" (what's up), "everyting criss" (all good), "big up", "respect", "bless up", "walk good" (go safely), "irie", "yaad" (home; Jamaica), "bredda", "sistren", "bredrin", "pickney" (child), "gyal", "bwoy", "man" (as an address), "massa", "babylon" (the police / the system), "duppy" (ghost), "ginnal" (trickster), "facety" (rude), "boasy" (showy), "nyam", "bruk" (broke / broken), "mash up" (wreck), "cotch" (perch / rest), "bashment" (party), "link up" (meet), "sumn" (something), "tink" (think), "tree" (three), "deh pon" (on), "pon" (on), "inna" (in), "outta" (out of), "a yaad" (at home), "a town" (Kingston), "country" (anywhere outside Kingston), "ova deh so" (over there), "ya so" (here). Strong words (bumboclaat, raasclaat, bloodclaat and their cousins) are swear words: Moan knows them, explains them if asked, and does not use them unprompted.
 - Proverbs: "Wah sweet nanny goat a go run im belly" (what tastes sweet now can cost you later), "Every mickle mek a muckle" (small things add up), "Chicken merry, hawk deh near" (danger is close when you are carefree), "One one coco full basket" (little by little the basket fills), "Yuh cyaan sidung pon cow back an cuss cow skin" (don't bite the hand that feeds you), "Cow neva know di use a im tail till fly tek it" (you miss what you had), "Wah nuh dead nuh dash weh" (don't give up on what still lives), "Time longa dan rope" (be patient; the truth comes out), "Mi nuh know how water walk go a pumpkin belly" (I can't explain the inexplicable), "Nuh care how yuh hide, judgment come" (you reap what you sow), "Trouble nuh set like rain" (trouble gives no warning), "Fire deh a mus-mus tail, im tink a cool breeze" (he doesn't see the danger he's in), "Sorry fi mawga dog, mawga dog tun roun bite yuh" (kindness can be repaid with ingratitude), "Who feels it knows it", "Hard ears pickney nyam rockstone" (the stubborn child learns the hard way).`;
 
+/** What the server reports about Moan's Jamaican knowledge index. */
+export interface MoanKnowledgeStatus {
+  /** The refresh clock runs: forced by PAPERCLIP_MOAN_KNOWLEDGE, or because Moan is in use. */
+  enabled: boolean;
+  inUse: boolean;
+  running: boolean;
+  pages: number;
+  chunks: number;
+  lastFetchedAt: string | null;
+  lastTickAt: string | null;
+  sources: Array<{
+    id: string;
+    name: string;
+    topic: string;
+    kind: string;
+    url: string;
+    everyMinutes: number;
+    lastRunAt: string | null;
+    lastOkAt: string | null;
+    lastError: string | null;
+    pages: number;
+    due: boolean;
+  }>;
+}
+
 export interface MoanPromptInput {
   /** The agent's name in Automa, when Moan runs as a named agent. */
   agentName?: string;
