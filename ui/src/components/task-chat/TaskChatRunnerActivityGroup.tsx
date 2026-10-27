@@ -8,7 +8,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { MarkdownBody } from "@/components/MarkdownBody";
+import { MarkdownBody, SiteFavicon, hostOf } from "@/components/MarkdownBody";
 import { settleStreamingMarkdown } from "@/lib/streaming-markdown";
 import { cn } from "@/lib/utils";
 import { useTaskChatExpansion } from "./expansion-state";
@@ -331,6 +331,19 @@ export function TaskChatRunnerActivityGroup({
   const latest = activities.at(-1);
   const summary = completedActivitySummary(activities);
   const SummaryIcon = summary.icon;
+  // The sites the web tools touched, for the summary line: the page a fetch
+  // read, or the first result hosts a search returned.
+  const webHosts: string[] = [];
+  for (const activity of activities) {
+    if (activity.kind !== "tool") continue;
+    if (toolActivityPresentation({ name: activity.rawName ?? activity.name, target: activity.target }).family !== "web") continue;
+    for (const candidate of [activity.target ?? "", ...((activity.detail ?? "").match(/https?:\/\/[^\s)]+/g) ?? [])]) {
+      const host = hostOf(candidate);
+      if (host && !webHosts.includes(host)) webHosts.push(host);
+      if (webHosts.length >= 5) break;
+    }
+    if (webHosts.length >= 5) break;
+  }
   const countLabel = `${activities.length} ${activities.length === 1 ? "activity" : "activities"}`;
   return (
     <section
@@ -371,6 +384,11 @@ export function TaskChatRunnerActivityGroup({
                 <span className="truncate" title={summary.fullLabel}>
                   {summary.label}
                 </span>
+                {webHosts.length ? (
+                  <span className="inline-flex shrink-0 items-center" aria-label={`Sites: ${webHosts.join(", ")}`} data-testid="task-chat-web-hosts">
+                    {webHosts.map((host) => <SiteFavicon key={host} host={host} />)}
+                  </span>
+                ) : null}
               </span>
             ) : expanded ? (
               <span className="flex min-h-8 flex-1 items-center gap-2 text-xs">
