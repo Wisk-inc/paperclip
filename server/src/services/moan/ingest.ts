@@ -10,7 +10,7 @@ import { readDocument } from "../../adapters/free-models/office.js";
 import { webDownload, webFetch } from "../../adapters/free-models/web.js";
 import type { MoanSource } from "./sources.js";
 import { replacePage, storedPage, touchSource, sourcePageCount } from "./store.js";
-import { chunkText, hashText, parseFeed, type FeedItem } from "./text.js";
+import { chunkText, hashText, parseFeed, trimReferences, type FeedItem } from "./text.js";
 
 export interface IngestResult {
   sourceId: string;
@@ -70,7 +70,8 @@ async function isFresh(db: Db, url: string, within: number): Promise<boolean> {
 }
 
 async function storeText(db: Db, source: MoanSource, url: string, title: string, text: string, publishedAt: Date | null, options: { size?: number; max?: number } = {}): Promise<boolean> {
-  const chunks = chunkText(text, options);
+  // Citation lists would otherwise win searches for the names they repeat.
+  const chunks = chunkText(trimReferences(text), options);
   if (!chunks.length) return false;
   const outcome = await replacePage(db, { sourceId: source.id, url, title, topic: source.topic, publishedAt, chunks, contentHash: hashText(chunks.join("\n")) });
   return outcome !== "empty";

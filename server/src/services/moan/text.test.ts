@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkText, formatContext, hashText, parseFeed, queryTerms, timeAgo } from "./text.js";
+import { chunkText, formatContext, hashText, parseFeed, queryTerms, timeAgo, trimReferences } from "./text.js";
 
 describe("moan knowledge text helpers", () => {
   it("reads RSS items with CDATA titles and dates", () => {
@@ -52,6 +52,13 @@ describe("moan knowledge text helpers", () => {
     expect(context).toContain("- [Laws] https://moj.gov.jm/laws/mw.pdf");
     expect(context.length).toBeLessThan(1_500);
     expect(formatContext([])).toBe("");
+  });
+
+  it("cuts a reference page before its citation lists, but not a short one", () => {
+    const body = "Hurricane Melissa was a Category 5 storm. ".repeat(60);
+    const page = `${body}\n\nSee also\n\n- List of hurricanes\n\nReferences\n\n- ↑ Masters, Jeff (2025). Melissa Melissa Melissa.`;
+    expect(trimReferences(page)).toBe(body.trim());
+    expect(trimReferences("Short\n\nReferences\n\n- one")).toBe("Short\n\nReferences\n\n- one");
   });
 
   it("says how long ago", () => {

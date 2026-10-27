@@ -78,6 +78,15 @@ export function chunkText(text: string, options: { size?: number; max?: number }
   return chunks.slice(0, max);
 }
 
+const TRAILING_SECTIONS = /^(References|Notes|Citations|See also|External links|Further reading|Bibliography|Sources|Footnotes)\s*$/im;
+
+/** A reference page without its citation lists: the article body ends where "References" or "See also" begins. */
+export function trimReferences(text: string, keepAtLeast = 2_000): string {
+  const match = TRAILING_SECTIONS.exec(text);
+  if (!match || match.index < keepAtLeast) return text;
+  return text.slice(0, match.index).trim();
+}
+
 export function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 32);
 }
