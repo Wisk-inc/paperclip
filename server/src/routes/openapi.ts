@@ -1355,6 +1355,8 @@ const BOARD_ONLY_PREFIXES = [
 
 const BOARD_ONLY_OPERATIONS = new Set([
   "POST /api/companies/{companyId}/free-models/usage/reset",
+  "POST /api/free-models/moan/refresh",
+  "POST /api/studio/workspaces/{id}/edits/{editId}/undo",
   "POST /api/companies/{companyId}/devices",
   "PATCH /api/devices/{deviceId}",
   "POST /api/devices/{deviceId}/heartbeat",
@@ -7817,6 +7819,10 @@ registerCurrentRoute({
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/terminals/sessions/{id}/stop", tags: ["terminals"], summary: "Stop a terminal" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/free-models/usage", tags: ["free-models"], summary: "Tokens and images spent on free models since the last reset, with what paid prices would have charged" });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/free-models/usage/reset", tags: ["free-models"], summary: "Start the free-model usage count again from now" });
+registerCurrentRoute({ method: "get", path: "/api/free-models/health", tags: ["free-models"], summary: "Each free model's last known state: fine, at its daily limit (and when it resets), busy, or closed by its provider" });
+registerCurrentRoute({ method: "get", path: "/api/free-models/moan/status", tags: ["free-models"], summary: "Moan's Jamaican knowledge index: pages, sources and when it last refreshed" });
+registerCurrentRoute({ method: "post", path: "/api/free-models/moan/refresh", tags: ["free-models"], summary: "Read Moan's Jamaican sources again now" });
+registerCurrentRoute({ method: "get", path: "/api/free-models/moan/context", tags: ["free-models"], summary: "The passages Moan's knowledge index returns for a question (q)" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/status", tags: ["app-inspector"], summary: "Whether apktool and jadx are installed, and the phone's apps when Automa runs on it" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects", tags: ["app-inspector"], summary: "List decoded apps" });
 registerCurrentRoute({
@@ -7900,6 +7906,7 @@ registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/change
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/changes/{changeId}/reject", tags: ["studio"], summary: "Deny a proposed change" });
 
 registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Read the coding assistant conversation" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/edits/{editId}/undo", tags: ["studio"], summary: "Undo one file change the assistant made (refused when the file changed again afterwards)", responses: { 200: r.ok(), 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Ask the coding assistant (runs in the background; saves a checkpoint first)", body: studioAssistantMessageSchema, responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant/stop", tags: ["studio"], summary: "Stop the assistant's current turn" });
 registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Clear the assistant conversation" });
