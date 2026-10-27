@@ -18,7 +18,7 @@ import {
   type PuterToolCall,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
-import { pairedFreeImageModel, type FreeModelRunUsage } from "@paperclipai/shared";
+import { isMoanModel, MOAN_LABEL, moanSystemPrompt, pairedFreeImageModel, resolveFreeModel, type FreeModelRunUsage } from "@paperclipai/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
@@ -37,6 +37,7 @@ const MAX_IDENTICAL_CALLS = 2;
 
 /** The model's display name for status lines and errors. */
 export function modelLabel(model: string): string {
+  if (isMoanModel(model)) return MOAN_LABEL;
   const key = (Object.keys(PUTER_MODELS) as PuterModelKey[]).find((k) => PUTER_MODELS[k] === model);
   return key ? PUTER_MODEL_META[key].label : model;
 }
@@ -154,6 +155,8 @@ function sumUsage(spent: TurnTotals[]): PuterUsage {
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { agent, config, context, runId, authToken, onLog } = ctx;
   const model = asString(config.model, PUTER_MODELS["deepseek-flash"]);
+  // Moan is Nemotron 3 Ultra under a Jamaican persona; everything else is itself.
+  const resolved = resolveFreeModel(model);
   const issueId = readId(context.issueId) ?? readId(context.taskId);
   ctx.onDispatch?.();
 
@@ -250,13 +253,20 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const profile = await loadProfile(api, issue.companyId, agent.id, readId((issue as { conversationUserId?: unknown }).conversationUserId));
   for (const note of profile.notes) await onLog("stdout", `[paperclip] Profile lookup skipped: ${note}\n`);
   await onLog("stdout", `[paperclip] Profile: ${profile.title || profile.role || "no role"}; person ${profile.personName || "unknown"}; ${profile.teammates.length} teammates\n`);
-  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles });
+  // Moan's persona, with what the Jamaican knowledge index holds on the question.
+  let persona: string | undefined;
+  if (resolved.persona === "moan") {
+    const question = (lastUser?.body ?? issue.title ?? "").trim();
+    const knowledge = await moanKnowledge(api, question, onLog);
+    persona = moanSystemPrompt({ agentName: agent.name, ...knowledge });
+  }
+  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles, persona });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
 
   const { answer, answeredBy, stopReason, hitTurnLimit } = await runToolLoop({
-    ctx, model, messages, tools, toolCtx, level, onLog, addUsage,
+    ctx, model, puterModel: resolved.puterModel, messages, tools, toolCtx, level, onLog, addUsage,
     maxTurns: Math.max(1, asNumber(config.maxTurnsPerRun, 0) || DEFAULT_MAX_TOOL_TURNS),
   });
 
@@ -274,6 +284,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   return finish(ctx, drawn.length + slidePictures, answeredBy, spent, body);
 }
 
+/** What the Jamaican knowledge index has on the question, from the server's moan service; nothing when it is off or empty. */
+async function moanKnowledge(api: ThreadApi, question: string, onLog: AdapterExecutionContext["onLog"]): Promise<{ knowledge?: string; freshness?: string }> {
+  try {
+    const result = await api.json<{ context?: string; freshness?: string }>(`/api/free-models/moan/context?q=${encodeURIComponent(question.slice(0, 600))}`);
+    return { knowledge: result.context || undefined, freshness: result.freshness || undefined };
+  } catch (error) {
+    await onLog("stdout", `[paperclip] Moan knowledge skipped: ${error instanceof Error ? error.message : String(error)}\n`);
+    return {};
+  }
+}
+
 interface BuildInput {
   agentName: string;
   issue: { title?: string; description?: string | null; conversationAgentId?: string | null };
@@ -287,11 +308,14 @@ interface BuildInput {
   profile: Profile;
   /** Non-image files attached to the person's last message. */
   attachedFiles?: string[];
+  /** A wrapper persona's own prompt (Moan), placed before the agent prompt. */
+  persona?: string;
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = []): string {
+function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = [], persona?: string): string {
   const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
+    persona ?? "",
     `You are ${agentName}${who ? ` (${who})` : ""}, an AI agent on the person's team in Automa, chatting with them in the app.${profile.personName ? ` The person you are talking to is ${profile.personName}; use their name naturally.` : ""}`,
     profile.teammates.length
       ? `Your teammates in this company: ${profile.teammates.join("; ")}. You can message them and hand them tasks through the Automa API.`
@@ -314,7 +338,7 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles, input.persona) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });
@@ -337,7 +361,10 @@ function buildMessages(input: BuildInput): PuterMessage[] {
 
 interface LoopInput {
   ctx: AdapterExecutionContext;
+  /** The chosen model id, as shown to people. */
   model: string;
+  /** The id the model service is called with (differs for Moan). */
+  puterModel: string;
   messages: PuterMessage[];
   tools: ReturnType<typeof freeToolDefinitions>;
   toolCtx: FreeToolContext;
@@ -348,7 +375,7 @@ interface LoopInput {
 }
 
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
-  const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage } = input;
+  const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage, puterModel } = input;
   const model = input.model;
   const label = modelLabel(model);
   let useTools = input.tools.length > 0;
@@ -381,7 +408,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     };
     const attempt = textHistory ? toolHistoryAsText(messages) : messages;
     try {
-      for await (const event of puterStream(attempt, { model, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
+      for await (const event of puterStream(attempt, { model: puterModel, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
         if (event.type === "text") { for (const piece of splitter.push(event.text)) await emit(piece); }
         else if (event.type === "reasoning") { reasoning += event.text; await onLog("stdout", logLine({ type: "acpx.text_delta", text: event.text, channel: "thinking" })); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
@@ -417,7 +444,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       if (turn === 1 && !triedPlain) {
         triedPlain = true;
         try {
-          const reply = await puterComplete(attempt, { model, retries: 1, signal: ctx.signal });
+          const reply = await puterComplete(attempt, { model: puterModel, retries: 1, signal: ctx.signal });
           addUsage(reply.model, reply.usage);
           const split = splitThinking(reply.text, reply.reasoning);
           if (split.thinking) await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.thinking, channel: "thinking" }));
@@ -430,7 +457,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       throw describePuterError(error, label, retries);
     }
 
-    addUsage(model, usage);
+    addUsage(puterModel, usage);
     // `text` already has its <thinking> tags routed to `reasoning` by the splitter.
     if (text.trim()) lastAnswer = text.trim();
     if (reasoning.trim()) lastReasoning = reasoning.trim();

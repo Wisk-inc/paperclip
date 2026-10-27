@@ -2849,3 +2849,17 @@ export {
   type FreeModelRunUsage,
   type FreeModelUsageSummary,
 } from "./free-models.js";
+export {
+  JAMAICA_PRIMER,
+  MOAN_BASE_MODEL,
+  MOAN_BLURB,
+  MOAN_CONTEXT,
+  MOAN_LABEL,
+  MOAN_MODEL_ID,
+  isMoanModel,
+  moanPersona,
+  moanSystemPrompt,
+  resolveFreeModel,
+  type MoanPromptInput,
+  type ResolvedFreeModel,
+} from "./moan.js";

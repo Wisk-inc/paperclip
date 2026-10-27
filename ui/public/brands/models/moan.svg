@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <clipPath id="moan-round"><circle cx="32" cy="32" r="31"/></clipPath>
+  </defs>
+  <g clip-path="url(#moan-round)">
+    <rect width="64" height="64" fill="#009B3A"/>
+    <path d="M0 0 L32 32 L0 64 Z" fill="#000000"/>
+    <path d="M64 0 L32 32 L64 64 Z" fill="#000000"/>
+    <path d="M-8 -8 L72 72 M72 -8 L-8 72" stroke="#FED100" stroke-width="11" fill="none"/>
+  </g>
+</svg>

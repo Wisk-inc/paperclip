@@ -178,6 +178,7 @@ export interface StudioAiProviderInfo {
 /** The free chat models Studio offers, the ones that take tools first. */
 export const STUDIO_FREE_MODELS = [
   "deepseek/deepseek-v4.1-flash:free",
+  "moan/moan-1:free",
   "qwen/qwen3.8-27b:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "google/gemma-4-31b-it:free",

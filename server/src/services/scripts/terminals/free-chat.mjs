@@ -10,16 +10,23 @@ const puter = await import("@paperclipai/shared/puter-ai").catch(() =>
   import(import.meta.resolve("@paperclipai/shared/puter-ai").replace(/\/src\/(.*)\.ts$/, "/dist/$1.js")),
 );
 const { puterStream, PuterHttpError, PUTER_MODELS, PUTER_MODEL_META } = puter;
+const moan = await import("@paperclipai/shared/moan").catch(() =>
+  import(import.meta.resolve("@paperclipai/shared/moan").replace(/\/src\/(.*)\.ts$/, "/dist/$1.js")),
+);
+const { MOAN_MODEL_ID, MOAN_LABEL, isMoanModel, resolveFreeModel, moanSystemPrompt } = moan;
 
 const args = process.argv.slice(2);
 let model = args[args.indexOf("--model") + 1] && args.includes("--model") ? args[args.indexOf("--model") + 1] : PUTER_MODELS["deepseek-flash"];
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
-const label = (id) => { const key = Object.keys(PUTER_MODELS).find((k) => PUTER_MODELS[k] === id); return key ? PUTER_MODEL_META[key].label : id; };
-const messages = [{ role: "system", content: "You are a helpful assistant in a terminal. Answer plainly; use Markdown lightly." }];
+const label = (id) => { if (isMoanModel(id)) return MOAN_LABEL; const key = Object.keys(PUTER_MODELS).find((k) => PUTER_MODELS[k] === id); return key ? PUTER_MODEL_META[key].label : id; };
+const allModels = [MOAN_MODEL_ID, ...Object.values(PUTER_MODELS)];
+// Moan talks Patois and carries its Jamaica primer; the others get a plain terminal prompt.
+const systemFor = (id) => (isMoanModel(id) ? moanSystemPrompt({}) : "You are a helpful assistant in a terminal. Answer plainly; use Markdown lightly.");
+const messages = [{ role: "system", content: systemFor(model) }];
 
 console.log(bold(`Free models · ${label(model)}`));
-console.log(dim(`Type a message. /model <id> to switch (${Object.values(PUTER_MODELS).slice(0, 4).join(", ")}, …), /clear to start over, /quit to leave.`));
+console.log(dim(`Type a message. /model <id> to switch (${allModels.slice(0, 4).join(", ")}, …), /clear to start over, /quit to leave.`));
 const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "\n> " });
 rl.prompt();
 let busy = false;
@@ -30,7 +37,7 @@ rl.on("line", async (line) => {
   if (text === "/clear") { messages.length = 1; console.log(dim("Started over.")); rl.prompt(); return; }
   if (text.startsWith("/model")) {
     const next = text.slice(6).trim();
-    if (next) { model = next; console.log(dim(`Now ${label(model)}`)); } else console.log(Object.values(PUTER_MODELS).map((id) => `  ${id}`).join("\n"));
+    if (next) { model = next; messages[0] = { role: "system", content: systemFor(model) }; console.log(dim(`Now ${label(model)}`)); } else console.log(allModels.map((id) => `  ${id}`).join("\n"));
     rl.prompt(); return;
   }
   busy = true;
@@ -39,7 +46,7 @@ rl.on("line", async (line) => {
   let thinking = false;
   try {
     process.stdout.write("\n");
-    for await (const event of puterStream(messages, { model })) {
+    for await (const event of puterStream(messages, { model: resolveFreeModel(model).puterModel })) {
       if (event.type === "reasoning") { if (!thinking) { thinking = true; process.stdout.write(dim("thinking: ")); } process.stdout.write(dim(event.text)); }
       else if (event.type === "text") { if (thinking) { thinking = false; process.stdout.write("\n\n"); } reply += event.text; process.stdout.write(event.text); }
     }

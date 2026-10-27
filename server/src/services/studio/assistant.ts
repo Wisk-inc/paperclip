@@ -5,6 +5,8 @@ import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import {
+  moanSystemPrompt,
+  resolveFreeModel,
   STUDIO_ASSISTANT_IMAGE_TYPES,
   STUDIO_AI_PROVIDER_INFO,
   studioLanguage,
@@ -1078,6 +1080,7 @@ async function runFreeModels(input: {
 }) {
   const { context } = input;
   const label = modelLabel(input.model);
+  const resolved = resolveFreeModel(input.model);
   const historyFile = metaFile(context, input.historyName ?? "assistant-free.json");
   let messages = input.fresh ? [] : await readJson<ChatMessage[]>(historyFile, []);
   if (JSON.stringify(messages).length > MAX_HISTORY_CHARS) messages = [];
@@ -1097,7 +1100,9 @@ async function runFreeModels(input: {
       : promptText,
   });
   const tools: PuterTool[] = toolsFor(context).map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters as Record<string, unknown> } }));
-  const system = input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context);
+  const base = input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context);
+  // Moan builds apps too: its persona and primer come first, then Studio's own instructions.
+  const system = resolved.persona === "moan" ? `${moanSystemPrompt({})}\n\n${base}` : base;
   const maxSteps = input.maxSteps ?? MAX_STEPS;
   let useTools = true;
   let textHistory = false;
@@ -1117,7 +1122,7 @@ async function runFreeModels(input: {
       else { text += piece.text; input.onDelta(piece.text); }
     };
     try {
-      for await (const event of puterStream(sent, { model: input.model, tools: useTools && tools.length ? tools : undefined, signal: input.signal })) {
+      for await (const event of puterStream(sent, { model: resolved.puterModel, tools: useTools && tools.length ? tools : undefined, signal: input.signal })) {
         if (event.type === "text") for (const piece of splitter.push(event.text)) emit(piece);
         else if (event.type === "reasoning") { reasoning += event.text; input.onThinkingDelta(event.text); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
@@ -1225,7 +1230,7 @@ export async function completeCode(input: {
   if (input.provider === "free") {
     const reply = await puterComplete(
       [{ role: "system", content: COMPLETION_SYSTEM }, { role: "user", content: prompt }],
-      { model: input.model, retries: 1, signal: input.signal ?? AbortSignal.timeout(20_000) },
+      { model: resolveFreeModel(input.model).puterModel, retries: 1, signal: input.signal ?? AbortSignal.timeout(20_000) },
     );
     input.onUsage?.({ provider: "free", model: reply.model, inputTokens: reply.usage.inputTokens, cachedInputTokens: 0, outputTokens: reply.usage.outputTokens, costUsd: 0 });
     return cleanCompletion(reply.text, input.prefix);

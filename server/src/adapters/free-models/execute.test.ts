@@ -292,6 +292,45 @@ describe("free models engine", () => {
     expect(result.resultJson).toMatchObject({ freeUsage: { images: 1, equivalentUsd: 0.002 } });
   });
 
+  it("runs Moan on Nemotron 3 Ultra with the Jamaican persona and the knowledge the server has", async () => {
+    const net = stubNetwork({ commentReply: "Wah gwaan! Di answer a 29 apple." });
+    const base = (globalThis.fetch as unknown as { getMockImplementation: () => (input: string, init?: RequestInit) => Promise<Response> }).getMockImplementation();
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      if (String(input).startsWith(`${API}/api/free-models/moan/context?q=`)) {
+        return new Response(JSON.stringify({ context: "- [Gleaner] Apples cheaper this week https://jamaica-gleaner.com/apples", freshness: "12 pages from 3 sources" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return base(input, init);
+    }));
+    const ctx = context({ model: "moan/moan-1:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false });
+    const result = await execute(ctx);
+
+    const sent = net.puterBodies()[0]!.args as { model: string; messages: Array<{ role: string; content: string }> };
+    expect(sent.model).toBe("nvidia/nemotron-3-ultra-550b-a55b:free");
+    expect(sent.messages[0]!.role).toBe("system");
+    expect(sent.messages[0]!.content).toContain("You are Atlas (Moan)");
+    expect(sent.messages[0]!.content).toContain("Jamaican Patois is your default");
+    expect(sent.messages[0]!.content).toContain("https://jamaica-gleaner.com/apples");
+    expect(sent.messages[0]!.content).toContain("(12 pages from 3 sources)");
+    expect(sent.messages[0]!.content).toContain("# Jamaica: the primer Moan carries");
+    // The agent prompt follows the persona, so tools and manners still apply.
+    expect(sent.messages[0]!.content).toContain("an AI agent on the person's team in Automa");
+    expect(postedBody(net.calls)).toBe("Wah gwaan! Di answer a 29 apple.");
+    // Shown as Moan; priced as the model it ran on.
+    expect(result.model).toBe("moan/moan-1:free");
+    expect(ctx.logs.some((line) => line.includes("Replied with moan/moan-1:free"))).toBe(true);
+  });
+
+  it("answers as Moan without the knowledge index, when the server has none", async () => {
+    const net = stubNetwork({ commentReply: "Mi deh yah." });
+    const ctx = context({ model: "moan/moan-1:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false });
+    await execute(ctx);
+    const sent = net.puterBodies()[0]!.args as { model: string; messages: Array<{ role: string; content: string }> };
+    expect(sent.model).toBe("nvidia/nemotron-3-ultra-550b-a55b:free");
+    expect(sent.messages[0]!.content).not.toContain("Retrieved from Jamaican sources");
+    expect(ctx.logs.some((line) => line.includes("Moan knowledge skipped"))).toBe(true);
+    expect(postedBody(net.calls)).toBe("Mi deh yah.");
+  });
+
   it("explains a missing agent key instead of answering silently", async () => {
     stubNetwork();
     await expect(execute(context({}, null))).rejects.toThrow(/PAPERCLIP_AGENT_JWT_SECRET/);

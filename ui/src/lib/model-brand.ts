@@ -30,6 +30,7 @@ export const MODEL_PROVIDERS = [
   "liquid",
   "nousresearch",
   "arcee",
+  "moan",
   "openrouter",
   "other",
 ] as const;
@@ -75,6 +76,7 @@ const BRANDS: Record<ModelProvider, ModelBrand> = {
   liquid: brand("liquid", "Liquid AI", `${MODELS}/liquid.svg`, `${MODELS}/liquid-dark.svg`),
   nousresearch: brand("nousresearch", "Nous Research", `${MODELS}/nousresearch.svg`, `${MODELS}/nousresearch-dark.svg`),
   arcee: brand("arcee", "Arcee AI", `${MODELS}/arcee.svg`),
+  moan: brand("moan", "Moan", `${MODELS}/moan.svg`),
   openrouter: brand("openrouter", "OpenRouter", "/brands/apps/openrouter.svg", "/brands/apps/openrouter-dark.svg"),
   other: brand("other", "Other", null),
 };
@@ -118,6 +120,7 @@ const VENDORS: Record<string, ModelProvider> = {
   liquid: "liquid",
   nousresearch: "nousresearch",
   "arcee-ai": "arcee",
+  moan: "moan",
   openrouter: "openrouter",
 };
 
@@ -147,6 +150,7 @@ const FAMILIES: Array<[RegExp, ModelProvider]> = [
   [/^mercury/, "inception"],
   [/^(lfm|liquid)/, "liquid"],
   [/^hermes/, "nousresearch"],
+  [/^moan/, "moan"],
 ];
 
 const ADAPTER_PROVIDERS: Record<string, ModelProvider> = {

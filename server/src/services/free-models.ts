@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { activityLog, heartbeatRuns, type Db } from "@paperclipai/db";
 import type { AdapterModel } from "@paperclipai/adapter-utils";
-import type { FreeModelUsageSummary } from "@paperclipai/shared";
+import { MOAN_LABEL, MOAN_MODEL_ID, type FreeModelUsageSummary } from "@paperclipai/shared";
 import {
   PUTER_IMAGE_MODEL_META,
   PUTER_IMAGE_MODELS,
@@ -14,12 +14,15 @@ import {
 
 export const FREE_MODELS_RESET_ACTION = "free_models.usage_reset";
 
-/** Chat models, then the image models that work without an input image. */
+/** Moan first, then the chat models, then the image models that work without an input image. */
 export function listFreeModels(): AdapterModel[] {
-  const chat = (Object.entries(PUTER_MODELS) as [PuterModelKey, string][]).map(([key, id]) => ({
-    id,
-    label: PUTER_MODEL_META[key].label,
-  }));
+  const chat: AdapterModel[] = [
+    { id: MOAN_MODEL_ID, label: MOAN_LABEL },
+    ...(Object.entries(PUTER_MODELS) as [PuterModelKey, string][]).map(([key, id]) => ({
+      id,
+      label: PUTER_MODEL_META[key].label,
+    })),
+  ];
   const image = (Object.entries(PUTER_IMAGE_MODELS) as [PuterImageModelKey, string][])
     .filter(([key]) => !PUTER_IMAGE_MODEL_META[key].needsInputImage)
     .map(([key, id]) => ({ id, label: `${PUTER_IMAGE_MODEL_META[key].label} · image` }));

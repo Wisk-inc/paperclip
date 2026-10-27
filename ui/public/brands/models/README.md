@@ -15,3 +15,6 @@ Nous Research, and Z.ai use monochrome marks; their `-dark` variants replace
 
 Artwork is distributed under the accompanying MIT license. Brand names and
 marks belong to their respective owners.
+
+`moan.svg` is Automa's own mark for Moan, its Jamaican model: the saltire of
+the Jamaican flag in a roundel. It is not from Lobe Icons.
