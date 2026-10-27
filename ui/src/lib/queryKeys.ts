@@ -211,6 +211,7 @@ export const queryKeys = {
     usage: (companyId: string) => ["free-models", "usage", companyId] as const,
     moan: () => ["free-models", "moan"] as const,
     health: () => ["free-models", "health"] as const,
+    que: (companyId: string) => ["free-models", "que", companyId] as const,
   },
   agents: {
     list: (companyId: string) => ["agents", companyId] as const,

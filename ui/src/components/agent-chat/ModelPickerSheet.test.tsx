@@ -10,7 +10,7 @@ import { byRecency, modelVersion, ModelPickerSheet } from "./ModelPickerSheet";
 const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn() }));
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockPushToast = vi.hoisted(() => vi.fn());
-const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn() }));
+const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), queStats: vi.fn() }));
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
@@ -90,6 +90,8 @@ beforeEach(() => {
     Promise.resolve(type === "opencode_local" && options?.provider === "openrouter" ? OPENROUTER_MODELS : type === "free_models" ? FREE_MODELS : CLAUDE_MODELS));
   mockAgentsApi.update.mockResolvedValue({});
   mockFreeModelsApi.usage.mockResolvedValue(USAGE);
+  mockFreeModelsApi.health.mockResolvedValue({});
+  mockFreeModelsApi.queStats.mockResolvedValue({ maxInFlight: 10, inFlight: 0, waiting: 0, started: 0, peakInFlight: 0, cachedAnswers: 3, cacheHits: 0, conversations: 0 });
   mockFreeModelsApi.resetUsage.mockResolvedValue({ ...USAGE, since: "2026-10-26T00:00:00.000Z", replies: 0, images: 0, inputTokens: 0, outputTokens: 0, equivalentUsd: 0 });
   mockAiConnectionsApi.list.mockResolvedValue({ currentUserId: "user-1", connections: [] });
 });
@@ -206,6 +208,10 @@ describe("ModelPickerSheet", () => {
     const free = document.querySelector('[data-testid="free-models"]')!;
     expect(free.querySelectorAll('[data-slot="free-tag"]')).toHaveLength(2);
     expect(free.textContent).not.toMatch(/puter/i);
+    await settle(() => expect(document.querySelector('[data-testid="que-engine"]')).not.toBeNull());
+    expect(document.querySelector('[data-testid="que-engine"]')?.textContent).toContain("Que engine");
+    expect(document.querySelector('[data-testid="que-engine"]')?.textContent).toContain("ready · up to 10 answers at once");
+    expect(document.querySelector('[data-testid="que-engine"]')?.textContent).toContain("3 cached");
     expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("2,000 tokens · 1 image · $0.00 charged");
     expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("Would have cost $0.0031 at paid prices");
     await act(async () => free.querySelector<HTMLButtonElement>('[data-model-id="deepseek/deepseek-v4.1-flash:free"]')!.click());

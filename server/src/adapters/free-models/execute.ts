@@ -6,6 +6,8 @@ import {
   isLastingPuterError,
   isPuterImageModel,
   isTransientPuterError,
+  mayHoldTextToolCalls,
+  parseTextToolCalls,
   puterModelTakesTools,
   toolHistoryAsText,
   puterComplete,
@@ -38,6 +40,9 @@ const MAX_TRANSIENT_RETRIES = 4;
 const RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
 /** The same tool call with the same arguments past this many times is a loop, not research. */
 const MAX_IDENTICAL_CALLS = 2;
+/** Replies with no words and no tool call that are asked again before the run gives up on one. */
+const MAX_EMPTY_REPLIES = 2;
+const EMPTY_REPLY_NUDGE = "(Automa) Your last reply came back empty. Reply to the person now, in words, with what you have.";
 
 /** The model's display name for status lines and errors. */
 export function modelLabel(model: string): string {
@@ -367,6 +372,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
   let textHistory = false;
   let retries = 0;
   let triedPlain = false;
+  let emptyReplies = 0;
   // Identical tool calls, to cut a loop short.
   const callCounts = new Map<string, number>();
   let repeated = 0;
@@ -401,7 +407,8 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
       if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
       // The provider refused the history with tool turns in it: say the same things as text.
-      if (!textHistory && messages.some((message) => message.role === "tool")) {
+      // (A rate limit is not a refusal of the history: it keeps its native shape.)
+      if (!textHistory && error.status !== 429 && messages.some((message) => message.role === "tool")) {
         textHistory = true;
         await onLog("stdout", logLine({ type: "acpx.status", message: `${label} refused the tool history (${status}); sending it as text and trying again.` }));
         turn -= 1;
@@ -439,6 +446,33 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     }
 
     addUsage(puterModel, usage);
+    // A busy provider counts against this run only while it stays busy.
+    retries = 0;
+    // Some models (often behind the Free Router) write a tool call as text
+    // instead of calling it: run it all the same rather than post it.
+    if (useTools && calls.length === 0 && mayHoldTextToolCalls(text)) {
+      const written = parseTextToolCalls(text, input.tools.map((tool) => tool.function.name));
+      if (written.calls.length) {
+        text = written.text;
+        stopReason = "tool_use";
+        for (const call of written.calls) calls.push({ id: `call_${Math.random().toString(36).slice(2)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } });
+      }
+    }
+    // No words and no tool call (a free route sometimes drops the whole
+    // reply): ask the same model again, then once more for words only.
+    if (!text.trim() && calls.length === 0 && emptyReplies < MAX_EMPTY_REPLIES) {
+      emptyReplies += 1;
+      if (emptyReplies === MAX_EMPTY_REPLIES) {
+        useTools = false;
+        // Strict providers refuse two user turns in a row: join the person's own when it is last.
+        const last = messages[messages.length - 1];
+        if (last?.role === "user" && typeof last.content === "string") last.content = `${last.content}\n\n${EMPTY_REPLY_NUDGE}`;
+        else messages.push({ role: "user", content: EMPTY_REPLY_NUDGE });
+      }
+      await onLog("stdout", logLine({ type: "acpx.status", message: `${label} sent an empty reply; asking again (${emptyReplies}/${MAX_EMPTY_REPLIES}).` }));
+      turn -= 1;
+      continue;
+    }
     // `text` already has its <thinking> tags routed to `reasoning` by the splitter.
     if (text.trim()) lastAnswer = safetyModel ? formatSafetyVerdict(text.trim()) : text.trim();
     if (reasoning.trim()) lastReasoning = reasoning.trim();

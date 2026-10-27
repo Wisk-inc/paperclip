@@ -37,6 +37,7 @@ import { documentService } from "../services/documents.js";
 import { getTaskPlanContext } from "../services/task-plan-context.js";
 import { terminalizeLegacyExecution, LEGACY_RECOVERY_CAUSE } from "../services/legacy-execution-recovery.js";
 import { settleUnrecoverableExecutions } from "../services/execution-recovery-resolution.js";
+import { getExecutionBlocker } from "../services/execution-blocker.js";
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import {
@@ -291,6 +292,64 @@ const support = await getEmbeddedPostgresTestSupport();
       await instanceSettingsService(db).updateExperimental({
         enableAgentChat: true,
       });
+    });
+    it("lets a new chat message replace the automatic retry of a failed turn", async () => {
+      // Its own agent, so the wakeup this message sends stays out of the other tests.
+      const [retryAgent] = await db.insert(agents).values({
+        companyId, name: "Retrier", role: "engineer", status: "idle", adapterType: "process",
+      }).returning();
+      const owner = randomUUID();
+      await db.insert(companyMemberships).values({
+        companyId, principalType: "user", principalId: owner, status: "active", membershipRole: "operator",
+      });
+      await ensureHumanRoleDefaultGrants(db, { companyId, principalId: owner, membershipRole: "operator", grantedByUserId: null });
+      const chat = await issueService(db).create(companyId, {
+        title: "Conversation", conversationAgentId: retryAgent!.id, conversationUserId: owner,
+        assigneeAgentId: retryAgent!.id, status: "in_review", conversationState: "waiting",
+      });
+      const [retry] = await db.insert(heartbeatRuns).values({
+        companyId, agentId: retryAgent!.id, invocationSource: "automation", status: "scheduled_retry",
+        contextSnapshot: { issueId: chat.id, taskKey: chat.id },
+        scheduledRetryAt: new Date(Date.now() + 10 * 60_000), scheduledRetryReason: "transient_failure", scheduledRetryAttempt: 1,
+      }).returning();
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        req.actor = { type: "board", source: "session", userId: owner, companyIds: [companyId] };
+        next();
+      });
+      app.use("/api", issueRoutes(db, { wakeup: async () => null } as never));
+      app.use(errorHandler);
+
+      const sent = await request(app).post(`/api/issues/${chat.id}/comments`)
+        .send({ body: "Same question, on the model I just picked", clientRequestId: randomUUID() });
+      expect(sent.status).toBe(201);
+      const [after] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, retry!.id));
+      expect(after!.status).toBe("cancelled");
+      const cancelled = await db.select().from(activityLog).where(and(
+        eq(activityLog.entityId, retry!.id), eq(activityLog.action, "heartbeat.cancelled"),
+      ));
+      expect(cancelled.map((row) => (row.details as { source?: string } | null)?.source)).toEqual(["issue_comment_scheduled_retry_superseded"]);
+    });
+    it.each([
+      { adapterType: "free_models", holds: false },
+      { adapterType: "process", holds: true },
+    ])("a failed $adapterType turn's reconciliation hold blocks the chat: $holds", async ({ adapterType, holds }) => {
+      const chat = await create();
+      const [failed] = await db.insert(heartbeatRuns).values({
+        companyId, agentId, status: "failed", errorCode: "adapter_failed", finishedAt: new Date(),
+        runnerProfileJson: { adapterDispatch: { adapterType } },
+        contextSnapshot: { issueId: chat.id, taskKey: chat.id },
+      }).returning();
+      await db.insert(issueRecoveryActions).values({
+        companyId, sourceIssueId: chat.id, kind: "active_run_watchdog",
+        ownerType: "board", returnOwnerAgentId: agentId,
+        cause: LEGACY_RECOVERY_CAUSE, fingerprint: `legacy-execution:${failed!.id}`,
+        evidence: { runId: failed!.id }, nextAction: "Reconcile stopped work",
+      });
+      const blocker = await getExecutionBlocker(db, companyId, chat.id);
+      if (holds) expect(blocker).not.toBeNull();
+      else expect(blocker).toBeNull();
     });
     it("deduplicates concurrent message retries and preserves recoverable delivery", async () => {
       const issue = await create();

@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { StudioAssistantTurn } from "@paperclipai/shared";
 
 /**
@@ -230,5 +230,46 @@ describe("Studio assistant loop", () => {
     expect(teamResult).toContain("api.py is written.");
     expect(teamResult).toContain("index.html is written.");
     expect(reply.text).toBe("The team built the API and the page; both are in place.");
+  });
+});
+
+describe("Studio assistant on the free models", () => {
+  it("rides out a busy provider on every step and keeps the tool history native", async () => {
+    const { resetFreeModelHealth } = await import("@paperclipai/shared/puter-ai");
+    const { runAssistantTurn, isAssistantRunning, readAssistantTranscript } = await import("../services/studio/assistant.js");
+    resetFreeModelHealth();
+    const busy = () => new Response(JSON.stringify({ error: "AI provider rate limit exceeded", code: "upstream_rate_limited" }), { status: 429, headers: { "content-type": "application/json" } });
+    const ndjson = (events: unknown[]) => new Response(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, { status: 200, headers: { "content-type": "application/x-ndjson" } });
+    const replies = [
+      busy, busy, busy,
+      () => ndjson([{ type: "tool_use", id: "t1", name: "write_file", input: { path: "hi.txt", content: "hi" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]),
+      busy, busy, busy,
+      () => ndjson([{ type: "text", text: "Wrote hi.txt." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 3 } }]),
+    ];
+    const sent: Array<{ messages: Array<{ role: string }> }> = [];
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (!String(url).startsWith("https://api.puter.com/")) return realFetch(url, init);
+      sent.push((JSON.parse(String(init?.body)) as { args: { messages: Array<{ role: string }> } }).args);
+      return replies.shift()!();
+    });
+    try {
+      const workspaceId = `loop-free-${++workspace}`;
+      await mkdir(path.join(root, "company-1", workspaceId, "files"), { recursive: true });
+      await runAssistantTurn({
+        context: { workspaceId, companyId: "company-1", name: "Demo", language: "python", runCommand: "python main.py", startApp: async () => {}, onFileChanged: async () => {} },
+        message: "Write hi.txt",
+        provider: "free",
+        model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        credentials: { apiKey: "free", baseUrl: null },
+      });
+      for (let waited = 0; isAssistantRunning(workspaceId) && waited < 10_000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
+      const reply = (await readAssistantTranscript("company-1", workspaceId)).at(-1)!;
+      expect(reply.error).toBeNull();
+      expect(reply.text).toBe("Wrote hi.txt.");
+      expect(sent.at(-1)!.messages.some((message) => message.role === "tool")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

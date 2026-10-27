@@ -3,6 +3,7 @@
  * "@paperclipai/shared/puter-ai" so the embedded token never ships in the web bundle.
  */
 import type { FreeModelHealthEntry, FreeModelState } from './free-models.js';
+import { queTurn } from './que-queue.js';
 
 const _P = [
   'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik',
@@ -462,13 +463,55 @@ function textToolMessages(messages: PuterMessage[], tools: PuterTool[]): PuterMe
   return [{ role: 'system', content: guide }, ...flat];
 }
 
+/** `query="x", count=5`: a Python-style argument list of plain literals; null when it is anything else. */
+function parseKeywordArgs(source: string): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  const src = source.trim();
+  const pattern = /\s*([A-Za-z_]\w*)\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?|true|false|True|False|None|null)\s*(?:,|$)/y;
+  let at = 0;
+  while (at < src.length) {
+    pattern.lastIndex = at;
+    const match = pattern.exec(src);
+    if (!match) return null;
+    const literal = match[2]!;
+    let value: unknown;
+    if (literal.startsWith('"')) value = JSON.parse(literal);
+    else if (literal.startsWith("'")) value = literal.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+    else if (/^(true|True)$/.test(literal)) value = true;
+    else if (/^(false|False)$/.test(literal)) value = false;
+    else if (/^(None|null)$/.test(literal)) value = null;
+    else value = Number(literal);
+    out[match[1]!] = value;
+    at = pattern.lastIndex;
+  }
+  return out;
+}
+
+/** Whether a reply looks like it holds a tool call written as text (worth parsing). */
+export function mayHoldTextToolCalls(text: string): boolean {
+  return /<\/?tool_call>|^\[Called [\w.-]+ \{/m.test(text);
+}
+
 /**
  * Tool calls a model wrote as text: <tool_call>{"name", "arguments"}</tool_call>
- * blocks (and the "[Called name {...}]" lines the text history shows it).
- * Only tools it was given count; everything else stays in the reply.
+ * blocks, the Python-style `Name(arg="v") </tool_call>` some routed models
+ * write, and the "[Called name {...}]" lines the text history shows. Only
+ * tools it was given count; everything else stays in the reply.
  */
 export function parseTextToolCalls(text: string, toolNames: readonly string[]): { text: string; calls: Array<{ name: string; input: Record<string, unknown> }> } {
   const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+  const takeCall = (raw: string): boolean => {
+    const call = /^\s*([A-Za-z_][\w.-]*)\s*\(([\s\S]*)\)\s*$/.exec(raw);
+    if (!call || !toolNames.includes(call[1]!)) return false;
+    try {
+      const args = parseKeywordArgs(call[2]!);
+      if (!args) return false;
+      calls.push({ name: call[1]!, input: args });
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const take = (raw: string): boolean => {
     const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     try {
@@ -479,10 +522,12 @@ export function parseTextToolCalls(text: string, toolNames: readonly string[]): 
       calls.push({ name: parsed.name, input: args && typeof args === 'object' ? args as Record<string, unknown> : {} });
       return true;
     } catch {
-      return false;
+      return takeCall(json);
     }
   };
   let rest = text.replace(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g, (block, inner: string) => (take(inner) ? '' : block));
+  // A call with only the closing tag after it, one per line.
+  rest = rest.replace(/^[ \t]*([A-Za-z_][\w.-]*\([^\n]*\))[ \t]*<\/tool_call>[ \t]*$/gm, (line, call: string) => (takeCall(call) ? '' : line));
   rest = rest.replace(/^\[Called ([\w.-]+) (\{[\s\S]*?\})\]\s*$/gm, (line, name: string, args: string) => {
     try {
       return take(JSON.stringify({ name, arguments: JSON.parse(args) as unknown })) ? '' : line;
@@ -504,16 +549,22 @@ function splitThoughtTags(text: string): { thinking: string; answer: string } {
 }
 
 async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal): Promise<unknown> {
-  const r = await fetch(PUTER_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;actually=json' },
-    body: JSON.stringify({ ...body, auth_token: token, app_uid: APP_UID }),
-    signal: signal ?? AbortSignal.timeout(180_000),
-  });
-  if (!r.ok) throw new PuterHttpError(r.status, await r.text().catch(() => ''));
-  const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
-  if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
-  return d.result;
+  const model = (body.args as { model?: unknown } | undefined)?.model;
+  const release = await queTurn(signal, typeof model === 'string' ? model : undefined);
+  try {
+    const r = await fetch(PUTER_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;actually=json' },
+      body: JSON.stringify({ ...body, auth_token: token, app_uid: APP_UID }),
+      signal: signal ?? AbortSignal.timeout(180_000),
+    });
+    if (!r.ok) throw new PuterHttpError(r.status, await r.text().catch(() => ''));
+    const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
+    if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
+    return d.result;
+  } finally {
+    release();
+  }
 }
 
 async function callChat(
@@ -677,9 +728,23 @@ export interface PuterStreamOptions {
  * (with its status and `kind`) when the call is refused, so callers can retry
  * or say why. Always the chosen model: a busy Gemma is asked again over
  * Google's route (tools as text there), and the Free Router is asked again
- * when it hands the request to the safety classifier.
+ * when it hands the request to the safety classifier. The call waits its turn
+ * in the Que engine's queue and holds it until the stream ends.
  */
 export async function* puterStream(messages: PuterMessage[], opts: PuterStreamOptions = {}): AsyncGenerator<PuterStreamEvent> {
+  // An unknown or held model fails at once instead of waiting in line first.
+  resolveModel(opts.model);
+  const held = heldRefusal(appModelId(opts.model));
+  if (held) throw held;
+  const release = await queTurn(opts.signal, appModelId(opts.model));
+  try {
+    yield* streamTurn(messages, opts);
+  } finally {
+    release();
+  }
+}
+
+async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): AsyncGenerator<PuterStreamEvent> {
   const appId = appModelId(opts.model);
   const primary = resolveModel(opts.model);
   const held = heldRefusal(appId);

@@ -17348,6 +17348,15 @@ export function issueRoutes(
         });
         for (const publication of publications) publishActivity(publication);
         await issueReferencesSvc.syncComment(comment.id);
+        // A new message replaces an automatic retry of a failed turn that has
+        // not started yet: the next turn reads the whole conversation, on the
+        // model the person may just have switched to, so letting the retry run
+        // as well would answer the same messages twice.
+        const pendingRetry = await svc.getCurrentScheduledRetry(issue.id);
+        if (pendingRetry && pendingRetry.agentId === issue.conversationAgentId &&
+            (pendingRetry.status === "scheduled_retry" || pendingRetry.status === "queued")) {
+          await cancelScheduledRetrySupersededByComment({ scheduledRetryRunId: pendingRetry.runId, issue, actor });
+        }
         await deliverConversationComments(db, issue, heartbeat.wakeup);
         res.status(201).json(comment);
         return;

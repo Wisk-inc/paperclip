@@ -110,6 +110,10 @@ import {
   studioRunSchema,
   updateStudioWorkspaceSchema,
   writeStudioFileSchema,
+  // Que engine
+  queBatchSchema,
+  queChatSchema,
+  queConversationMessageSchema,
   ensureMySkillFolderSchema,
   folderKindSchema,
   moveFolderItemSchema,
@@ -705,6 +709,10 @@ const responses = {
   },
   tooManyRequests: {
     description: "Too many requests",
+    content: { "application/json": { schema: ErrorSchema } },
+  },
+  serviceUnavailable: {
+    description: "Service unavailable",
     content: { "application/json": { schema: ErrorSchema } },
   },
 };
@@ -7823,6 +7831,16 @@ registerCurrentRoute({ method: "get", path: "/api/free-models/health", tags: ["f
 registerCurrentRoute({ method: "get", path: "/api/free-models/moan/status", tags: ["free-models"], summary: "Moan's Jamaican knowledge index: pages, sources and when it last refreshed" });
 registerCurrentRoute({ method: "post", path: "/api/free-models/moan/refresh", tags: ["free-models"], summary: "Read Moan's Jamaican sources again now" });
 registerCurrentRoute({ method: "get", path: "/api/free-models/moan/context", tags: ["free-models"], summary: "The passages Moan's knowledge index returns for a question (q)" });
+const queAsked = { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 503: r.serviceUnavailable };
+const queRead = { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound };
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/que/stats", tags: ["que"], summary: "The Que engine: free-model calls in flight and waiting, and this company's cached answers and your conversations", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/que/chat", tags: ["que"], summary: "Ask the free models one question (prompt or messages): cached for 5 minutes, retried while busy, and handed to the next free model when this one can't answer today (fallback: false keeps it on this model)", body: queChatSchema, responses: queAsked });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/que/batch", tags: ["que"], summary: "Ask up to 20 questions at once; each waits its turn in the Que queue, and one that fails says why", body: queBatchSchema, responses: queAsked });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/que/conversations", tags: ["que"], summary: "Your Que conversations (kept in server memory)", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
+registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/que/conversations", tags: ["que"], summary: "Clear all your Que conversations", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/que/conversations/{conversationId}", tags: ["que"], summary: "One Que conversation's messages", responses: queRead });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/que/conversations/{conversationId}", tags: ["que"], summary: "Send a message in a Que conversation (started on first use); a message that fails leaves the history as it was", body: queConversationMessageSchema, responses: queAsked });
+registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/que/conversations/{conversationId}", tags: ["que"], summary: "Clear one Que conversation", responses: queRead });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/status", tags: ["app-inspector"], summary: "Whether apktool and jadx are installed, and the phone's apps when Automa runs on it" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects", tags: ["app-inspector"], summary: "List decoded apps" });
 registerCurrentRoute({

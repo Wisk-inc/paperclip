@@ -167,6 +167,44 @@ describe("free models engine", () => {
     expect(net.posted()).toBe("Back now.");
   });
 
+  it("asks the same model again when a reply comes back empty, then for words without tools", async () => {
+    const empty = () => ndjson([{ type: "usage", usageDetails: { inputTokens: 5, outputTokens: 0 } }]);
+    const net = stubPuter([empty, empty, () => ndjson([{ type: "text", text: "It's 31°C in Kingston." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 6 } }])]);
+    await execute(context({ model: NEMOTRON, freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    expect(net.puterModels()).toEqual([NEMOTRON, NEMOTRON, NEMOTRON]);
+    const bodies = net.calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => JSON.parse(String(c.body)) as { args: { tools?: unknown[]; messages: Array<{ role: string; content: unknown }> } });
+    expect(bodies[1]!.args.tools?.length).toBeGreaterThan(0);
+    // The last try asks for words only, joined to the person's own message (no two user turns in a row).
+    expect(bodies[2]!.args.tools).toBeUndefined();
+    const lastTurn = bodies[2]!.args.messages.at(-1)!;
+    expect(lastTurn.role).toBe("user");
+    expect(String(lastTurn.content)).toContain("Your last reply came back empty");
+    expect(net.posted()).toBe("It's 31°C in Kingston.");
+  });
+
+  it("runs a tool call the model wrote as text instead of posting it", async () => {
+    const net = stubPuter([
+      () => ndjson([{ type: "text", text: 'Automa(method="GET", path="/api/agents/me") </tool_call>' }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 4 } }]),
+      () => ndjson([{ type: "text", text: "You are Atlas." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]),
+    ]);
+    await execute(context({ model: "openrouter/free", freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    expect(net.calls.some((call) => call.url === `${API}/api/agents/me`)).toBe(true);
+    expect(net.posted()).toBe("You are Atlas.");
+  });
+
+  it("gives a busy model its retries again after each answer in a long run", async () => {
+    const busy = refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited" });
+    const call = () => ndjson([{ type: "tool_use", id: `t${Math.random()}`, name: "Automa", input: { method: "GET", path: "/api/agents/me" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]);
+    const answer = () => ndjson([{ type: "text", text: "Done." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]);
+    // Three busy refusals before each of three turns: nine in all, more than one run's worth if they added up.
+    const net = stubPuter([busy, busy, busy, call, busy, busy, busy, call, busy, busy, busy, answer]);
+    await execute(context({ model: NEMOTRON, freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    expect(net.posted()).toBe("Done.");
+    // A rate limit leaves the tool history in its native shape.
+    const last = JSON.parse(String(net.calls.filter((c) => c.url.startsWith("https://api.puter.com/")).at(-1)!.body)) as { args: { messages: Array<{ role: string }> } };
+    expect(last.args.messages.some((m) => m.role === "tool")).toBe(true);
+  });
+
   it("says at once when the model is at its daily limit, and when it is back, without retrying", async () => {
     const net = stubPuter([
       refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Free model daily limit exceeded (1000 requests per day). Please try again after 600 seconds." }] }),

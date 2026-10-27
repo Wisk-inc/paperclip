@@ -3,6 +3,7 @@ import {
   describePuterError,
   formatSafetyVerdict,
   freeModelHealth,
+  mayHoldTextToolCalls,
   parseTextToolCalls,
   PUTER_MODELS,
   puterModelTakesTools,
@@ -125,6 +126,24 @@ describe("puterStream", () => {
     await collect(PUTER_MODELS["flint"]);
     await expect(collect(PUTER_MODELS["flint"])).rejects.toMatchObject({ kind: "charged" });
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("tool calls written as text", () => {
+  it("reads the Python-style call some routed models write before a closing tag", () => {
+    const parsed = parseTextToolCalls('WebSearch(query="capital of Jamaica population", count=5) </tool_call>', ["WebSearch"]);
+    expect(parsed.calls).toEqual([{ name: "WebSearch", input: { query: "capital of Jamaica population", count: 5 } }]);
+    expect(parsed.text).toBe("");
+  });
+
+  it("reads a Python-style call inside the tags, and leaves code that only looks like one", () => {
+    expect(parseTextToolCalls("<tool_call>WebFetch(url='https://jis.gov.jm', raw=False)</tool_call>", ["WebFetch"]).calls).toEqual([
+      { name: "WebFetch", input: { url: "https://jis.gov.jm", raw: false } },
+    ]);
+    const code = "Call it like this:\n\nWebSearch(query=\"x\")";
+    expect(parseTextToolCalls(code, ["WebSearch"])).toEqual({ text: code, calls: [] });
+    expect(mayHoldTextToolCalls(code)).toBe(false);
+    expect(mayHoldTextToolCalls("WebSearch(query=\"x\") </tool_call>")).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Gift, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
+import { Check, Gift, KeyRound, Loader2, Search, Sparkles, Zap } from "lucide-react";
 import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, isMoanModel, pairedFreeImageModel, resolveFreeModel, type Agent, type AiProvider, type FreeModelHealthEntry } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
@@ -208,6 +208,30 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
         Reset
       </Button>
     </div>
+  );
+}
+
+/** The Que engine every free model answers through: what it is doing right now. */
+function QueEngineStatus({ companyId }: { companyId: string }) {
+  const stats = useQuery({
+    queryKey: queryKeys.freeModels.que(companyId),
+    queryFn: () => freeModelsApi.queStats(companyId),
+    refetchInterval: 5_000,
+  });
+  if (stats.error) {
+    return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{stats.error instanceof Error ? stats.error.message : "Could not load the Que engine."}</p>;
+  }
+  if (!stats.data) return null;
+  const { inFlight, waiting, maxInFlight, cachedAnswers } = stats.data;
+  const now = inFlight === 0 && waiting === 0
+    ? `ready · up to ${maxInFlight} answers at once`
+    : `${inFlight} answering${waiting ? ` · ${waiting} waiting their turn` : ""}`;
+  return (
+    <p data-testid="que-engine" className="mx-1 mb-2 flex items-center gap-1.5 px-3 text-xs text-muted-foreground">
+      <Zap className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="font-medium text-foreground">Que engine</span>
+      <span className="truncate">· {now}{cachedAnswers ? ` · ${cachedAnswers} cached` : ""}</span>
+    </p>
   );
 }
 
@@ -636,6 +660,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
                 <Gift className="size-3.5" aria-hidden="true" />
                 Free models · no key needed
               </h3>
+              <QueEngineStatus companyId={companyId} />
               <FreeUsageCard companyId={companyId} />
               {visibleFree.map((entry) => (
                 <ModelRow

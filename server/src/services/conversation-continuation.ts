@@ -4,10 +4,20 @@ import { readProcessStartedAt } from "./hot-restart.js";
 
 // These adapters accept a conversation turn. Retrying a process or webhook can
 // replay the action itself, so those adapters retain their recovery contract.
+// free_models is a chat turn on the free engine: a refused model call (a daily
+// limit, a busy provider) must leave the chat open for the next message, not
+// hold it for reconciliation.
 export const CONVERSATION_ADAPTER_TYPES = [
   "claude_local", "codex_local", "cursor", "gemini_local", "opencode_local",
-  "pi_local", "grok_local", "kimi_local", "hermes_local",
+  "pi_local", "grok_local", "kimi_local", "hermes_local", "free_models",
 ] as const;
+
+/**
+ * Adapters with no provider process or session outside the server: every stop
+ * of theirs is a conversation stop, so a hold recorded before they were listed
+ * above (whatever its error code) is folded on upgrade too.
+ */
+const SESSIONLESS_CONVERSATION_ADAPTER_TYPES = ["free_models"] as const;
 
 export function isConversationAdapter(adapterType: string): boolean {
   return (CONVERSATION_ADAPTER_TYPES as readonly string[]).includes(adapterType);
@@ -76,6 +86,7 @@ export function conversationRecoveryActionPredicate() {
         and ${conversationRunPredicate()}
         and ${or(
           sql`${heartbeatRuns.resultJson}->>'conversationContinuation' = ${CONVERSATION_CONTINUATION_POLICY}`,
+          inArray(sql`${heartbeatRuns.runnerProfileJson}->'adapterDispatch'->>'adapterType'`, [...SESSIONLESS_CONVERSATION_ADAPTER_TYPES]),
           eq(heartbeatRuns.status, "interrupted"),
           inArray(heartbeatRuns.errorCode, ["process_lost", "server_shutdown_interrupted", "execution_reconciliation_required"]),
           and(eq(heartbeatRuns.status, "cancelled"), sql`${heartbeatRuns.resultJson}->'executionCancellation'->>'state' = 'acknowledged'`),

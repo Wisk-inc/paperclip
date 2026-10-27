@@ -2853,6 +2853,22 @@ export {
   type FreeModelUsageSummary,
 } from "./free-models.js";
 export {
+  QUE_CONVERSATION_ID_PATTERN,
+  QUE_MAX_BATCH,
+  QUE_MAX_IN_FLIGHT,
+  QUE_THINK_MODES,
+  queBatchSchema,
+  queChatSchema,
+  queConversationMessageSchema,
+  type QueAnswer,
+  type QueBatchItem,
+  type QueConversation,
+  type QueMessage,
+  type QueStats,
+  type QueThinkMode,
+  type QueUsage,
+} from "./que.js";
+export {
   JAMAICA_PRIMER,
   MOAN_BASE_MODEL,
   MOAN_BLURB,

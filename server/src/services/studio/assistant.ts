@@ -24,6 +24,8 @@ import {
   formatSafetyVerdict,
   isLastingPuterError,
   isTransientPuterError,
+  mayHoldTextToolCalls,
+  parseTextToolCalls,
   puterModelTakesTools,
   puterComplete,
   puterStream,
@@ -1554,12 +1556,24 @@ async function runFreeModels(input: {
       if (!(error instanceof PuterHttpError)) throw error;
       // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
       if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
-      if (!textHistory && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
+      if (!textHistory && error.status !== 429 && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
       if (useTools && error.status !== 429) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
       if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) { retries += 1; await new Promise((r) => setTimeout(r, FREE_RETRY_BASE_MS * retries)); step -= 1; continue; }
       throw describePuterError(error, label, retries);
     }
     await input.onUsage({ provider: "free", model: input.model, inputTokens: usage.inputTokens, cachedInputTokens: 0, outputTokens: usage.outputTokens, costUsd: 0 });
+    // A busy provider counts against this reply only while it stays busy.
+    retries = 0;
+    // Some models (often behind the Free Router) write a tool call as text
+    // instead of calling it: run it all the same rather than show it.
+    if (useTools && calls.length === 0 && mayHoldTextToolCalls(text)) {
+      const written = parseTextToolCalls(text, tools.map((tool) => tool.function.name));
+      if (written.calls.length) {
+        text = written.text;
+        stopReason = "tool_use";
+        for (const call of written.calls) calls.push({ id: `call_${Math.random().toString(36).slice(2)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } });
+      }
+    }
     if (reasoning.trim()) input.onThought(reasoning);
     const spoken = safetyModel ? formatSafetyVerdict(text.trim()) : text.trim();
     if (spoken) input.onText(spoken);
