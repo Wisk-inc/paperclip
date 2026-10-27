@@ -8,6 +8,9 @@ vi.mock("../../services/free-models.js", () => ({
 
 const { execute } = await import("./execute.js");
 
+/** The document tools every chat model gets, after whatever its toggles allow. */
+const OFFICE_TOOL_NAMES = ["CreateSpreadsheet", "CreatePresentation", "CreateDocument", "ReadDocument"];
+
 const API = "http://automa.test";
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString("base64");
 
@@ -266,7 +269,7 @@ describe("free models engine", () => {
     const result = await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false }));
 
     const first = net.puterBodies()[0]!.args as { tools?: Array<{ function: { name: string } }>; messages: Array<{ role: string; content: string }> };
-    expect(first.tools?.map((tool) => tool.function.name)).toEqual(["GenerateImage"]);
+    expect(first.tools?.map((tool) => tool.function.name)).toEqual(["GenerateImage", ...OFFICE_TOOL_NAMES]);
     expect(first.messages[0]!.content).toContain("call GenerateImage");
     expect(net.calls.some((call) => call.url.endsWith("/attachments") && call.method === "POST")).toBe(true);
     expect(postedBody(net.calls)).toContain("![a red fox in snow at night, cinematic](/api/attachments/att-1/content)");
@@ -277,7 +280,7 @@ describe("free models engine", () => {
     const net = stubNetwork();
     await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", imageModel: "none", freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false }));
     const first = net.puterBodies()[0]!.args as { tools?: unknown[] };
-    expect(first.tools ?? []).toEqual([]);
+    expect(((first.tools ?? []) as Array<{ function: { name: string } }>).map((tool) => tool.function.name)).toEqual(OFFICE_TOOL_NAMES);
   });
 
   it("draws with an image model, uploads the picture, and embeds it", async () => {

@@ -20,6 +20,7 @@ const labels: Record<ToolFamily, string> = {
   agent: "Worked with agents",
   safety: "Reviewed safety",
   image: "Worked with images",
+  document: "Made documents",
   wait: "Waited",
   mcp: "Used connected tools",
   other: "Used tools",

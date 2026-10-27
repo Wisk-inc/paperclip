@@ -1,8 +1,11 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
   describePuterError,
   isPuterImageModel,
   isTransientPuterError,
   puterComplete,
+  puterImage,
   puterStream,
   PUTER_IMAGE_MODELS,
   PUTER_MODELS,
@@ -20,8 +23,8 @@ import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.j
 import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
 import { createThinkingTagSplitter, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
-import { freeToolDefinitions, runFreeTool, type FreeToolContext, type FreeToolToggles } from "./tools.js";
-import { drawAndUploadImage, loadThread, postReply, readCommentPictures, threadApi, type ThreadApi } from "./thread.js";
+import { freeToolDefinitions, runFreeTool, type FreeToolContext, type FreeToolToggles, type SavedDocument } from "./tools.js";
+import { attachmentName, drawAndUploadImage, listAttachments, loadThread, postReply, readCommentPictures, threadApi, uploadFile, type ThreadApi } from "./thread.js";
 import { freeDirectToolRuntime } from "./direct-runtime.js";
 
 const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
@@ -180,6 +183,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   // Images drawn by the GenerateImage tool during the run, added to the reply.
   const drawn: { markdown: string; attachmentId: string }[] = [];
+  // Files made by the document tools, attached to the reply.
+  const made: SavedDocument[] = [];
+  let slidePictures = 0;
   const toolCtx: FreeToolContext = {
     toggles,
     direct,
@@ -192,15 +198,59 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       addUsage(imageModel!, { inputTokens: 0, outputTokens: 0 });
       return { markdown: image.markdown, attachmentId: image.attachmentId };
     },
+    drawPicture: imageModel
+      ? async (prompt) => {
+          await onLog("stdout", logLine({ type: "acpx.status", message: `Drawing a slide picture with ${imageModel}` }));
+          const image = await puterImage(prompt, { model: imageModel, signal: ctx.signal });
+          slidePictures += 1;
+          addUsage(imageModel, { inputTokens: 0, outputTokens: 0 });
+          return { bytes: image.bytes, mimeType: image.mimeType };
+        }
+      : undefined,
+    saveDocument: async (name, bytes, mimeType) => {
+      await onLog("stdout", logLine({ type: "acpx.status", message: `Attaching ${name}` }));
+      const uploaded = await uploadFile(api, issue.companyId, issueId, name, bytes, mimeType);
+      const saved: SavedDocument = { ...uploaded };
+      if (direct) {
+        try {
+          await fs.mkdir(path.join(direct.cwd, "documents"), { recursive: true });
+          await fs.writeFile(path.join(direct.cwd, "documents", name), bytes);
+          saved.savedPath = `documents/${name}`;
+        } catch (error) {
+          await onLog("stdout", `[paperclip] Could not keep ${name} in the working folder: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+      }
+      made.push(saved);
+      return saved;
+    },
+    readAttachment: async (ref) => {
+      const wanted = ref.trim().toLowerCase();
+      const attachments = (await listAttachments(api, issueId)).reverse();
+      const match = attachments.find((attachment) => attachment.id === ref)
+        ?? attachments.find((attachment) => attachmentName(attachment).toLowerCase() === wanted)
+        ?? attachments.find((attachment) => attachmentName(attachment).toLowerCase().includes(wanted));
+      if (!match) return null;
+      const bytes = new Uint8Array(await (await api.request(match.contentPath)).arrayBuffer());
+      return { name: attachmentName(match), contentType: match.contentType, bytes };
+    },
   };
   const tools = freeToolDefinitions(toolCtx);
+  // Files the person attached to their last message, so the model knows to read them.
+  let attachedFiles: string[] = [];
+  if (lastUser) {
+    try {
+      attachedFiles = (await listAttachments(api, issueId))
+        .filter((attachment) => attachment.issueCommentId === lastUser.id && !attachment.contentType.startsWith("image/"))
+        .map(attachmentName);
+    } catch (error) { await onLog("stdout", `[paperclip] Attachment list skipped: ${error instanceof Error ? error.message : String(error)}\n`); }
+  }
 
   // Only the vision model reads attached photos; other chat models are told they can't.
   const pictures = lastUser && model === VISION_MODEL ? await readCommentPictures(api, issueId, lastUser.id) : [];
   const profile = await loadProfile(api, issue.companyId, agent.id, readId((issue as { conversationUserId?: unknown }).conversationUserId));
   for (const note of profile.notes) await onLog("stdout", `[paperclip] Profile lookup skipped: ${note}\n`);
   await onLog("stdout", `[paperclip] Profile: ${profile.title || profile.role || "no role"}; person ${profile.personName || "unknown"}; ${profile.teammates.length} teammates\n`);
-  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile });
+  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
@@ -211,15 +261,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   });
 
   const imageMarkdown = drawn.filter((image) => !answer.includes(image.attachmentId)).map((image) => image.markdown).join("\n\n");
+  // Made files the reply does not link itself get a download line each.
+  const fileLinks = made.filter((file) => !answer.includes(file.attachmentId)).map((file) => `📎 [${file.name}](${file.downloadPath})`).join("\n");
   const note = hitTurnLimit ? "\n\n(Stopped after the tool-use limit. Ask me to continue.)" : "";
   // Thinking streams into the collapsible panel live, never into the reply.
-  const body = [answer, imageMarkdown].filter(Boolean).join("\n\n")
+  const body = [answer, imageMarkdown, fileLinks].filter(Boolean).join("\n\n")
     + (answeredBy !== model ? `\n\n_${model} was busy, so ${answeredBy} answered._` : "")
     + note;
 
-  await postReply(api, issueId, body.trim() || "(No reply came back. Send the message again.)", drawn.map((image) => image.attachmentId));
+  await postReply(api, issueId, body.trim() || "(No reply came back. Send the message again.)", [...drawn.map((image) => image.attachmentId), ...made.map((file) => file.attachmentId)]);
   await onLog("stdout", logLine({ type: "acpx.result", summary: answer ? "Replied" : stopReason, stopReason, inputTokens: sumUsage(spent).inputTokens, outputTokens: sumUsage(spent).outputTokens, costUsd: 0 }));
-  return finish(ctx, drawn.length, answeredBy, spent, body);
+  return finish(ctx, drawn.length + slidePictures, answeredBy, spent, body);
 }
 
 interface BuildInput {
@@ -233,9 +285,11 @@ interface BuildInput {
   /** GenerateImage is among the tools: a paired image model is ready. */
   canDraw: boolean;
   profile: Profile;
+  /** Non-image files attached to the person's last message. */
+  attachedFiles?: string[];
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile): string {
+function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = []): string {
   const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
     `You are ${agentName}${who ? ` (${who})` : ""}, an AI agent on the person's team in Automa, chatting with them in the app.${profile.personName ? ` The person you are talking to is ${profile.personName}; use their name naturally.` : ""}`,
@@ -248,13 +302,19 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
     canDraw
       ? "When the person asks for a picture, image, drawing, illustration, logo, poster, wallpaper or photo of something, call GenerateImage with a detailed prompt (subject, style, lighting, composition). Never say you cannot draw, and never describe the picture instead of drawing it. Then say in a line what you drew."
       : "",
+    hasTools
+      ? "You also make real files. When the person wants a spreadsheet, workbook, budget, tracker or a table to open in Excel or Google Sheets, call CreateSpreadsheet. When they want slides, a deck, a presentation or a pitch, call CreatePresentation. When they want a letter, report, contract, agreement, essay, CV, plan, form or any document file, call CreateDocument with the complete text in Markdown. The file is attached to your reply, so describe it in a line or two instead of pasting its contents. To work from a file (a spreadsheet, document, presentation, PDF or CSV the person attached, a file in your folder, or one at a URL), call ReadDocument first, then answer about it, change it, or recreate it with a Create tool."
+      : "",
+    attachedFiles.length
+      ? `The person attached ${attachedFiles.length === 1 ? "a file" : "files"} to their last message: ${attachedFiles.join(", ")}. Read ${attachedFiles.length === 1 ? "it" : "them"} with ReadDocument (attachment: the file name) before answering about ${attachedFiles.length === 1 ? "it" : "them"}.`
+      : "",
     "Write the way you would to a teammate: answer first, then the detail that matters, in Markdown.",
     level ? thinkingInstruction(level) : "",
   ].filter(Boolean).join("\n\n");
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });

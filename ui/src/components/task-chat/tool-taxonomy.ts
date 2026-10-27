@@ -10,6 +10,7 @@ import {
   CircleHelp,
   Clock3,
   FilePenLine,
+  FileText,
   Image,
   ListChecks,
   MessageSquareReply,
@@ -38,6 +39,7 @@ export type ToolFamily =
   | "agent"
   | "safety"
   | "image"
+  | "document"
   | "wait"
   | "mcp"
   | "other";
@@ -174,6 +176,9 @@ const EXACT_ACTIONS: Record<string, ExactAction> = {
   web_crawl: { action: "fetch", running: "Crawling a site", completed: "Crawled a site", family: "web" },
   web_download: { action: "fetch", running: "Downloading a file", completed: "Downloaded a file", family: "web" },
   generate_image: { action: "create", running: "Generating an image", completed: "Generated an image", family: "image" },
+  create_spreadsheet: { action: "create", running: "Making a spreadsheet", completed: "Made a spreadsheet", family: "document" },
+  create_presentation: { action: "create", running: "Making a presentation", completed: "Made a presentation", family: "document" },
+  create_document: { action: "create", running: "Making a document", completed: "Made a document", family: "document" },
   todo_write: { action: "update", running: "Updating the task list", completed: "Updated the task list", family: "plan", group: group("task_operation", "task operation", "task operations") },
   task_create: { action: "create", running: "Creating a task", completed: "Created a task", family: "plan", group: group("task_operation", "task operation", "task operations") },
   task_update: { action: "update", running: "Updating a task", completed: "Updated a task", family: "plan", group: group("task_operation", "task operation", "task operations") },
@@ -203,7 +208,7 @@ const EXACT_ACTIONS: Record<string, ExactAction> = {
   get_task_context: { action: "read", running: "Reading task context", completed: "Read task context" },
   get_task_history: { action: "read", running: "Reading task history", completed: "Read task history" },
   list_documents: { action: "list", running: "Listing documents", completed: "Listed documents" },
-  read_document: { action: "read", running: "Reading a document", completed: "Read a document" },
+  read_document: { action: "read", running: "Reading a document", completed: "Read a document", family: "document" },
   list_document_revisions: { action: "list", running: "Listing document revisions", completed: "Listed document revisions" },
   report_progress: { action: "post", running: "Reporting progress", completed: "Reported progress" },
   answer_status_question: { action: "post", running: "Answering a status question", completed: "Answered a status question" },
@@ -304,6 +309,7 @@ const FAMILY_ICONS: Record<ToolFamily, ToolIcon> = {
   agent: Network,
   safety: ShieldCheck,
   image: Image,
+  document: FileText,
   wait: Clock3,
   mcp: McpIcon,
   other: Wrench,

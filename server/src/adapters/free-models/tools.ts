@@ -4,8 +4,23 @@ import {
   runDirectTool,
   type DirectToolRuntime,
 } from "@paperclipai/adapter-claude-local/server";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AdapterRuntimeToolAccess } from "@paperclipai/adapter-utils";
 import type { PuterImageModelId, PuterTool } from "@paperclipai/shared/puter-ai";
+import {
+  buildDocument,
+  buildPresentation,
+  buildSpreadsheet,
+  documentFileName,
+  PRESENTATION_THEMES,
+  readDocument,
+  type CellValue,
+  type PresentationTheme,
+  type SheetSpec,
+  type SlideImage,
+  type SlideSpec,
+} from "./office.js";
 import { webCrawl, webDownload, webFetch, webSearch } from "./web.js";
 
 /** What the agent is allowed to do this run, read from its config toggles. */
@@ -18,14 +33,43 @@ export interface FreeToolToggles {
   imageModel: PuterImageModelId | null;
 }
 
+/** A document the engine made: attached to the reply, and saved in the working folder when there is one. */
+export interface SavedDocument {
+  attachmentId: string;
+  name: string;
+  contentPath: string;
+  downloadPath: string;
+  /** Where it was written in the working folder, relative to it; absent when files are off. */
+  savedPath?: string;
+}
+
+/** A file the person attached to the conversation, fetched for reading. */
+export interface AttachedFile {
+  name: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
 export interface FreeToolContext {
   toggles: FreeToolToggles;
   direct: DirectToolRuntime | null;
   runtimeTools?: AdapterRuntimeToolAccess;
   /** Draws a picture with the bonded model and returns how to show it in the reply. */
   generateImage: (prompt: string) => Promise<{ markdown: string; attachmentId: string }>;
+  /** Draws a picture with the bonded model for use inside a file (a slide); absent when no image model is paired. */
+  drawPicture?: (prompt: string) => Promise<SlideImage>;
+  /** Attaches a made file to the reply (and keeps it in the working folder when files are on). */
+  saveDocument: (name: string, bytes: Uint8Array, mimeType: string) => Promise<SavedDocument>;
+  /** A file the person attached, by name or attachment id; null when there is none. */
+  readAttachment: (ref: string) => Promise<AttachedFile | null>;
   signal?: AbortSignal;
 }
+
+export const OFFICE_MIME = {
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+} as const;
 
 const FILE_TOOLS = new Set(["Read", "Write", "Edit", "Bash", "Grep", "Glob"]);
 
@@ -120,6 +164,117 @@ const CONNECTION_REQUEST_TOOL: PuterTool = {
   },
 };
 
+const CELL_SCHEMA = { description: "A cell: text, a number, true/false, or null for empty. Text starting with = is a formula, e.g. =SUM(B2:B9)." };
+
+const CREATE_SPREADSHEET_TOOL: PuterTool = {
+  type: "function",
+  function: {
+    name: "CreateSpreadsheet",
+    description: "Make an Excel spreadsheet (.xlsx) and attach it to your reply. Use it whenever the person wants a spreadsheet, workbook, budget, tracker, schedule, price list, roster or any table to open in Excel or Google Sheets. Give each sheet a name, its header columns and its rows; a cell starting with = is a formula (=SUM(B2:B9)). The person downloads the file from the chat.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_name: { type: "string", description: "The file name, e.g. budget-2026.xlsx" },
+        title: { type: "string", description: "The workbook title" },
+        sheets: {
+          type: "array",
+          description: "One entry per sheet, in order",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "The sheet's tab name" },
+              columns: { type: "array", items: { type: "string" }, description: "Header row" },
+              rows: { type: "array", items: { type: "array", items: CELL_SCHEMA }, description: "Data rows, each a list of cells" },
+            },
+            required: ["rows"],
+          },
+        },
+      },
+      required: ["sheets"],
+    },
+  },
+};
+
+const CREATE_PRESENTATION_TOOL: PuterTool = {
+  type: "function",
+  function: {
+    name: "CreatePresentation",
+    description: "Make a PowerPoint presentation (.pptx) and attach it to your reply. Use it for slides, decks, pitches, lessons and talks. You give the title, a theme and one entry per slide: a title with bullets or paragraphs, optionally a table, a chart, speaker notes, and image_prompt to draw a picture for the slide when an image model is paired. A cover slide is added for you.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_name: { type: "string", description: "The file name, e.g. pitch.pptx" },
+        title: { type: "string", description: "The deck's title (cover slide)" },
+        subtitle: { type: "string", description: "Cover subtitle" },
+        theme: { type: "string", enum: [...PRESENTATION_THEMES], description: "light (default), dark, jamaica (green, gold, black), ocean or sunset" },
+        slides: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              subtitle: { type: "string" },
+              bullets: { type: "array", items: { type: "string" }, description: "Bullet points" },
+              paragraphs: { type: "array", items: { type: "string" }, description: "Plain paragraphs, shown above the bullets" },
+              table: { type: "object", properties: { columns: { type: "array", items: { type: "string" } }, rows: { type: "array", items: { type: "array", items: CELL_SCHEMA } } }, required: ["columns", "rows"] },
+              chart: {
+                type: "object",
+                properties: {
+                  type: { type: "string", enum: ["bar", "line", "pie", "doughnut"] },
+                  categories: { type: "array", items: { type: "string" }, description: "The x-axis labels or pie slices" },
+                  series: { type: "array", items: { type: "object", properties: { name: { type: "string" }, values: { type: "array", items: { type: "number" } } }, required: ["name", "values"] } },
+                },
+                required: ["type", "categories", "series"],
+              },
+              image_prompt: { type: "string", description: "Draw this picture on the slide (needs a paired image model); at most 6 per deck" },
+              notes: { type: "string", description: "Speaker notes" },
+            },
+            required: ["title"],
+          },
+        },
+      },
+      required: ["title", "slides"],
+    },
+  },
+};
+
+const CREATE_DOCUMENT_TOOL: PuterTool = {
+  type: "function",
+  function: {
+    name: "CreateDocument",
+    description: "Make a Word document (.docx) from Markdown and attach it to your reply. Use it for letters, reports, contracts, agreements, essays, CVs, plans, minutes, forms and anything the person wants as a document file. Headings, lists, tables, quotes, code blocks, bold, italics and links become real Word styles. Write the full text yourself; do not leave placeholders unless the person asked for a template.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_name: { type: "string", description: "The file name, e.g. lease-agreement.docx" },
+        title: { type: "string", description: "A title line at the top of the document" },
+        markdown: { type: "string", description: "The whole document body, in Markdown" },
+      },
+      required: ["markdown"],
+    },
+  },
+};
+
+const READ_DOCUMENT_TOOL: PuterTool = {
+  type: "function",
+  function: {
+    name: "ReadDocument",
+    description: "Read a spreadsheet (.xlsx), Word document (.docx), presentation (.pptx), PDF, CSV or text file: one the person attached to the chat (attachment: its file name), a file in the working folder (path), or a file on the web (url). You get its text and structure (sheets as tables, slides one by one, pages) so you can answer about it, change it, translate it, or recreate it with the Create tools. Long files come in pieces: pass offset to continue.",
+    parameters: {
+      type: "object",
+      properties: {
+        attachment: { type: "string", description: "The attached file's name (or attachment id)" },
+        path: { type: "string", description: "A file in the working folder, e.g. documents/report.docx" },
+        url: { type: "string", description: "An http(s) URL of the file" },
+        offset: { type: "integer", description: "Character offset to continue a long file from" },
+        max_chars: { type: "integer", description: "How much to read at once (default 20000)" },
+      },
+    },
+  },
+};
+
+const OFFICE_TOOLS = [CREATE_SPREADSHEET_TOOL, CREATE_PRESENTATION_TOOL, CREATE_DOCUMENT_TOOL, READ_DOCUMENT_TOOL];
+
 function imageTool(model: PuterImageModelId): PuterTool {
   return {
     type: "function",
@@ -145,7 +300,62 @@ export function freeToolDefinitions(ctx: FreeToolContext): PuterTool[] {
   if (ctx.toggles.web && ctx.toggles.filesAndCommands && ctx.direct) tools.push(WEB_DOWNLOAD_TOOL);
   if (ctx.toggles.connections && ctx.runtimeTools) tools.push(CONNECTIONS_SEARCH_TOOL, CONNECTION_REQUEST_TOOL);
   if (ctx.toggles.imageModel) tools.push(imageTool(ctx.toggles.imageModel));
+  // Documents need no toggle: they are made in memory and attached to the reply.
+  tools.push(...OFFICE_TOOLS);
   return tools;
+}
+
+function cell(value: unknown): CellValue {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  return JSON.stringify(value);
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => (item == null ? "" : String(item))) : [];
+}
+
+function rows(value: unknown): CellValue[][] {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => (Array.isArray(row) ? row.map(cell) : row && typeof row === "object" ? Object.values(row as Record<string, unknown>).map(cell) : [cell(row)]));
+}
+
+function sheetSpecs(value: unknown): SheetSpec[] {
+  const list = Array.isArray(value) ? value : value && typeof value === "object" ? [value] : [];
+  return list
+    .filter((sheet): sheet is Record<string, unknown> => Boolean(sheet) && typeof sheet === "object")
+    .map((sheet) => ({ name: typeof sheet.name === "string" ? sheet.name : undefined, columns: sheet.columns === undefined ? undefined : strings(sheet.columns), rows: rows(sheet.rows) }))
+    .filter((sheet) => (sheet.columns?.length ?? 0) > 0 || sheet.rows!.length > 0);
+}
+
+function slideSpecs(value: unknown): SlideSpec[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((slide): slide is Record<string, unknown> => Boolean(slide) && typeof slide === "object")
+    .map((slide) => {
+      const table = slide.table && typeof slide.table === "object" ? (slide.table as Record<string, unknown>) : null;
+      const chart = slide.chart && typeof slide.chart === "object" ? (slide.chart as Record<string, unknown>) : null;
+      const series = Array.isArray(chart?.series)
+        ? (chart!.series as unknown[]).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object").map((item) => ({ name: String(item.name ?? "Series"), values: (Array.isArray(item.values) ? item.values : []).map((n) => Number(n) || 0) }))
+        : [];
+      const chartType = typeof chart?.type === "string" && ["bar", "line", "pie", "doughnut"].includes(chart.type) ? (chart.type as "bar" | "line" | "pie" | "doughnut") : "bar";
+      return {
+        title: typeof slide.title === "string" ? slide.title : undefined,
+        subtitle: typeof slide.subtitle === "string" ? slide.subtitle : undefined,
+        bullets: strings(slide.bullets),
+        paragraphs: strings(slide.paragraphs),
+        table: table && Array.isArray(table.columns) ? { columns: strings(table.columns), rows: rows(table.rows) } : undefined,
+        chart: chart && series.length ? { type: chartType, categories: strings(chart.categories), series } : undefined,
+        image_prompt: typeof slide.image_prompt === "string" && slide.image_prompt.trim() ? slide.image_prompt.trim() : undefined,
+        notes: typeof slide.notes === "string" ? slide.notes : undefined,
+      };
+    });
+}
+
+const MAX_SLIDE_PICTURES = 6;
+
+function savedLine(saved: SavedDocument): string {
+  return `It is attached to your reply${saved.savedPath ? ` and saved at ${saved.savedPath}` : ""}; the person can open or download it from the chat. Say in a line or two what is in it (and link it as [${saved.name}](${saved.downloadPath}) if you like); do not paste its whole contents into the reply.`;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -178,6 +388,8 @@ export interface FreeToolResult {
   /** Set when the tool produced a picture to add to the reply. */
   attachmentId?: string;
   imageMarkdown?: string;
+  /** Set when the tool made a file that is attached to the reply. */
+  document?: SavedDocument;
 }
 
 /** Runs one tool call for the free engine. Unknown tools come back as errors the model can read. */
@@ -244,6 +456,80 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
       if (!prompt) return { content: "GenerateImage needs a prompt.", isError: true };
       const image = await ctx.generateImage(prompt);
       return { content: "The picture was drawn and added to your reply. Do not repeat the image markdown yourself.", isError: false, attachmentId: image.attachmentId, imageMarkdown: image.markdown };
+    }
+    if (name === "CreateSpreadsheet") {
+      const sheets = sheetSpecs(input.sheets);
+      if (!sheets.length) return { content: "CreateSpreadsheet needs at least one sheet with columns or rows.", isError: true };
+      const title = str(input, "title").trim();
+      const fileName = documentFileName(str(input, "file_name"), "xlsx", title || "spreadsheet");
+      const bytes = await buildSpreadsheet({ title: title || undefined, sheets });
+      const saved = await ctx.saveDocument(fileName, bytes, OFFICE_MIME.xlsx);
+      const total = sheets.reduce((count, sheet) => count + (sheet.rows?.length ?? 0), 0);
+      return { content: `Made ${fileName}: ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sheet) => sheet.name ?? "Sheet").join(", ")}), ${total} rows. ${savedLine(saved)}`, isError: false, document: saved };
+    }
+    if (name === "CreatePresentation") {
+      const slides = slideSpecs(input.slides);
+      const title = str(input, "title").trim();
+      if (!title || !slides.length) return { content: "CreatePresentation needs a title and at least one slide.", isError: true };
+      const theme = (PRESENTATION_THEMES as string[]).includes(str(input, "theme")) ? (str(input, "theme") as PresentationTheme) : "light";
+      const images = new Map<number, SlideImage>();
+      const drawn: string[] = [];
+      if (ctx.drawPicture) {
+        for (const [index, slide] of slides.entries()) {
+          if (!slide.image_prompt || images.size >= MAX_SLIDE_PICTURES) continue;
+          try {
+            images.set(index, await ctx.drawPicture(slide.image_prompt));
+          } catch (error) {
+            drawn.push(`slide ${index + 1}: picture not drawn (${error instanceof Error ? error.message : String(error)})`);
+          }
+        }
+      } else if (slides.some((slide) => slide.image_prompt)) {
+        drawn.push("no image model is paired, so the slides have no pictures");
+      }
+      const fileName = documentFileName(str(input, "file_name"), "pptx", title);
+      const bytes = await buildPresentation({ title, subtitle: str(input, "subtitle") || undefined, theme, slides }, images);
+      const saved = await ctx.saveDocument(fileName, bytes, OFFICE_MIME.pptx);
+      const notes = drawn.length ? ` Notes: ${drawn.join("; ")}.` : "";
+      return { content: `Made ${fileName}: ${slides.length + 1} slides (cover + ${slides.length}), theme ${theme}${images.size ? `, ${images.size} picture${images.size === 1 ? "" : "s"}` : ""}.${notes} ${savedLine(saved)}`, isError: false, document: saved };
+    }
+    if (name === "CreateDocument") {
+      const markdown = str(input, "markdown").trim();
+      if (!markdown) return { content: "CreateDocument needs the document body in markdown.", isError: true };
+      const title = str(input, "title").trim();
+      const fileName = documentFileName(str(input, "file_name"), "docx", title || "document");
+      const bytes = await buildDocument({ title: title || undefined, markdown });
+      const saved = await ctx.saveDocument(fileName, bytes, OFFICE_MIME.docx);
+      const words = markdown.split(/\s+/).filter(Boolean).length;
+      return { content: `Made ${fileName}: about ${words} words. ${savedLine(saved)}`, isError: false, document: saved };
+    }
+    if (name === "ReadDocument") {
+      const ref = str(input, "attachment").trim();
+      const url = str(input, "url").trim();
+      const relative = str(input, "path").trim();
+      let bytes: Uint8Array;
+      let fileName: string;
+      let contentType = "";
+      if (ref) {
+        const found = await ctx.readAttachment(ref);
+        if (!found) return { content: `There is no attachment named "${ref}" on this chat. Ask the person to attach the file, or give a path or url.`, isError: true };
+        bytes = found.bytes; fileName = found.name; contentType = found.contentType;
+      } else if (url) {
+        const file = await webDownload(url, ctx.signal);
+        bytes = file.bytes; contentType = file.contentType;
+        fileName = decodeURIComponent(new URL(file.url).pathname.split("/").filter(Boolean).pop() || "download");
+      } else if (relative) {
+        if (!ctx.direct) return { content: "Reading files from the working folder needs Files & commands turned on. Attach the file to the chat instead, or give a url.", isError: true };
+        const root = path.resolve(ctx.direct.cwd);
+        const absolute = path.resolve(root, relative);
+        if (absolute !== root && !absolute.startsWith(root + path.sep)) return { content: "The path must be inside the working folder.", isError: true };
+        bytes = new Uint8Array(await fs.readFile(absolute));
+        fileName = path.basename(absolute);
+      } else {
+        return { content: "ReadDocument needs an attachment name, a path or a url.", isError: true };
+      }
+      const read = await readDocument(bytes, fileName, { contentType, offset: Number(input.offset) || 0, maxChars: Number(input.max_chars) || undefined });
+      const more = read.totalChars > read.shown ? `\n\n(${read.totalChars - read.shown} more characters; call again with offset ${read.shown} to continue.)` : "";
+      return { content: `# ${fileName} (${read.kind}, ${read.summary})\n\n${read.text}${more}`, isError: false };
     }
     return { content: `There is no tool named ${name}.`, isError: true };
   } catch (error) {

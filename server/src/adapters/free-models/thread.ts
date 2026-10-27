@@ -16,6 +16,10 @@ export interface ThreadAttachment {
   issueCommentId: string | null;
   contentType: string;
   contentPath: string;
+  downloadPath?: string;
+  originalFilename?: string | null;
+  byteSize?: number | null;
+  createdAt?: string;
 }
 
 export interface IssueSummary {
@@ -65,6 +69,16 @@ export async function loadThread(api: ThreadApi, issueId: string, agentId: strin
   return { issue, comments, lastUser };
 }
 
+/** Every file attached to the conversation, as the API lists them. */
+export async function listAttachments(api: ThreadApi, issueId: string): Promise<ThreadAttachment[]> {
+  return api.json<ThreadAttachment[]>(`/api/issues/${issueId}/attachments`);
+}
+
+/** The attachment's display name: its original file name, else its id. */
+export function attachmentName(attachment: ThreadAttachment): string {
+  return (attachment.originalFilename ?? "").trim() || attachment.id;
+}
+
 /** A small JPEG data URL for a comment's images: a vision model times out on full-size photos. */
 export async function readCommentPictures(
   api: ThreadApi,
@@ -72,7 +86,7 @@ export async function readCommentPictures(
   commentId: string,
   limit = 2,
 ): Promise<string[]> {
-  const attachments = await api.json<ThreadAttachment[]>(`/api/issues/${issueId}/attachments`);
+  const attachments = await listAttachments(api, issueId);
   const pictures: string[] = [];
   for (const attachment of attachments) {
     if (attachment.issueCommentId !== commentId || !attachment.contentType.startsWith("image/")) continue;
@@ -101,6 +115,31 @@ export interface DrawnImage {
   mimeType: string;
 }
 
+export interface UploadedFile {
+  attachmentId: string;
+  name: string;
+  contentPath: string;
+  downloadPath: string;
+}
+
+/** Uploads a file to the conversation as an attachment of the reply being written. */
+export async function uploadFile(
+  api: ThreadApi,
+  companyId: string,
+  issueId: string,
+  name: string,
+  bytes: Uint8Array,
+  mimeType: string,
+): Promise<UploadedFile> {
+  const form = new FormData();
+  form.append("file", new Blob([bytes as BlobPart], { type: mimeType }), name);
+  const attachment = await api.json<{ id: string; contentPath: string; downloadPath?: string }>(
+    `/api/companies/${companyId}/issues/${issueId}/attachments`,
+    { method: "POST", body: form },
+  );
+  return { attachmentId: attachment.id, name, contentPath: attachment.contentPath, downloadPath: attachment.downloadPath ?? `${attachment.contentPath}?download=1` };
+}
+
 /** Draws a picture with an image model, uploads it to the chat, and gives back how to show it. */
 export async function drawAndUploadImage(
   api: ThreadApi,
@@ -113,14 +152,9 @@ export async function drawAndUploadImage(
 ): Promise<DrawnImage> {
   const image = await puterImage(prompt, { model, signal });
   const ext = image.mimeType === "image/jpeg" ? "jpg" : "png";
-  const form = new FormData();
-  form.append("file", new Blob([image.bytes], { type: image.mimeType }), `automa-${runId.slice(0, 8)}-${Date.now().toString(36)}.${ext}`);
-  const attachment = await api.json<{ id: string; contentPath: string }>(
-    `/api/companies/${companyId}/issues/${issueId}/attachments`,
-    { method: "POST", body: form },
-  );
+  const uploaded = await uploadFile(api, companyId, issueId, `automa-${runId.slice(0, 8)}-${Date.now().toString(36)}.${ext}`, image.bytes, image.mimeType);
   const alt = prompt.slice(0, 80).replace(/[[\]\n]/g, " ");
-  return { attachmentId: attachment.id, contentPath: attachment.contentPath, mimeType: image.mimeType, markdown: `![${alt}](${attachment.contentPath})` };
+  return { attachmentId: uploaded.attachmentId, contentPath: uploaded.contentPath, mimeType: image.mimeType, markdown: `![${alt}](${uploaded.contentPath})` };
 }
 
 export async function postReply(api: ThreadApi, issueId: string, body: string, attachmentIds?: string[]): Promise<void> {
