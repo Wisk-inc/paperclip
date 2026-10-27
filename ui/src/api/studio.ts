@@ -159,6 +159,9 @@ export const studioApi = {
   ) =>
     api.post<{ turn: StudioAssistantTurn }>(`${ws(id)}/assistant`, input),
   stopAssistant: (id: string) => api.post<{ ok: true }>(`${ws(id)}/assistant/stop`, {}),
+  /** Reverses one file change the assistant made. */
+  undoEdit: (id: string, editId: string) =>
+    api.post<{ path: string; undoId: string }>(`${ws(id)}/edits/${encodeURIComponent(editId)}/undo`, {}),
   clearAssistant: (id: string) => api.delete<{ ok: true }>(`${ws(id)}/assistant`),
 };
 

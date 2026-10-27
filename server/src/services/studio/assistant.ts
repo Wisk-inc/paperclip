@@ -15,6 +15,7 @@ import {
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
+  type StudioTeamAgent,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
@@ -31,6 +32,8 @@ import {
 } from "@paperclipai/shared/puter-ai";
 import { createThinkingTagSplitter, readThinkingLevel, thinkingInstruction } from "../../adapters/free-models/thinking.js";
 import { modelLabel, toolHistoryAsText } from "../../adapters/free-models/execute.js";
+import { webFetch, webSearch } from "../../adapters/free-models/web.js";
+import { currentText, recordEdit, undoEdit } from "./edits.js";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -70,6 +73,8 @@ export interface StudioAssistantContext {
   onUsage?: (usage: StudioAiUsage) => Promise<void> | void;
   /** Other models the lead can hand tasks to this turn (set per turn, never nested). */
   team?: TeamRuntime;
+  /** Who is acting, for the edit log ("assistant" for the lead, a teammate's name). */
+  actor?: string;
 }
 
 /** A model that works for the lead: its provider, name, and the key that pays for it. */
@@ -81,9 +86,11 @@ export interface StudioTeamMember {
 
 interface TeamRuntime {
   members: StudioTeamMember[];
-  /** Runs one task on a teammate and returns its written report. */
-  delegate: (member: StudioTeamMember, task: string, signal: AbortSignal) => Promise<string>;
+  /** Runs one task on a teammate (in a role, when given) and returns its written report. */
+  delegate: (member: StudioTeamMember, task: string, signal: AbortSignal, options?: { role?: string | null }) => Promise<string>;
 }
+
+const MAX_TEAM_ASSIGNMENTS = 6;
 
 /** A teammate as the lead names it: by model id, a number, or a word of the name. */
 function pickTeammate(members: StudioTeamMember[], who: string): StudioTeamMember | undefined {
@@ -113,12 +120,102 @@ function askTeammateTool(members: StudioTeamMember[]) {
   };
 }
 
-/** The tools this turn offers: the project tools, plus ask_teammate when the lead has a team. */
-function toolsFor(context: StudioAssistantContext) {
-  return context.team?.members.length ? [...TOOLS, askTeammateTool(context.team.members)] : TOOLS;
+function runTeamTool(members: StudioTeamMember[]) {
+  const list = members.map((m, i) => `${i + 1}. ${modelLabel(m.model)} (${m.provider}; id "${m.model}")`).join("; ");
+  return {
+    name: "run_team",
+    description: `Put several teammates to work at the same time, each in a role with its own task, and wait until all of them finish; you get every report together and then carry on. Teammates: ${list}. The same teammate can take more than one assignment. Give each assignment a role (e.g. "backend: API and database in server.py") and a self-contained task that names the files it owns, so parallel work does not collide. Up to ${MAX_TEAM_ASSIGNMENTS} assignments.`,
+    schema: z.object({
+      assignments: z.array(z.object({
+        teammate: z.string().min(1),
+        role: z.string().min(1).max(200),
+        task: z.string().min(1).max(20_000),
+      })).min(1).max(MAX_TEAM_ASSIGNMENTS),
+    }),
+    parameters: {
+      type: "object",
+      properties: {
+        assignments: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_TEAM_ASSIGNMENTS,
+          items: {
+            type: "object",
+            properties: {
+              teammate: { type: "string", description: "The teammate's number, model id, or a word from its name" },
+              role: { type: "string", description: "Its role on the team for this job" },
+              task: { type: "string", description: "The whole task, self-contained, with the files it owns" },
+            },
+            required: ["teammate", "role", "task"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["assignments"],
+      additionalProperties: false,
+    },
+  };
 }
 
-const MAX_STEPS = 30;
+/** The tools this turn offers: the project tools, plus the team tools when the lead has a team. */
+function toolsFor(context: StudioAssistantContext) {
+  return context.team?.members.length ? [...TOOLS, askTeammateTool(context.team.members), runTeamTool(context.team.members)] : TOOLS;
+}
+
+/**
+ * A safety net, not a budget: the model decides when the job is done and
+ * keeps going as long as it is making progress. Repeating the same call is
+ * what stops a run early (see RunGuard).
+ */
+const MAX_STEPS = 400;
+/** Replies cut off by the length limit are continued automatically, this many times in a row. */
+const MAX_LENGTH_CONTINUATIONS = 20;
+/** A model that stops without a word to the person is asked to finish, this many times. */
+const MAX_SILENT_FINISH_NUDGES = 2;
+/** The same tool call with the same input past this many times is a loop. */
+const MAX_IDENTICAL_CALLS = 3;
+const CONTINUE_PROMPT = "(Automa) Your reply was cut off by the length limit. Continue exactly where you left off. If you were writing a large file, write it in parts (write_file for the first part, then edit_file to add the rest).";
+const SILENT_FINISH_PROMPT = "(Automa) You stopped without saying anything to the person. If any part of the task is still undone, finish it with your tools now; then reply with what you did, what works, and how to use it.";
+
+/**
+ * Watches one model run for the two ways a turn ends badly: calling the same
+ * tool with the same input over and over, and stopping without a word to the
+ * person (the "no result" reply).
+ */
+class RunGuard {
+  private counts = new Map<string, number>();
+  private nudges = 0;
+  continuations = 0;
+  readonly stepsDone: string[] = [];
+
+  /** An error to return instead of running a call that is going in circles; null to run it. */
+  repeated(name: string, input: unknown): string | null {
+    const key = `${name}:${JSON.stringify(input ?? {})}`;
+    const seen = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, seen);
+    if (seen <= MAX_IDENTICAL_CALLS) return null;
+    return `You already ran ${name} with exactly this input ${seen - 1} times. Running it again will not change the result: use what you have, change the input, or try a different approach.`;
+  }
+
+  noteStep(step: StudioAssistantStep) {
+    if (step.tool !== "say" && step.tool !== "think") this.stepsDone.push(step.summary);
+  }
+
+  /** On a reply with no tool calls and no words: the message that asks for the rest, or null when it may end. */
+  silentFinish(): string | null {
+    if (this.nudges >= MAX_SILENT_FINISH_NUDGES) return null;
+    this.nudges += 1;
+    return SILENT_FINISH_PROMPT;
+  }
+
+  /** What to tell the person when the model still said nothing: the steps it took. */
+  summary(): string {
+    if (!this.stepsDone.length) return "I finished without anything to report. Tell me more about what you need and I'll keep going.";
+    const shown = this.stepsDone.slice(-12).map((step) => `- ${step}`).join("\n");
+    const more = this.stepsDone.length > 12 ? `\n- …and ${this.stepsDone.length - 12} earlier steps` : "";
+    return `Here is what I did:\n${shown}${more}\n\nAsk me to continue if anything is unfinished.`;
+  }
+}
 const MAX_TOOL_OUTPUT = 40_000;
 const MAX_HISTORY_CHARS = 900_000;
 
@@ -157,12 +254,62 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: "edit_file",
-    description: "Replace one exact snippet in a file. old_text must appear exactly once; include enough surrounding lines to make it unique.",
-    schema: z.object({ path: z.string().min(1), old_text: z.string().min(1), new_text: z.string() }),
+    description: "Replace an exact snippet in a file. old_text must appear exactly once (include enough surrounding lines to make it unique), unless replace_all is true, which replaces every occurrence. The result gives an edit_id that undo_edit can reverse.",
+    schema: z.object({ path: z.string().min(1), old_text: z.string().min(1), new_text: z.string(), replace_all: z.boolean().optional() }),
     parameters: {
       type: "object",
-      properties: { path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" } },
+      properties: { path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" }, replace_all: { type: "boolean", description: "Replace every occurrence" } },
       required: ["path", "old_text", "new_text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "undo_edit",
+    description: "Undo one of the changes made to a file this session, putting back exactly what was there before: by path (the newest change to that file) or by the edit_id a change reported. Use it when a change made things worse. It refuses when the file changed again afterwards; undo the newer change first.",
+    schema: z.object({ path: z.string().min(1).optional(), edit_id: z.string().min(1).optional() }).refine((value) => Boolean(value.path || value.edit_id), { message: "Give a path or an edit_id" }),
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Undo the newest change to this file" },
+        edit_id: { type: "string", description: "Undo this exact change (from a write_file/edit_file/delete_path result)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_files",
+    description: "Search the project's text files for a regular expression (case-insensitive) and get matching lines as path:line: text. Use it to find where something is defined or used before editing.",
+    schema: z.object({ pattern: z.string().min(1).max(500), path: z.string().optional(), max_results: z.number().int().min(1).max(500).optional() }),
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "A regular expression, e.g. function\\s+saveTodo" },
+        path: { type: "string", description: "Only search under this folder or file" },
+        max_results: { type: "integer", minimum: 1, maximum: 500, description: "Defaults to 100" },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "web_search",
+    description: "Search the web and get results (title, URL, snippet). Use it for current versions, documentation, APIs, error messages and anything you are not sure of; then read the best results with web_fetch.",
+    schema: z.object({ query: z.string().min(1).max(500), count: z.number().int().min(1).max(30).optional() }),
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string" }, count: { type: "integer", minimum: 1, maximum: 30, description: "Defaults to 8" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "web_fetch",
+    description: "Open a URL and read it: a page's readable text (mode text, the default) or the raw source of a script, JSON or page (mode raw). Long pages come in pieces: pass offset to continue.",
+    schema: z.object({ url: z.string().min(1), mode: z.enum(["text", "raw"]).optional(), offset: z.number().int().min(0).optional() }),
+    parameters: {
+      type: "object",
+      properties: { url: { type: "string" }, mode: { type: "string", enum: ["text", "raw"] }, offset: { type: "integer", minimum: 0 } },
+      required: ["url"],
       additionalProperties: false,
     },
   },
@@ -244,6 +391,24 @@ export function describeActivity(name: string, rawInput: unknown): string {
       const who = text(input.teammate, 40);
       return who ? `Asking ${who}` : "Asking a teammate";
     }
+    case "run_team": {
+      const count = Array.isArray(input.assignments) ? input.assignments.length : 0;
+      return count ? `Running a team of ${count}` : "Running the team";
+    }
+    case "undo_edit":
+      return target ? `Undoing the change to ${target}` : "Undoing a change";
+    case "search_files": {
+      const pattern = text(input.pattern, 50);
+      return pattern ? `Searching the files for ${pattern}` : "Searching the files";
+    }
+    case "web_search": {
+      const query = text(input.query, 60);
+      return query ? `Searching the web for ${query}` : "Searching the web";
+    }
+    case "web_fetch": {
+      const url = text(input.url, 70);
+      return url ? `Reading ${url}` : "Reading a web page";
+    }
     default:
       return "Working";
   }
@@ -264,6 +429,39 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
     return { ok: false, output: message, step: { tool: name, summary: name, ok: false, detail: message } };
   }
   const input = parsed.data as Record<string, unknown>;
+  const actor = context.actor ?? "assistant";
+  if (name === "run_team") {
+    const members = context.team?.members ?? [];
+    if (!context.team || !members.length) {
+      return { ok: false, output: "There is no team this turn.", step: { tool: name, summary: "run_team", ok: false, detail: "No teammates" } };
+    }
+    const assignments = (input.assignments as Array<{ teammate: string; role: string; task: string }>) ?? [];
+    const team = context.team;
+    const results = await Promise.all(assignments.map(async (assignment) => {
+      const member = pickTeammate(members, assignment.teammate);
+      if (!member) return { assignment, who: assignment.teammate, ok: false, report: `No such teammate "${assignment.teammate}".` };
+      const who = modelLabel(member.model);
+      try {
+        const report = await team.delegate(member, assignment.task, signal ?? new AbortController().signal, { role: assignment.role });
+        return { assignment, who, ok: true, report };
+      } catch (error) {
+        return { assignment, who, ok: false, report: `Could not finish: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }));
+    const done = results.filter((result) => result.ok).length;
+    const output = `${results.length} teammate${results.length === 1 ? "" : "s"} finished (${done} done, ${results.length - done} failed). Review their changes, test the whole app, and fix what does not fit together.\n\n`
+      + results.map((result, index) => `## ${index + 1}. ${result.who} — ${result.assignment.role} — ${result.ok ? "done" : "failed"}\n${clip(result.report, 8000)}`).join("\n\n");
+    return {
+      ok: done > 0,
+      output,
+      step: {
+        tool: name,
+        summary: `Team of ${results.length} finished: ${done} done${results.length - done ? `, ${results.length - done} failed` : ""}`,
+        ok: done === results.length,
+        detail: results.map((result) => `${result.ok ? "✓" : "✗"} ${result.who} (${result.assignment.role})`).join("\n"),
+      },
+    };
+  }
   if (name === "ask_teammate") {
     const members = context.team?.members ?? [];
     const member = pickTeammate(members, String(input.teammate ?? ""));
@@ -295,25 +493,106 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
         return { ok: true, output, step: { tool: name, summary: `Read ${file.path}`, ok: true, detail: null } };
       }
       case "write_file": {
+        const before = await currentText(context.companyId, context.workspaceId, String(input.path));
         const written = await writeStudioFile(dirs.files, String(input.path), String(input.content));
         await context.onFileChanged(written.path);
-        return { ok: true, output: `Wrote ${written.path} (${written.size} bytes).`, step: { tool: name, summary: `Wrote ${written.path}`, ok: true, detail: null } };
+        const editId = await recordEdit(context.companyId, context.workspaceId, { path: written.path, before, after: { exists: true, text: String(input.content) }, by: actor }).catch(() => null);
+        const verb = before.exists ? "Rewrote" : "Created";
+        return {
+          ok: true,
+          output: `${verb} ${written.path} (${written.size} bytes).${editId ? ` edit_id: ${editId}` : ""}`,
+          step: { tool: name, summary: `${verb} ${written.path}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+        };
       }
       case "edit_file": {
         const file = await readStudioFile(dirs.files, String(input.path));
         if (file.content === null) throw new Error("That file is not text");
         const oldText = String(input.old_text);
         const count = file.content.split(oldText).length - 1;
-        if (count === 0) throw new Error("old_text was not found in the file; read the file and try again with an exact snippet");
-        if (count > 1) throw new Error(`old_text appears ${count} times; include more surrounding lines so it is unique`);
-        const written = await writeStudioFile(dirs.files, file.path, file.content.replace(oldText, () => String(input.new_text)));
+        if (count === 0) throw new Error("old_text was not found in the file; read the file (or search_files) and try again with an exact snippet");
+        if (count > 1 && input.replace_all !== true) throw new Error(`old_text appears ${count} times; include more surrounding lines so it is unique, or set replace_all`);
+        const next = input.replace_all === true
+          ? file.content.split(oldText).join(String(input.new_text))
+          : file.content.replace(oldText, () => String(input.new_text));
+        const written = await writeStudioFile(dirs.files, file.path, next);
         await context.onFileChanged(written.path);
-        return { ok: true, output: `Edited ${written.path}.`, step: { tool: name, summary: `Edited ${written.path}`, ok: true, detail: null } };
+        const editId = await recordEdit(context.companyId, context.workspaceId, { path: written.path, before: { exists: true, text: file.content }, after: { exists: true, text: next }, by: actor }).catch(() => null);
+        const where = input.replace_all === true && count > 1 ? ` (${count} places)` : "";
+        return {
+          ok: true,
+          output: `Edited ${written.path}${where}.${editId ? ` edit_id: ${editId}` : ""}`,
+          step: { tool: name, summary: `Edited ${written.path}${where}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+        };
       }
       case "delete_path": {
+        const before = await currentText(context.companyId, context.workspaceId, String(input.path));
         await deleteStudioEntry(dirs.files, String(input.path));
         await context.onFileChanged(String(input.path));
-        return { ok: true, output: `Deleted ${input.path}.`, step: { tool: name, summary: `Deleted ${input.path}`, ok: true, detail: null } };
+        const editId = before.exists && before.text !== null
+          ? await recordEdit(context.companyId, context.workspaceId, { path: String(input.path), before, after: { exists: false, text: null }, by: actor }).catch(() => null)
+          : null;
+        return {
+          ok: true,
+          output: `Deleted ${input.path}.${editId ? ` edit_id: ${editId}` : ""}`,
+          step: { tool: name, summary: `Deleted ${input.path}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+        };
+      }
+      case "undo_edit": {
+        const result = await undoEdit(context.companyId, context.workspaceId, { id: typeof input.edit_id === "string" ? input.edit_id : undefined, path: typeof input.path === "string" ? input.path : undefined }, actor);
+        await context.onFileChanged(result.undone.path);
+        const what = result.undone.beforeExists ? (result.undone.afterExists ? "put back the earlier version" : "restored the deleted file") : "removed the file it had created";
+        return {
+          ok: true,
+          output: `Undid the change to ${result.undone.path} (${what}).${result.undo.id ? ` This undo is edit_id ${result.undo.id}.` : ""}`,
+          step: { tool: name, summary: `Undid the change to ${result.undone.path}`, ok: true, detail: null, ...(result.undo.id ? { editId: result.undo.id } : {}) },
+        };
+      }
+      case "search_files": {
+        let pattern: RegExp;
+        try {
+          pattern = new RegExp(String(input.pattern), "i");
+        } catch {
+          throw new Error("That pattern is not a valid regular expression");
+        }
+        const limit = Number(input.max_results) || 100;
+        const under = typeof input.path === "string" && input.path.trim() ? input.path.trim().replace(/^\.?\/+/, "").replace(/\/+$/, "") : "";
+        const files = (await listFilePaths(dirs.files, 5000)).filter((file) => !under || file === under || file.startsWith(`${under}/`));
+        const matches: string[] = [];
+        let scanned = 0;
+        for (const file of files) {
+          if (matches.length >= limit) break;
+          const content = await readStudioFile(dirs.files, file).then((entry) => entry.content).catch(() => null);
+          if (content === null) continue;
+          scanned += 1;
+          const lines = content.split("\n");
+          for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
+            // Only the start of very long lines (minified code) is searched, so a heavy pattern cannot stall the server.
+            if (pattern.test(lines[index]!.slice(0, 4000))) matches.push(`${file}:${index + 1}: ${lines[index]!.trim().slice(0, 240)}`);
+          }
+        }
+        return {
+          ok: true,
+          output: matches.length ? `${matches.length}${matches.length >= limit ? "+" : ""} matches in ${scanned} files:\n${matches.join("\n")}` : `No matches in ${scanned} files.`,
+          step: { tool: name, summary: `Searched the files for ${String(input.pattern).slice(0, 60)}: ${matches.length} match${matches.length === 1 ? "" : "es"}`, ok: true, detail: null },
+        };
+      }
+      case "web_search": {
+        const results = await webSearch(String(input.query), Number(input.count) || 8, signal);
+        const output = results.length
+          ? `${results.length} results:\n\n${results.map((result, index) => `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`).join("\n\n")}`
+          : "No results. Try different words.";
+        return { ok: true, output, step: { tool: name, summary: `Searched the web for ${String(input.query).slice(0, 80)}`, ok: true, detail: results.slice(0, 5).map((result) => `${result.title} — ${result.url}`).join("\n") || null } };
+      }
+      case "web_fetch": {
+        const offset = Number(input.offset) || 0;
+        const page = await webFetch(String(input.url), signal, { mode: input.mode === "raw" ? "raw" : "text", offset });
+        const shown = offset + page.text.length;
+        const more = page.totalChars > shown ? `\n\n(${page.totalChars - shown} more characters; call again with offset ${shown}.)` : "";
+        return {
+          ok: true,
+          output: clip(`# ${page.title}\n${page.url} · ${page.contentType}\n\n${page.text}${more}`),
+          step: { tool: name, summary: `Read ${page.url}`, ok: true, detail: page.title || null },
+        };
       }
       case "run_command": {
         const command = String(input.command);
@@ -357,19 +636,21 @@ function systemPrompt(context: StudioAssistantContext) {
     "Every tool works inside the project folder; paths are relative to it.",
     `The project's run command is: ${context.runCommand || "(a static website served by Automa)"}.`,
     "Web apps get their port in the PORT environment variable and must listen on 127.0.0.1:$PORT; Automa shows them in its preview and can give them a public link.",
-    "How to work: look at the files before changing them; use edit_file for small changes and write_file for new or rewritten files; after changing code, run it (start_app for apps and servers, run_command for scripts and tests) and read the output to confirm it works, then fix what fails.",
+    "How to work: look at the files before changing them (search_files finds where things are); use edit_file for small changes and write_file for new or rewritten files; after changing code, run it (start_app for apps and servers, run_command for scripts and tests) and read the output to confirm it works, then fix what fails. If a change made things worse, undo_edit puts the file back.",
+    "When you need current facts, versions, documentation or an error message explained, use web_search and then web_fetch on the best results; never guess version numbers.",
+    "Work until the whole request is done: there is no step or length limit you need to save for. Finish every turn with a short reply to the person.",
     "When the user describes an app in plain words, build all of it: the UI, the logic, and storage (for Node.js, the built-in node:sqlite module needs no install; for Python, sqlite3).",
     "Keep replies short: say what you changed and how to use it. Never print secrets or API keys, and do not touch anything outside the project folder.",
     ...(context.team?.members.length
       ? [
-          `You lead a team of models. Teammates: ${context.team.members.map((m, i) => `${i + 1}. ${modelLabel(m.model)}`).join("; ")}. Use ask_teammate to hand them self-contained tasks (one part of the app each, a review, a tricky bug) while you keep the overall plan; they report back in writing. Check their work before you tell the user it is done.`,
+          `You lead a team of models. Teammates: ${context.team.members.map((m, i) => `${i + 1}. ${modelLabel(m.model)}`).join("; ")}. For bigger jobs, plan first, then use run_team to put several of them to work at once: give each a role (frontend, backend, tests, reviewer…) and a self-contained task naming the files it owns. You wait while they work and get all their reports together; then review their changes, run the app, fix what does not fit, and carry on (run_team again if needed). Use ask_teammate for one quick task. Check their work before you tell the person it is done.`,
         ]
       : []),
   ].join("\n");
 }
 
 /** What a teammate is told on top of the project prompt. */
-const TEAMMATE_SYSTEM = "You are a teammate model working for the lead on one task in this project. Do the task with the tools, test it where you can, and finish with a short written report: what you changed (file paths), what works, what is left or unclear. Do not ask questions; make reasonable choices and say which you made.";
+const TEAMMATE_SYSTEM = "You are a teammate model working for the lead on one task in this project. Other teammates may be working on other parts at the same time: change only the files your task is about. Do the task with the tools, test it where you can, and finish with a short written report: what you changed (file paths), what works, what is left or unclear. Do not ask questions; make reasonable choices and say which you made.";
 
 /**
  * The conversation so far as plain user/assistant text, from the transcript
@@ -428,6 +709,17 @@ async function writeJson(file: string, value: unknown) {
 
 export async function readAssistantTranscript(companyId: string, workspaceId: string): Promise<StudioAssistantTurn[]> {
   return readJson(path.join(studioWorkspaceDirs(companyId, workspaceId).meta, "assistant-transcript.json"), []);
+}
+
+/** Marks the step that made a change as undone in the saved transcript; returns the turn that holds it. */
+export async function markEditUndone(companyId: string, workspaceId: string, editId: string): Promise<StudioAssistantTurn | null> {
+  const file = path.join(studioWorkspaceDirs(companyId, workspaceId).meta, "assistant-transcript.json");
+  const transcript = await readJson<StudioAssistantTurn[]>(file, []);
+  const turn = transcript.find((candidate) => candidate.steps.some((step) => step.editId === editId));
+  if (!turn) return null;
+  for (const step of turn.steps) if (step.editId === editId) step.undone = true;
+  await writeJson(file, transcript);
+  return turn;
 }
 
 export async function clearAssistantConversation(companyId: string, workspaceId: string) {
@@ -546,12 +838,17 @@ async function startTurn(
   const snapshot = (): StudioAssistantTurn => ({
     ...turn,
     steps: [...turn.steps],
+    ...(turn.agents ? { agents: turn.agents.map((agent) => ({ ...agent })) } : {}),
     ...(live ? { live: live.trimStart() } : {}),
     ...(liveThinking ? { liveThinking } : {}),
     ...(activity ? { activity } : {}),
   });
   liveTurns.set(context.workspaceId, snapshot);
-  const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, { type: "assistant", turn: done ? { ...turn, steps: [...turn.steps] } : snapshot(), done });
+  const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, {
+    type: "assistant",
+    turn: done ? { ...turn, steps: [...turn.steps], ...(turn.agents ? { agents: turn.agents.map((agent) => ({ ...agent })) } : {}) } : snapshot(),
+    done,
+  });
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
 
   // Every model call in the turn adds up; the turn is recorded once, so
@@ -649,40 +946,95 @@ async function startTurn(
     publish(false);
   };
 
-  // Teammates: each runs its task in its own short conversation with the
-  // same tools, reporting steps into this turn under its name.
+  // Teammates: each runs its task in its own conversation with the same
+  // tools, several at once when the lead runs a team. Each shows live on the
+  // turn (status, what it is doing, its steps) and stays in the transcript.
   if (input.team?.length) {
+    const workingCount = () => (turn.agents ?? []).filter((agent) => agent.status === "working").length;
     context.team = {
       members: input.team,
-      delegate: async (member, task, signal) => {
+      delegate: async (member, task, signal, options) => {
         const who = modelLabel(member.model);
+        const role = options?.role?.trim() || null;
+        const agent: StudioTeamAgent = {
+          id: randomUUID(),
+          name: who,
+          provider: member.provider,
+          model: member.model,
+          role,
+          task: task.slice(0, 4000),
+          status: "working",
+          activity: null,
+          steps: 0,
+          report: null,
+          error: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+        };
+        turn.agents = [...(turn.agents ?? []), agent];
+        const label = role ? `${who} (${role.split(/[:,—-]/)[0]!.trim().slice(0, 40)})` : who;
         const texts: string[] = [];
-        const mateContext: StudioAssistantContext = { ...context, team: undefined };
+        const mateContext: StudioAssistantContext = { ...context, team: undefined, actor: label };
+        const historyName = `teammate-${agent.id}.json`;
         const common = {
           context: mateContext,
-          prompt: `${task}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`,
+          prompt: `${role ? `Your role on the team: ${role}\n\n` : ""}${task}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`,
           images: [] as StudioAssistantAttachmentInput[],
           model: member.model,
           credentials: member.credentials,
           signal,
-          onStep: (step: StudioAssistantStep) => onStep({ ...step, summary: `${who} · ${step.summary}` }),
-          onToolStart,
-          onText: (text: string) => { texts.push(text); },
+          onStep: (step: StudioAssistantStep) => {
+            if (step.tool !== "say" && step.tool !== "think") agent.steps += 1;
+            agent.activity = null;
+            onStep({ ...step, agent: agent.id, summary: step.tool === "say" || step.tool === "think" ? step.summary : `${label} · ${step.summary}` });
+            activity = workingCount() > 1 ? `${workingCount()} teammates working` : "";
+          },
+          onToolStart: (name: string, rawInput: unknown) => {
+            agent.activity = describeActivity(name, rawInput);
+            activity = workingCount() > 1 ? `${workingCount()} teammates working` : `${label}: ${agent.activity}`;
+            publish(false);
+          },
+          onText: (text: string) => {
+            if (!text.trim()) return;
+            texts.push(text);
+            turn.steps.push({ tool: "say", summary: text.trim(), ok: true, detail: null, agent: agent.id });
+            publish(false);
+          },
           onDelta: () => undefined,
           onThinkingDelta: () => undefined,
-          onThought: () => undefined,
+          onThought: (text: string) => {
+            const thought = text.trim();
+            if (!thought) return;
+            const firstLine = thought.split("\n").find((line) => line.trim())?.replace(/^[#*\s]+/, "").slice(0, 140) ?? "Thought";
+            turn.steps.push({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000), agent: agent.id });
+            publish(false);
+          },
           onUsage,
-          historyName: `teammate-${member.model.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.json`,
+          historyName,
           fresh: true,
-          systemExtra: TEAMMATE_SYSTEM,
-          maxSteps: 20,
+          systemExtra: `${TEAMMATE_SYSTEM}${role ? ` Your role: ${role}.` : ""}`,
         };
-        activity = `${who} is working`;
+        activity = workingCount() > 1 ? `${workingCount()} teammates working` : `${label} is working`;
         publish(false);
-        if (member.provider === "anthropic") await runAnthropic(common);
-        else if (member.provider === "free") await runFreeModels(common);
-        else await runOpenAiCompatible({ ...common, provider: member.provider });
-        return texts.join("\n\n").trim() || "(No report: the teammate finished without writing one.)";
+        try {
+          if (member.provider === "anthropic") await runAnthropic(common);
+          else if (member.provider === "free") await runFreeModels(common);
+          else await runOpenAiCompatible({ ...common, provider: member.provider });
+          const report = texts.join("\n\n").trim() || "(No report: the teammate finished without writing one.)";
+          agent.status = "done";
+          agent.report = clip(report, 6000);
+          return report;
+        } catch (error) {
+          agent.status = "failed";
+          agent.error = error instanceof Error ? error.message : String(error);
+          throw error;
+        } finally {
+          agent.activity = null;
+          agent.finishedAt = new Date().toISOString();
+          activity = workingCount() ? `${workingCount()} teammate${workingCount() === 1 ? "" : "s"} still working` : "";
+          publish(false);
+          await fs.rm(metaFile(context, historyName), { force: true }).catch(() => undefined);
+        }
       },
     };
   }
@@ -831,14 +1183,16 @@ async function runAnthropic(input: {
   const effort = supportsEffort(input.model) ? thinkingLevelFor("anthropic", input.model, input.thinking) ?? "high" : null;
   let jsonRetries = 0;
   const maxSteps = input.maxSteps ?? MAX_STEPS;
+  const guard = new RunGuard();
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
     const stream = client.beta.messages.stream(
       {
         model: input.model,
-        // The deepest levels think and act at length; they get room to finish.
-        max_tokens: effort === "xhigh" || effort === "max" ? 64000 : 32000,
+        // Room for long files and long thinking; a reply that still runs out
+        // is continued automatically (below), so there is no length ceiling.
+        max_tokens: 64000,
         system: [{ type: "text", text: input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
@@ -889,18 +1243,46 @@ async function runAnthropic(input: {
       throw new Error(`Claude declined this request${reason ? `: ${reason}` : "."}`);
     }
     if (response.stop_reason === "max_tokens") {
-      input.onText("(I hit the length limit for one reply. Ask me to continue.)");
+      if (guard.continuations < MAX_LENGTH_CONTINUATIONS) {
+        guard.continuations += 1;
+        // A tool call cut off mid-input cannot run, and an unanswered call
+        // would block the conversation: keep the words, drop the call.
+        const last = messages[messages.length - 1]!;
+        const kept = (last.content as Anthropic.Beta.BetaContentBlockParam[]).filter((block) => block.type !== "tool_use" && block.type !== "server_tool_use");
+        last.content = kept.some((block) => block.type === "text") ? kept : [...kept, { type: "text", text: "(cut off by the length limit)" }];
+        messages.push({ role: "user", content: CONTINUE_PROMPT });
+        await writeJson(historyFile, withoutImages(messages));
+        continue;
+      }
+      input.onText("(My replies kept running into the length limit. Ask me to continue.)");
       return;
     }
+    guard.continuations = 0;
     if (response.stop_reason === "pause_turn") continue;
     const toolUses = response.content.filter((block): block is Anthropic.Beta.BetaToolUseBlock => block.type === "tool_use");
-    if (response.stop_reason !== "tool_use" || toolUses.length === 0) return;
+    if (response.stop_reason !== "tool_use" || toolUses.length === 0) {
+      const said = response.content.some((block) => block.type === "text" && block.text.trim());
+      if (!said) {
+        const nudge = guard.silentFinish();
+        if (nudge) {
+          messages.push({ role: "user", content: nudge });
+          await writeJson(historyFile, withoutImages(messages));
+          continue;
+        }
+        input.onText(guard.summary());
+      }
+      return;
+    }
 
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const use of toolUses) {
       if (input.signal.aborted) throw new Error("Stopped.");
       input.onToolStart(use.name, use.input);
-      const outcome = await runTool(context, use.name, use.input, input.signal);
+      const loopNote = guard.repeated(use.name, use.input);
+      const outcome = loopNote
+        ? { ok: false, output: loopNote, step: { tool: use.name, summary: `${describeActivity(use.name, use.input)} (skipped: same as before)`, ok: false, detail: null } }
+        : await runTool(context, use.name, use.input, input.signal);
+      guard.noteStep(outcome.step);
       input.onStep(outcome.step);
       results.push({ type: "tool_result", tool_use_id: use.id, content: outcome.output, ...(outcome.ok ? {} : { is_error: true }) });
     }
@@ -969,6 +1351,7 @@ async function runOpenAiCompatible(input: {
   const reasoningEffort = thinkingLevelFor(input.provider, input.model, input.thinking);
   const system = input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context);
   const maxSteps = input.maxSteps ?? MAX_STEPS;
+  const guard = new RunGuard();
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
@@ -1026,12 +1409,34 @@ async function runOpenAiCompatible(input: {
     }
     const message = data.choices?.[0]?.message;
     if (!message) throw new Error(`${info.name} sent an empty reply.`);
+    const finishReason = data.choices?.[0]?.finish_reason;
+    const replyText = typeof message.content === "string" ? message.content : (message.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    if (finishReason === "length" && guard.continuations < MAX_LENGTH_CONTINUATIONS) {
+      // Cut off: keep the words, drop any half-written tool call, and ask for the rest.
+      guard.continuations += 1;
+      messages.push({ role: "assistant", content: replyText || "(cut off by the length limit)" });
+      messages.push({ role: "user", content: CONTINUE_PROMPT });
+      await writeJson(historyFile, withoutImages(messages));
+      if (replyText) input.onText(replyText);
+      continue;
+    }
+    guard.continuations = 0;
     const assistant: ChatMessage = { role: "assistant", content: message.content ?? "", ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) };
     messages.push(assistant);
     await writeJson(historyFile, withoutImages(messages));
-    const replyText = typeof message.content === "string" ? message.content : (message.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
     if (replyText) input.onText(replyText);
-    if (!message.tool_calls?.length) return;
+    if (!message.tool_calls?.length) {
+      if (!replyText.trim()) {
+        const nudge = guard.silentFinish();
+        if (nudge) {
+          messages.push({ role: "user", content: nudge });
+          await writeJson(historyFile, withoutImages(messages));
+          continue;
+        }
+        input.onText(guard.summary());
+      }
+      return;
+    }
     for (const call of message.tool_calls) {
       let args: unknown = {};
       try {
@@ -1040,9 +1445,13 @@ async function runOpenAiCompatible(input: {
         args = null;
       }
       if (args !== null) input.onToolStart(call.function.name, args);
+      const loopNote = args === null ? null : guard.repeated(call.function.name, args);
       const outcome = args === null
         ? { ok: false, output: "The tool arguments were not valid JSON.", step: { tool: call.function.name, summary: call.function.name, ok: false, detail: "Invalid arguments" } }
-        : await runTool(context, call.function.name, args, input.signal);
+        : loopNote
+          ? { ok: false, output: loopNote, step: { tool: call.function.name, summary: `${describeActivity(call.function.name, args)} (skipped: same as before)`, ok: false, detail: null } }
+          : await runTool(context, call.function.name, args, input.signal);
+      guard.noteStep(outcome.step);
       input.onStep(outcome.step);
       messages.push({ role: "tool", tool_call_id: call.id, content: outcome.output });
     }
@@ -1107,6 +1516,7 @@ async function runFreeModels(input: {
   let useTools = true;
   let textHistory = false;
   let retries = 0;
+  const guard = new RunGuard();
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
@@ -1116,6 +1526,7 @@ async function runFreeModels(input: {
     let reasoning = "";
     const calls: PuterToolCall[] = [];
     let usage: PuterUsage = { inputTokens: 0, outputTokens: 0 };
+    let stopReason = "end_turn";
     const splitter = createThinkingTagSplitter();
     const emit = (piece: { channel: "text" | "thinking"; text: string }) => {
       if (piece.channel === "thinking") { reasoning += piece.text; input.onThinkingDelta(piece.text); }
@@ -1126,7 +1537,7 @@ async function runFreeModels(input: {
         if (event.type === "text") for (const piece of splitter.push(event.text)) emit(piece);
         else if (event.type === "reasoning") { reasoning += event.text; input.onThinkingDelta(event.text); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
-        else if (event.type === "done") usage = event.usage;
+        else if (event.type === "done") { usage = event.usage; stopReason = event.stopReason; }
       }
       for (const piece of splitter.flush()) emit(piece);
     } catch (error) {
@@ -1141,22 +1552,45 @@ async function runFreeModels(input: {
     if (reasoning.trim()) input.onThought(reasoning);
     const spoken = text.trim();
     if (spoken) input.onText(spoken);
+    if ((stopReason === "max_tokens" || stopReason === "length") && !calls.length && guard.continuations < MAX_LENGTH_CONTINUATIONS) {
+      guard.continuations += 1;
+      messages.push({ role: "assistant", content: spoken || "(cut off by the length limit)" });
+      messages.push({ role: "user", content: CONTINUE_PROMPT });
+      await writeJson(historyFile, withoutImages(messages));
+      continue;
+    }
+    guard.continuations = 0;
     const assistant: ChatMessage = {
       role: "assistant",
-      content: spoken || (calls.length ? `Calling ${[...new Set(calls.map((call) => call.function.name))].join(", ")}.` : ""),
+      content: spoken || (calls.length ? `Calling ${[...new Set(calls.map((call) => call.function.name))].join(", ")}.` : "(no reply)"),
       ...(calls.length ? { tool_calls: calls } : {}),
     };
     messages.push(assistant);
     await writeJson(historyFile, withoutImages(messages));
-    if (!calls.length) return;
+    if (!calls.length) {
+      if (!spoken) {
+        const nudge = guard.silentFinish();
+        if (nudge) {
+          messages.push({ role: "user", content: nudge });
+          await writeJson(historyFile, withoutImages(messages));
+          continue;
+        }
+        input.onText(guard.summary());
+      }
+      return;
+    }
     for (const call of calls) {
       if (input.signal.aborted) throw new Error("Stopped.");
       let args: unknown = {};
       try { args = call.function.arguments ? JSON.parse(call.function.arguments) : {}; } catch { args = null; }
       if (args !== null) input.onToolStart(call.function.name, args);
+      const loopNote = args === null ? null : guard.repeated(call.function.name, args);
       const outcome = args === null
         ? { ok: false, output: "The tool arguments were not valid JSON.", step: { tool: call.function.name, summary: call.function.name, ok: false, detail: "Invalid arguments" } }
-        : await runTool(context, call.function.name, args, input.signal);
+        : loopNote
+          ? { ok: false, output: loopNote, step: { tool: call.function.name, summary: `${describeActivity(call.function.name, args)} (skipped: same as before)`, ok: false, detail: null } }
+          : await runTool(context, call.function.name, args, input.signal);
+      guard.noteStep(outcome.step);
       input.onStep(outcome.step);
       messages.push({ role: "tool", tool_call_id: call.id, content: outcome.output });
     }

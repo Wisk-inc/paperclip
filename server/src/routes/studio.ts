@@ -61,11 +61,13 @@ import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
 import { StudioGateway } from "../services/studio/gateway.js";
 import { AttemptLimiter, joinLimiterKey } from "../services/studio/join-limiter.js";
 import { createCheckpoint, deleteCheckpoint, listCheckpoints, restoreCheckpoint, streamProjectZip } from "../services/studio/checkpoints.js";
+import { undoEdit } from "../services/studio/edits.js";
 import {
   clearAssistantConversation,
   completeCode,
   currentAssistantTurn,
   isAssistantRunning,
+  markEditUndone,
   readAssistantTranscript,
   runAssistantTurn,
   stopAssistant,
@@ -495,6 +497,19 @@ export function studioRoutes(db: Db) {
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
     await log(req, workspace, "studio.checkpoint_restored", { checkpointId: result.restored.id, label: result.restored.label });
     res.json(result);
+  });
+
+  // One change the assistant made, reversed (the Undo beside the step).
+  router.post("/studio/workspaces/:id/edits/:editId/undo", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    if (isAssistantRunning(workspace.id)) throw conflict("Stop the assistant before undoing one of its changes");
+    const editId = String(req.params.editId);
+    const result = await undoEdit(workspace.companyId, workspace.id, { id: editId }, `${await ownerName(req.actor.userId)} (undo)`);
+    await broadcastFile(workspace, result.undone.path, "undo");
+    const turn = await markEditUndone(workspace.companyId, workspace.id, editId);
+    if (turn) studioHub.broadcast(workspace.id, { type: "assistant", turn, done: true });
+    await log(req, workspace, "studio.edit_undone", { editId, path: result.undone.path });
+    res.json({ path: result.undone.path, undoId: result.undo.id });
   });
 
   router.delete("/studio/workspaces/:id/checkpoints/:checkpointId", async (req, res) => {

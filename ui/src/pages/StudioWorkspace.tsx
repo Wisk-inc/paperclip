@@ -909,6 +909,16 @@ export function StudioWorkspace() {
       onStop={async () => {
         await studioApi.stopAssistant(workspaceId);
       }}
+      onUndoEdit={async (editId) => {
+        try {
+          const result = await studioApi.undoEdit(workspaceId, editId);
+          // The socket brings the updated step; this covers a disconnected one.
+          setTurns((current) => current.map((turn) => ({ ...turn, steps: turn.steps.map((step) => (step.editId === editId ? { ...step, undone: true } : step)) })));
+          pushToast({ title: `Undid the change to ${result.path}`, tone: "success" });
+        } catch (error) {
+          pushToast({ title: "Couldn't undo that change", body: errorText(error), tone: "error" });
+        }
+      }}
       onClear={async () => {
         await studioApi.clearAssistant(workspaceId);
         setTurns([]);

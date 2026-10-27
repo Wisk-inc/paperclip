@@ -14,6 +14,7 @@ import {
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
+  type StudioTeamAgent,
   type StudioTeammate,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
@@ -46,6 +47,11 @@ const SUGGESTIONS = [
 
 const TOOL_LABEL: Record<string, string> = {
   ask_teammate: "Asked a teammate",
+  run_team: "Ran the team",
+  undo_edit: "Undid a change",
+  search_files: "Searched the files",
+  web_search: "Searched the web",
+  web_fetch: "Read a web page",
   list_files: "Looked at the files",
   read_file: "Read",
   write_file: "Wrote",
@@ -75,6 +81,8 @@ interface StudioAssistantProps {
   onClear: () => Promise<void>;
   /** Goes back to the checkpoint saved before a message. */
   onUndo?: (checkpointId: string) => Promise<void>;
+  /** Reverses one file change the assistant made (the Undo beside a step). */
+  onUndoEdit?: (editId: string) => Promise<void>;
   /** Remembers the provider, model and thinking level per organization. */
   storageKey: string;
   /** A first message to send once a key is ready (from "describe your app"). */
@@ -122,7 +130,8 @@ function readChoice(storageKey: string): AiChoice {
   } catch {
     // storage unavailable
   }
-  return { provider: "anthropic", model: STUDIO_AI_PROVIDER_INFO.anthropic.defaultModel };
+  // The free models need no key, so a new project can start right away.
+  return { provider: "free", model: STUDIO_AI_PROVIDER_INFO.free.defaultModel };
 }
 
 type StepGroup = { kind: "say"; text: string } | { kind: "tools"; steps: StudioAssistantStep[] };
@@ -180,13 +189,32 @@ function groupSteps(steps: StudioAssistantStep[]): StepGroup[] {
   return groups;
 }
 
-function StepRow({ step }: { step: StudioAssistantStep }) {
+function StepRow({ step, onUndoEdit, disabled }: { step: StudioAssistantStep; onUndoEdit?: (editId: string) => Promise<void>; disabled?: boolean }) {
   const summary = step.summary || TOOL_LABEL[step.tool] || step.tool;
+  const [undoing, setUndoing] = useState(false);
   return (
     <li className="flex min-w-0 flex-col gap-0.5">
-      <span className={cn("flex items-center gap-1.5 text-xs", step.ok ? "text-muted-foreground" : "text-destructive")}>
+      <span className={cn("flex min-w-0 items-center gap-1.5 text-xs", step.ok ? "text-muted-foreground" : "text-destructive")}>
         {step.ok ? <Check className="size-3 shrink-0" /> : <CircleAlert className="size-3 shrink-0" />}
-        <span className="truncate font-mono">{summary}</span>
+        <span className={cn("min-w-0 flex-1 truncate font-mono", step.undone && "line-through")}>{summary}</span>
+        {step.editId && step.undone ? (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-(length:--text-micro)" data-testid="studio-step-undone">Undone</span>
+        ) : step.editId && onUndoEdit ? (
+          <button
+            type="button"
+            disabled={disabled || undoing}
+            onClick={() => {
+              setUndoing(true);
+              void onUndoEdit(step.editId!).finally(() => setUndoing(false));
+            }}
+            className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-(length:--text-micro) text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            aria-label={`Undo: ${summary}`}
+            data-testid="studio-step-undo"
+          >
+            {undoing ? <LoaderCircle className="size-3 animate-spin" /> : <Undo2 className="size-3" />}
+            Undo
+          </button>
+        ) : null}
       </span>
       {step.detail ? <pre className="ml-4 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted px-2 py-1 font-mono text-(length:--text-micro) text-muted-foreground">{step.detail}</pre> : null}
     </li>
@@ -215,6 +243,84 @@ function ThoughtRow({ step }: { step: StudioAssistantStep }) {
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** One teammate's card: role, status, what it is doing, and (tap) its task, steps and report. */
+/** A teammate's step as its own card shows it: without the "Name (role) · " the lead's log puts first. */
+function withoutAgentLabel(step: StudioAssistantStep, agent: StudioTeamAgent): StudioAssistantStep {
+  const cut = step.summary.indexOf(" · ");
+  return cut > 0 && step.summary.startsWith(agent.name) ? { ...step, summary: step.summary.slice(cut + 3) } : step;
+}
+
+function TeamAgentCard({ agent, steps, onUndoEdit, disabled }: { agent: StudioTeamAgent; steps: StudioAssistantStep[]; onUndoEdit?: (editId: string) => Promise<void>; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const toolSteps = steps.filter((step) => step.tool !== "say").map((step) => withoutAgentLabel(step, agent));
+  const said = steps.filter((step) => step.tool === "say").map((step) => step.summary);
+  return (
+    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-card px-2.5 py-2" data-testid="studio-team-agent" data-status={agent.status}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex min-w-0 items-center gap-2 text-left">
+        <ModelLogo modelId={agent.model} size="xs" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs font-medium text-foreground">{agent.name}{agent.role ? <span className="font-normal text-muted-foreground"> · {agent.role}</span> : null}</span>
+          <span className="block truncate text-(length:--text-micro) text-muted-foreground">
+            {agent.status === "working"
+              ? `${agent.activity ? `${agent.activity}…` : "Working…"} · ${agent.steps} step${agent.steps === 1 ? "" : "s"}`
+              : agent.status === "done"
+                ? `Done · ${agent.steps} step${agent.steps === 1 ? "" : "s"}`
+                : `Could not finish${agent.error ? `: ${agent.error}` : ""}`}
+          </span>
+        </span>
+        {agent.status === "working" ? (
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-(--status-agent-running)" aria-label="Working" />
+        ) : agent.status === "done" ? (
+          <Check className="size-3.5 shrink-0 text-muted-foreground" aria-label="Done" />
+        ) : (
+          <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label="Failed" />
+        )}
+        <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform duration-(--motion-duration-fast)", open && "rotate-90")} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-2 text-xs">
+          <div className="min-w-0 text-muted-foreground">
+            <span className="font-medium text-foreground">Task: </span>
+            <span className="whitespace-pre-wrap break-words">{agent.task}</span>
+          </div>
+          {toolSteps.length ? (
+            <ul className="flex flex-col gap-1 border-l-2 border-border pl-2">
+              {toolSteps.map((step, index) =>
+                step.tool === "think" ? <ThoughtRow key={index} step={step} /> : <StepRow key={index} step={step} onUndoEdit={onUndoEdit} disabled={disabled} />,
+              )}
+            </ul>
+          ) : null}
+          {agent.report || said.length ? (
+            <div className="min-w-0 break-words">
+              <MarkdownBody softBreaks>{agent.report ?? said.join("\n\n")}</MarkdownBody>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/** The teammates the lead put to work in this reply. */
+function TeamAgents({ turn, onUndoEdit, disabled }: { turn: StudioAssistantTurn; onUndoEdit?: (editId: string) => Promise<void>; disabled?: boolean }) {
+  const agents = turn.agents ?? [];
+  if (!agents.length) return null;
+  const working = agents.filter((agent) => agent.status === "working").length;
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5" data-testid="studio-team-agents">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Users className="size-3.5" aria-hidden="true" />
+        {working ? `${working} of ${agents.length} teammates working` : `Team of ${agents.length}`}
+      </span>
+      <ul className="flex flex-col gap-1.5">
+        {agents.map((agent) => (
+          <TeamAgentCard key={agent.id} agent={agent} steps={turn.steps.filter((step) => step.agent === agent.id)} onUndoEdit={onUndoEdit} disabled={disabled} />
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -254,7 +360,10 @@ function AssistantProgress({ turns, model }: { turns: StudioAssistantTurn[]; mod
     return () => window.clearInterval(timer);
   }, []);
   const steps = current?.steps.filter((step) => step.tool !== "say" && step.tool !== "think").length ?? 0;
-  const doing = current?.activity
+  const teamWorking = current?.agents?.filter((agent) => agent.status === "working").length ?? 0;
+  const doing = teamWorking > 1
+    ? `${teamWorking} teammates working…`
+    : current?.activity
     ? `${current.activity}…`
     : current?.liveThinking
       ? "Thinking it through…"
@@ -312,6 +421,7 @@ export function StudioAssistant({
   onStop,
   onClear,
   onUndo,
+  onUndoEdit,
   storageKey,
   initialPrompt,
   onInitialPromptUsed,
@@ -656,7 +766,8 @@ export function StudioAssistant({
                     <ModelLogo modelId={turn.model ?? "claude"} size="xs" />
                     {modelDisplayName(turn.model)}
                   </span>
-                  {groupSteps(turn.steps).map((group, index) =>
+                  {/* Teammates' own steps live in their cards, not in the lead's flow. */}
+                  {groupSteps(turn.steps.filter((step) => !step.agent)).map((group, index) =>
                     group.kind === "say" ? (
                       <div key={index} className="min-w-0 text-sm break-words">
                         <MarkdownBody softBreaks>{group.text}</MarkdownBody>
@@ -664,11 +775,12 @@ export function StudioAssistant({
                     ) : (
                       <ul key={index} className="flex flex-col gap-1 border-l-2 border-border pl-2">
                         {group.steps.map((step, stepIndex) =>
-                          step.tool === "think" ? <ThoughtRow key={stepIndex} step={step} /> : <StepRow key={stepIndex} step={step} />,
+                          step.tool === "think" ? <ThoughtRow key={stepIndex} step={step} /> : <StepRow key={stepIndex} step={step} onUndoEdit={onUndoEdit} disabled={running} />,
                         )}
                       </ul>
                     ),
                   )}
+                  <TeamAgents turn={turn} onUndoEdit={onUndoEdit} disabled={running} />
                   {/* Transcripts from before steps carried the text. */}
                   {turn.text && !turn.steps.some((step) => step.tool === "say") ? (
                     <div className="min-w-0 text-sm break-words">

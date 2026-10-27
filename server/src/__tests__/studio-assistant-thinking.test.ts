@@ -109,7 +109,8 @@ describe("Studio assistant thinking levels", () => {
 
     const quick = await ask("anthropic", "claude-sonnet-5-5", "low");
     expect(quick.output_config).toEqual({ effort: "low" });
-    expect(quick.max_tokens).toBe(32000);
+    // Every level gets the same room; a reply that runs out is continued automatically.
+    expect(quick.max_tokens).toBe(64000);
 
     // A level the model does not take falls back to the default.
     expect((await ask("anthropic", "claude-opus-4-6", "xhigh")).output_config).toEqual({ effort: "high" });

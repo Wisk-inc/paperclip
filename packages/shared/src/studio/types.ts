@@ -175,26 +175,30 @@ export interface StudioAiProviderInfo {
   keyUrl: string | null;
 }
 
-/** The free chat models Studio offers, the ones that take tools first. */
+/**
+ * The free chat models Studio offers: the ones that answer and take tools
+ * most reliably first, then those with a shared daily limit or busy hours.
+ */
 export const STUDIO_FREE_MODELS = [
-  "deepseek/deepseek-v4.1-flash:free",
-  "moan/moan-1:free",
-  "qwen/qwen3.8-27b:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "moan/moan-1:free",
+  "nvidia/nemotron-3.5-lightning:free",
+  "cohere/north-mini-code:free",
+  "recursive/flint-v1.0:free",
+  "nvidia/nemotron-3.5-super-vl:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "deepseek/deepseek-v4.1-flash:free",
+  "qwen/qwen3.8-27b:free",
   "google/gemma-4-31b-it:free",
   "google/gemma-4-26b-a4b-it:free",
-  "nvidia/nemotron-3.5-lightning:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-  "thinkingmachines/inkling:free",
-  "thinkingmachines/inkling-small:free",
-  "cohere/north-mini-code:free",
   "qwen/qwen3.8-27b-abliterated-cyber:free",
-  "recursive/flint-v1.0:free",
   "internlm/atria-dawn-preview:free",
   "apodex/apodex-1.1-mini:free",
   "xingchen-agi/xing4.0-29b-a4b:free",
   "liquid/lfm-2.5-2.6b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "thinkingmachines/inkling:free",
+  "thinkingmachines/inkling-small:free",
 ] as const;
 
 export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {
@@ -211,8 +215,8 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     id: "free",
     name: "Free models (no key)",
     baseUrl: null,
-    defaultModel: "deepseek/deepseek-v4.1-flash:free",
-    completionModel: "deepseek/deepseek-v4.1-flash:free",
+    defaultModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    completionModel: "nvidia/nemotron-3.5-lightning:free",
     models: STUDIO_FREE_MODELS,
     keyUrl: null,
   },
@@ -324,6 +328,33 @@ export interface StudioAssistantStep {
   ok: boolean;
   /** First part of the result (command output, error). */
   detail: string | null;
+  /** The teammate that took this step (its agent id on the turn); absent for the lead. */
+  agent?: string;
+  /** A file change that can be undone with the edits route. */
+  editId?: string;
+  /** Set once that change was undone. */
+  undone?: boolean;
+}
+
+/** A teammate working for the lead during one turn, shown live and kept in the transcript. */
+export interface StudioTeamAgent {
+  id: string;
+  /** The model's display name. */
+  name: string;
+  provider: StudioAiProvider;
+  model: string;
+  /** What the lead asked it to be, e.g. "backend: the API and the database". */
+  role: string | null;
+  task: string;
+  status: "working" | "done" | "failed";
+  /** What it is doing right now (while working). */
+  activity?: string | null;
+  steps: number;
+  /** Its written report, once done. */
+  report?: string | null;
+  error?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
 }
 
 export interface StudioAssistantTurn {
@@ -340,6 +371,8 @@ export interface StudioAssistantTurn {
   activity?: string;
   /** Tokens and list-price cost of this reply, once it is done. */
   usage?: { inputTokens: number; outputTokens: number; costUsd: number | null };
+  /** Teammates the lead put to work during this reply. */
+  agents?: StudioTeamAgent[];
   /** On your message: the checkpoint saved just before the assistant started. */
   checkpointId?: string | null;
   /** On your message: the files that went with it. */
