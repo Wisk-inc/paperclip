@@ -19,7 +19,31 @@ ask() {
   printf '%s' "$answer"
 }
 
-command -v adb >/dev/null 2>&1 || { say "Installing adb (android-tools)"; pkg install -y android-tools; }
+# `pkg install -y` that survives Android clearing apt's download cache in the
+# middle of a download ("rename failed, No such file or directory"): make the
+# folder apt really uses, then retry with a download folder inside Termux's
+# own files.
+termux_pkg_install() {
+  local archives="" cache="$PREFIX/var/cache/automa-apt" attempt
+  eval "$(apt-config shell archives Dir::Cache::archives/d 2>/dev/null)" 2>/dev/null || archives=""
+  [ -n "$archives" ] || archives="$PREFIX/../../cache/apt/archives"
+  mkdir -p "${archives%/}/partial" 2>/dev/null || true
+  pkg install -y "$@" && return 0
+  say "The install was interrupted; trying again with Automa's own download folder"
+  mkdir -p "$cache/archives/partial"
+  apt-get update || true
+  for attempt in 1 2; do
+    if apt-get -o Dir::Cache::archives="$cache/archives/" -o Acquire::Retries=3 install -y --fix-missing "$@"; then
+      rm -rf "$cache"
+      return 0
+    fi
+    sleep 3
+  done
+  rm -rf "$cache"
+  return 1
+}
+
+command -v adb >/dev/null 2>&1 || { say "Installing adb (android-tools)"; termux_pkg_install android-tools; }
 
 # Already linked? Nothing to do.
 if adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device"' | grep -q .; then

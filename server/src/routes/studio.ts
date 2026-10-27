@@ -55,7 +55,7 @@ import {
 import { studioService } from "../services/studio/service.js";
 import { studioUsageRecorder } from "../services/studio/usage.js";
 import { disposeStudioRuntime, existingStudioRuntime, stopAllStudioRuntimes, studioRuntime, studioRuntimeByPreviewToken } from "../services/studio/runner.js";
-import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
+import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, installExecCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
 import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
 import { StudioGateway } from "../services/studio/gateway.js";
@@ -619,7 +619,9 @@ export function studioRoutes(db: Db) {
     if (!command) throw unprocessable("Automa doesn't know how to install this language here. Install it yourself, then tap Run.");
     if (command.startsWith("sudo ")) throw unprocessable(`Run this in a terminal on the server: ${command}`);
     await log(req, workspace, "studio.toolchain_installed", { command });
-    const result = await studioRuntime(workspace.id).exec(studioWorkspaceDirs(workspace.companyId, workspace.id).files, command, { timeoutMs: 20 * 60_000 });
+    // On a phone the sturdier installer runs (it survives Android clearing apt's cache mid-download).
+    const exec = installExecCommandFor(language!) ?? command;
+    const result = await studioRuntime(workspace.id).exec(studioWorkspaceDirs(workspace.companyId, workspace.id).files, exec, { timeoutMs: 20 * 60_000 });
     clearToolchainCache();
     res.json({ ...result, toolchain: toolchainStatus(language!) });
   });

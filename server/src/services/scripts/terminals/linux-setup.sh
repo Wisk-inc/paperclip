@@ -16,6 +16,11 @@ warn() { printf '\033[1;33m!\033[0m %s\n' "$*" >&2; }
 
 on_phone() { [ -n "${PREFIX:-}" ] && case "$PREFIX" in *com.termux*) return 0;; esac; return 1; }
 
+# termux_pkg_install / termux_apt_archives: Termux installs that survive
+# Android clearing apt's download cache mid-download ("rename failed").
+# shellcheck source=../termux-pkg.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../termux-pkg.sh"
+
 # Run a command inside the Debian layer. A login shell there does not always
 # read ~/.bashrc, so the folders the installers put tools in are named here.
 indeb() { proot-distro login "$DISTRO" -- bash -lc "export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\" DEBIAN_FRONTEND=noninteractive; $1"; }
@@ -30,7 +35,7 @@ ensure_linux() {
   ensure_wake_lock
   if ! command -v proot-distro >/dev/null 2>&1; then
     say "Installing proot-distro (the Linux layer)"
-    pkg install -y proot-distro
+    termux_pkg_install proot-distro
   fi
   # proot-distro is a Python program. After Termux updates Python (3.13 to
   # 3.14, say) its first line still names the old interpreter and every run
@@ -38,8 +43,9 @@ ensure_linux() {
   # Reinstalling it writes the current one in.
   if ! proot-distro list >/dev/null 2>&1; then
     say "Repairing proot-distro (its Python interpreter moved)"
-    pkg install -y python
-    pkg reinstall -y proot-distro || pkg install -y --reinstall proot-distro || true
+    termux_pkg_install python
+    mkdir -p "$(termux_apt_archives)/partial" 2>/dev/null || true
+    pkg reinstall -y proot-distro || termux_pkg_install --reinstall proot-distro || true
     if ! proot-distro list >/dev/null 2>&1; then
       interpreter="$(head -n 1 "$(command -v proot-distro)" | sed 's/^#! *//')"
       warn "proot-distro still does not start (it wants $interpreter). Run in Termux: pkg upgrade -y && pkg reinstall proot-distro"
@@ -76,7 +82,7 @@ install_node_tool() {
   if [ "$where" = "linux" ] && on_phone; then
     indeb "npm install -g $pkg_name"
   else
-    if on_phone; then command -v node >/dev/null 2>&1 || pkg install -y nodejs-lts; fi
+    if on_phone; then command -v node >/dev/null 2>&1 || termux_pkg_install nodejs-lts; fi
     npm install -g "$pkg_name"
   fi
 }

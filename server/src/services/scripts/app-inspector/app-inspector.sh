@@ -14,25 +14,60 @@ set -euo pipefail
 say() { printf '==> %s\n' "$*"; }
 on_phone() { [ -n "${PREFIX:-}" ] && case "$PREFIX" in *com.termux*) return 0;; esac; return 1; }
 
+# termux_pkg_install: installs Termux packages so a finished download is never
+# lost to Android clearing apt's cache folder ("rename failed").
+# shellcheck source=../termux-pkg.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../termux-pkg.sh"
+
 # Install a Termux package when its command is missing (off-phone: explain).
 need() {
   local cmd="$1" pkg="$2" hint="$3"
   command -v "$cmd" >/dev/null 2>&1 && return 0
   if on_phone; then
     say "Installing $pkg (first time only)"
-    # apt moves each download from archives/partial into archives; on some
-    # phones those folders are missing and the install ends with "rename
-    # failed, No such file or directory" after the whole download.
-    mkdir -p "$PREFIX/../cache/apt/archives/partial" 2>/dev/null || true
-    pkg install -y "$pkg" 2>&1 || apt-get install -y --fix-missing "$pkg" 2>&1 || true
+    termux_pkg_install "$pkg" 2>&1 || true
+    hash -r
     command -v "$cmd" >/dev/null 2>&1 && return 0
   fi
   echo "$cmd is not installed. $hint" >&2
   exit 3
 }
 
-ensure_apktool() { need apktool apktool "Install apktool (e.g. 'brew install apktool' or your package manager) and try again."; }
 ensure_java_runtime() { command -v java >/dev/null 2>&1 || need java openjdk-21 "Install a JDK (17 or newer) and try again."; }
+
+# apktool from its own release jar, for when the package can't be installed:
+# the newest apktool_*.jar from GitHub, run through a small wrapper.
+apktool_from_jar() {
+  local tools="$HOME/.automa/tools" url
+  ensure_java_runtime
+  mkdir -p "$tools"
+  if [ ! -s "$tools/apktool.jar" ]; then
+    say "Downloading apktool from its GitHub release instead"
+    url="$(curl -fsSL https://api.github.com/repos/iBotPeaches/Apktool/releases/latest 2>/dev/null \
+      | grep -o '"browser_download_url": *"[^"]*apktool_[^"]*\.jar"' | head -n 1 | sed 's/.*"\(https[^"]*\)"/\1/')"
+    [ -n "$url" ] || return 1
+    curl -fL --retry 3 -o "$tools/apktool.jar.part" "$url" && mv "$tools/apktool.jar.part" "$tools/apktool.jar" || { rm -f "$tools/apktool.jar.part"; return 1; }
+  fi
+  local bin="${PREFIX:-$HOME/.local}/bin"
+  mkdir -p "$bin"
+  printf '#!/usr/bin/env bash\nexec java -jar "%s" "$@"\n' "$tools/apktool.jar" > "$bin/apktool"
+  chmod 755 "$bin/apktool"
+  hash -r
+  command -v apktool >/dev/null 2>&1
+}
+
+ensure_apktool() {
+  command -v apktool >/dev/null 2>&1 && return 0
+  if on_phone; then
+    say "Installing apktool (first time only)"
+    termux_pkg_install apktool 2>&1 || true
+    hash -r
+    command -v apktool >/dev/null 2>&1 && return 0
+    apktool_from_jar && return 0
+  fi
+  echo "apktool is not installed. Install apktool (e.g. 'brew install apktool' or your package manager) and try again." >&2
+  exit 3
+}
 
 # A folder this device's Downloads, when it can be written; empty otherwise.
 downloads_dir() {

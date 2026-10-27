@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
-import { findOnPath, studioHostPlatform, clearToolchainCache } from "./toolchains.js";
+import { findOnPath, studioHostPlatform, clearToolchainCache, termuxPkgScript } from "./toolchains.js";
 import { studioChildEnv } from "./runner.js";
 
 const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
@@ -90,7 +90,8 @@ export async function installCloudflared(log: (line: string) => void): Promise<{
   if (platform === "termux") {
     log("$ pkg install -y cloudflared");
     const ok = await new Promise<boolean>((resolve) => {
-      const child = spawn("sh", ["-c", "pkg install -y cloudflared"], { env: studioChildEnv(), stdio: ["ignore", "pipe", "pipe"] });
+      // The sturdier installer: it survives Android clearing apt's cache mid-download.
+      const child = spawn("bash", [termuxPkgScript(), "cloudflared"], { env: studioChildEnv(), stdio: ["ignore", "pipe", "pipe"] });
       child.stdout?.on("data", (chunk: Buffer) => log(chunk.toString("utf8").trimEnd()));
       child.stderr?.on("data", (chunk: Buffer) => log(chunk.toString("utf8").trimEnd()));
       child.on("error", () => resolve(false));

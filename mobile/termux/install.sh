@@ -24,6 +24,38 @@ if [ -z "${PREFIX:-}" ] || [ ! -d "$PREFIX/bin" ]; then
   exit 1
 fi
 
+# Package installs that survive Android clearing apt's download cache in the
+# middle of a download (the install then ends with "rename failed, No such file
+# or directory" after the whole package arrived): make the folder apt really
+# uses, and when the install still fails, install again with a download folder
+# inside Termux's own files. Kept as a command for the `automa` launcher too.
+mkdir -p "$automa_home/bin"
+cat > "$automa_home/bin/automa-pkg-install" <<'PKGINSTALL'
+#!/data/data/com.termux/files/usr/bin/bash
+# automa-pkg-install <package>...: `pkg install -y` that survives Android
+# clearing apt's download cache mid-download ("rename failed").
+archives=""
+eval "$(apt-config shell archives Dir::Cache::archives/d 2>/dev/null)" 2>/dev/null || archives=""
+[ -n "$archives" ] || archives="$PREFIX/../../cache/apt/archives"
+mkdir -p "${archives%/}/partial" 2>/dev/null || true
+pkg install -y "$@" && exit 0
+echo "==> The install was interrupted; trying again with Automa's own download folder" >&2
+cache="$PREFIX/var/cache/automa-apt"
+mkdir -p "$cache/archives/partial"
+apt-get update || true
+for attempt in 1 2; do
+  if apt-get -o Dir::Cache::archives="$cache/archives/" -o Acquire::Retries=3 install -y --fix-missing "$@"; then
+    rm -rf "$cache"
+    exit 0
+  fi
+  sleep 3
+done
+rm -rf "$cache"
+exit 1
+PKGINSTALL
+chmod 700 "$automa_home/bin/automa-pkg-install"
+termux_pkg_install() { bash "$automa_home/bin/automa-pkg-install" "$@"; }
+
 # Keep Android from pausing Termux in the background while this runs.
 if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock || true
@@ -33,13 +65,13 @@ fi
 say "Checking Node.js and PostgreSQL"
 if ! command -v node >/dev/null 2>&1 || ! command -v pg_ctl >/dev/null 2>&1; then
   # git: tasks that use a project repository check it out before the agent runs.
-  pkg install -y nodejs-lts postgresql git
+  termux_pkg_install nodejs-lts postgresql git
 fi
 # python: the Terminals page's PTY relay. proot-distro: the small Debian layer
 # Claude Code and Codex run in on a phone. Both small; the layer itself is set
 # up from the Terminals page the first time it's needed.
 for tool in python proot-distro; do
-  command -v "$tool" >/dev/null 2>&1 || pkg install -y "$tool" || echo "Could not install $tool now; Terminals will offer to later." >&2
+  command -v "$tool" >/dev/null 2>&1 || termux_pkg_install "$tool" || echo "Could not install $tool now; Terminals will offer to later." >&2
 done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$node_major" -lt 24 ]; then
@@ -184,7 +216,7 @@ link_app() {
 case "\${1:-}" in
   adb)
     shift
-    command -v adb >/dev/null 2>&1 || pkg install -y android-tools
+    command -v adb >/dev/null 2>&1 || bash "$automa_home/bin/automa-pkg-install" android-tools
     case "\${1:-}" in
       link|"") exec "$automa_home/bin/automa-adb-link" ;;
       pair) exec adb pair "127.0.0.1:\${2:?usage: automa adb pair PAIRING-PORT CODE}" "\${3:?usage: automa adb pair PAIRING-PORT CODE}" ;;

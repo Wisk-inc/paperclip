@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { STUDIO_LANGUAGES, type StudioLanguage, type StudioToolchainStatus } from "@paperclipai/shared";
 
 export type StudioHostPlatform = StudioToolchainStatus["platform"];
@@ -47,6 +48,30 @@ export function installCommandFor(language: StudioLanguage, platform = studioHos
   if (platform === "debian") return language.install.debian ? `sudo apt-get install -y ${language.install.debian}` : null;
   if (platform === "mac") return language.install.mac ? `brew install ${language.install.mac}` : null;
   return null;
+}
+
+/**
+ * Termux's package installer that survives Android clearing apt's download
+ * cache mid-download ("rename failed"): scripts/termux-pkg.sh, which the build
+ * copies to dist/services/scripts with the same layout.
+ */
+export function termuxPkgScript(): string {
+  return fileURLToPath(new URL("../scripts/termux-pkg.sh", import.meta.url));
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * What actually runs to install a language's toolchain: on Termux the sturdier
+ * installer above (people still see `pkg install -y …`), elsewhere the command shown.
+ */
+export function installExecCommandFor(language: StudioLanguage, platform = studioHostPlatform()): string | null {
+  const shown = installCommandFor(language, platform);
+  if (!shown) return null;
+  if (platform === "termux" && language.install.termux) return `bash ${shellQuote(termuxPkgScript())} ${language.install.termux}`;
+  return shown;
 }
 
 export function toolchainStatus(language: StudioLanguage): StudioToolchainStatus {
