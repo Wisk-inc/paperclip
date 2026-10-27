@@ -18,7 +18,7 @@ Adapter: free_models
 Free chat and image models. No API key; replies are posted to the conversation.
 
 Core fields:
-- model (string, optional): default deepseek/deepseek-v4.1-flash:free. Image models (@cf/...) reply with a picture.
+- model (string, optional): default nvidia/nemotron-3-ultra-550b-a55b:free. Image models (@cf/...) reply with a picture.
 - effort (string, optional): thinking level for chat models: low, medium, high or xhigh.
 `,
 };

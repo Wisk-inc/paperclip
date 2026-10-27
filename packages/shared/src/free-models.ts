@@ -19,8 +19,28 @@ export interface FreeModelRunUsage {
   equivalentUsd: number;
 }
 
-/** The chat model a first agent hired with "Skip for now" starts on: fast, smart, and free. */
-export const DEFAULT_FREE_CHAT_MODEL = "deepseek/deepseek-v4.1-flash:free";
+/**
+ * The chat model a first agent hired with "Skip for now" starts on: smart,
+ * free, takes tools, and has no shared daily limit.
+ */
+export const DEFAULT_FREE_CHAT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
+
+/**
+ * A free model's last known state: fine, at its daily limit (shared by
+ * everyone who uses it free), busy at its provider, limited by its provider
+ * to partner apps, taken offline, or stopped because it started charging.
+ */
+export type FreeModelState = "ok" | "daily_limit" | "busy" | "restricted" | "withdrawn" | "charged";
+
+export interface FreeModelHealthEntry {
+  state: FreeModelState;
+  /** When the state should clear (daily limit) or is next checked; null when fine. */
+  until: string | null;
+  checkedAt: string;
+}
+
+/** `GET /free-models/health`: every model called since the server started, by model id. */
+export type FreeModelHealthMap = Record<string, FreeModelHealthEntry>;
 
 /** The image model a free chat agent draws with until one is chosen: the fast SDXL. */
 export const DEFAULT_FREE_IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";

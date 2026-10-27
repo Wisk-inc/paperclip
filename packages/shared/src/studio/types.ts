@@ -187,6 +187,8 @@ export const STUDIO_FREE_MODELS = [
   "recursive/flint-v1.0:free",
   "nvidia/nemotron-3.5-super-vl:free",
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "prism-ml/ternary-bonsai-27b:free",
+  "openrouter/free",
   "deepseek/deepseek-v4.1-flash:free",
   "qwen/qwen3.8-27b:free",
   "google/gemma-4-31b-it:free",
@@ -199,6 +201,7 @@ export const STUDIO_FREE_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
   "thinkingmachines/inkling:free",
   "thinkingmachines/inkling-small:free",
+  "nvidia/nemotron-3.5-content-safety:free",
 ] as const;
 
 export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {

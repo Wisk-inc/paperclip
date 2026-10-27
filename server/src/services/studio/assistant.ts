@@ -21,17 +21,21 @@ import {
 import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
 import {
   describePuterError,
+  formatSafetyVerdict,
+  isLastingPuterError,
   isTransientPuterError,
+  puterModelTakesTools,
   puterComplete,
   puterStream,
   PuterHttpError,
+  toolHistoryAsText,
   type PuterMessage,
   type PuterTool,
   type PuterToolCall,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
 import { createThinkingTagSplitter, readThinkingLevel, thinkingInstruction } from "../../adapters/free-models/thinking.js";
-import { modelLabel, toolHistoryAsText } from "../../adapters/free-models/execute.js";
+import { modelLabel } from "../../adapters/free-models/execute.js";
 import { webFetch, webSearch } from "../../adapters/free-models/web.js";
 import { currentText, recordEdit, undoEdit } from "./edits.js";
 import { logger } from "../../middleware/logger.js";
@@ -174,6 +178,9 @@ const MAX_LENGTH_CONTINUATIONS = 20;
 const MAX_SILENT_FINISH_NUDGES = 2;
 /** The same tool call with the same input past this many times is a loop. */
 const MAX_IDENTICAL_CALLS = 3;
+/** Same-model retries when a free model is busy at its provider, and the wait between them (short under test). */
+const FREE_BUSY_RETRIES = 4;
+const FREE_RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
 const CONTINUE_PROMPT = "(Automa) Your reply was cut off by the length limit. Continue exactly where you left off. If you were writing a large file, write it in parts (write_file for the first part, then edit_file to add the rest).";
 const SILENT_FINISH_PROMPT = "(Automa) You stopped without saying anything to the person. If any part of the task is still undone, finish it with your tools now; then reply with what you did, what works, and how to use it.";
 
@@ -1513,7 +1520,9 @@ async function runFreeModels(input: {
   // Moan builds apps too: its persona and primer come first, then Studio's own instructions.
   const system = resolved.persona === "moan" ? `${moanSystemPrompt({})}\n\n${base}` : base;
   const maxSteps = input.maxSteps ?? MAX_STEPS;
-  let useTools = true;
+  // Content Safety takes no tools; asking with them only wastes a request.
+  let useTools = puterModelTakesTools(resolved.puterModel);
+  const safetyModel = !useTools;
   let textHistory = false;
   let retries = 0;
   const guard = new RunGuard();
@@ -1543,14 +1552,16 @@ async function runFreeModels(input: {
     } catch (error) {
       if (input.signal.aborted) throw new Error("Stopped.");
       if (!(error instanceof PuterHttpError)) throw error;
+      // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
+      if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
       if (!textHistory && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
       if (useTools && error.status !== 429) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
-      if (retries < 3 && isTransientPuterError(error)) { retries += 1; await new Promise((r) => setTimeout(r, 1500 * retries)); step -= 1; continue; }
+      if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) { retries += 1; await new Promise((r) => setTimeout(r, FREE_RETRY_BASE_MS * retries)); step -= 1; continue; }
       throw describePuterError(error, label, retries);
     }
     await input.onUsage({ provider: "free", model: input.model, inputTokens: usage.inputTokens, cachedInputTokens: 0, outputTokens: usage.outputTokens, costUsd: 0 });
     if (reasoning.trim()) input.onThought(reasoning);
-    const spoken = text.trim();
+    const spoken = safetyModel ? formatSafetyVerdict(text.trim()) : text.trim();
     if (spoken) input.onText(spoken);
     if ((stopReason === "max_tokens" || stopReason === "length") && !calls.length && guard.continuations < MAX_LENGTH_CONTINUATIONS) {
       guard.continuations += 1;

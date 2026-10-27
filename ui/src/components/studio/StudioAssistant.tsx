@@ -460,6 +460,27 @@ export function StudioAssistant({
   const connected = Boolean(keyStatus?.connected);
   const showKeyForm = !connected || editingKey;
 
+  // A saved choice with no key behind it (never added, or removed) starts on
+  // the free models instead of asking for a key: the assistant always works.
+  // Only on load: a provider picked now gets its key form.
+  const pickedRef = useRef(false);
+  const [freeInsteadOf, setFreeInsteadOf] = useState<string | null>(null);
+  useEffect(() => {
+    if (pickedRef.current || !keys.length || choice.provider === "free") return;
+    const hasKey = (provider: StudioAiProvider) => provider === "free" || keys.some((key) => key.provider === provider && key.connected);
+    if (hasKey(choice.provider)) return;
+    setFreeInsteadOf(STUDIO_AI_PROVIDER_INFO[choice.provider].name.replace(/ \(.*\)$/, ""));
+    setChoice((current) => {
+      const team = (current.team ?? []).filter((mate) => hasKey(mate.provider));
+      return {
+        provider: "free",
+        model: STUDIO_AI_PROVIDER_INFO.free.defaultModel,
+        ...(current.thinking ? { thinking: current.thinking } : {}),
+        ...(team.length ? { team } : {}),
+      };
+    });
+  }, [keys, choice.provider]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(choice));
@@ -568,6 +589,8 @@ export function StudioAssistant({
           team={choice.team ?? []}
           onTeamChange={(team) => setChoice(({ team: _old, ...rest }) => (team.length ? { ...rest, team } : rest))}
           onChange={(next) => {
+            pickedRef.current = true;
+            setFreeInsteadOf(null);
             if (next.provider !== choice.provider) setEditingKey(false);
             // The level and the team carry over to the next model.
             setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}), ...(choice.team?.length ? { team: choice.team } : {}) });
@@ -602,6 +625,11 @@ export function StudioAssistant({
           value={choice.thinking}
           onChange={(thinking) => setChoice(({ thinking: _old, ...rest }) => (thinking ? { ...rest, thinking } : rest))}
         />
+        {freeInsteadOf && choice.provider === "free" ? (
+          <p className="text-xs text-muted-foreground" data-testid="studio-free-instead">
+            No {freeInsteadOf} key yet, so the free models are answering: no key needed. To use {freeInsteadOf}, pick it in the model menu and add its key.
+          </p>
+        ) : null}
         {choice.provider === "anthropic" && FALLBACK_MODELS.has(choice.model) ? (
           <p className="text-xs text-muted-foreground">Fallbacks are on: if Claude declines a request, Anthropic retries it on another Claude model.</p>
         ) : null}

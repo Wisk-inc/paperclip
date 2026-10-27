@@ -1,7 +1,7 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Gift, KeyRound, Loader2, Search, Sparkles } from "lucide-react";
-import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, isMoanModel, pairedFreeImageModel, type Agent, type AiProvider } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, isMoanModel, pairedFreeImageModel, resolveFreeModel, type Agent, type AiProvider, type FreeModelHealthEntry } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { freeModelsApi } from "@/api/free-models";
@@ -72,13 +72,42 @@ function matches(entry: ModelEntry, query: string) {
   return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
 }
 
-function ModelRow({ entry, current, locked, busy, onSelect }: {
+/** "in 1 h 40 min", for when a model at its daily limit answers again. */
+function untilText(until: string | null): string {
+  if (!until) return "later today";
+  const minutes = Math.max(1, Math.ceil((new Date(until).getTime() - Date.now()) / 60_000));
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `in ${hours} h${rest ? ` ${rest} min` : ""}`;
+}
+
+/** A free model's state in a few words, or null when it is answering normally. */
+export function freeHealthNote(health: FreeModelHealthEntry | null | undefined): string | null {
+  if (!health || health.state === "ok") return null;
+  switch (health.state) {
+    case "daily_limit":
+      return `Daily free limit reached · back ${untilText(health.until)}`;
+    case "busy":
+      return "Busy at its provider right now · retried automatically";
+    case "restricted":
+      return "Its provider is limiting it to partner apps · checked again with each message";
+    case "withdrawn":
+      return "Offline at its provider · checked again with each message";
+    case "charged":
+      return "Paused: it started charging";
+  }
+}
+
+function ModelRow({ entry, current, locked, busy, health, onSelect }: {
   entry: ModelEntry;
   current: boolean;
   locked: boolean;
   busy: boolean;
+  health?: FreeModelHealthEntry | null;
   onSelect: (entry: ModelEntry) => void;
 }) {
+  const note = freeHealthNote(health);
   return (
     <button
       type="button"
@@ -101,6 +130,7 @@ function ModelRow({ entry, current, locked, busy, onSelect }: {
         ) : (
           <span className="block truncate font-mono text-xs text-muted-foreground">{entry.id}</span>
         )}
+        {note ? <span className="block truncate text-xs text-(--status-agent-paused)" data-slot="model-health" data-state={health?.state}>{note}</span> : null}
       </span>
       {entry.source === "free" ? <Badge variant="secondary" data-slot="free-tag">Free</Badge> : null}
       {current ? <Check className="size-4 shrink-0 text-primary" aria-label="Current model" /> : null}
@@ -376,6 +406,13 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     enabled: open,
     staleTime: 5 * 60_000,
   });
+  // Which free models are at their daily limit, busy, or closed by their provider; refreshed while the sheet is open.
+  const freeHealth = useQuery({
+    queryKey: queryKeys.freeModels.health(),
+    queryFn: () => freeModelsApi.health(),
+    enabled: open,
+    refetchInterval: open ? 60_000 : false,
+  });
   const catalog = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, "opencode_local", null, "openrouter"),
     queryFn: () => agentsApi.adapterModels(companyId, "opencode_local", { provider: "openrouter" }),
@@ -607,6 +644,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
                   current={runsFree && entry.id === currentModel}
                   locked={false}
                   busy={busyId === entry.id}
+                  health={freeHealth.data?.[resolveFreeModel(entry.id).puterModel]}
                   onSelect={choose}
                 />
               ))}

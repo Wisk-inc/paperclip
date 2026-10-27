@@ -2846,7 +2846,10 @@ export {
   FREE_IMAGE_MODEL_NONE,
   FREE_MODELS_ADAPTER_TYPE,
   pairedFreeImageModel,
+  type FreeModelHealthEntry,
+  type FreeModelHealthMap,
   type FreeModelRunUsage,
+  type FreeModelState,
   type FreeModelUsageSummary,
 } from "./free-models.js";
 export {

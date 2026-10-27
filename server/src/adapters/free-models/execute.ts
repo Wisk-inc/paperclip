@@ -2,8 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   describePuterError,
+  formatSafetyVerdict,
+  isLastingPuterError,
   isPuterImageModel,
   isTransientPuterError,
+  puterModelTakesTools,
+  toolHistoryAsText,
   puterComplete,
   puterImage,
   puterStream,
@@ -30,8 +34,8 @@ import { freeDirectToolRuntime } from "./direct-runtime.js";
 const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
 const DEFAULT_MAX_TOOL_TURNS = 40;
 /** Same-model retries for a busy provider, and how long to wait between them (short under test). */
-const MAX_TRANSIENT_RETRIES = 3;
-const RETRY_BASE_MS = process.env.VITEST ? 10 : 1500;
+const MAX_TRANSIENT_RETRIES = 4;
+const RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
 /** The same tool call with the same arguments past this many times is a loop, not research. */
 const MAX_IDENTICAL_CALLS = 2;
 
@@ -42,35 +46,8 @@ export function modelLabel(model: string): string {
   return key ? PUTER_MODEL_META[key].label : model;
 }
 
-/**
- * The tool exchanges rewritten as plain text. Some free routes refuse
- * `tool`-role messages or assistant tool calls in the history outright;
- * the same facts as text get the same model to carry on.
- */
-export function toolHistoryAsText(messages: PuterMessage[]): PuterMessage[] {
-  const names = new Map<string, string>();
-  const out: PuterMessage[] = [];
-  const pushUser = (text: string) => {
-    const last = out[out.length - 1];
-    if (last && last.role === "user" && typeof last.content === "string") last.content = `${last.content}\n\n${text}`;
-    else out.push({ role: "user", content: text });
-  };
-  for (const message of messages) {
-    if (message.role === "assistant" && message.tool_calls?.length) {
-      for (const call of message.tool_calls) names.set(call.id, call.function.name);
-      const calls = message.tool_calls.map((call) => `[Called ${call.function.name} ${call.function.arguments || "{}"}]`).join("\n");
-      const text = typeof message.content === "string" ? message.content.trim() : "";
-      out.push({ role: "assistant", content: text ? `${text}\n\n${calls}` : calls });
-    } else if (message.role === "tool") {
-      pushUser(`[${names.get(message.tool_call_id ?? "") ?? "Tool"} result]\n${typeof message.content === "string" ? message.content : ""}`);
-    } else if (message.role === "user" && typeof message.content === "string") {
-      pushUser(message.content);
-    } else {
-      out.push(message);
-    }
-  }
-  return out;
-}
+/** The tool exchanges rewritten as plain text (kept here for the engine's callers and tests). */
+export { toolHistoryAsText };
 
 function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -378,7 +355,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
   const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage, puterModel } = input;
   const model = input.model;
   const label = modelLabel(model);
-  let useTools = input.tools.length > 0;
+  // Content Safety takes no tools; asking with them only wastes a request.
+  let useTools = input.tools.length > 0 && puterModelTakesTools(puterModel);
+  const safetyModel = !puterModelTakesTools(puterModel);
   const answeredBy = model;
   let lastAnswer = "";
   let lastReasoning = "";
@@ -419,6 +398,8 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       if (ctx.signal?.aborted) break;
       if (!(error instanceof PuterHttpError)) throw error;
       const status = `${error.status}${error.code ? ` ${error.code}` : ""}`;
+      // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
+      if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
       // The provider refused the history with tool turns in it: say the same things as text.
       if (!textHistory && messages.some((message) => message.role === "tool")) {
         textHistory = true;
@@ -449,7 +430,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
           const split = splitThinking(reply.text, reply.reasoning);
           if (split.thinking) await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.thinking, channel: "thinking" }));
           await onLog("stdout", logLine({ type: "acpx.text_delta", text: split.answer }));
-          return { answer: split.answer, thinking: split.thinking, answeredBy, stopReason: "end_turn", hitTurnLimit: false };
+          return { answer: safetyModel ? formatSafetyVerdict(split.answer) : split.answer, thinking: split.thinking, answeredBy, stopReason: "end_turn", hitTurnLimit: false };
         } catch {
           // Reported below, with the streaming refusal.
         }
@@ -459,7 +440,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
 
     addUsage(puterModel, usage);
     // `text` already has its <thinking> tags routed to `reasoning` by the splitter.
-    if (text.trim()) lastAnswer = text.trim();
+    if (text.trim()) lastAnswer = safetyModel ? formatSafetyVerdict(text.trim()) : text.trim();
     if (reasoning.trim()) lastReasoning = reasoning.trim();
 
     if (calls.length === 0 || stopReason !== "tool_use") {

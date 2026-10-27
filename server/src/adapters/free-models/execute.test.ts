@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext } from "../types.js";
+import { resetFreeModelHealth } from "@paperclipai/shared/puter-ai";
 
 vi.mock("../../services/free-models.js", () => ({
   equivalentTokenCostUsd: vi.fn(async () => 0.001),
@@ -72,7 +73,7 @@ function context(config: Record<string, unknown>, authToken: string | null = "ru
   } as AdapterExecutionContext & { logs: string[] };
 }
 
-beforeEach(() => { process.env.PAPERCLIP_API_URL = API; });
+beforeEach(() => { process.env.PAPERCLIP_API_URL = API; resetFreeModelHealth(); });
 afterEach(() => { vi.unstubAllGlobals(); delete process.env.PAPERCLIP_API_URL; });
 
 function postedBody(calls: Call[]): string {
@@ -164,6 +165,25 @@ describe("free models engine", () => {
     await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
     expect(net.puterModels()).toEqual([NEMOTRON, NEMOTRON]);
     expect(net.posted()).toBe("Back now.");
+  });
+
+  it("says at once when the model is at its daily limit, and when it is back, without retrying", async () => {
+    const net = stubPuter([
+      refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Free model daily limit exceeded (1000 requests per day). Please try again after 600 seconds." }] }),
+    ]);
+    const outcome = await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS })).then((r) => r.errorMessage ?? "", (e: Error) => e.message);
+    expect(net.puterModels()).toEqual(["deepseek/deepseek-v4.1-flash:free"]);
+    expect(outcome).toContain("DeepSeek V4.1 Flash has used up today's free requests");
+    expect(outcome).toContain("back in about 10 minutes");
+  });
+
+  it("asks Content Safety without tools and answers with a readable verdict", async () => {
+    const net = stubPuter([
+      () => ndjson([{ type: "text", text: "User Safety: safe" }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 4 } }]),
+    ]);
+    await execute(context({ model: "nvidia/nemotron-3.5-content-safety:free", imageModel: "none" }));
+    expect(net.calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => (JSON.parse(String(c.body)) as { args: { tools?: unknown } }).args.tools)).toEqual([undefined]);
+    expect(net.posted()).toBe("**Safety check: safe.** Nothing harmful found in the message.");
   });
 
   it("never switches to another model when the chosen one keeps refusing, and says which refused", async () => {

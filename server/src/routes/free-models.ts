@@ -1,5 +1,7 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
+import type { FreeModelHealthMap } from "@paperclipai/shared";
+import { freeModelHealth } from "@paperclipai/shared/puter-ai";
 import { logActivity } from "../services/activity-log.js";
 import { FREE_MODELS_RESET_ACTION, freeModelUsage } from "../services/free-models.js";
 import { moanKnowledge } from "../services/moan/index.js";
@@ -28,6 +30,14 @@ export function freeModelRoutes(db: Db): Router {
       entityId: companyId,
     });
     res.json(await freeModelUsage(db, companyId));
+  });
+
+  // Each free model's last known state (daily limit, busy, closed by its
+  // provider), for the model picker. Instance-level: it holds model ids and
+  // times only, no company or user data.
+  router.get("/free-models/health", async (req, res) => {
+    assertAuthenticated(req);
+    res.json(freeModelHealth() satisfies FreeModelHealthMap);
   });
 
   // Moan's Jamaican knowledge index is instance-level public content (see
