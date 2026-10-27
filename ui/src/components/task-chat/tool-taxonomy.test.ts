@@ -32,6 +32,8 @@ describe("tool activity vocabulary", () => {
     expect(toolTaxonomy("Read")).toEqual({ family: "read", icon: BookOpen, verbLabel: "Reading a file" });
     expect(toolTaxonomy("NotebookEdit")).toEqual({ family: "edit", icon: FilePenLine, verbLabel: "Editing a notebook" });
     expect(toolTaxonomy("WebFetch")).toEqual({ family: "web", icon: ChevronsLeftRightEllipsis, verbLabel: "Fetching a web page" });
+    expect(toolTaxonomy("WebCrawl")).toEqual({ family: "web", icon: ChevronsLeftRightEllipsis, verbLabel: "Crawling a site" });
+    expect(toolTaxonomy("WebDownload")).toEqual({ family: "web", icon: ChevronsLeftRightEllipsis, verbLabel: "Downloading a file" });
     expect(toolTaxonomy("Agent")).toEqual({ family: "agent", icon: Network, verbLabel: "Starting a subagent" });
     expect(toolTaxonomy("AskUserQuestion")).toEqual({ family: "question", icon: CircleHelp, verbLabel: "Requesting input" });
   });

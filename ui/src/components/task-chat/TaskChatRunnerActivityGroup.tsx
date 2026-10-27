@@ -331,12 +331,17 @@ export function TaskChatRunnerActivityGroup({
   const latest = activities.at(-1);
   const summary = completedActivitySummary(activities);
   const SummaryIcon = summary.icon;
-  // The sites the web tools touched, for the summary line: the page a fetch
-  // read, or the first result hosts a search returned.
+  // The sites the web tools touched, for the summary line: the page a fetch,
+  // crawl or download started from, or the first result hosts a search
+  // returned. A tool whose target is a URL counts as web work whatever its
+  // name, so a tool the taxonomy has never heard of still shows its site.
   const webHosts: string[] = [];
   for (const activity of activities) {
     if (activity.kind !== "tool") continue;
-    if (toolActivityPresentation({ name: activity.rawName ?? activity.name, target: activity.target }).family !== "web") continue;
+    const isWeb =
+      toolActivityPresentation({ name: activity.rawName ?? activity.name, target: activity.target }).family === "web" ||
+      Boolean(hostOf(activity.target));
+    if (!isWeb) continue;
     for (const candidate of [activity.target ?? "", ...((activity.detail ?? "").match(/https?:\/\/[^\s)]+/g) ?? [])]) {
       const host = hostOf(candidate);
       if (host && !webHosts.includes(host)) webHosts.push(host);

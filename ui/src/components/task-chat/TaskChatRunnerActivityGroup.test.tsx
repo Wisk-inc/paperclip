@@ -299,6 +299,36 @@ describe("TaskChatRunnerActivityGroup", () => {
     expect(viewport().textContent).toContain("command-three");
   });
 
+  it("shows the favicons of the sites the web tools touched on the summary row", () => {
+    const web = (id: string, name: string, target: string, detail?: string): TaskChatToolItem => ({
+      id,
+      kind: "tool",
+      name,
+      rawName: name,
+      target,
+      status: "completed",
+      detail,
+    });
+    render(
+      [
+        web("fetch", "WebFetch", "https://example.com"),
+        web("crawl", "WebCrawl", "https://developer.mozilla.org/en-US/docs/Web/JavaScript"),
+        web("download", "WebDownload", "https://code.jquery.com/jquery-3.7.1.min.js"),
+        web("search", "WebSearch", "best sandboxes", "1. https://news.ycombinator.com/item?id=1\n2. https://example.com/other"),
+        tool("cmd", "completed"),
+      ],
+      "live",
+      false,
+    );
+    const strip = container.querySelector('[data-testid="task-chat-web-hosts"]')!;
+    expect(strip).not.toBeNull();
+    expect(strip.getAttribute("aria-label")).toBe(
+      "Sites: example.com, developer.mozilla.org, code.jquery.com, news.ycombinator.com",
+    );
+    expect(strip.querySelectorAll("img")).toHaveLength(4);
+    expect(toggle().textContent).toContain("Searched the web");
+  });
+
   it("replaces immediately with reduced motion", () => {
     motion.reduced = true;
     render([tool("one")]);
