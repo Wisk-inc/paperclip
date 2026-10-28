@@ -181,7 +181,7 @@ function createMoanKnowledge(db: Db): MoanKnowledge {
       const stats = await knowledgeStats(db);
       if (stats.pages === 0) {
         // First use: start filling right away rather than waiting for the clock.
-        if (!running && (await enabled())) void this.refresh();
+        if (!running && (await enabled())) void this.refresh().catch((error) => logger.warn({ err: error }, "moan knowledge: first refresh failed"));
         return { context: "", freshness: "no pages yet; the Jamaican sources are being read in the background" };
       }
       const okSources = stats.sources.filter((source) => source.lastOkAt && source.pages > 0).length;

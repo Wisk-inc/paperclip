@@ -12,12 +12,17 @@ export interface FeedItem {
   summary: string;
 }
 
+/** A numeric character reference; one naming no storable character (NUL, past U+10FFFF) becomes a space. */
+function codePoint(code: number): string {
+  return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : " ";
+}
+
 function unwrap(value: string | undefined): string {
   if (!value) return "";
   const text = value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/<[^>]+>/g, " ");
   return text
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => codePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => codePoint(parseInt(code, 16)))
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -136,7 +141,8 @@ export function formatContext(passages: KnowledgePassage[]): string {
     seen.add(passage.url);
     const day = dayOf(passage.publishedAt);
     const excerpt = passage.content.replace(/\s+/g, " ").trim().slice(0, MAX_EXCERPT);
-    const line = `- [${passage.sourceName}${day ? ` · ${day}` : ""}] ${passage.title.trim() || passage.url}\n  ${passage.url}\n  ${excerpt}`;
+    const title = passage.title.replace(/\s+/g, " ").trim();
+    const line = `- [${passage.sourceName}${day ? ` · ${day}` : ""}] ${title || passage.url}\n  ${passage.url}\n  ${excerpt}`;
     if (total + line.length > MAX_CONTEXT_CHARS) break;
     lines.push(line);
     total += line.length;

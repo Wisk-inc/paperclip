@@ -5,6 +5,8 @@
  * chunks and stored; a page that has not changed only gets its fetch time
  * moved.
  */
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import type { Db } from "@paperclipai/db";
 import { readDocument } from "../../adapters/free-models/office.js";
 import { webDownload, webFetch } from "../../adapters/free-models/web.js";
@@ -36,13 +38,52 @@ function timeoutSignal(ms: number, parent?: AbortSignal): AbortSignal {
   return typeof AbortSignal.any === "function" ? AbortSignal.any([parent, timeout]) : timeout;
 }
 
+/** Loopback, private, link-local and unspecified addresses: not the public web. */
+function privateAddress(address: string): boolean {
+  const ip = address.toLowerCase().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/, "");
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number) as [number, number];
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  return ip === "::" || ip === "::1" || ip.startsWith("::ffff:") || /^f[cd]/.test(ip) || /^fe[89ab]/.test(ip);
+}
+
+/**
+ * Links come from feeds and pages other people write, and the index is read
+ * by every company: only public sites go in, never this machine or its network.
+ */
+async function assertPublic(url: string): Promise<void> {
+  const parsed = new URL(url);
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const refused = !/^https?:$/.test(parsed.protocol) || host === "localhost" || host.endsWith(".localhost")
+    || (isIP(host) ? privateAddress(host) : (await lookup(host, { all: true }).catch(() => [])).some((entry) => privateAddress(entry.address)));
+  if (refused) throw new Error(`${parsed.host} is not a public site`);
+}
+
+/** A page from a public site, checked before the request and again after its redirects. */
+async function readPage(url: string, signal: AbortSignal, maxChars: number): Promise<Awaited<ReturnType<typeof webFetch>>> {
+  await assertPublic(url);
+  const page = await webFetch(url, signal, { maxChars });
+  await assertPublic(page.url);
+  return page;
+}
+
+async function download(url: string, signal: AbortSignal): Promise<Awaited<ReturnType<typeof webDownload>>> {
+  await assertPublic(url);
+  const file = await webDownload(url, signal);
+  await assertPublic(file.url);
+  return file;
+}
+
 async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
+  await assertPublic(url);
   const response = await fetch(url, {
     headers: { "user-agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36 AutomaMoan/1", accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.5" },
     redirect: "follow",
     signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
   });
   if (!response.ok) throw new Error(`answered ${response.status}`);
+  await assertPublic(response.url || url);
   const text = await response.text();
   return text.length > 3_000_000 ? text.slice(0, 3_000_000) : text;
 }
@@ -70,16 +111,16 @@ async function isFresh(db: Db, url: string, within: number): Promise<boolean> {
 }
 
 async function storeText(db: Db, source: MoanSource, url: string, title: string, text: string, publishedAt: Date | null, options: { size?: number; max?: number } = {}): Promise<boolean> {
-  // Citation lists would otherwise win searches for the names they repeat.
-  const chunks = chunkText(trimReferences(text), options);
+  // Citation lists would otherwise win searches for the names they repeat; Postgres text cannot hold the NUL characters some pages and PDFs carry.
+  const chunks = chunkText(trimReferences(text.replace(/\0/g, "")), options);
   if (!chunks.length) return false;
-  const outcome = await replacePage(db, { sourceId: source.id, url, title, topic: source.topic, publishedAt, chunks, contentHash: hashText(chunks.join("\n")) });
+  const outcome = await replacePage(db, { sourceId: source.id, url, title: title.replace(/\0/g, ""), topic: source.topic, publishedAt, chunks, contentHash: hashText(chunks.join("\n")) });
   return outcome !== "empty";
 }
 
 async function ingestArticle(db: Db, source: MoanSource, item: FeedItem, signal?: AbortSignal): Promise<boolean> {
   if (await isFresh(db, item.link, ARTICLE_FRESH_MS)) return false;
-  const page = await webFetch(item.link, timeoutSignal(FETCH_TIMEOUT_MS, signal), { maxChars: ARTICLE_CHARS });
+  const page = await readPage(item.link, timeoutSignal(FETCH_TIMEOUT_MS, signal), ARTICLE_CHARS);
   const text = page.text.length > 400 ? page.text : `${item.summary}\n\n${page.text}`;
   return storeText(db, source, page.url, item.title || page.title, text, item.publishedAt ?? new Date(), { size: 1_400, max: 16 });
 }
@@ -103,7 +144,7 @@ async function ingestPage(db: Db, source: MoanSource, signal?: AbortSignal): Pro
   let lastError = "";
   for (const url of [source.url, ...(source.alternatives ?? [])]) {
     try {
-      const page = await webFetch(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), { maxChars: REFERENCE_CHARS });
+      const page = await readPage(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), REFERENCE_CHARS);
       const stored = await storeText(db, source, page.url, page.title, page.text, null, { size: 1_600, max: 100 });
       return { sourceId: source.id, items: 1, stored: stored ? 1 : 0, error: null };
     } catch (error) {
@@ -111,6 +152,10 @@ async function ingestPage(db: Db, source: MoanSource, signal?: AbortSignal): Pro
     }
   }
   return { sourceId: source.id, items: 0, stored: 0, error: lastError };
+}
+
+function hostOf(url: string): string {
+  try { return new URL(url).host; } catch { return ""; }
 }
 
 function matcherFor(source: MoanSource): RegExp | null {
@@ -126,14 +171,14 @@ async function ingestCrawl(db: Db, source: MoanSource, signal?: AbortSignal): Pr
   let start: Awaited<ReturnType<typeof webFetch>> | null = null;
   let lastError = "";
   for (const url of [source.url, ...(source.alternatives ?? [])]) {
-    try { start = await webFetch(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), { maxChars: ARTICLE_CHARS }); break; } catch (error) { lastError = `${url} ${error instanceof Error ? error.message : String(error)}`; }
+    try { start = await readPage(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), ARTICLE_CHARS); break; } catch (error) { lastError = `${url} ${error instanceof Error ? error.message : String(error)}`; }
   }
   if (!start) return { sourceId: source.id, items: 0, stored: 0, error: lastError };
   let stored = (await storeText(db, source, start.url, start.title, start.text, null, { size: 1_400, max: 12 })) ? 1 : 0;
   const host = new URL(start.url).host;
   const seen = new Set<string>([start.url]);
   const links = start.links.filter((link) => {
-    if (seen.has(link.url) || !link.url.includes(`//${host}`)) return false;
+    if (seen.has(link.url) || hostOf(link.url) !== host) return false;
     if (matcher && !matcher.test(link.url) && !matcher.test(link.text)) return false;
     if (/\.(pdf|jpg|jpeg|png|gif|zip|mp4|mp3|docx?|xlsx?|pptx?)(\?|$)/i.test(link.url)) return false;
     seen.add(link.url);
@@ -145,7 +190,7 @@ async function ingestCrawl(db: Db, source: MoanSource, signal?: AbortSignal): Pr
     items += 1;
     try {
       if (await isFresh(db, link.url, ARTICLE_FRESH_MS)) continue;
-      const page = await webFetch(link.url, timeoutSignal(FETCH_TIMEOUT_MS, signal), { maxChars: ARTICLE_CHARS });
+      const page = await readPage(link.url, timeoutSignal(FETCH_TIMEOUT_MS, signal), ARTICLE_CHARS);
       if (await storeText(db, source, page.url, page.title || link.text, page.text, new Date(), { size: 1_400, max: 12 })) stored += 1;
     } catch {
       // One page down is not the source down.
@@ -159,7 +204,7 @@ async function ingestPdfList(db: Db, source: MoanSource, signal?: AbortSignal): 
   let listing: Awaited<ReturnType<typeof webFetch>> | null = null;
   let lastError = "";
   for (const url of [source.url, ...(source.alternatives ?? [])]) {
-    try { listing = await webFetch(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), { maxChars: ARTICLE_CHARS }); if (listing.links.length) break; } catch (error) { lastError = `${url} ${error instanceof Error ? error.message : String(error)}`; }
+    try { listing = await readPage(url, timeoutSignal(FETCH_TIMEOUT_MS, signal), ARTICLE_CHARS); if (listing.links.length) break; } catch (error) { lastError = `${url} ${error instanceof Error ? error.message : String(error)}`; }
   }
   if (!listing) return { sourceId: source.id, items: 0, stored: 0, error: lastError };
   const seen = new Set<string>();
@@ -175,7 +220,7 @@ async function ingestPdfList(db: Db, source: MoanSource, signal?: AbortSignal): 
     if (signal?.aborted) break;
     try {
       if (await isFresh(db, link.url, LAW_FRESH_MS)) continue;
-      const file = await webDownload(link.url, timeoutSignal(PDF_TIMEOUT_MS, signal));
+      const file = await download(link.url, timeoutSignal(PDF_TIMEOUT_MS, signal));
       const name = decodeURIComponent(new URL(file.url).pathname.split("/").pop() || "law.pdf");
       const read = await readDocument(file.bytes, name, { contentType: file.contentType, maxChars: LAW_CHARS });
       const title = link.text.trim() || name.replace(/\.pdf$/i, "");
