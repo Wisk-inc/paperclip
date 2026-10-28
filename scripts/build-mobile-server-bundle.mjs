@@ -113,7 +113,15 @@ const SKILL_PACKAGE_DIRS = ["server", "packages/adapters/claude-local", "package
 const cliPackageJson = path.join(cliDir, "package.json");
 const cliPackageBackup = path.join(cliDir, "package.dev.json");
 const cliReadme = path.join(cliDir, "README.md");
+// A run killed before its cleanup left the workspace package.json in the
+// backup; build-npm.sh would copy the publishable one over it, so put it back.
+if (existsSync(cliPackageBackup)) renameSync(cliPackageBackup, cliPackageJson);
 const cliReadmeText = readFileSync(cliReadme, "utf8");
+// Ctrl+C or a kill would otherwise end Node mid-step and skip the cleanup
+// below; with a listener the interrupted step fails and the cleanup runs.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => process.exit(128 + os.constants.signals[signal]));
+}
 try {
   console.log("==> Building the board UI");
   if (!reuseUi || !existsSync(path.join(repoRoot, "ui", "dist", "index.html"))) {

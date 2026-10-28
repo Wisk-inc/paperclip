@@ -59,6 +59,7 @@ const queText = z.string().trim().min(1).max(20_000);
 
 const queOptions = {
   model: z.string().trim().min(1).max(200).optional(),
+  /** Instructions for the model; in a conversation, they replace the ones it has. */
   system: z.string().trim().max(20_000).optional(),
   think: z.enum(QUE_THINK_MODES).optional(),
   /** Reuse an answer to the same question from the last 5 minutes (default true). */

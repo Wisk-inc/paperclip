@@ -297,4 +297,78 @@ describe("Que conversations", () => {
     await Promise.all([queConvo("first", "x", ann), queConvo("second", "x", ann)]);
     expect(calls[1]!.messages.map((message) => message.content)).toEqual(["first", "one", "second"]);
   });
+
+  it("drops the system message a failed first message brought, so a corrected one takes hold", async () => {
+    serve(refusal(400, JSON.stringify({ error: "Unsupported parameter" })), stream("Ahoy!"));
+    await expect(queConvo("Hi", "pirate", { ...ann, system: "Talk like a pirat.", fallback: false })).rejects.toThrow("rejected the request");
+    expect(queConversation("pirate", ann)!.messages).toEqual([]);
+    await queConvo("Hi", "pirate", { ...ann, system: "Talk like a pirate." });
+    expect(calls[1]!.messages[0]).toEqual({ role: "system", content: "Talk like a pirate." });
+  });
+
+  it("trims a long conversation to whole exchanges, so after the system message comes a question", async () => {
+    serve(...Array.from({ length: 51 }, (_, i) => stream(`a${i}`)));
+    for (let i = 0; i < 51; i += 1) await queConvo(`q${i}`, "long", { ...ann, system: "Be brief." });
+    expect(calls[50]!.messages[1]).toEqual({ role: "user", content: "q1" });
+    const { messages } = queConversation("long", ann)!;
+    expect(messages.length).toBeLessThanOrEqual(100);
+    expect(messages.slice(0, 2)).toEqual([{ role: "system", content: "Be brief." }, { role: "user", content: "q2" }]);
+    expect(messages.at(-1)).toEqual({ role: "assistant", content: "a50" });
+  });
+
+  it("never forgets a conversation waiting for its answer to make room for a new one", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      const prompt = (JSON.parse(init.body) as { args: Sent }).args.messages.at(-1)!.content;
+      if (prompt === "Still there?") await held;
+      return stream(`Re: ${prompt}`);
+    }));
+    for (let i = 0; i < 20; i += 1) await queConvo("Hi", `c${i}`, ann);
+    const waiting = queConvo("Still there?", "c0", ann);
+    await queConvo("Hello", "new", ann);
+    release();
+    expect((await waiting).text).toBe("Re: Still there?");
+    expect(queConversation("c0", ann)?.messages.map((message) => message.content)).toEqual(["Hi", "Re: Hi", "Still there?", "Re: Still there?"]);
+    expect(queConversation("c1", ann)).toBeNull();
+    expect(queConversations(ann)).toHaveLength(20);
+  });
+
+  it("keeps each person or agent to their own 20 conversations, so no one pushes out anyone else's", async () => {
+    const ben = { scope: "company-1", owner: "user:ben" };
+    serve(stream("Hi!"));
+    await queConvo("Hi", "mine", ben);
+    for (let i = 0; i < 200; i += 1) await queConvo("Hi", `a${i}`, ann);
+    expect(queConversations(ann)).toHaveLength(20);
+    expect(queConversation("a179", ann)).toBeNull();
+    expect(queConversation("a180", ann)).not.toBeNull();
+    expect(queConversation("mine", ben)?.messages).toHaveLength(2);
+  });
+
+  it("still holds the whole server to 200 conversations, forgetting the longest idle", async () => {
+    serve(stream("Hi!"));
+    for (let agent = 0; agent < 11; agent += 1) {
+      for (let i = 0; i < 20; i += 1) await queConvo("Hi", `c${i}`, { scope: "company-1", owner: `agent:${agent}` });
+    }
+    expect(queConversations({ scope: "company-1", owner: "agent:0" })).toEqual([]);
+    expect(queConversations({ scope: "company-1", owner: "agent:10" })).toHaveLength(20);
+  });
+
+  it("replaces the system message when a later message brings a new one, unless that message fails", async () => {
+    serve(stream("Ahoy!"), refusal(400, JSON.stringify({ error: "Unsupported parameter" })), stream("Good day."));
+    await queConvo("Hi", "persona", { ...ann, system: "Talk like a pirate." });
+    await expect(queConvo("Hello", "persona", { ...ann, system: "Talk like a robot.", fallback: false })).rejects.toThrow("rejected the request");
+    expect(queConversation("persona", ann)!.messages[0]).toEqual({ role: "system", content: "Talk like a pirate." });
+    await queConvo("Hello again", "persona", { ...ann, system: "Talk like a butler." });
+    expect(calls[2]!.messages.map((message) => message.content)).toEqual(["Talk like a butler.", "Hi", "Ahoy!", "Hello again"]);
+  });
+
+  it("keeps a reply that is all thinking as that thinking, never as an empty message", async () => {
+    serve(stream("<think>Counting the r's: three.</think>"), stream("Yes, three."));
+    expect(await queConvo("How many r's in strawberry?", "r", ann)).toMatchObject({ text: "", reasoning: "Counting the r's: three." });
+    await queConvo("Sure?", "r", ann);
+    expect(calls[1]!.messages[1]).toEqual({ role: "assistant", content: "Counting the r's: three." });
+  });
 });

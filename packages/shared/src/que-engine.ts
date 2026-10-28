@@ -50,6 +50,8 @@ const MAX_ATTEMPTS = 8;
 const BUSY_TRIES_PER_MODEL = 3;
 const BACKOFF_MS = process.env.VITEST ? 5 : 1500;
 const MAX_CONVERSATIONS = 200;
+/** Each person's or agent's own: a conversation beyond this pushes out their own oldest, never anyone else's. */
+const MAX_OWNER_CONVERSATIONS = 20;
 const MAX_CONVERSATION_MESSAGES = 100;
 
 /** Whose cached answers (the company) and whose conversations (the company and the person or agent). */
@@ -266,51 +268,74 @@ interface Conversation {
   updatedAt: number;
   /** Messages to one conversation are answered one at a time, in order. */
   line: Promise<unknown>;
+  /** Messages still waiting for their answer: a conversation with any is never dropped to make room. */
+  waiting: number;
 }
 
 const conversations = new Map<string, Conversation>();
 const ownerPrefix = ({ scope = "", owner = "" }: QueScope) => `${scope}\u0000${owner}\u0000`;
 
-function ownedConversations(who: QueScope): Conversation[] {
+function ownedEntries(who: QueScope): Array<[string, Conversation]> {
   const prefix = ownerPrefix(who);
-  return [...conversations.entries()].filter(([key]) => key.startsWith(prefix)).map(([, convo]) => convo);
+  return [...conversations.entries()].filter(([key]) => key.startsWith(prefix));
+}
+
+function ownedConversations(who: QueScope): Conversation[] {
+  return ownedEntries(who).map(([, convo]) => convo);
+}
+
+/** Forgets the longest idle of these conversations until at most `max` are left; one waiting for its answer stays. */
+function forgetIdle(entries: Array<[string, Conversation]>, max: number): void {
+  if (entries.length <= max) return;
+  const idle = entries.filter(([, convo]) => !convo.waiting).sort((a, b) => a[1].updatedAt - b[1].updatedAt);
+  for (const [key] of idle.slice(0, entries.length - max)) conversations.delete(key);
 }
 
 function snapshot(convo: Conversation): QueConversation {
   return { id: convo.id, model: convo.model, messages: convo.messages.map((m) => ({ ...m })), updatedAt: new Date(convo.updatedAt).toISOString() };
 }
 
-/** A message in a conversation kept on the server; one that fails leaves the history as it was. */
+/**
+ * A message in a conversation kept on the server; one that fails leaves the
+ * history as it was. A system message replaces the one the conversation has.
+ */
 export async function queConvo(prompt: string, id: string, opts: QueOptions = {}): Promise<QueAnswer> {
   const key = ownerPrefix(opts) + id;
   const model = opts.model ? requireModel(opts.model) : null;
   let convo = conversations.get(key);
   if (!convo) {
-    convo = { id, model: model ?? PUTER_DEFAULT_MODEL, messages: [], updatedAt: Date.now(), line: Promise.resolve() };
+    convo = { id, model: model ?? PUTER_DEFAULT_MODEL, messages: [], updatedAt: Date.now(), line: Promise.resolve(), waiting: 0 };
     conversations.set(key, convo);
-    if (conversations.size > MAX_CONVERSATIONS) {
-      const oldest = [...conversations.entries()].sort((a, b) => a[1].updatedAt - b[1].updatedAt)[0]!;
-      conversations.delete(oldest[0]);
-    }
   }
   const current = convo;
+  current.waiting += 1;
+  forgetIdle(ownedEntries(opts), MAX_OWNER_CONVERSATIONS);
+  forgetIdle([...conversations.entries()], MAX_CONVERSATIONS);
   const turn = async () => {
     if (model) current.model = model;
-    if (opts.system && current.messages[0]?.role !== "system") current.messages.unshift({ role: "system", content: opts.system });
+    const before = [...current.messages];
+    if (opts.system) {
+      const rest = current.messages[0]?.role === "system" ? current.messages.slice(1) : current.messages;
+      current.messages = [{ role: "system", content: opts.system }, ...rest];
+    }
     current.messages.push({ role: "user", content: prompt });
     try {
       const answer = await ask(withInstructions(current.messages, undefined, opts.think), current.model, opts);
-      current.messages.push({ role: "assistant", content: answer.text });
+      // A reply that is all thinking is kept as that thinking, never as an empty message.
+      current.messages.push({ role: "assistant", content: answer.text || answer.reasoning });
       if (current.messages.length > MAX_CONVERSATION_MESSAGES) {
         const system = current.messages[0]?.role === "system" ? [current.messages[0]] : [];
-        current.messages = [...system, ...current.messages.slice(system.length).slice(-(MAX_CONVERSATION_MESSAGES - system.length))];
+        // Whole exchanges only: the kept history starts with a question, not an answer.
+        const keep = MAX_CONVERSATION_MESSAGES - system.length;
+        current.messages = [...system, ...current.messages.slice(system.length).slice(-(keep - (keep % 2)))];
       }
       return answer;
     } catch (error) {
-      current.messages.pop();
+      current.messages = before;
       throw error;
     } finally {
       current.updatedAt = Date.now();
+      current.waiting -= 1;
     }
   };
   const next = current.line.then(turn, turn);

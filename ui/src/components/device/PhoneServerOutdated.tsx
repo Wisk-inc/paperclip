@@ -24,6 +24,11 @@ export function isServerTooOld(error: unknown): boolean {
   return typeof body === "object" && typeof body.error === "string" && /route not found/i.test(body.error);
 }
 
+/** Query retry rule: a missing route will not appear by asking again, so the update prompt shows at once. */
+export function retryUnlessServerTooOld(failureCount: number, error: unknown): boolean {
+  return !isServerTooOld(error) && failureCount < 3;
+}
+
 /**
  * Shown when a device-only feature (Terminals, App Inspector) can't reach its
  * routes because the phone's Automa server predates them. Installing a new app

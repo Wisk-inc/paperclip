@@ -34,12 +34,15 @@ export const AUTOMA_RELEASES: AutomaRelease[] = [
 /** A date or time as people read it ("24 Oct 2026"), or null when it isn't one. */
 export function formatReleaseDate(value: string | undefined | null, withTime = false): string | null {
   if (!value) return null;
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00Z` : value);
+  const dayOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = new Date(dayOnly ? `${value}T12:00:00Z` : value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toLocaleString(undefined, {
     day: "numeric",
     month: "short",
     year: "numeric",
+    // A release day is that calendar day everywhere, not noon UTC moved into the reader's zone.
+    ...(dayOnly ? { timeZone: "UTC" } : {}),
     ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}),
   });
 }

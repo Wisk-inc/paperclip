@@ -6,7 +6,7 @@ import { AppActionsSheet, AppIcon, type PickerApp } from "@/components/app-inspe
 import { formatBytes } from "@/components/app-inspector/file-kinds";
 import { ProjectExplorer } from "@/components/app-inspector/ProjectExplorer";
 import { Mascot } from "@/components/mascot/Mascot";
-import { isServerTooOld, PhoneServerOutdated } from "@/components/device/PhoneServerOutdated";
+import { isServerTooOld, PhoneServerOutdated, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,6 +59,7 @@ export function AppInspector() {
     queryKey: ["inspector", "status", companyId],
     queryFn: () => appInspectorApi.status(companyId!),
     enabled: Boolean(companyId),
+    retry: retryUnlessServerTooOld,
   });
   const nativeAvailable = automaNative.canListInstalledApps();
   const nativeApps = useQuery({

@@ -5,7 +5,7 @@ import { TERMINAL_TOOLS, type TerminalSessionSummary, type TerminalToolId, type 
 import { terminalsApi } from "@/api/terminals";
 import { TerminalView } from "@/components/terminals/TerminalView";
 import { Mascot } from "@/components/mascot/Mascot";
-import { isServerTooOld, PhoneServerOutdated } from "@/components/device/PhoneServerOutdated";
+import { isServerTooOld, PhoneServerOutdated, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
 import { Button } from "@/components/ui/button";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
@@ -50,12 +50,14 @@ export function Terminals() {
     queryKey: ["terminals", "status", companyId],
     queryFn: () => terminalsApi.status(companyId!),
     enabled: Boolean(companyId),
+    retry: retryUnlessServerTooOld,
   });
   const sessions = useQuery({
     queryKey: ["terminals", "sessions", companyId],
     queryFn: () => terminalsApi.sessions(companyId!),
     enabled: Boolean(companyId),
-    refetchInterval: open ? false : 4000,
+    retry: retryUnlessServerTooOld,
+    refetchInterval: (query) => (open || isServerTooOld(query.state.error) ? false : 4000),
   });
 
   const installed = useMemo(() => new Map((status.data?.tools ?? []).map((tool) => [tool.id, tool.installed])), [status.data]);
