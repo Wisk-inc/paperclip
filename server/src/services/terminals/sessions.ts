@@ -102,6 +102,20 @@ function resolveCommand(input: StartTerminalInput): { argv: string[]; toolId: Te
   return { argv: withModel(command.run, input.toolId, input.model), toolId: input.toolId };
 }
 
+const RELAY_HIDDEN_ENV_KEYS = new Set(["ANTHROPIC_AUTH_TOKEN", "DATABASE_URL", "BETTER_AUTH_SECRET"]);
+
+/**
+ * The relay never inherits Automa's own app key, database password, sign-in
+ * secret or run context.
+ */
+export function terminalRelayEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, TERM: "xterm-256color", ...(extra ?? {}) };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("PAPERCLIP_") || RELAY_HIDDEN_ENV_KEYS.has(key)) delete env[key];
+  }
+  return env;
+}
+
 export function startTerminalSession(input: StartTerminalInput): TerminalSession {
   const running = [...sessions.values()].filter((session) => session.companyId === input.companyId && session.status === "running");
   if (running.length >= MAX_SESSIONS_PER_COMPANY) {
@@ -113,11 +127,7 @@ export function startTerminalSession(input: StartTerminalInput): TerminalSession
   const cols = Math.max(1, Math.min(1000, Math.round(input.cols) || 80));
   const rows = Math.max(1, Math.min(1000, Math.round(input.rows) || 24));
 
-  const env: NodeJS.ProcessEnv = { ...process.env, TERM: "xterm-256color", ...(input.env ?? {}) };
-  // The relay never inherits Automa's own app key or run context.
-  for (const key of Object.keys(env)) {
-    if (key.startsWith("PAPERCLIP_") || key === "ANTHROPIC_AUTH_TOKEN") delete env[key];
-  }
+  const env = terminalRelayEnv(input.env);
 
   const child = spawn(pythonBin(), [relayScriptPath(), String(cols), String(rows), "--", ...argv], {
     cwd,

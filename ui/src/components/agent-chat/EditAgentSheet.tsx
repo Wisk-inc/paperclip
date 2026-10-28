@@ -494,7 +494,7 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
                 All settings
               </Link>
             </Button>
-            {tab === "ai" ? (
+            {tab === "ai" && !changed ? (
               // AI settings save as they change.
               <Button type="button" variant="outline" className="min-w-28" onClick={() => onOpenChange(false)}>
                 Done

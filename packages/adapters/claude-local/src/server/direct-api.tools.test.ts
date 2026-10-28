@@ -174,6 +174,27 @@ describe("direct API tools", () => {
     expect(glob.content).toBe("src/app.ts");
   });
 
+  it("keeps the server's app key and database password out of commands", async () => {
+    const saved = { ...process.env };
+    process.env.PAPERCLIP_LOCAL_TRUSTED_SECRET = "app-key-secret";
+    process.env.DATABASE_URL = "postgres://u:db-password@127.0.0.1:5432/automa";
+    process.env.BETTER_AUTH_SECRET = "auth-secret";
+    try {
+      const { ctx } = await context({ env: { ANTHROPIC_API_KEY: "sk-test", PROJECT_DATABASE_URL: "postgres://mine" } });
+      const rt = directToolRuntime({ ...ctx, authToken: "run-token" } as AdapterExecutionContext);
+      expect(rt.env.PAPERCLIP_LOCAL_TRUSTED_SECRET).toBeUndefined();
+      expect(rt.env.DATABASE_URL).toBeUndefined();
+      expect(rt.env.BETTER_AUTH_SECRET).toBeUndefined();
+      expect(rt.env.PROJECT_DATABASE_URL).toBe("postgres://mine");
+      expect(rt.env.PAPERCLIP_API_KEY).toBe("run-token");
+      expect(rt.env.PAPERCLIP_RUN_ID).toBe("run-tools");
+      const shown = await runDirectTool(rt, "Bash", { command: "env" });
+      expect(shown.content).not.toMatch(/app-key-secret|db-password|auth-secret/);
+    } finally {
+      process.env = saved;
+    }
+  });
+
   it("stops a command that runs too long and reports bad input", async () => {
     const { rt } = await runtime();
     const slow = await runDirectTool(rt, "Bash", { command: "sleep 5", timeout: 1 });

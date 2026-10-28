@@ -161,6 +161,8 @@ export function AgentTerminalSheet({ agent, open, onOpenChange }: { agent: Agent
           <div className="min-h-48 rounded-lg border border-border bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-100" data-testid="agent-terminal">
             {runs.isPending || (selected && isInitialHydrating) ? (
               <p className="flex items-center gap-2 text-zinc-400"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />Loading…</p>
+            ) : runs.error && !runs.data ? (
+              <p className="text-red-300" role="alert">Couldn’t load {agent.name}&apos;s runs: {runs.error.message}</p>
             ) : !selected ? (
               <p className="text-zinc-400">No runs yet. When {agent.name} works on something, the commands it runs show up here.</p>
             ) : lines.length === 0 ? (

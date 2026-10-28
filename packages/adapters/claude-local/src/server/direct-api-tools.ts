@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
-import { asString, buildPaperclipEnv, parseObject } from "@paperclipai/adapter-utils/server-utils";
+import { asString, buildPaperclipEnv, parseObject, sanitizeInheritedPaperclipEnv } from "@paperclipai/adapter-utils/server-utils";
 
 /**
  * Tools for the direct API engine, so an agent that answers through the
@@ -148,6 +148,8 @@ export function directApiToolDefinitions(options: { eagerInput: boolean }): Anth
   ];
 }
 
+const SERVER_ONLY_ENV_KEYS = new Set(["DATABASE_URL", "BETTER_AUTH_SECRET"]);
+
 export interface DirectToolRuntime {
   cwd: string;
   env: Record<string, string>;
@@ -165,7 +167,11 @@ export function directToolRuntime(ctx: AdapterExecutionContext): DirectToolRunti
   const cwd = (useConfigured ? "" : workspaceCwd) || configuredCwd || process.cwd();
   const paperclipEnv = buildPaperclipEnv(ctx.agent);
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) if (typeof value === "string") env[key] = value;
+  // Like a Claude Code run, commands never inherit the server's own app key,
+  // database password or sign-in secret.
+  for (const [key, value] of Object.entries(sanitizeInheritedPaperclipEnv(process.env))) {
+    if (typeof value === "string" && !SERVER_ONLY_ENV_KEYS.has(key)) env[key] = value;
+  }
   for (const [key, value] of Object.entries(parseObject(ctx.config.env))) {
     // The run token is the only PAPERCLIP_API_KEY, and the runtime's own
     // PAPERCLIP_* values win, as for a Claude Code run.

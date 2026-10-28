@@ -67,6 +67,11 @@ function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(cents >= 1000 ? 0 : 2)}`;
 }
 
+/** Start of the current month, for this month's spend and tokens. */
+function monthStartIso(now = new Date()): string {
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
 /**
  * `/context`: what this agent is working with. Model and mode come from the
  * agent and the chat; tokens and spend are this month's totals for the agent
@@ -88,9 +93,10 @@ export function ChatContextSheet({
   messageCount: number | null;
 }) {
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
+  const from = monthStartIso();
   const byModel = useQuery({
-    queryKey: ["chat-context", "costs-by-agent-model", agent.companyId],
-    queryFn: () => costsApi.byAgentModel(agent.companyId),
+    queryKey: ["chat-context", "costs-by-agent-model", agent.companyId, from],
+    queryFn: () => costsApi.byAgentModel(agent.companyId, from),
     enabled: open,
     staleTime: 60_000,
   });
@@ -114,6 +120,7 @@ export function ChatContextSheet({
   );
   const count = messageCount ?? (Array.isArray(comments.data) ? comments.data.length : null);
   const mode = workModeMetaFor(workMode);
+  const usage = (value: string) => (byModel.isPending ? "…" : byModel.isError ? "—" : value);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -131,10 +138,15 @@ export function ChatContextSheet({
             <Stat label="Model" value={model ? modelDisplayName(model) : "Default"} />
             <Stat label="Mode" value={mode.label} />
             <Stat label="Messages here" value={count === null ? "…" : String(count)} />
-            <Stat label="Spend this month" value={byModel.isPending ? "…" : formatCents(totals.cents)} />
-            <Stat label="Tokens in" value={byModel.isPending ? "…" : formatTokens(totals.input)} />
-            <Stat label="Tokens out" value={byModel.isPending ? "…" : formatTokens(totals.output)} />
+            <Stat label="Spend this month" value={usage(formatCents(totals.cents))} />
+            <Stat label="Tokens in" value={usage(formatTokens(totals.input))} />
+            <Stat label="Tokens out" value={usage(formatTokens(totals.output))} />
           </dl>
+          {byModel.isError ? (
+            <p className="mt-3 text-xs text-destructive" role="alert">
+              Couldn’t load this month’s usage: {byModel.error.message}
+            </p>
+          ) : null}
           {rows.length > 1 ? (
             <section className="mt-4" aria-label="By model">
               <p className="mb-1 text-xs font-medium text-muted-foreground">By model</p>
