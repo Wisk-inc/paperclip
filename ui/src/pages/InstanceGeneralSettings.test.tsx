@@ -14,7 +14,15 @@ const mockInstanceSettingsApi = vi.hoisted(() => ({
   updateGeneral: vi.fn(),
 }));
 const mockNavigateTopLevel = vi.hoisted(() => vi.fn());
+// Automa keeps votes on the device; only a build with its own endpoint offers sharing.
+const feedbackSharing = vi.hoisted(() => ({ available: true }));
 
+vi.mock("@/lib/feedback-sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/feedback-sharing")>()),
+  get FEEDBACK_SHARING_AVAILABLE() {
+    return feedbackSharing.available;
+  },
+}));
 vi.mock("@/api/auth", () => ({ authApi: mockAuthApi }));
 vi.mock("@/api/health", () => ({ healthApi: mockHealthApi }));
 vi.mock("@/api/instanceSettings", () => ({ instanceSettingsApi: mockInstanceSettingsApi }));
@@ -267,5 +275,16 @@ describe("InstanceGeneralSettings operator-hidden sections", () => {
     expect(container.textContent).toContain("Deployment and auth");
     expect(container.textContent).toContain("Censor username in logs");
     expect(container.textContent).toContain("Backup retention");
+  });
+
+  it("leaves out AI feedback sharing in a build that keeps votes on the device", async () => {
+    feedbackSharing.available = false;
+    try {
+      await renderPage(SELF_HOSTED_HEALTH);
+      expect(container.textContent).not.toContain("AI feedback sharing");
+      expect(container.textContent).toContain("Backup retention");
+    } finally {
+      feedbackSharing.available = true;
+    }
   });
 });
