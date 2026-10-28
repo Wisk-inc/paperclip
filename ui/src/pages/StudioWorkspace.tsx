@@ -222,6 +222,10 @@ export function StudioWorkspace() {
     enabled: !!workspaceId,
   });
   const aiKeys = useQuery({ queryKey: queryKeys.studio.aiKeys(companyId), queryFn: () => studioApi.aiKeys(companyId), enabled: !!selectedCompanyId });
+  // Without the list, a saved key looks missing; say why instead.
+  useEffect(() => {
+    if (aiKeys.error) pushToast({ title: "Couldn't load your AI keys", body: `${errorText(aiKeys.error)}. The free models still work.`, tone: "error" });
+  }, [aiKeys.error, pushToast]);
   // While the live socket is up it carries every update; the transcript is
   // only polled when the socket is down, so a poll never undoes live text.
   const [socketLive, setSocketLive] = useState(false);
@@ -396,10 +400,11 @@ export function StudioWorkspace() {
   }, [socketStatus, queryClient, workspaceId, consoleStore]);
 
   // ── Files ─────────────────────────────────────────────────────────────
+  /** Saves the open file's edits; false when they could not be saved. */
   const save = useCallback(
     async (options: { force?: boolean } = {}) => {
       const current = fileRef.current;
-      if (!current || current.binary || current.content === current.savedContent) return;
+      if (!current || current.binary || current.content === current.savedContent) return true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = null;
       const content = current.content;
@@ -412,8 +417,10 @@ export function StudioWorkspace() {
           setSaveState(latest.content === content ? "saved" : "dirty");
         }
         send({ type: "draft:clear", path: current.path });
+        return true;
       } catch (error) {
         setSaveState(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
+        return false;
       }
     },
     [send, workspaceId],
@@ -461,7 +468,12 @@ export function StudioWorkspace() {
   const openFile = useCallback(
     async (path: string, options: { show?: boolean } = {}) => {
       const current = fileRef.current;
-      if (current && current.content !== current.savedContent) await save();
+      // Opening another file replaces this one's text: edits that did not
+      // save stay open instead of being thrown away.
+      if (current && !(await save())) {
+        pushToast({ title: `Couldn't save ${current.path}`, body: "Your edits are still open here.", tone: "error" });
+        return;
+      }
       setWatching(null);
       setFileLoading(true);
       try {
@@ -525,10 +537,14 @@ export function StudioWorkspace() {
   const reloadFromServer = async () => {
     const current = fileRef.current;
     if (!current) return;
-    const loaded = await studioApi.readFile(workspaceId, current.path);
-    setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version });
-    setSaveState("saved");
-    send({ type: "draft:clear", path: current.path });
+    try {
+      const loaded = await studioApi.readFile(workspaceId, current.path);
+      setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version });
+      setSaveState("saved");
+      send({ type: "draft:clear", path: current.path });
+    } catch (error) {
+      pushToast({ title: `Couldn't load ${current.path}`, body: errorText(error), tone: "error" });
+    }
   };
 
   const deletions = useUndoableAction({
@@ -580,6 +596,9 @@ export function StudioWorkspace() {
     try {
       const result = await studioApi.stop(workspaceId);
       setRun(result.run);
+    } catch (error) {
+      haptic("warning");
+      pushToast({ title: "Couldn't stop the app", body: errorText(error), tone: "error" });
     } finally {
       setBusy(null);
     }
@@ -664,7 +683,7 @@ export function StudioWorkspace() {
           const openPath = fileRef.current?.path;
           const movedTo =
             openPath === from ? to : openPath?.startsWith(`${from}/`) ? `${to}${openPath.slice(from.length)}` : null;
-          if (movedTo) await save();
+          if (movedTo && !(await save())) throw new Error(`Your edits to ${openPath} didn't save, so it stayed where it is. Try again.`);
           await studioApi.move(workspaceId, { from, to });
           await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
           if (movedTo) await openFile(movedTo);
@@ -823,10 +842,14 @@ export function StudioWorkspace() {
           run={run}
           onClear={() => {
             consoleStore.clear();
-            void studioApi.clearConsole(workspaceId);
+            void studioApi.clearConsole(workspaceId).catch((error) => pushToast({ title: "Couldn't clear the console", body: errorText(error), tone: "error" }));
           }}
           onInput={async (text) => {
-            await studioApi.consoleInput(workspaceId, text);
+            try {
+              await studioApi.consoleInput(workspaceId, text);
+            } catch (error) {
+              pushToast({ title: "Couldn't send that to the app", body: errorText(error), tone: "error" });
+            }
           }}
           onExec={async (command) => {
             try {
@@ -863,14 +886,22 @@ export function StudioWorkspace() {
           }
         },
         onClose: async () => {
-          const result = await studioApi.closePublicLink(workspaceId);
-          setRun(result.run);
+          try {
+            const result = await studioApi.closePublicLink(workspaceId);
+            setRun(result.run);
+          } catch (error) {
+            pushToast({ title: "Couldn't close the public link", body: errorText(error), tone: "error" });
+          }
         },
         onInstall: async () => {
-          const result = await studioApi.installCloudflared(companyId);
-          pushToast({ title: result.ok ? "Public links are ready" : "Couldn't set up public links", body: result.message, tone: result.ok ? "success" : "error" });
-          await queryClient.invalidateQueries({ queryKey: queryKeys.studio.catalog(companyId) });
-          await queryClient.refetchQueries({ queryKey: queryKeys.studio.catalog(companyId) });
+          try {
+            const result = await studioApi.installCloudflared(companyId);
+            pushToast({ title: result.ok ? "Public links are ready" : "Couldn't set up public links", body: result.message, tone: result.ok ? "success" : "error" });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.studio.catalog(companyId) });
+            await queryClient.refetchQueries({ queryKey: queryKeys.studio.catalog(companyId) });
+          } catch (error) {
+            pushToast({ title: "Couldn't set up public links", body: errorText(error), tone: "error" });
+          }
         },
       }}
     />
@@ -956,7 +987,12 @@ export function StudioWorkspace() {
         }
       }}
       onStopSharing={async () => {
-        await studioApi.stopSharing(workspaceId);
+        try {
+          await studioApi.stopSharing(workspaceId);
+        } catch (error) {
+          pushToast({ title: "Couldn't stop sharing", body: errorText(error), tone: "error" });
+          return;
+        }
         setShare(null);
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) }),
@@ -964,8 +1000,12 @@ export function StudioWorkspace() {
         ]);
       }}
       onRemoveCollaborator={async (collaboratorId) => {
-        await studioApi.removeCollaborator(workspaceId, collaboratorId);
-        await queryClient.invalidateQueries({ queryKey: queryKeys.studio.collaborators(workspaceId) });
+        try {
+          await studioApi.removeCollaborator(workspaceId, collaboratorId);
+          await queryClient.invalidateQueries({ queryKey: queryKeys.studio.collaborators(workspaceId) });
+        } catch (error) {
+          pushToast({ title: "Couldn't remove them", body: errorText(error), tone: "error" });
+        }
       }}
       onSendMessage={async (body, attachment) => {
         const result = await studioApi.postMessage(workspaceId, body, attachment);
@@ -975,9 +1015,13 @@ export function StudioWorkspace() {
       }}
       fileUrl={(attachmentId) => studioApi.sharedFileUrl(workspaceId, attachmentId)}
       onAddToProject={async (attachmentId) => {
-        const result = await studioApi.addSharedFile(workspaceId, attachmentId);
-        haptic("success");
-        pushToast({ title: `Added ${result.path} to the project`, tone: "success" });
+        try {
+          const result = await studioApi.addSharedFile(workspaceId, attachmentId);
+          haptic("success");
+          pushToast({ title: `Added ${result.path} to the project`, tone: "success" });
+        } catch (error) {
+          pushToast({ title: "Couldn't add the file to the project", body: errorText(error), tone: "error" });
+        }
       }}
       onAccept={async (changeId, files) => {
         try {
@@ -990,8 +1034,12 @@ export function StudioWorkspace() {
         }
       }}
       onReject={async (changeId) => {
-        await studioApi.rejectChange(workspaceId, changeId);
-        await queryClient.invalidateQueries({ queryKey: queryKeys.studio.changes(workspaceId) });
+        try {
+          await studioApi.rejectChange(workspaceId, changeId);
+          await queryClient.invalidateQueries({ queryKey: queryKeys.studio.changes(workspaceId) });
+        } catch (error) {
+          pushToast({ title: "Couldn't reject the change", body: errorText(error), tone: "error" });
+        }
       }}
     />
   );

@@ -35,4 +35,27 @@ describe("StudioModelSheet", () => {
       container.remove();
     }
   });
+
+  it("never says the free models need a key, also before the key list arrives", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await act(async () => root.render(
+        <QueryClientProvider client={client}>
+          <StudioModelSheet provider="free" model="nvidia/nemotron-3-ultra-550b-a55b:free" keys={[]} onChange={vi.fn()} team={[{ provider: "free", model: "nvidia/nemotron-3.5-lightning:free" }]} onTeamChange={vi.fn()} />
+        </QueryClientProvider>,
+      ));
+      const button = container.querySelector('[data-testid="studio-model-button"]') as HTMLButtonElement;
+      expect(button.textContent).toContain("No key needed");
+      expect(button.textContent).not.toContain("Add a key");
+      await act(async () => button.click());
+      expect(document.body.querySelector('[data-provider="free"]')?.textContent).toContain("No key needed");
+      expect(document.body.querySelector('[data-testid="studio-teammate"]')?.textContent).not.toContain("needs a key");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
 });

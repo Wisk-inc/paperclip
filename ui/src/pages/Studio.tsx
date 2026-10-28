@@ -107,6 +107,10 @@ export function Studio() {
       setRenaming(null);
       void queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
     },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn't rename the app", body: error instanceof Error ? error.message : undefined, tone: "error" });
+    },
   });
 
   const languageById = useMemo(() => new Map((catalog.data?.languages ?? []).map((language) => [language.id, language])), [catalog.data]);

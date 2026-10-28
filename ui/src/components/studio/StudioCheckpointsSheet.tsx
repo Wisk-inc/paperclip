@@ -63,6 +63,15 @@ export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRest
   });
 
   const checkpoints = list.data?.checkpoints ?? [];
+  // A checkpoint that didn't save is said out loud: the person counts on it.
+  const failed = (
+    [
+      [restore.error, "Couldn't go back"],
+      [save.error, "Couldn't save the checkpoint"],
+      [remove.error, "Couldn't delete the checkpoint"],
+      [list.error, "Couldn't load the checkpoints"],
+    ] as const
+  ).find(([error]) => error);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -86,10 +95,14 @@ export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRest
           </Button>
         </form>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 pb-(--sz-calc-8) md:pb-3">
-          {restore.error ? <p className="mb-2 text-sm text-destructive">{restore.error instanceof Error ? restore.error.message : "Couldn't go back"}</p> : null}
+          {failed ? (
+            <p className="mb-2 text-sm text-destructive" role="alert">
+              {failed[0] instanceof Error ? `${failed[1]}: ${failed[0].message}` : failed[1]}
+            </p>
+          ) : null}
           {list.isLoading ? (
             <LoaderCircle className="mx-auto size-5 animate-spin text-muted-foreground" />
-          ) : checkpoints.length === 0 ? (
+          ) : list.error && checkpoints.length === 0 ? null : checkpoints.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No checkpoints yet. One is saved before each AI change, or tap Save now.</p>
           ) : (
             <ol className="relative flex flex-col gap-2 border-l-2 border-border pl-4">

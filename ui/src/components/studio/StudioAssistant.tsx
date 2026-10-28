@@ -406,7 +406,7 @@ function UsageLine({ usage }: { usage: NonNullable<StudioAssistantTurn["usage"]>
 }
 
 /**
- * Studio's AI helper, using your own API key: describe what to build or fix
+ * Studio's AI helper, on the free models or your own API key: describe what to build or fix
  * and it reads the files, writes code, runs commands, starts the app, and
  * checks the console until it works. Everyone in the project sees its
  * progress live.
@@ -457,29 +457,37 @@ export function StudioAssistant({
   const keyStatus = keyRemoval.hiddenIds.has(choice.provider)
     ? undefined
     : keys.find((key) => key.provider === choice.provider);
-  const connected = Boolean(keyStatus?.connected);
-  const showKeyForm = !connected || editingKey;
+  // The free models need no key, also while the key list loads or fails to.
+  const connected = choice.provider === "free" || Boolean(keyStatus?.connected);
+  const showKeyForm = choice.provider !== "free" && (!connected || editingKey);
 
   // A saved choice with no key behind it (never added, or removed) starts on
   // the free models instead of asking for a key: the assistant always works.
-  // Only on load: a provider picked now gets its key form.
+  // Teammates with no key leave the team, since one missing key turns the
+  // whole message down. Only on load: a provider picked now gets its key form.
   const pickedRef = useRef(false);
   const [freeInsteadOf, setFreeInsteadOf] = useState<string | null>(null);
+  const [leftTeam, setLeftTeam] = useState<string | null>(null);
   useEffect(() => {
-    if (pickedRef.current || !keys.length || choice.provider === "free") return;
+    if (pickedRef.current || !keys.length) return;
     const hasKey = (provider: StudioAiProvider) => provider === "free" || keys.some((key) => key.provider === provider && key.connected);
-    if (hasKey(choice.provider)) return;
-    setFreeInsteadOf(STUDIO_AI_PROVIDER_INFO[choice.provider].name.replace(/ \(.*\)$/, ""));
+    const leadReady = hasKey(choice.provider);
+    const keyless = (choice.team ?? []).filter((mate) => !hasKey(mate.provider));
+    if (leadReady && !keyless.length) return;
+    if (!leadReady) setFreeInsteadOf(STUDIO_AI_PROVIDER_INFO[choice.provider].name.replace(/ \(.*\)$/, ""));
+    if (keyless.length) {
+      const providers = [...new Set(keyless.map((mate) => STUDIO_AI_PROVIDER_INFO[mate.provider].name.replace(/ \(.*\)$/, "")))];
+      setLeftTeam(`No ${providers.join(" or ")} key, so ${keyless.map((mate) => modelDisplayName(mate.model)).join(" and ")} left the team.`);
+    }
     setChoice((current) => {
       const team = (current.team ?? []).filter((mate) => hasKey(mate.provider));
       return {
-        provider: "free",
-        model: STUDIO_AI_PROVIDER_INFO.free.defaultModel,
+        ...(leadReady ? { provider: current.provider, model: current.model } : { provider: "free" as const, model: STUDIO_AI_PROVIDER_INFO.free.defaultModel }),
         ...(current.thinking ? { thinking: current.thinking } : {}),
         ...(team.length ? { team } : {}),
       };
     });
-  }, [keys, choice.provider]);
+  }, [keys, choice.provider, choice.team]);
 
   useEffect(() => {
     try {
@@ -535,7 +543,11 @@ export function StudioAssistant({
   const send = async (text: string) => {
     stickRef.current = true;
     const trimmed = text.trim();
-    if ((!trimmed && attachments.length === 0) || !choice.model.trim()) return;
+    if (!trimmed && attachments.length === 0) return;
+    if (!choice.model.trim()) {
+      setError("Pick a model first: tap the model at the top.");
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -558,6 +570,15 @@ export function StudioAssistant({
     } finally {
       setSending(false);
     }
+  };
+
+  // Stop and New chat say why they failed instead of doing nothing.
+  const attempt = (action: () => Promise<void>, failed: string) => {
+    setError(null);
+    void action().catch((actionError) => {
+      haptic("warning");
+      setError(actionError instanceof Error ? `${failed}: ${actionError.message}` : failed);
+    });
   };
 
   const saveKey = async (event: FormEvent) => {
@@ -587,10 +608,14 @@ export function StudioAssistant({
           keys={keys}
           companyId={companyId}
           team={choice.team ?? []}
-          onTeamChange={(team) => setChoice(({ team: _old, ...rest }) => (team.length ? { ...rest, team } : rest))}
+          onTeamChange={(team) => {
+            setLeftTeam(null);
+            setChoice(({ team: _old, ...rest }) => (team.length ? { ...rest, team } : rest));
+          }}
           onChange={(next) => {
             pickedRef.current = true;
             setFreeInsteadOf(null);
+            setLeftTeam(null);
             if (next.provider !== choice.provider) setEditingKey(false);
             // The level and the team carry over to the next model.
             setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}), ...(choice.team?.length ? { team: choice.team } : {}) });
@@ -628,6 +653,11 @@ export function StudioAssistant({
         {freeInsteadOf && choice.provider === "free" ? (
           <p className="text-xs text-muted-foreground" data-testid="studio-free-instead">
             No {freeInsteadOf} key yet, so the free models are answering: no key needed. To use {freeInsteadOf}, pick it in the model menu and add its key.
+          </p>
+        ) : null}
+        {leftTeam ? (
+          <p className="text-xs text-muted-foreground" data-testid="studio-team-left">
+            {leftTeam}
           </p>
         ) : null}
         {choice.provider === "anthropic" && FALLBACK_MODELS.has(choice.model) ? (
@@ -672,7 +702,7 @@ export function StudioAssistant({
               ) : null}
             </p>
           </form>
-        ) : keyStatus?.source === "automa" ? (
+        ) : choice.provider === "free" ? null : keyStatus?.source === "automa" ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <KeyRound className="size-3.5" />
             <span className="min-w-0 flex-1 truncate">
@@ -906,13 +936,13 @@ export function StudioAssistant({
             }}
           />
           {turns.length ? (
-            <Button type="button" variant="ghost" size="sm" disabled={running} onClick={() => void onClear()}>
+            <Button type="button" variant="ghost" size="sm" disabled={running} onClick={() => attempt(onClear, "Couldn't start a new chat")}>
               <Trash2 /> New chat
             </Button>
           ) : null}
           <span className="flex-1" />
           {running ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => void onStop()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => attempt(onStop, "Couldn't stop the assistant")}>
               <CircleStop /> Stop
             </Button>
           ) : (

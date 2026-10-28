@@ -40,9 +40,10 @@ function shortName(provider: StudioAiProvider) {
   return STUDIO_AI_PROVIDER_INFO[provider].name.replace(/ \(.*\)$/, "");
 }
 
-function keyLabel(status: StudioAiKeyStatus | undefined) {
+function keyLabel(provider: StudioAiProvider, status: StudioAiKeyStatus | undefined) {
+  // Also before the key list arrives: the free models never need one.
+  if (provider === "free") return "No key needed";
   if (!status?.connected) return null;
-  if (status.provider === "free") return "No key needed";
   return status.source === "automa" ? "Organization key" : "Key saved";
 }
 
@@ -135,7 +136,7 @@ export function StudioModelSheet({
           <span className="truncate text-sm font-medium">{model ? modelDisplayName(model) : "Pick a model"}</span>
           <span className="truncate text-xs text-muted-foreground">
             {shortName(provider)}
-            {keyLabel(status) ? ` · ${keyLabel(status)}` : " · Add a key to start"}
+            {keyLabel(provider, status) ? ` · ${keyLabel(provider, status)}` : " · Add a key to start"}
             {team.length ? ` · +${team.length} teammate${team.length === 1 ? "" : "s"}` : ""}
           </span>
         </span>
@@ -168,7 +169,7 @@ export function StudioModelSheet({
             >
               {STUDIO_AI_PROVIDERS.map((id, index) => {
                 const selected = id === provider;
-                const label = keyLabel(keys.find((key) => key.provider === id));
+                const label = keyLabel(id, keys.find((key) => key.provider === id));
                 return (
                   <button
                     key={id}
@@ -209,7 +210,7 @@ export function StudioModelSheet({
                 {team.length ? (
                   <div className="flex flex-wrap gap-1.5">
                     {team.map((mate) => {
-                      const ready = keys.find((key) => key.provider === mate.provider)?.connected;
+                      const ready = mate.provider === "free" || keys.find((key) => key.provider === mate.provider)?.connected;
                       return (
                         <span key={`${mate.provider}:${mate.model}`} className="inline-flex items-center gap-1 rounded-full border border-border bg-card py-0.5 pl-1 pr-1 text-xs" data-testid="studio-teammate">
                           <ModelLogo modelId={mate.model} size="xs" tile={false} />

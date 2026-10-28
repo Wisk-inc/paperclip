@@ -9,8 +9,8 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { conflict, notFound } from "../../errors.js";
-import { deleteStudioEntry, normalizeStudioPath, readStudioFile, studioWorkspaceDirs, writeStudioFile } from "./files.js";
+import { badRequest, conflict, notFound } from "../../errors.js";
+import { deleteStudioEntry, normalizeStudioPath, readStudioFile, resolveInside, studioWorkspaceDirs, writeStudioFile } from "./files.js";
 
 /** Text larger than this is not kept for undo (the change still happens). */
 const MAX_TRACKED_BYTES = 2 * 1024 * 1024;
@@ -30,6 +30,10 @@ export interface StudioEditRecord {
   /** Set once undone: the undo that reversed it. */
   undoneBy?: string;
 }
+
+type FileState = { exists: boolean; text: string | null };
+type EditChange = { path: string; before: FileState; after: FileState; by: string; undoOf?: string };
+type EditDirs = ReturnType<typeof editDirs>;
 
 function editDirs(companyId: string, workspaceId: string) {
   const { meta, files } = studioWorkspaceDirs(companyId, workspaceId);
@@ -67,15 +71,50 @@ async function withLock<T>(key: string, run: () => Promise<T>): Promise<T> {
 }
 
 /** The file's text right now, or null when it does not exist (or is not text we can keep). */
-export async function currentText(companyId: string, workspaceId: string, relative: string): Promise<{ exists: boolean; text: string | null }> {
+export async function currentText(companyId: string, workspaceId: string, relative: string): Promise<FileState> {
   const { files } = editDirs(companyId, workspaceId);
   try {
     const file = await readStudioFile(files, relative);
     if (file.content === null || Buffer.byteLength(file.content) > MAX_TRACKED_BYTES) return { exists: true, text: null };
     return { exists: true, text: file.content };
   } catch {
-    return { exists: false, text: null };
+    // A folder or a link at the path is still something there.
+    const exists = await resolveInside(files, relative).then((target) => fs.lstat(target)).then(() => true, () => false);
+    return { exists, text: null };
   }
+}
+
+/** Whether one side of a change can be kept: text that reads back as the same text (not binary-looking, not too large). */
+function keepable(state: FileState): boolean {
+  if (!state.exists) return true;
+  if (state.text === null) return false;
+  const bytes = Buffer.from(state.text);
+  return bytes.length <= MAX_TRACKED_BYTES && !bytes.subarray(0, 8000).includes(0);
+}
+
+async function saveText(dirs: EditDirs, change: EditChange): Promise<string> {
+  const id = randomUUID();
+  await fs.mkdir(dirs.base, { recursive: true });
+  await fs.writeFile(path.join(dirs.base, `${id}.json`), JSON.stringify({ before: change.before.text, after: change.after.text }));
+  return id;
+}
+
+/** Adds a change whose text is saved under `id` and writes the index; the caller holds the lock. */
+async function appendEdit(dirs: EditDirs, entries: StudioEditRecord[], id: string, change: EditChange): Promise<StudioEditRecord> {
+  const record: StudioEditRecord = {
+    id,
+    path: normalizeStudioPath(change.path),
+    beforeExists: change.before.exists,
+    afterExists: change.after.exists,
+    at: new Date().toISOString(),
+    by: change.by,
+    ...(change.undoOf ? { undoOf: change.undoOf } : {}),
+  };
+  entries.push(record);
+  const dropped = entries.length > MAX_EDITS ? entries.splice(0, entries.length - MAX_EDITS) : [];
+  await writeIndex(dirs.index, entries);
+  await Promise.all(dropped.map((entry) => fs.rm(path.join(dirs.base, `${entry.id}.json`), { force: true })));
+  return record;
 }
 
 /**
@@ -83,31 +122,11 @@ export async function currentText(companyId: string, workspaceId: string, relati
  * exist). Returns null when the change cannot be kept for undo (binary or
  * very large text).
  */
-export async function recordEdit(
-  companyId: string,
-  workspaceId: string,
-  change: { path: string; before: { exists: boolean; text: string | null }; after: { exists: boolean; text: string | null }; by: string; undoOf?: string },
-): Promise<string | null> {
-  if ((change.before.exists && change.before.text === null) || (change.after.exists && change.after.text === null)) return null;
+export async function recordEdit(companyId: string, workspaceId: string, change: EditChange): Promise<string | null> {
+  if (!keepable(change.before) || !keepable(change.after)) return null;
   const dirs = editDirs(companyId, workspaceId);
-  const id = randomUUID();
-  await fs.mkdir(dirs.base, { recursive: true });
-  await fs.writeFile(path.join(dirs.base, `${id}.json`), JSON.stringify({ before: change.before.text, after: change.after.text }));
-  await withLock(dirs.index, async () => {
-    const entries = await readIndex(dirs.index);
-    entries.push({
-      id,
-      path: normalizeStudioPath(change.path),
-      beforeExists: change.before.exists,
-      afterExists: change.after.exists,
-      at: new Date().toISOString(),
-      by: change.by,
-      ...(change.undoOf ? { undoOf: change.undoOf } : {}),
-    });
-    const dropped = entries.length > MAX_EDITS ? entries.splice(0, entries.length - MAX_EDITS) : [];
-    await writeIndex(dirs.index, entries);
-    await Promise.all(dropped.map((entry) => fs.rm(path.join(dirs.base, `${entry.id}.json`), { force: true })));
-  });
+  const id = await saveText(dirs, change);
+  await withLock(dirs.index, async () => appendEdit(dirs, await readIndex(dirs.index), id, change));
   return id;
 }
 
@@ -127,37 +146,48 @@ export async function undoEdit(
   target: { id?: string; path?: string },
   by: string,
 ): Promise<{ undone: StudioEditRecord; undo: StudioEditRecord }> {
+  if (!target.id && !target.path) throw badRequest("Say which change to undo: its edit_id, or the file's path");
   const dirs = editDirs(companyId, workspaceId);
-  const entries = await readIndex(dirs.index);
   const wantedPath = target.path ? normalizeStudioPath(target.path) : null;
-  const edit = target.id
-    ? entries.find((entry) => entry.id === target.id)
-    : [...entries].reverse().find((entry) => entry.path === wantedPath && !entry.undoneBy && !entry.undoOf);
-  if (!edit) throw notFound(target.id ? "That change is no longer kept, so it can't be undone" : `No change to ${target.path} to undo`);
-  if (edit.undoneBy) throw conflict("That change was already undone");
-  const stored = JSON.parse(await fs.readFile(path.join(dirs.base, `${edit.id}.json`), "utf8").catch(() => "null")) as { before: string | null; after: string | null } | null;
-  if (!stored) throw notFound("That change is no longer kept, so it can't be undone");
-  const now = await currentText(companyId, workspaceId, edit.path);
-  const stillAsLeft = edit.afterExists ? now.exists && now.text === stored.after : !now.exists;
-  if (!stillAsLeft) {
-    throw conflict(`${edit.path} changed after that edit, so undoing it would lose the newer changes. Undo the later change first, or edit the file directly.`);
-  }
-  if (edit.beforeExists) await writeStudioFile(dirs.files, edit.path, stored.before ?? "");
-  else await deleteStudioEntry(dirs.files, edit.path);
-  const undoId = await recordEdit(companyId, workspaceId, {
-    path: edit.path,
-    before: { exists: edit.afterExists, text: stored.after },
-    after: { exists: edit.beforeExists, text: stored.before },
-    by,
-    undoOf: edit.id,
+  // All under the lock, so two undos at once can't both pass the checks.
+  return withLock(dirs.index, async () => {
+    const entries = await readIndex(dirs.index);
+    const edit = target.id
+      ? entries.find((entry) => entry.id === target.id)
+      : [...entries].reverse().find((entry) => entry.path === wantedPath && !entry.undoneBy && !entry.undoOf);
+    if (!edit) throw notFound(target.id ? "That change is no longer kept, so it can't be undone" : `No change to ${target.path} to undo`);
+    if (edit.undoneBy) throw conflict("That change was already undone");
+    const stored = JSON.parse(await fs.readFile(path.join(dirs.base, `${edit.id}.json`), "utf8").catch(() => "null")) as { before: string | null; after: string | null } | null;
+    if (!stored) throw notFound("That change is no longer kept, so it can't be undone");
+    const now = await currentText(companyId, workspaceId, edit.path);
+    const stillAsLeft = edit.afterExists ? now.exists && now.text === stored.after : !now.exists;
+    if (!stillAsLeft) {
+      throw conflict(`${edit.path} changed after that edit, so undoing it would lose the newer changes. Undo the later change first, or edit the file directly.`);
+    }
+    if (edit.beforeExists) await writeStudioFile(dirs.files, edit.path, stored.before ?? "");
+    else await deleteStudioEntry(dirs.files, edit.path);
+    const change: EditChange = {
+      path: edit.path,
+      before: { exists: edit.afterExists, text: stored.after },
+      after: { exists: edit.beforeExists, text: stored.before },
+      by,
+      undoOf: edit.id,
+    };
+    const undoId = await saveText(dirs, change);
+    edit.undoneBy = undoId;
+    // Undoing an undo brings back the change it reversed; down a chain of
+    // undos of undos, every other change is reversed again.
+    let link: StudioEditRecord | undefined = edit;
+    let reversedBy: string | undefined;
+    for (let steps = 0; link?.undoOf && steps < entries.length; steps++) {
+      const wanted: string = link.undoOf;
+      link = entries.find((entry) => entry.id === wanted);
+      if (!link) break;
+      if (reversedBy) link.undoneBy = reversedBy;
+      else delete link.undoneBy;
+      reversedBy = reversedBy ? undefined : link.id;
+    }
+    const undo = await appendEdit(dirs, entries, undoId, change);
+    return { undone: { ...edit }, undo };
   });
-  let undoRecord: StudioEditRecord | undefined;
-  await withLock(dirs.index, async () => {
-    const latest = await readIndex(dirs.index);
-    const original = latest.find((entry) => entry.id === edit.id);
-    if (original && undoId) original.undoneBy = undoId;
-    undoRecord = latest.find((entry) => entry.id === undoId);
-    await writeIndex(dirs.index, latest);
-  });
-  return { undone: { ...edit, ...(undoId ? { undoneBy: undoId } : {}) }, undo: undoRecord ?? { id: undoId ?? "", path: edit.path, beforeExists: edit.afterExists, afterExists: edit.beforeExists, at: new Date().toISOString(), by, undoOf: edit.id } };
 }

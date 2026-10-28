@@ -324,7 +324,7 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
                 aria-label="Describe the app"
                 className="text-sm"
               />
-              <span className="text-xs text-muted-foreground">The AI assistant (with your own API key) builds the UI, the logic, and the database from this.</span>
+              <span className="text-xs text-muted-foreground">The AI assistant builds the UI, the logic, and the database from this. The free models need no key.</span>
             </label>
           </div>
 
