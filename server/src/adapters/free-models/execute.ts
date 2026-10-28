@@ -24,7 +24,7 @@ import {
   type PuterToolCall,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
-import { isMoanModel, MOAN_LABEL, moanSystemPrompt, pairedFreeImageModel, resolveFreeModel, type FreeModelRunUsage } from "@paperclipai/shared";
+import { AUTOMA_ABOUT_FOR_AGENTS, isMoanModel, MOAN_LABEL, moanSystemPrompt, pairedFreeImageModel, resolveFreeModel, type FreeModelRunUsage } from "@paperclipai/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
@@ -299,6 +299,7 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
   return [
     persona ?? "",
     `You are ${agentName}${who ? ` (${who})` : ""}, an AI agent on the person's team in Automa, chatting with them in the app.${profile.personName ? ` The person you are talking to is ${profile.personName}; use their name naturally.` : ""}`,
+    AUTOMA_ABOUT_FOR_AGENTS,
     profile.teammates.length
       ? `Your teammates in this company: ${profile.teammates.join("; ")}. You can message them and hand them tasks through the Automa API.`
       : "",

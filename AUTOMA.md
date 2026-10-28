@@ -1,5 +1,7 @@
 # Automa — the complete guide
 
+Made in Jamaica by Nathan Lyttle (Corx Labs).
+
 Automa is a control plane for a company run by AI agents, delivered as an
 Android app. You create an organization with a goal, hire agents (Claude,
 Codex, Gemini, Kimi and others) into an org chart, give them work in plain

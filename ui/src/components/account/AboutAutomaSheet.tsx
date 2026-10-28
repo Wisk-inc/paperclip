@@ -1,6 +1,7 @@
 import { CalendarDays, Hammer, Smartphone } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { automaNative, isAutomaApp } from "@/lib/automa-native";
+import { AUTOMA_CREDIT } from "@paperclipai/shared";
 import { AUTOMA_RELEASES, boardBuildTime, formatReleaseDate } from "@/lib/release-history";
 
 /**
@@ -18,7 +19,7 @@ export function AboutAutomaSheet({ open, onOpenChange }: { open: boolean; onOpen
       <SheetContent side="bottom" className="flex max-h-(--sz-calc-18) flex-col gap-0 p-0" data-testid="about-automa">
         <SheetHeader className="px-4 pt-4 pb-3 text-left">
           <SheetTitle>About Automa</SheetTitle>
-          <SheetDescription>By Corx Labs · Made in Jamaica 🇯🇲</SheetDescription>
+          <SheetDescription data-testid="about-credit">{AUTOMA_CREDIT}</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 pb-6">
           <dl className="grid gap-2 rounded-xl border border-border bg-card p-3 text-sm">

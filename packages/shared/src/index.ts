@@ -2852,6 +2852,7 @@ export {
   type FreeModelState,
   type FreeModelUsageSummary,
 } from "./free-models.js";
+export { AUTOMA_ABOUT_FOR_AGENTS, AUTOMA_COMPANY, AUTOMA_CREDIT, AUTOMA_MAKER } from "./automa-about.js";
 export {
   QUE_CONVERSATION_ID_PATTERN,
   QUE_MAX_BATCH,

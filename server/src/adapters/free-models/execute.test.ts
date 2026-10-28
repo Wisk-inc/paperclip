@@ -94,6 +94,9 @@ describe("free models engine", () => {
     const sent = net.puterBodies()[0]!.args as { messages: Array<{ role: string; content: string }>; stream: boolean };
     expect(sent.stream).toBe(true);
     expect(sent.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    // Asked who made the app, the agent knows; it never credits the app's maker with the model.
+    expect(sent.messages[0]!.content).toContain("Automa was made in Jamaica by Nathan Lyttle (Corx Labs)");
+    expect(sent.messages[0]!.content).toContain("The AI model you run on was made by its own maker, not by Nathan Lyttle");
     expect(sent.messages.at(-1)!.content).toContain("Think step by step carefully");
     expect(postedBody(net.calls)).toBe("29 apples.");
     expect(ctx.logs.some((line) => line.includes('"channel":"thinking"'))).toBe(true);

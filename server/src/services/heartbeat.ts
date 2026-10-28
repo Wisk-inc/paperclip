@@ -1,5 +1,5 @@
 import { applyWorkspaceRestoreFailure } from "@paperclipai/adapter-utils/workspace-restore-result";
-import { hasWorkspaceRestoreFailure } from "@paperclipai/shared";
+import { AUTOMA_ABOUT_FOR_AGENTS, hasWorkspaceRestoreFailure } from "@paperclipai/shared";
 import { externalConversationStateSql, nonIdleSlackIssueCondition } from "./slack-conversation-state.js";
 import { settleSlackConversation } from "./slack-conversation-lifecycle.js";
 import { publicChatTaskUrl } from "./chat-task-url.js";
@@ -8698,7 +8698,7 @@ export function buildPaperclipTaskMarkdown(input: {
       `- Title: ${quoteTaskScalar(issue.title)}`,
     );
     if (issue.conversationAgentId) {
-      lines.push("", "Chat mode directive:", AGENT_CHAT_DIRECTIVE, `Current composer mode: ${issue.workMode ?? "standard"}.`);
+      lines.push("", "Chat mode directive:", AGENT_CHAT_DIRECTIVE, `Current composer mode: ${issue.workMode ?? "standard"}.`, "", AUTOMA_ABOUT_FOR_AGENTS);
       if (acceptedChatPlan) {
         lines.push(
           "",

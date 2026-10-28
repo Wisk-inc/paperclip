@@ -18,7 +18,7 @@ import {
   type StudioTeamAgent,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
-import { claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
+import { AUTOMA_ABOUT_FOR_AGENTS, claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
 import {
   describePuterError,
   formatSafetyVerdict,
@@ -650,6 +650,7 @@ function systemPrompt(context: StudioAssistantContext) {
     "Work until the whole request is done: there is no step or length limit you need to save for. Finish every turn with a short reply to the person.",
     "When the user describes an app in plain words, build all of it: the UI, the logic, and storage (for Node.js, the built-in node:sqlite module needs no install; for Python, sqlite3).",
     "Keep replies short: say what you changed and how to use it. Never print secrets or API keys, and do not touch anything outside the project folder.",
+    AUTOMA_ABOUT_FOR_AGENTS,
     ...(context.team?.members.length
       ? [
           `You lead a team of models. Teammates: ${context.team.members.map((m, i) => `${i + 1}. ${modelLabel(m.model)}`).join("; ")}. For bigger jobs, plan first, then use run_team to put several of them to work at once: give each a role (frontend, backend, tests, reviewer…) and a self-contained task naming the files it owns. You wait while they work and get all their reports together; then review their changes, run the app, fix what does not fit, and carry on (run_team again if needed). Use ask_teammate for one quick task. Check their work before you tell the person it is done.`,

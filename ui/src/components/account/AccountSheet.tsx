@@ -16,7 +16,7 @@ import {
   Compass,
   KeyRound,
 } from "lucide-react";
-import type { AuthSession, Company, CurrentUserProfile } from "@paperclipai/shared";
+import { AUTOMA_CREDIT, type AuthSession, type Company, type CurrentUserProfile } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { assetsApi } from "@/api/assets";
 import { authApi } from "@/api/auth";
@@ -445,7 +445,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               }}
               data-testid="account-about-open"
             >
-              Automa {appVersion ?? AUTOMA_RELEASES[0]!.version} by Corx Labs · Made in Jamaica 🇯🇲 · About
+              Automa {appVersion ?? AUTOMA_RELEASES[0]!.version} · {AUTOMA_CREDIT} · About
             </button>
             <span className="flex gap-3">
               <a href="/legal/terms.html" className="underline underline-offset-2 hover:text-foreground">Terms</a>

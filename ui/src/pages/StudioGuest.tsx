@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { CodeXml, Eye, FolderTree, Globe, GitPullRequest, LoaderCircle, LogIn, MessageSquare, Send, SquareTerminal, Undo2 } from "lucide-react";
+import { AUTOMA_CREDIT } from "@paperclipai/shared";
 import type {
   StudioChangeRequest,
   StudioConsoleLine,
@@ -126,7 +127,7 @@ function GuestFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-background p-4 pt-(--sz-safe-top) pb-(--sz-safe-bottom) text-foreground">
       <div className="w-full max-w-sm">{children}</div>
-      <p className="mt-8 text-xs text-muted-foreground">Automa App Studio · Corx Labs · Made in Jamaica</p>
+      <p className="mt-8 text-xs text-muted-foreground">Automa App Studio · {AUTOMA_CREDIT}</p>
     </div>
   );
 }
