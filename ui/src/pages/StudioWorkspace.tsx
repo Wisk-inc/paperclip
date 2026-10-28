@@ -97,7 +97,8 @@ function readAiChoice(companyId: string): { provider: StudioAiProvider; model: s
   } catch {
     // storage unavailable
   }
-  return { provider: "anthropic", model: "" };
+  // The free models need no key, like the AI panel's own default.
+  return { provider: "free", model: "" };
 }
 const DRAFT_INTERVAL_MS = 150;
 
@@ -418,20 +419,20 @@ export function StudioWorkspace() {
     [send, workspaceId],
   );
 
-  // Grey AI suggestions in the editor, from the provider picked in the AI panel.
+  // Grey AI suggestions in the editor, from the provider picked in the AI
+  // panel, or the free models while that provider has no key (as the panel does).
   const suggest = useCallback(
     async (input: { prefix: string; suffix: string }, signal: AbortSignal) => {
       const current = fileRef.current;
       if (!current) return "";
-      const choice = readAiChoice(companyId);
-      if (!aiKeys.data?.keys.some((key) => key.provider === choice.provider && key.connected)) return "";
+      const picked = readAiChoice(companyId);
+      const choice = aiKeys.data?.keys.some((key) => key.provider === picked.provider && key.connected) ? picked : { provider: "free" as const, model: "" };
       const model = choice.provider === "custom" ? choice.model : STUDIO_AI_PROVIDER_INFO[choice.provider].completionModel;
       const result = await studioApi.complete(workspaceId, { path: current.path, prefix: input.prefix, suffix: input.suffix, provider: choice.provider, model }, signal);
       return result.completion;
     },
     [aiKeys.data, companyId, workspaceId],
   );
-  const suggestKeyReady = Boolean(aiKeys.data?.keys.some((key) => key.provider === readAiChoice(companyId).provider && key.connected));
   const toggleSuggest = () => {
     setSuggestOn((on) => {
       try {
@@ -724,15 +725,15 @@ export function StudioWorkspace() {
           type="button"
           onClick={toggleSuggest}
           aria-pressed={suggestOn}
-          title={suggestKeyReady ? "Grey AI suggestions while you type (Tab or tap to accept)" : "Add an API key in the AI tab to get suggestions"}
+          title="Grey AI suggestions while you type (Tab or tap to accept)"
           className={cn(
             "flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
-            suggestOn && suggestKeyReady ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground",
+            suggestOn ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground",
           )}
           data-testid="studio-suggest-toggle"
         >
           <Sparkles className="size-3" />
-          {suggestOn ? (suggestKeyReady ? "AI suggest" : "AI suggest (needs key)") : "AI suggest off"}
+          {suggestOn ? "AI suggest" : "AI suggest off"}
         </button>
         <span className="shrink-0 text-xs text-muted-foreground" data-testid="studio-save-state">
           {saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Edited" : saveState === "error" ? "Not saved" : saveState === "conflict" ? "Changed elsewhere" : file ? "Saved" : ""}
@@ -781,7 +782,7 @@ export function StudioWorkspace() {
           watchedDraft ? (
             <CodeEditor key={`watch:${file.path}`} path={file.path} value={watchedDraft.text} readOnly ariaLabel={`${watchedDraft.by.name}'s live edits`} />
           ) : (
-            <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} suggest={suggestOn && suggestKeyReady ? suggest : null} />
+            <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} suggest={suggestOn ? suggest : null} />
           )
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
