@@ -129,6 +129,10 @@ class SharedFolder(private val context: Context) {
         } catch (error: SecurityException) {
             clear()
             return JSONObject().put("ok", false).put("error", "Android revoked access to the shared folder. Share it again.").toString()
+        } catch (error: RuntimeException) {
+            // A folder deleted or moved while it is read, or a storage app that fails,
+            // throws here; this runs on worker threads, where a throw ends the app.
+            return JSONObject().put("ok", false).put("error", "The shared folder could not be read. If it was moved or deleted, share it again.").toString()
         }
         index.clear()
         index.putAll(found)

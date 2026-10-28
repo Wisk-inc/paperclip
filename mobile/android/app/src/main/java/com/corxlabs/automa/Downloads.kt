@@ -2,6 +2,7 @@ package com.corxlabs.automa
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -9,11 +10,11 @@ import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.URLUtil
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLDecoder
 
 /**
  * Saves files the page downloads (task attachments, device files, exports)
@@ -23,11 +24,14 @@ import java.net.URLDecoder
 object Downloads {
     data class Result(val ok: Boolean, val filename: String, val publicFolder: Boolean)
 
+    private const val MAX_REDIRECTS = 5
+
     fun filenameFor(url: String, contentDisposition: String?, mimeType: String?): String {
         // Prefer RFC 6266 filename*=UTF-8''… (Automa sends it for non-ASCII names).
+        // Percent-decoding only: "+" is a plus in these names, not a space.
         contentDisposition?.let { header ->
             Regex("filename\\*\\s*=\\s*UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(header)?.let { match ->
-                runCatching { return clean(URLDecoder.decode(match.groupValues[1].trim('"'), "UTF-8")) }
+                return clean(Uri.decode(match.groupValues[1].trim('"')))
             }
             Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(header)?.let { match ->
                 return clean(match.groupValues[1])
@@ -42,11 +46,7 @@ object Downloads {
     fun fetch(context: Context, url: String, userAgent: String?, contentDisposition: String?, mimeType: String?): Result {
         var filename = filenameFor(url, contentDisposition, mimeType)
         return try {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000
-            CookieManager.getInstance().getCookie(url)?.let { connection.setRequestProperty("Cookie", it) }
-            userAgent?.let { connection.setRequestProperty("User-Agent", it) }
+            val connection = connect(URL(url), userAgent)
             if (connection.responseCode !in 200..299) {
                 connection.disconnect()
                 return Result(false, filename, false)
@@ -59,6 +59,32 @@ object Downloads {
         } catch (error: Exception) {
             Result(false, filename, false)
         }
+    }
+
+    /**
+     * Follows redirects itself so every hop carries only its own cookies:
+     * HttpURLConnection re-sends a hand-set Cookie header to wherever a
+     * redirect points, and a Studio preview's app can answer a download with
+     * a redirect to any site, which must never get this server's session or
+     * app key.
+     */
+    private fun connect(start: URL, userAgent: String?): HttpURLConnection {
+        var target = start
+        repeat(MAX_REDIRECTS + 1) {
+            val connection = target.openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 15000
+            connection.readTimeout = 60000
+            CookieManager.getInstance().getCookie(target.toString())?.let { connection.setRequestProperty("Cookie", it) }
+            userAgent?.let { connection.setRequestProperty("User-Agent", it) }
+            val code = connection.responseCode
+            val location = connection.getHeaderField("Location")
+            if (code !in 300..399 || location == null) return connection
+            connection.disconnect()
+            target = URL(target, location)
+            if (target.protocol != "http" && target.protocol != "https") throw IOException("Redirect to ${target.protocol} refused")
+        }
+        throw IOException("Too many redirects")
     }
 
     fun saveBase64(context: Context, filename: String, mimeType: String?, base64: String): Result {
@@ -76,11 +102,23 @@ object Downloads {
         val header = dataUrl.substringBefore(',')
         val payload = dataUrl.substringAfter(',', "")
         val mime = header.removePrefix("data:").substringBefore(';').ifBlank { "application/octet-stream" }
+        // Percent-decoding only: a stray "%" stays as is instead of throwing, and "+" stays a plus.
         return if (header.endsWith(";base64")) saveBase64(context, filename, mime, payload)
-        else save(context, clean(filename), mime, URLDecoder.decode(payload, "UTF-8").byteInputStream())
+        else save(context, clean(filename), mime, Uri.decode(payload).byteInputStream())
     }
 
-    private fun save(context: Context, filename: String, mimeType: String, input: InputStream): Result {
+    /**
+     * Never throws: callers run on worker threads, where an exception ends the
+     * app. MediaStore refuses some inserts (a full disk, or a name already
+     * saved 32 times over); that is a failed download.
+     */
+    private fun save(context: Context, filename: String, mimeType: String, input: InputStream): Result = try {
+        saveOrThrow(context, filename, mimeType, input)
+    } catch (error: Exception) {
+        Result(false, filename, Build.VERSION.SDK_INT >= 29)
+    }
+
+    private fun saveOrThrow(context: Context, filename: String, mimeType: String, input: InputStream): Result {
         return if (Build.VERSION.SDK_INT >= 29) {
             val resolver = context.contentResolver
             val values = ContentValues().apply {

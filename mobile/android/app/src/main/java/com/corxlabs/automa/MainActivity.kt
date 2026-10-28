@@ -372,7 +372,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        route(intent)
+        route(intent, reopened = true)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -426,13 +426,15 @@ class MainActivity : ComponentActivity() {
 
     // ─── Navigation ────────────────────────────────────────────────────────
 
-    private fun route(intent: Intent?) {
+    /** [reopened]: the intent reached the running activity (singleTask delivers every launch there). */
+    private fun route(intent: Intent?, reopened: Boolean = false) {
         when {
             intent?.action == ACTION_CHANGE_SERVER -> showConnect(null)
             incoming.isShareIntent(intent) -> {
                 val shareIntent = intent!!
                 executor.execute {
-                    val added = incoming.accept(shareIntent)
+                    // A sending app's malformed extras must not end Automa on this worker thread.
+                    val added = runCatching { incoming.accept(shareIntent) }.getOrDefault(0)
                     runOnUiThread {
                         if (config.serverUrl == null) {
                             showConnect("Connect to your Automa server first. Your shared file${if (added == 1) " is" else "s are"} waiting on the Files page.")
@@ -447,6 +449,9 @@ class MainActivity : ComponentActivity() {
             intent?.action == ACTION_OPEN_PATH -> openPath(intent.data?.schemeSpecificPart ?: "/")
             // A push notification tapped while the app was in the background.
             intent?.getStringExtra(Push.PATH_KEY) != null -> openPath(intent.getStringExtra(Push.PATH_KEY) ?: "/")
+            // The launcher icon tapped while Automa is open: the page stays as it
+            // is, since a reload loses whatever was typed or open on it.
+            reopened && webView.url != null -> Unit
             else -> loadServer()
         }
     }
@@ -592,9 +597,15 @@ class MainActivity : ComponentActivity() {
         val server = config.serverUrl ?: return
         executor.execute {
             val health = ServerConfig.checkHealth(server)
-            if (health.ok) return@execute
             runOnUiThread {
-                if (config.serverUrl != server || !onServerPage()) return@runOnUiThread
+                if (config.serverUrl != server) return@runOnUiThread
+                // Only the server answering ends a run of failures (which sets the
+                // retry wait): the bundled page loads even while the server is down.
+                if (health.ok) {
+                    mainFrameFailures = 0
+                    return@runOnUiThread
+                }
+                if (!onServerPage()) return@runOnUiThread
                 mainFrameFailures += 1
                 when {
                     ServerConfig.isLoopback(server) -> showConnect(null, wait = true)
@@ -1073,10 +1084,7 @@ class MainActivity : ComponentActivity() {
             override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                 val uri = Uri.parse(url)
                 bridge.pageOrigin = ServerConfig.originOf(uri)
-                if (config.isServerUrl(uri)) {
-                    mainFrameFailures = 0
-                    config.lastPath = rememberablePath(uri)
-                }
+                if (config.isServerUrl(uri)) config.lastPath = rememberablePath(uri)
             }
 
             override fun onPageFinished(view: WebView, url: String) {

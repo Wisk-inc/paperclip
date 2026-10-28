@@ -486,7 +486,10 @@ class AutomaBridge(
             }
             "incoming" -> {
                 val item = parts.getOrNull(2)?.let(incoming::find) ?: return notFound()
-                WebResourceResponse(item.contentType ?: "application/octet-stream", null, 200, "OK", noStore(), FileInputStream(item.file))
+                // The cached copy can be gone (Android clears caches); WebView rethrows
+                // anything thrown here on the main thread, which ends the app.
+                val stream = runCatching { FileInputStream(item.file) }.getOrNull() ?: return notFound()
+                WebResourceResponse(item.contentType ?: "application/octet-stream", null, 200, "OK", noStore(), stream)
             }
             "appicon" -> {
                 val png = parts.getOrNull(2)?.let { installedApps.iconPng(Uri.decode(it)) } ?: return notFound()
@@ -494,8 +497,10 @@ class AutomaBridge(
             }
             "apk" -> {
                 val file = parts.getOrNull(2)?.let { installedApps.baseApk(Uri.decode(it)) } ?: return notFound()
+                // Updated or uninstalled since the check: a 404, not a throw.
+                val stream = runCatching { FileInputStream(file) }.getOrNull() ?: return notFound()
                 val headers = noStore() + ("Content-Length" to file.length().toString())
-                WebResourceResponse("application/vnd.android.package-archive", null, 200, "OK", headers, FileInputStream(file))
+                WebResourceResponse("application/vnd.android.package-archive", null, 200, "OK", headers, stream)
             }
             else -> notFound()
         }

@@ -99,14 +99,16 @@ class ServerConfig(context: Context) {
             val raw = prefs.getString(KEY_PENDING, null) ?: return null
             return runCatching {
                 val json = JSONObject(raw)
-                PendingConnect(json.getString("url"), json.optString("secret").takeIf { it.isNotEmpty() })
+                PendingConnect(json.getString("url"), json.optString("secret").takeIf { it.isNotEmpty() }?.let(SecretStore::open))
             }.getOrNull()
         }
         set(value) {
             if (value == null) {
                 prefs.edit().remove(KEY_PENDING).apply()
             } else {
-                prefs.edit().putString(KEY_PENDING, JSONObject().put("url", value.url).put("secret", value.secret ?: "").toString()).apply()
+                // Sealed like every other app key (see SecretStore), even while it only waits for a tap.
+                val secret = value.secret?.let(SecretStore::seal) ?: ""
+                prefs.edit().putString(KEY_PENDING, JSONObject().put("url", value.url).put("secret", secret).toString()).apply()
             }
         }
 
@@ -125,7 +127,10 @@ class ServerConfig(context: Context) {
             val scheme = uri.scheme?.lowercase() ?: return null
             val host = uri.host?.lowercase() ?: return null
             if (scheme != "http" && scheme != "https") return null
-            val port = if (uri.port == -1) "" else ":${uri.port}"
+            // WebView drops a default port (https://host:443) from page URLs, so the
+            // origin drops it too, or the two never match.
+            val defaultPort = if (scheme == "https") 443 else 80
+            val port = if (uri.port == -1 || uri.port == defaultPort) "" else ":${uri.port}"
             return "$scheme://$host$port"
         }
 

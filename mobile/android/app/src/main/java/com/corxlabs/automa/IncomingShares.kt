@@ -39,7 +39,9 @@ class IncomingShares(private val context: Context) {
         var added = 0
         for (uri in uris) if (copy(uri)) added += 1
         if (uris.isEmpty()) {
-            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+            // EXTRA_TEXT is a CharSequence: styled text (links, bold) is not a String,
+            // which getStringExtra reads as null.
+            val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
             if (!text.isNullOrBlank()) {
                 val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() } ?: "Shared text"
                 val file = File(dir, "${UUID.randomUUID()}.txt").apply { writeText(text) }
