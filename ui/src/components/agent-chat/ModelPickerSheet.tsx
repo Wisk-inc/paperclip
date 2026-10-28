@@ -7,6 +7,7 @@ import { aiConnectionsApi } from "@/api/ai-connections";
 import { freeModelsApi } from "@/api/free-models";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { ModelLogo } from "@/components/ModelLogo";
+import { isServerTooOld, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
 import { ByokKeysCard, connectKeyHref } from "./ByokKeysCard";
 import { ThinkingDepthControl, currentThinkingLevel, thinkingLevelPatch, thinkingLevelsFor } from "./ThinkingDepthControl";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,11 @@ interface ModelEntry {
   provider: ModelProvider;
   /** `runtime`: the agent's current runtime; `openrouter`: any model through your OpenRouter key; `free`: free models, no key. */
   source: "runtime" | "openrouter" | "free";
+}
+
+interface ModelSwitch {
+  entry: ModelEntry;
+  patch: { adapterType?: Agent["adapterType"]; adapterConfig: Record<string, unknown>; runtimeConfig?: Record<string, unknown> };
 }
 
 function toEntries(models: AdapterModel[] | undefined, source: ModelEntry["source"], adapterType: string): ModelEntry[] {
@@ -74,8 +80,9 @@ function matches(entry: ModelEntry, query: string) {
 
 /** "in 1 h 40 min", for when a model at its daily limit answers again. */
 function untilText(until: string | null): string {
-  if (!until) return "later today";
-  const minutes = Math.max(1, Math.ceil((new Date(until).getTime() - Date.now()) / 60_000));
+  const at = until ? new Date(until).getTime() : NaN;
+  if (!Number.isFinite(at)) return "later today";
+  const minutes = Math.max(1, Math.ceil((at - Date.now()) / 60_000));
   if (minutes < 60) return `in ${minutes} min`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
@@ -85,6 +92,9 @@ function untilText(until: string | null): string {
 /** A free model's state in a few words, or null when it is answering normally. */
 export function freeHealthNote(health: FreeModelHealthEntry | null | undefined): string | null {
   if (!health || health.state === "ok") return null;
+  // A hold whose time has passed is over, as the server counts it; the list
+  // may still hold the last refresh, which said otherwise.
+  if (health.until && new Date(health.until).getTime() <= Date.now()) return null;
   switch (health.state) {
     case "daily_limit":
       return `Daily free limit reached · back ${untilText(health.until)}`;
@@ -174,6 +184,7 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
   const usage = useQuery({
     queryKey: queryKeys.freeModels.usage(companyId),
     queryFn: () => freeModelsApi.usage(companyId),
+    retry: retryUnlessServerTooOld,
   });
   const reset = useMutation({
     mutationFn: () => freeModelsApi.resetUsage(companyId),
@@ -188,6 +199,8 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
     },
   });
   if (usage.error) {
+    // A phone server older than the app has no such route: nothing to show rather than an error.
+    if (isServerTooOld(usage.error)) return null;
     return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{usage.error instanceof Error ? usage.error.message : "Could not load free usage."}</p>;
   }
   if (!usage.data) return null;
@@ -216,9 +229,11 @@ function QueEngineStatus({ companyId }: { companyId: string }) {
   const stats = useQuery({
     queryKey: queryKeys.freeModels.que(companyId),
     queryFn: () => freeModelsApi.queStats(companyId),
-    refetchInterval: 5_000,
+    retry: retryUnlessServerTooOld,
+    refetchInterval: (query) => (isServerTooOld(query.state.error) ? false : 5_000),
   });
   if (stats.error) {
+    if (isServerTooOld(stats.error)) return null;
     return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{stats.error instanceof Error ? stats.error.message : "Could not load the Que engine."}</p>;
   }
   if (!stats.data) return null;
@@ -242,6 +257,7 @@ function MoanKnowledgeCard() {
   const status = useQuery({
     queryKey: queryKeys.freeModels.moan(),
     queryFn: () => freeModelsApi.moanStatus(),
+    retry: retryUnlessServerTooOld,
     refetchInterval: (query) => (query.state.data?.running ? 10_000 : false),
   });
   const refresh = useMutation({
@@ -257,6 +273,7 @@ function MoanKnowledgeCard() {
     },
   });
   if (status.error) {
+    if (isServerTooOld(status.error)) return null;
     return <p className="mx-1 mb-2 px-3 text-xs text-destructive">{status.error instanceof Error ? status.error.message : "Could not load Moan’s knowledge."}</p>;
   }
   if (!status.data) return null;
@@ -322,16 +339,22 @@ function FreeToolsPanel({ agent, imageOptions }: { agent: Agent; imageOptions: {
   const update = useMutation({
     mutationFn: (patch: Record<string, unknown>) => agentsApi.update(agent.id, { adapterConfig: patch }, agent.companyId),
     // The switch moves on the tap; the server's answer confirms or undoes it.
-    onMutate: (patch) => patchAgentCache(client, agent.id, agent.companyId, { adapterConfig: patch }),
+    onMutate: (patch) => {
+      const previous = Object.fromEntries(Object.keys(patch).map((key) => [key, config[key]]));
+      patchAgentCache(client, agent.id, agent.companyId, { adapterConfig: patch });
+      return previous;
+    },
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) }),
         client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
       ]);
     },
-    onError: (error) => {
+    onError: (error, _patch, previous) => {
       haptic("warning");
       pushToast({ title: "Couldn’t change the setting", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      // Put the old value back now: if the reload fails too, the switch must not show a setting the agent doesn't have.
+      if (previous) patchAgentCache(client, agent.id, agent.companyId, { adapterConfig: previous });
       void client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) });
       void client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
     },
@@ -408,14 +431,18 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   const runsOnOpenRouter = agent.adapterType === "opencode_local" && binding?.provider === "openrouter";
   const runsFree = agent.adapterType === FREE_MODELS_ADAPTER_TYPE;
   const [query, setQuery] = useState(initialQuery);
-  // Each time the sheet opens, it starts from the search it was opened with.
+  const [filter, setFilter] = useState<ModelProvider | "all" | "free">("all");
+  // Each time the sheet opens, it starts from the search it was opened with,
+  // across every maker: a chip left on would hide what `/model <name>` asked for.
   const [openedWith, setOpenedWith] = useState<string | null>(null);
   const openKey = open ? initialQuery : null;
   if (openKey !== openedWith) {
     setOpenedWith(openKey);
-    if (open) setQuery(initialQuery);
+    if (open) {
+      setQuery(initialQuery);
+      setFilter("all");
+    }
   }
-  const [filter, setFilter] = useState<ModelProvider | "all" | "free">("all");
   const [expanded, setExpanded] = useState<Set<ModelProvider>>(() => new Set());
 
   const runtimeModels = useQuery({
@@ -435,7 +462,8 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     queryKey: queryKeys.freeModels.health(),
     queryFn: () => freeModelsApi.health(),
     enabled: open,
-    refetchInterval: open ? 60_000 : false,
+    retry: retryUnlessServerTooOld,
+    refetchInterval: (query) => (open && !isServerTooOld(query.state.error) ? 60_000 : false),
   });
   const catalog = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, "opencode_local", null, "openrouter"),
@@ -497,41 +525,43 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     .map((group) => ({ ...group, entries: group.entries.filter((entry) => matches(entry, query)) }))
     .filter((group) => group.entries.length > 0);
 
+  /** The change a tap on `entry` asks the server for, from the agent as it is now. */
+  const switchPatch = (entry: ModelEntry): ModelSwitch["patch"] => {
+    if (entry.source === "free") {
+      if (runsFree) return { adapterConfig: { model: entry.id } };
+      // Free models need no key, so the switch drops any key binding.
+      const runtimeConfig = { ...((agent.runtimeConfig as Record<string, unknown> | undefined) ?? {}) };
+      delete runtimeConfig.aiConnection;
+      return { adapterType: FREE_MODELS_ADAPTER_TYPE, adapterConfig: { model: entry.id }, runtimeConfig };
+    }
+    if (entry.source === "runtime" || runsOnOpenRouter) {
+      // A thinking level the new model doesn't take is cleared with the switch.
+      const level = currentThinkingLevel(agent);
+      const keepsLevel = !level || thinkingLevelsFor({ ...agent, adapterConfig: { ...agent.adapterConfig, model: entry.id } }).includes(level);
+      return { adapterConfig: { model: entry.id, ...(keepsLevel ? {} : thinkingLevelPatch(agent, "")) } };
+    }
+    // Any model through your own OpenRouter key runs on the OpenCode runtime.
+    return {
+      adapterType: "opencode_local",
+      adapterConfig: { model: entry.id },
+      runtimeConfig: {
+        ...((agent.runtimeConfig as Record<string, unknown> | undefined) ?? {}),
+        aiConnection: { provider: "openrouter", method: "api_key", mode: "responsible_user" },
+      },
+    };
+  };
+
   const select = useMutation({
-    mutationFn: async (entry: ModelEntry) => {
-      if (entry.source === "free") {
-        if (runsFree) return agentsApi.update(agent.id, { adapterConfig: { model: entry.id } }, companyId);
-        // Free models need no key, so the switch drops any key binding.
-        const runtimeConfig = { ...((agent.runtimeConfig as Record<string, unknown> | undefined) ?? {}) };
-        delete runtimeConfig.aiConnection;
-        return agentsApi.update(agent.id, { adapterType: FREE_MODELS_ADAPTER_TYPE, adapterConfig: { model: entry.id }, runtimeConfig }, companyId);
-      }
-      if (entry.source === "runtime" || runsOnOpenRouter) {
-        // A thinking level the new model doesn't take is cleared with the switch.
-        const level = currentThinkingLevel(agent);
-        const keepsLevel = !level || thinkingLevelsFor({ ...agent, adapterConfig: { ...agent.adapterConfig, model: entry.id } }).includes(level);
-        return agentsApi.update(
-          agent.id,
-          { adapterConfig: { model: entry.id, ...(keepsLevel ? {} : thinkingLevelPatch(agent, "")) } },
-          companyId,
-        );
-      }
-      // Any model through your own OpenRouter key runs on the OpenCode runtime.
-      return agentsApi.update(agent.id, {
-        adapterType: "opencode_local",
-        adapterConfig: { model: entry.id },
-        runtimeConfig: {
-          ...((agent.runtimeConfig as Record<string, unknown> | undefined) ?? {}),
-          aiConnection: { provider: "openrouter", method: "api_key", mode: "responsible_user" },
-        },
-      }, companyId);
-    },
+    // The patch is worked out on the tap and travels with it. A switch held
+    // for a connection runs after the sheet has re-rendered with the new
+    // model; rebuilt then, a move onto a free model would lose its adapter change.
+    mutationFn: ({ patch }: ModelSwitch) => agentsApi.update(agent.id, patch, companyId),
     // The new model shows in the header on the tap, not after the round trip.
-    onMutate: (entry) => {
-      const adapterType = entry.source === "free" ? FREE_MODELS_ADAPTER_TYPE : entry.source === "runtime" || runsOnOpenRouter ? agent.adapterType : "opencode_local";
-      patchAgentCache(client, agent.id, companyId, { adapterType, adapterConfig: { model: entry.id } });
+    onMutate: ({ entry, patch }) => {
+      patchAgentCache(client, agent.id, companyId, { adapterType: patch.adapterType ?? agent.adapterType, adapterConfig: { model: entry.id } });
+      return { adapterType: agent.adapterType, model: agent.adapterConfig?.model };
     },
-    onSuccess: async (_updated, entry) => {
+    onSuccess: async (_updated, { entry }) => {
       haptic("success");
       pushToast({ title: `${agent.name} now uses ${entry.name}`, tone: "success" });
       onOpenChange(false);
@@ -540,9 +570,11 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
         client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
       ]);
     },
-    onError: (error) => {
+    onError: (error, _switch, previous) => {
       haptic("warning");
       pushToast({ title: "Couldn’t switch the model", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      // Put the old model back now: if the reload fails too, the header must not name a model the agent isn't on.
+      if (previous) patchAgentCache(client, agent.id, companyId, { adapterType: previous.adapterType, adapterConfig: { model: previous.model } });
       void client.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) });
       void client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
     },
@@ -561,7 +593,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
       return;
     }
     haptic("tick");
-    select.mutate(entry);
+    select.mutate({ entry, patch: switchPatch(entry) });
   };
 
   const providerCounts = useMemo(() => {
@@ -571,7 +603,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   }, [runtimeEntries, freeEntries, catalogEntries]);
   const chipProviders = MODEL_PROVIDERS.filter((provider) => provider !== "other" && (providerCounts.get(provider) ?? 0) > 0);
   const totalCount = runtimeEntries.length + freeEntries.length + catalogEntries.length;
-  const busyId = select.isPending ? select.variables?.id : null;
+  const busyId = select.isPending ? select.variables?.entry.id : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -746,10 +778,10 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
                 </div>
               );
             })}
-            {!catalog.isPending && !catalog.error && visibleGroups.length === 0 && visibleRuntime.length === 0 && visibleFree.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-muted-foreground">No models match “{query}”.</p>
-            ) : null}
           </section>}
+          {(filter === "free" || (!catalog.isPending && !catalog.error)) && visibleGroups.length === 0 && visibleRuntime.length === 0 && visibleFree.length === 0 ? (
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">No models match “{query}”.</p>
+          ) : null}
 
           <ByokKeysCard connected={connected} className="mx-1 mt-4" />
         </div>
