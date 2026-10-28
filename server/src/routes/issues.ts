@@ -17355,7 +17355,10 @@ export function issueRoutes(
         const pendingRetry = await svc.getCurrentScheduledRetry(issue.id);
         if (pendingRetry && pendingRetry.agentId === issue.conversationAgentId &&
             (pendingRetry.status === "scheduled_retry" || pendingRetry.status === "queued")) {
-          await cancelScheduledRetrySupersededByComment({ scheduledRetryRunId: pendingRetry.runId, issue, actor });
+          // The message is already saved: a retry that cannot be stopped (the
+          // failure is logged) must not keep it from being delivered.
+          await cancelScheduledRetrySupersededByComment({ scheduledRetryRunId: pendingRetry.runId, issue, actor })
+            .catch(() => null);
         }
         await deliverConversationComments(db, issue, heartbeat.wakeup);
         res.status(201).json(comment);

@@ -10,7 +10,7 @@ import { issueRoutes } from "../routes/issues.js";
 import { errorHandler } from "../middleware/index.js";
 import { actorMiddleware } from "../middleware/auth.js";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -330,6 +330,47 @@ const support = await getEmbeddedPostgresTestSupport();
         eq(activityLog.entityId, retry!.id), eq(activityLog.action, "heartbeat.cancelled"),
       ));
       expect(cancelled.map((row) => (row.details as { source?: string } | null)?.source)).toEqual(["issue_comment_scheduled_retry_superseded"]);
+    });
+    it("still delivers a saved chat message when the retry it replaces cannot be cancelled", async () => {
+      const [retryAgent] = await db.insert(agents).values({
+        companyId, name: "Stuck retrier", role: "engineer", status: "idle", adapterType: "process",
+      }).returning();
+      const owner = randomUUID();
+      await db.insert(companyMemberships).values({
+        companyId, principalType: "user", principalId: owner, status: "active", membershipRole: "operator",
+      });
+      await ensureHumanRoleDefaultGrants(db, { companyId, principalId: owner, membershipRole: "operator", grantedByUserId: null });
+      const chat = await issueService(db).create(companyId, {
+        title: "Conversation", conversationAgentId: retryAgent!.id, conversationUserId: owner,
+        assigneeAgentId: retryAgent!.id, status: "in_review", conversationState: "waiting",
+      });
+      const [retry] = await db.insert(heartbeatRuns).values({
+        companyId, agentId: retryAgent!.id, invocationSource: "automation", status: "scheduled_retry",
+        contextSnapshot: { issueId: chat.id, taskKey: chat.id },
+        scheduledRetryAt: new Date(Date.now() + 10 * 60_000), scheduledRetryReason: "transient_failure", scheduledRetryAttempt: 1,
+      }).returning();
+      // The stop fails, as a lost database connection or a failed process stop would.
+      await db.execute(sql.raw("create function refuse_retry_cancel() returns trigger language plpgsql as $$ begin raise exception 'cancel refused'; end $$"));
+      await db.execute(sql.raw(`create trigger refuse_retry_cancel before update on heartbeat_runs for each row
+        when (new.id = '${retry!.id}' and new.status = 'cancelled') execute function refuse_retry_cancel()`));
+      try {
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => {
+          req.actor = { type: "board", source: "session", userId: owner, companyIds: [companyId] };
+          next();
+        });
+        app.use("/api", issueRoutes(db, { wakeup: async () => null } as never));
+        app.use(errorHandler);
+
+        const sent = await request(app).post(`/api/issues/${chat.id}/comments`)
+          .send({ body: "Are you there?", clientRequestId: randomUUID() });
+        expect(sent.status).toBe(201);
+        expect(await undeliveredConversationComments(db, companyId, chat.id)).toEqual([]);
+      } finally {
+        await db.execute(sql.raw("drop trigger refuse_retry_cancel on heartbeat_runs"));
+        await db.execute(sql.raw("drop function refuse_retry_cancel()"));
+      }
     });
     it.each([
       { adapterType: "free_models", holds: false },
