@@ -72,6 +72,10 @@ export const OFFICE_MIME = {
 } as const;
 
 const FILE_TOOLS = new Set(["Read", "Write", "Edit", "Bash", "Grep", "Glob"]);
+/** The tools a toggle can turn off; the document tools are always on. */
+const TOGGLED_TOOLS = new Set([...FILE_TOOLS, "Automa", "WebSearch", "WebFetch", "WebCrawl", "WebDownload", "ConnectionsSearch", "ConnectionRequest", "GenerateImage"]);
+/** The largest working-folder file ReadDocument opens, the same as a download. */
+const MAX_READ_BYTES = 20_000_000;
 
 /** Converts an Anthropic tool definition to the OpenAI function shape Puter takes. */
 function toFunction(tool: { name: string; description?: string; input_schema: unknown }): PuterTool {
@@ -362,6 +366,25 @@ function str(input: Record<string, unknown>, key: string): string {
   return typeof input[key] === "string" ? (input[key] as string) : "";
 }
 
+/** A number the model gave, as a number or as text; undefined when it gave none. */
+function num(input: Record<string, unknown>, key: string): number | undefined {
+  const value = typeof input[key] === "string" && (input[key] as string).trim() ? Number(input[key]) : input[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** The file name a URL ends in, without any folders a decoded name would bring. */
+function urlFileName(url: string): string {
+  const last = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+  let name = last;
+  try {
+    name = decodeURIComponent(last);
+  } catch {
+    // A malformed escape: the name stays as written.
+  }
+  const base = path.basename(name);
+  return base && base !== "." && base !== ".." ? base : "download";
+}
+
 async function callRuntimeConnection(
   ctx: FreeToolContext,
   endpoint: string,
@@ -395,6 +418,10 @@ export interface FreeToolResult {
 /** Runs one tool call for the free engine. Unknown tools come back as errors the model can read. */
 export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: unknown): Promise<FreeToolResult> {
   const input = (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput) ? rawInput : {}) as Record<string, unknown>;
+  // A model can name a tool it was not offered: only this run's tools run.
+  if (!freeToolDefinitions(ctx).some((tool) => tool.function.name === name)) {
+    return { content: TOGGLED_TOOLS.has(name) ? `The ${name} tool is turned off for this agent.` : `There is no tool named ${name}.`, isError: true };
+  }
   try {
     if (FILE_TOOLS.has(name) || name === "Automa") {
       if (!ctx.direct) return { content: `The ${name} tool is turned off for this agent.`, isError: true };
@@ -419,8 +446,8 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
     }
     if (name === "WebCrawl") {
       const pages = await webCrawl(str(input, "url"), {
-        depth: Number(input.depth) || undefined,
-        maxPages: Number(input.max_pages) || undefined,
+        depth: num(input, "depth"),
+        maxPages: num(input, "max_pages"),
         sameSite: input.same_site === false || input.same_site === "false" ? false : true,
         match: str(input, "match") || undefined,
       }, ctx.signal);
@@ -433,16 +460,19 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
     }
     if (name === "WebDownload") {
       if (!ctx.direct) return { content: "Saving files is turned off for this agent (Files & commands).", isError: true };
+      const root = path.resolve(ctx.direct.cwd);
+      const asked = str(input, "path").trim().replace(/^\/+/, "");
+      if (asked && !path.resolve(root, asked).startsWith(root + path.sep)) return { content: "The path must be inside the working folder.", isError: true };
       const file = await webDownload(str(input, "url"), ctx.signal);
-      const fromUrl = decodeURIComponent(new URL(file.url).pathname.split("/").filter(Boolean).pop() || "download");
-      const relative = (str(input, "path") || `downloads/${fromUrl}`).replace(/^\/+/, "").replace(/\.\.(\/|\\|$)/g, "");
-      const base64 = Buffer.from(file.bytes).toString("base64");
-      // Written through the agent's own Bash tool, so it lands in the same working folder its other files use.
-      const outcome = await runDirectTool(ctx.direct, "Bash", {
-        command: `mkdir -p "$(dirname '${relative.replaceAll("'", "'\\''")}')" && printf '%s' '${base64}' | base64 -d > '${relative.replaceAll("'", "'\\''")}' && ls -l '${relative.replaceAll("'", "'\\''")}'`,
-        description: `Save ${relative}`,
-      });
-      if (outcome.isError) return { content: `Could not save the file: ${outcome.content}`, isError: true };
+      const target = path.resolve(root, asked || path.join("downloads", urlFileName(file.url)));
+      // Written directly, not through Bash: a file passed in a shell command overflows its argument limit past ~96 KB.
+      try {
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, file.bytes);
+      } catch (error) {
+        return { content: `Could not save the file: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+      }
+      const relative = path.relative(root, target).split(path.sep).join("/");
       return { content: `Saved ${file.url} (${file.contentType}, ${file.bytes.byteLength.toLocaleString()} bytes) to ${relative}. Open it with Read, or run it with Bash.`, isError: false };
     }
     if (name === "ConnectionsSearch") {
@@ -514,14 +544,18 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
         if (!found) return { content: `There is no attachment named "${ref}" on this chat. Ask the person to attach the file, or give a path or url.`, isError: true };
         bytes = found.bytes; fileName = found.name; contentType = found.contentType;
       } else if (url) {
+        if (!ctx.toggles.web) return { content: "Reading a file from the web needs Web turned on. Ask the person to attach the file to the chat instead.", isError: true };
         const file = await webDownload(url, ctx.signal);
         bytes = file.bytes; contentType = file.contentType;
-        fileName = decodeURIComponent(new URL(file.url).pathname.split("/").filter(Boolean).pop() || "download");
+        fileName = urlFileName(file.url);
       } else if (relative) {
-        if (!ctx.direct) return { content: "Reading files from the working folder needs Files & commands turned on. Attach the file to the chat instead, or give a url.", isError: true };
+        if (!ctx.direct || !ctx.toggles.filesAndCommands) return { content: "Reading files from the working folder needs Files & commands turned on. Attach the file to the chat instead, or give a url.", isError: true };
         const root = path.resolve(ctx.direct.cwd);
         const absolute = path.resolve(root, relative);
         if (absolute !== root && !absolute.startsWith(root + path.sep)) return { content: "The path must be inside the working folder.", isError: true };
+        const stat = await fs.stat(absolute);
+        if (!stat.isFile()) return { content: `${relative} is not a file. List a folder with Glob, then read a file in it.`, isError: true };
+        if (stat.size > MAX_READ_BYTES) return { content: `${relative} is over 20 MB, too large to read here. Look at part of it with Bash (head, tail, split) instead.`, isError: true };
         bytes = new Uint8Array(await fs.readFile(absolute));
         fileName = path.basename(absolute);
       } else {

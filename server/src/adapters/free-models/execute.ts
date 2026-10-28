@@ -86,6 +86,8 @@ interface Profile {
   role: string;
   title: string;
   teammates: string[];
+  /** Every agent's name by id, to say who wrote a teammate's comment. */
+  agentNames: Record<string, string>;
   personName: string;
   /** Lookups that failed, for the run log; never shown to the person. */
   notes: string[];
@@ -93,7 +95,7 @@ interface Profile {
 
 /** Who the agent is and who it works with, read as the agent; anything that fails is simply left out. */
 async function loadProfile(api: ThreadApi, companyId: string, agentId: string, personId: string | null): Promise<Profile> {
-  const profile: Profile = { role: "", title: "", teammates: [], personName: "", notes: [] };
+  const profile: Profile = { role: "", title: "", teammates: [], agentNames: {}, personName: "", notes: [] };
   try {
     const me = await api.json<{ role?: string; title?: string | null }>("/api/agents/me");
     profile.role = typeof me.role === "string" ? me.role : "";
@@ -105,6 +107,7 @@ async function loadProfile(api: ThreadApi, companyId: string, agentId: string, p
       .filter((agent) => agent.id !== agentId && agent.status !== "terminated")
       .slice(0, 20)
       .map((agent) => `${agent.name}${agent.title ? ` (${agent.title})` : agent.role ? ` (${agent.role})` : ""}`);
+    for (const agent of agents) profile.agentNames[agent.id] = agent.name;
   } catch (error) { profile.notes.push(error instanceof Error ? error.message : String(error)); }
   if (personId) {
     try {
@@ -222,11 +225,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const tools = freeToolDefinitions(toolCtx);
   // Files the person attached to their last message, so the model knows to read them.
   let attachedFiles: string[] = [];
+  let unseenPictures = 0;
   if (lastUser) {
     try {
-      attachedFiles = (await listAttachments(api, issueId))
-        .filter((attachment) => attachment.issueCommentId === lastUser.id && !attachment.contentType.startsWith("image/"))
-        .map(attachmentName);
+      const attached = (await listAttachments(api, issueId)).filter((attachment) => attachment.issueCommentId === lastUser.id);
+      attachedFiles = attached.filter((attachment) => !attachment.contentType.startsWith("image/")).map(attachmentName);
+      if (model !== VISION_MODEL) unseenPictures = attached.length - attachedFiles.length;
     } catch (error) { await onLog("stdout", `[paperclip] Attachment list skipped: ${error instanceof Error ? error.message : String(error)}\n`); }
   }
 
@@ -242,7 +246,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const knowledge = await moanKnowledge(api, question, onLog);
     persona = moanSystemPrompt({ agentName: agent.name, ...knowledge });
   }
-  const messages = buildMessages({ agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles, persona });
+  const messages = buildMessages({ agentId: agent.id, agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles, unseenPictures, persona });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
@@ -269,7 +273,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 /** What the Jamaican knowledge index has on the question, from the server's moan service; nothing when it is off or empty. */
 async function moanKnowledge(api: ThreadApi, question: string, onLog: AdapterExecutionContext["onLog"]): Promise<{ knowledge?: string; freshness?: string }> {
   try {
-    const result = await api.json<{ context?: string; freshness?: string }>(`/api/free-models/moan/context?q=${encodeURIComponent(question.slice(0, 600))}`);
+    // Cut by code point: half an emoji makes encodeURIComponent throw.
+    const result = await api.json<{ context?: string; freshness?: string }>(`/api/free-models/moan/context?q=${encodeURIComponent(Array.from(question).slice(0, 600).join(""))}`);
     return { knowledge: result.context || undefined, freshness: result.freshness || undefined };
   } catch (error) {
     await onLog("stdout", `[paperclip] Moan knowledge skipped: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -278,6 +283,7 @@ async function moanKnowledge(api: ThreadApi, question: string, onLog: AdapterExe
 }
 
 interface BuildInput {
+  agentId: string;
   agentName: string;
   issue: { title?: string; description?: string | null; conversationAgentId?: string | null };
   comments: Array<{ id: string; authorAgentId: string | null; body: string }>;
@@ -290,11 +296,13 @@ interface BuildInput {
   profile: Profile;
   /** Non-image files attached to the person's last message. */
   attachedFiles?: string[];
+  /** Pictures attached to the person's last message that this model cannot see. */
+  unseenPictures?: number;
   /** A wrapper persona's own prompt (Moan), placed before the agent prompt. */
   persona?: string;
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = [], persona?: string): string {
+function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = [], persona?: string, unseenPictures = 0): string {
   const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
     persona ?? "",
@@ -315,21 +323,35 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
     attachedFiles.length
       ? `The person attached ${attachedFiles.length === 1 ? "a file" : "files"} to their last message: ${attachedFiles.join(", ")}. Read ${attachedFiles.length === 1 ? "it" : "them"} with ReadDocument (attachment: the file name) before answering about ${attachedFiles.length === 1 ? "it" : "them"}.`
       : "",
+    unseenPictures
+      ? `The person attached ${unseenPictures === 1 ? "a picture" : `${unseenPictures} pictures`} to their last message, and you cannot see pictures. Say so plainly instead of guessing what ${unseenPictures === 1 ? "it shows" : "they show"}, and tell them ${modelLabel(VISION_MODEL)} in the model switcher can read pictures.`
+      : "",
     "Write the way you would to a teammate: answer first, then the detail that matters, in Markdown.",
     level ? thinkingInstruction(level) : "",
   ].filter(Boolean).join("\n\n");
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles, input.persona) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles, input.persona, input.unseenPictures) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });
   }
   for (const comment of input.comments) {
-    const role = comment.authorAgentId ? "assistant" : "user";
+    // Only this agent's own comments are its turns; a teammate agent's comment was said to it.
+    const role = comment.authorAgentId === input.agentId ? "assistant" : "user";
     const isLast = input.lastUser && comment.id === input.lastUser.id;
     let text = comment.body;
+    if (comment.authorAgentId && role === "user") {
+      const name = input.profile.agentNames[comment.authorAgentId];
+      text = `(From ${name ? `${name}, ` : ""}a teammate agent)\n\n${text}`;
+    }
+    // Strict providers refuse two user turns in a row: messages sent back to back become one turn.
+    const previous = messages[messages.length - 1];
+    if (role === "user" && previous?.role === "user" && typeof previous.content === "string") {
+      messages.pop();
+      text = `${previous.content}\n\n${text}`;
+    }
     if (isLast && input.level) text = `${text}\n\n(${thinkingInstruction(input.level)})`;
     if (isLast && input.pictures.length) {
       const parts: PuterContentPart[] = input.pictures.map((url) => ({ type: "image_url", image_url: { url } }));
@@ -387,8 +409,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     // Routes <thinking> tags in the text stream to the thinking panel live, so
     // every model's thinking shows in the collapsible panel, never in the reply.
     const splitter = createThinkingTagSplitter();
+    let tagged = "";
     const emit = async (piece: { channel: "text" | "thinking"; text: string }) => {
-      if (piece.channel === "thinking") reasoning += piece.text;
+      if (piece.channel === "thinking") { reasoning += piece.text; tagged += piece.text; }
       else text += piece.text;
       await onLog("stdout", logLine({ type: "acpx.text_delta", text: piece.text, ...(piece.channel === "thinking" ? { channel: "thinking" } : {}) }));
     };
@@ -401,6 +424,8 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         else if (event.type === "done") { usage = event.usage; stopReason = event.stopReason; }
       }
       for (const piece of splitter.flush()) await emit(piece);
+      // A reply that opened <thinking> and never closed it holds the answer as well: keep it, as splitThinking does.
+      if (!text.trim() && calls.length === 0 && splitter.unclosed) text = tagged;
     } catch (error) {
       if (ctx.signal?.aborted) break;
       if (!(error instanceof PuterHttpError)) throw error;
@@ -450,13 +475,16 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     // A busy provider counts against this run only while it stays busy.
     retries = 0;
     // Some models (often behind the Free Router) write a tool call as text
-    // instead of calling it: run it all the same rather than post it.
-    if (useTools && calls.length === 0 && mayHoldTextToolCalls(text)) {
+    // instead of calling it: run it all the same rather than post it. With
+    // the tools off it is not run, and still never posted as the answer.
+    if (calls.length === 0 && mayHoldTextToolCalls(text)) {
       const written = parseTextToolCalls(text, input.tools.map((tool) => tool.function.name));
       if (written.calls.length) {
         text = written.text;
-        stopReason = "tool_use";
-        for (const call of written.calls) calls.push({ id: `call_${Math.random().toString(36).slice(2)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } });
+        if (useTools) {
+          stopReason = "tool_use";
+          for (const call of written.calls) calls.push({ id: `call_${Math.random().toString(36).slice(2)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } });
+        }
       }
     }
     // No words and no tool call (a free route sometimes drops the whole
@@ -468,6 +496,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         // Strict providers refuse two user turns in a row: join the person's own when it is last.
         const last = messages[messages.length - 1];
         if (last?.role === "user" && typeof last.content === "string") last.content = `${last.content}\n\n${EMPTY_REPLY_NUDGE}`;
+        else if (last?.role === "user" && Array.isArray(last.content)) last.content = [...last.content, { type: "text", text: EMPTY_REPLY_NUDGE }];
         else messages.push({ role: "user", content: EMPTY_REPLY_NUDGE });
       }
       await onLog("stdout", logLine({ type: "acpx.status", message: `${label} sent an empty reply; asking again (${emptyReplies}/${MAX_EMPTY_REPLIES}).` }));
@@ -478,7 +507,8 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     if (text.trim()) lastAnswer = safetyModel ? formatSafetyVerdict(text.trim()) : text.trim();
     if (reasoning.trim()) lastReasoning = reasoning.trim();
 
-    if (calls.length === 0 || stopReason !== "tool_use") {
+    // The calls decide, not the stop reason: some routes send "end_turn" (or no usage line at all) beside a tool call.
+    if (calls.length === 0) {
       return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: false };
     }
     if (turn >= maxTurns) return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: true };

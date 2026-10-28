@@ -160,6 +160,30 @@ describe("free models engine", () => {
   const NEMOTRON = "nvidia/nemotron-3-ultra-550b-a55b:free";
   const NO_TOOLS = { freeFiles: false, freeWeb: false, freeConnections: false, freeTeammates: false, imageModel: "none" };
 
+  /** A chat with the given comments (newest first), attachments and teammates; free-model calls answer from `turns` in order, the last repeating. */
+  function stubThread(options: { comments: Array<Record<string, unknown>>; attachments?: Array<Record<string, unknown>>; agents?: Array<Record<string, unknown>>; turns: Array<() => Response> }) {
+    const calls: Call[] = [];
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const url = String(input);
+      const method = init.method ?? "GET";
+      calls.push({ url, method, headers: {}, body: init.body });
+      const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.startsWith("https://api.puter.com/")) return options.turns[Math.min(n++, options.turns.length - 1)]!();
+      if (url === `${API}/api/issues/issue-1`) return json({ companyId: "company-1", title: "Chat", conversationAgentId: "agent-1" });
+      if (url.startsWith(`${API}/api/issues/issue-1/comments`) && method === "GET") return json(options.comments);
+      if (url === `${API}/api/issues/issue-1/attachments`) return json(options.attachments ?? []);
+      if (url.startsWith(`${API}/api/attachments/`)) return new Response(Buffer.from(JPEG, "base64"), { status: 200, headers: { "content-type": "image/jpeg" } });
+      if (url === `${API}/api/companies/company-1/agents`) return json(options.agents ?? []);
+      if (url === `${API}/api/agents/me`) return json({ id: "agent-1", name: "Atlas" });
+      if (url === `${API}/api/issues/issue-1/comments`) return json({ id: "reply" });
+      return new Response("nf", { status: 404 });
+    }));
+    const sent = () => calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => (JSON.parse(String(c.body)) as { args: { messages: Array<{ role: string; content: unknown }>; tools?: unknown[] } }).args);
+    const posted = () => JSON.parse(String(calls.find((c) => c.url === `${API}/api/issues/issue-1/comments` && c.method === "POST")!.body)).body as string;
+    return { calls, sent, posted };
+  }
+
   it("keeps the chosen model and retries it when the provider is busy", async () => {
     const net = stubPuter([
       refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited" }),
@@ -390,6 +414,106 @@ describe("free models engine", () => {
     expect(sent.messages[0]!.content).not.toContain("Retrieved from Jamaican sources");
     expect(ctx.logs.some((line) => line.includes("Moan knowledge skipped"))).toBe(true);
     expect(postedBody(net.calls)).toBe("Mi deh yah.");
+  });
+
+  it("runs a native tool call whatever stop reason comes with it", async () => {
+    const call = (id: string) => ({ type: "tool_use", id, name: "Automa", input: { method: "GET", path: `/api/agents/me?n=${id}` } });
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "Who am I talking to?" }],
+      turns: [
+        // A stream that ends without its usage line, then a provider that says "end_turn" beside a tool call.
+        () => ndjson([call("t1")]),
+        () => ndjson([call("t2"), { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "end_turn" }]),
+        () => ndjson([{ type: "text", text: "You are talking to Atlas." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]),
+      ],
+    });
+    await execute(context({ model: NEMOTRON, freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" }));
+    expect(net.sent()).toHaveLength(3);
+    expect(net.sent()[2]!.messages.filter((m) => m.role === "tool")).toHaveLength(2);
+    expect(net.posted()).toBe("You are talking to Atlas.");
+  });
+
+  it("joins the empty-reply nudge to a message with a picture, never a second user turn", async () => {
+    const empty = () => ndjson([{ type: "usage", usageDetails: { inputTokens: 5, outputTokens: 0 } }]);
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "What is in this photo?" }],
+      attachments: [{ id: "img-1", issueCommentId: "c1", contentType: "image/jpeg", contentPath: "/api/attachments/img-1/content" }],
+      turns: [empty, empty, () => ndjson([{ type: "text", text: "A fox in the snow." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 4 } }])],
+    });
+    await execute(context({ model: "nvidia/nemotron-3.5-super-vl:free", ...NO_TOOLS }));
+    const last = net.sent()[2]!;
+    expect(last.tools).toBeUndefined();
+    expect(last.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    const parts = last.messages[1]!.content as Array<{ type: string; text?: string }>;
+    expect(parts.some((part) => part.type === "image_url")).toBe(true);
+    expect(parts.some((part) => part.type === "text" && part.text!.includes("Your last reply came back empty"))).toBe(true);
+    expect(net.posted()).toBe("A fox in the snow.");
+  });
+
+  it("reads a teammate agent's comment as said to this agent, not by it, and never sends two user turns in a row", async () => {
+    const net = stubThread({
+      comments: [
+        { id: "c3", authorType: "agent", authorAgentId: "agent-2", body: "Atlas, please draft the Q3 summary." },
+        { id: "c2", authorType: "user", authorAgentId: null, body: "Are you there?" },
+        { id: "a1", authorType: "agent", authorAgentId: "agent-1", body: "Hi, I am Atlas." },
+        { id: "c1", authorType: "user", authorAgentId: null, body: "Hello" },
+      ],
+      agents: [{ id: "agent-1", name: "Atlas" }, { id: "agent-2", name: "Nova", title: "CEO" }],
+      turns: [() => ndjson([{ type: "text", text: "Drafting it now." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 3 } }])],
+    });
+    await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
+    const messages = net.sent()[0]!.messages;
+    expect(messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(String(messages[2]!.content)).toBe("Hi, I am Atlas.");
+    expect(String(messages[3]!.content)).toBe("Are you there?\n\n(From Nova, a teammate agent)\n\nAtlas, please draft the Q3 summary.");
+    expect(net.posted()).toBe("Drafting it now.");
+  });
+
+  it("tells a model that can't see pictures that the person attached one", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "What is in this photo?" }],
+      attachments: [{ id: "img-1", issueCommentId: "c1", contentType: "image/jpeg", contentPath: "/api/attachments/img-1/content" }],
+      turns: [() => ndjson([{ type: "text", text: "I can't see pictures." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 4 } }])],
+    });
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS }));
+    const system = String(net.sent()[0]!.messages[0]!.content);
+    expect(system).toContain("attached a picture");
+    expect(system).toContain("Nemotron 3.5 Super VL");
+    // A model that can't read the photo never downloads it.
+    expect(net.calls.some((c) => c.url.endsWith("/img-1/content"))).toBe(false);
+  });
+
+  it("never posts a tool call written as text once the tools are off", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "Search for the news" }],
+      turns: [
+        refusal(400, { success: false, error: "Model does not support tools" }),
+        () => ndjson([{ type: "text", text: '<tool_call>{"name": "ReadDocument", "arguments": {"attachment": "news.pdf"}}</tool_call>' }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 9 } }]),
+        () => ndjson([{ type: "text", text: "I can't look that up from here." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 6 } }]),
+      ],
+    });
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS }));
+    expect(net.sent()).toHaveLength(3);
+    expect(net.posted()).toBe("I can't look that up from here.");
+  });
+
+  it("keeps a reply the model left inside an unclosed thinking tag instead of posting nothing", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "How many apples are left?" }],
+      turns: [() => ndjson([{ type: "text", text: "<thinking>3 x 12 = 36; 36 - 7 = 29. " }, { type: "text", text: "There are 29 apples left." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 9 } }])],
+    });
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", effort: "high", ...NO_TOOLS }));
+    expect(net.sent()).toHaveLength(1);
+    expect(net.posted()).toContain("There are 29 apples left.");
+  });
+
+  it("asks Moan's knowledge index even when a long question is cut inside an emoji", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: `${"a".repeat(599)}🇯🇲 wah gwaan` }],
+      turns: [() => ndjson([{ type: "text", text: "Mi deh yah." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 3 } }])],
+    });
+    await execute(context({ model: "moan/moan-1:free", ...NO_TOOLS }));
+    expect(net.calls.some((c) => c.url.startsWith(`${API}/api/free-models/moan/context?q=`))).toBe(true);
   });
 
   it("explains a missing agent key instead of answering silently", async () => {

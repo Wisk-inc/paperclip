@@ -81,5 +81,9 @@ export function createThinkingTagSplitter() {
     flush(): ThinkingPiece[] {
       return drain(true);
     },
+    /** The reply opened a <thinking> tag and has not closed it. */
+    get unclosed(): boolean {
+      return inside;
+    },
   };
 }

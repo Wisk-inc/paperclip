@@ -44,7 +44,7 @@ export function queRoutes(_db: Db): Router {
   /** Options for one call; the call stops (and leaves the queue) when the client goes away. */
   function optionsFor(req: Request, res: Response, body: QueBody): QueOptions {
     const scope = who(req);
-    if (body.model && !queModelId(body.model)) throw badRequest(`"${body.model}" is not one of Automa's free models`);
+    if (body.model && !queModelId(body.model)) throw badRequest(`"${body.model}" is not one of the free chat models Que can ask`);
     const controller = new AbortController();
     res.on("close", () => {
       if (!res.writableEnded) controller.abort();
@@ -58,13 +58,18 @@ export function queRoutes(_db: Db): Router {
     return id;
   }
 
-  /** A refusal from the free models, as 503: the request was fine, the models can't answer right now. */
-  async function answering<T>(work: () => Promise<T>): Promise<T> {
+  /**
+   * The answer, or undefined once a refusal is sent: a 503, as the request was
+   * fine and the models can't answer right now. A client that went away gets
+   * nothing. Neither is a server fault, so neither reaches the crash reports.
+   */
+  async function answering<T>(res: Response, opts: QueOptions, work: () => Promise<T>): Promise<T | undefined> {
     try {
       return await work();
     } catch (error) {
       if (error instanceof HttpError) throw error;
-      throw new HttpError(503, error instanceof Error ? error.message : String(error));
+      if (!opts.signal?.aborted) res.status(503).json({ error: error instanceof Error ? error.message : String(error) });
+      return undefined;
     }
   }
 
@@ -75,13 +80,15 @@ export function queRoutes(_db: Db): Router {
   router.post("/companies/:companyId/que/chat", validate(queChatSchema), async (req, res) => {
     const body = req.body as QueBody & { prompt?: string; messages?: Array<{ role: "system" | "user" | "assistant"; content: string }> };
     const opts = optionsFor(req, res, body);
-    res.json(await answering(() => queChat(body.prompt ?? body.messages!, opts)));
+    const answer = await answering(res, opts, () => queChat(body.prompt ?? body.messages!, opts));
+    if (answer) res.json(answer);
   });
 
   router.post("/companies/:companyId/que/batch", validate(queBatchSchema), async (req, res) => {
     const body = req.body as QueBody & { prompts: string[] };
     const opts = optionsFor(req, res, body);
-    res.json({ results: await answering(() => queBatch(body.prompts, opts)) });
+    const results = await answering(res, opts, () => queBatch(body.prompts, opts));
+    if (results) res.json({ results });
   });
 
   router.get("/companies/:companyId/que/conversations", (req, res) => {
@@ -102,8 +109,8 @@ export function queRoutes(_db: Db): Router {
     const id = conversationId(req);
     const body = req.body as QueBody & { prompt: string };
     const opts = optionsFor(req, res, body);
-    const answer = await answering(() => queConvo(body.prompt, id, opts));
-    res.json({ answer, conversation: queConversation(id, opts) });
+    const answer = await answering(res, opts, () => queConvo(body.prompt, id, opts));
+    if (answer) res.json({ answer, conversation: queConversation(id, opts) });
   });
 
   router.delete("/companies/:companyId/que/conversations/:conversationId", (req, res) => {

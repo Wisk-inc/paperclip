@@ -44,4 +44,17 @@ describe("thinking tag splitter", () => {
   it("passes plain text through untouched", () => {
     expect(run(["Just ", "an answer."])).toEqual({ thinking: "", text: "Just an answer." });
   });
+
+  it("says when a reply ended inside a thinking tag it never closed", () => {
+    const open = createThinkingTagSplitter();
+    open.push("<think");
+    open.push("ing>29 apples");
+    open.flush();
+    expect(open.unclosed).toBe(true);
+    const closed = createThinkingTagSplitter();
+    closed.push("<thinking>36-7</thin");
+    closed.push("king>29 apples");
+    closed.flush();
+    expect(closed.unclosed).toBe(false);
+  });
 });

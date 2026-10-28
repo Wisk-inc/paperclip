@@ -6,6 +6,10 @@ import {
   mayHoldTextToolCalls,
   parseTextToolCalls,
   PUTER_MODELS,
+  puterClearConvo,
+  puterComplete,
+  puterConvo,
+  puterImage,
   puterModelTakesTools,
   PuterHttpError,
   puterStream,
@@ -13,6 +17,24 @@ import {
   type PuterStreamEvent,
   type PuterTool,
 } from "./puter-ai.js";
+
+const queue = vi.hoisted(() => ({ refreshes: 0 }));
+// The real queue, counting each time a turn's safety timer is restarted.
+vi.mock("./que-queue.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./que-queue.js")>();
+  return {
+    ...real,
+    queTurn: async (signal?: AbortSignal, model?: string) => {
+      const release = await real.queTurn(signal, model);
+      return Object.assign(() => release(), {
+        refresh: () => {
+          queue.refreshes += 1;
+          (release as { refresh?: () => void }).refresh?.();
+        },
+      });
+    },
+  };
+});
 
 const DAILY_LIMIT = JSON.stringify({
   error: "AI provider rate limit exceeded",
@@ -33,6 +55,19 @@ function stream(text: string, cents = 0) {
   return new Response(`${lines.join("\n")}\n`, { status: 200, headers: { "content-type": "application/x-ndjson" } });
 }
 const refusal = (status: number, body: string) => new Response(body, { status, headers: { "content-type": "application/json" } });
+/** A one-shot (not streamed) reply. */
+const chatReply = (content: string, cents = 0) =>
+  new Response(JSON.stringify({ success: true, result: { message: { content }, usage: { prompt: 3, completion: 2, usd_cents: cents } } }), { status: 200, headers: { "content-type": "application/json" } });
+/** A stream that sends `lines` and then stays open until it is cancelled. */
+function openStream(lines: unknown[], onCancel: () => void) {
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const line of lines) controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+    },
+    cancel: onCancel,
+  }), { status: 200, headers: { "content-type": "application/x-ndjson" } });
+}
 
 let calls: Array<{ model: string; tools: unknown; messages: Array<{ role: string; content: unknown }> }> = [];
 function serve(...replies: Response[]) {
@@ -127,6 +162,127 @@ describe("puterStream", () => {
     await expect(collect(PUTER_MODELS["flint"])).rejects.toMatchObject({ kind: "charged" });
     expect(calls).toHaveLength(1);
   });
+
+  it("never takes a model id from the object prototype", async () => {
+    serve();
+    await expect(collect("toString")).rejects.toThrow(`"toString" is not one of Automa's free models`);
+    await expect(puterImage("A beach in Negril", { model: "constructor" as never })).rejects.toThrow("Unknown image model: constructor");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("ends the call upstream when the caller stops reading, or the stream sends an error", async () => {
+    let cancelled = 0;
+    serve(
+      openStream([{ type: "text", text: "Hello" }], () => { cancelled += 1; }),
+      openStream([{ type: "text", text: "Hi" }, { success: false, error: { message: "upstream closed" } }], () => { cancelled += 1; }),
+    );
+    for await (const event of puterStream([{ role: "user", content: "hi" }], { model: PUTER_MODELS["flint"] })) {
+      expect(event).toEqual({ type: "text", text: "Hello" });
+      break;
+    }
+    expect(cancelled).toBe(1);
+    await expect(collect(PUTER_MODELS["flint"])).rejects.toBeInstanceOf(PuterHttpError);
+    expect(cancelled).toBe(2);
+  });
+
+  it("keeps its queue turn while a long stream is still sending", async () => {
+    queue.refreshes = 0;
+    const encoder = new TextEncoder();
+    const pieces = [{ type: "text", text: "Wah" }, { type: "text", text: " gwaan" }, { type: "usage", usageDetails: { inputTokens: 1, outputTokens: 2 } }];
+    serve(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const piece of pieces) controller.enqueue(encoder.encode(`${JSON.stringify(piece)}\n`));
+        controller.close();
+      },
+    }), { status: 200, headers: { "content-type": "application/x-ndjson" } }));
+    await collect(PUTER_MODELS["flint"]);
+    expect(queue.refreshes).toBe(3);
+  });
+
+  it("counts one-shot and streamed calls to one model against the same limit", async () => {
+    const answers: Array<(reply: Response) => void> = [];
+    const fetchMock = vi.fn((_url: string, _init: { body: string }) => new Promise<Response>((resolve) => answers.push(resolve)));
+    vi.stubGlobal("fetch", fetchMock);
+    const bonsai = PUTER_MODELS["bonsai-27b"];
+    const streams = [collect(bonsai), collect(bonsai)];
+    const oneShot = puterComplete([{ role: "user", content: "hi" }], { model: bonsai, retries: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Two calls to one model at a time, whatever the route: the one-shot waits for a stream to end.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    answers[0]!(stream("One"));
+    await streams[0];
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    answers[1]!(stream("Two"));
+    answers[2]!(chatReply("Three"));
+    await expect(oneShot).resolves.toMatchObject({ text: "Three" });
+    await streams[1];
+  });
+
+  it("blanks the free-model token out of a refusal that echoes the request", async () => {
+    let token = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      token = (JSON.parse(init.body) as { auth_token: string }).auth_token;
+      return refusal(400, JSON.stringify({ error: `Invalid auth_token ${token}` }));
+    }));
+    const error = await collect(PUTER_MODELS["flint"]).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(PuterHttpError);
+    const { message, body, upstream } = error as PuterHttpError;
+    expect(token.length).toBeGreaterThan(100);
+    for (const text of [message, body, upstream ?? ""]) expect(text.includes(token.slice(30, 70))).toBe(false);
+    expect(body).toContain("Invalid auth_token [hidden]");
+  });
+});
+
+describe("one-shot calls", () => {
+  it("stops calling a model whose one-shot reply charged the shared allowance", async () => {
+    serve(chatReply("ok", 4), chatReply("", 4), chatReply("ok"));
+    const ask = (model: string) => puterComplete([{ role: "user", content: "hi" }], { model, retries: 2 });
+    await expect(ask(PUTER_MODELS["flint"])).resolves.toMatchObject({ text: "ok" });
+    await expect(ask(PUTER_MODELS["flint"])).rejects.toMatchObject({ kind: "charged" });
+    // A charged reply with no words is not asked again either.
+    await expect(ask(PUTER_MODELS["xing4"])).rejects.toMatchObject({ kind: "charged" });
+    expect(calls.map((call) => call.model)).toEqual([PUTER_MODELS["flint"], PUTER_MODELS["xing4"]]);
+  });
+
+  it("keeps a conversation on a routed model, and leaves out a turn that failed", async () => {
+    serve(refusal(400, JSON.stringify({ error: "Bad request" })), chatReply("Hi!"));
+    await expect(puterConvo("hello", "routed", { model: "bonsai-27b", retries: 1 })).rejects.toBeInstanceOf(PuterHttpError);
+    await expect(puterConvo("hello again", "routed", { model: "bonsai-27b", retries: 1 })).resolves.toBe("Hi!");
+    expect(calls.map((call) => call.model)).toEqual(["togetherai:prism-ml/ternary-bonsai-27b", "togetherai:prism-ml/ternary-bonsai-27b"]);
+    expect(calls[1]!.messages).toEqual([{ role: "user", content: "hello again" }]);
+    puterClearConvo("routed");
+  });
+});
+
+describe("deadlines", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("gives up on a stream that goes quiet, even when the caller passes a signal", async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    serve(openStream([{ type: "text", text: "Hel" }], () => { cancelled = true; }));
+    const events: PuterStreamEvent[] = [];
+    const run = (async () => {
+      for await (const event of puterStream([{ role: "user", content: "hi" }], { model: PUTER_MODELS["flint"], signal: new AbortController().signal })) events.push(event);
+    })();
+    const outcome = expect(run).rejects.toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await outcome;
+    expect(events).toEqual([{ type: "text", text: "Hel" }]);
+    expect(cancelled).toBe(true);
+  });
+
+  it("gives up on a one-shot call that never answers, even when the caller passes a signal", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+    })));
+    const outcome = expect(puterComplete([{ role: "user", content: "hi" }], { model: PUTER_MODELS["flint"], retries: 1, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    await outcome;
+  });
 });
 
 describe("tool calls written as text", () => {
@@ -134,6 +290,14 @@ describe("tool calls written as text", () => {
     const parsed = parseTextToolCalls('WebSearch(query="capital of Jamaica population", count=5) </tool_call>', ["WebSearch"]);
     expect(parsed.calls).toEqual([{ name: "WebSearch", input: { query: "capital of Jamaica population", count: 5 } }]);
     expect(parsed.text).toBe("");
+  });
+
+  it("reads the escapes in a Python-style call's strings the way Python does", () => {
+    const parsed = parseTextToolCalls(
+      String.raw`<tool_call>write_file(path='notes.txt', content='Line one\nLine two\t"quoted" it\'s', pattern="\\d+ \d")</tool_call>`,
+      ["write_file"],
+    );
+    expect(parsed.calls).toEqual([{ name: "write_file", input: { path: "notes.txt", content: "Line one\nLine two\t\"quoted\" it's", pattern: String.raw`\d+ \d` } }]);
   });
 
   it("reads a Python-style call inside the tags, and leaves code that only looks like one", () => {

@@ -1,10 +1,19 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import express from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MOAN_MODEL_ID } from "@paperclipai/shared";
 import { PUTER_MODELS, resetFreeModelHealth } from "@paperclipai/shared/puter-ai";
-import { resetQue } from "@paperclipai/shared/que-engine";
+import { queStats, resetQue } from "@paperclipai/shared/que-engine";
 import { errorHandler } from "../middleware/index.js";
 import { queRoutes } from "../routes/que.js";
+
+const sinks = vi.hoisted(() => ({ captureException: vi.fn() }));
+vi.mock("../sentry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../sentry.js")>()),
+  captureException: sinks.captureException,
+}));
 
 const COMPANY = "company-que";
 const DAILY_LIMIT = JSON.stringify({
@@ -29,11 +38,17 @@ function serve(...replies: Response[]) {
   }));
 }
 
-function appAs(userId: string, companyIds = [COMPANY]) {
+function appAs(userId: string, companyIds = [COMPANY], membershipRole?: string) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.actor = { type: "board", source: "session", userId, companyIds };
+    req.actor = {
+      type: "board",
+      source: "session",
+      userId,
+      companyIds,
+      ...(membershipRole ? { memberships: companyIds.map((companyId) => ({ companyId, membershipRole, status: "active" })) } : {}),
+    };
     next();
   });
   app.use("/api", queRoutes({} as never));
@@ -44,6 +59,7 @@ function appAs(userId: string, companyIds = [COMPANY]) {
 beforeEach(() => {
   resetFreeModelHealth();
   resetQue();
+  sinks.captureException.mockClear();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -65,6 +81,15 @@ describe("Que routes", () => {
     const app = appAs("ann");
     expect((await request(appAs("ann", ["other"])).post(`/api/companies/${COMPANY}/que/chat`).send({ prompt: "hi" })).status).toBe(403);
     expect((await request(app).post(`/api/companies/${COMPANY}/que/chat`).send({ prompt: "hi", model: "openai/gpt-6.1-terra" })).status).toBe(400);
+    // Listed among the free models, but it answers in agent chats, not through Que.
+    const moan = await request(app).post(`/api/companies/${COMPANY}/que/chat`).send({ prompt: "hi", model: MOAN_MODEL_ID });
+    expect(moan.status).toBe(400);
+    expect(moan.body.error).toBe(`"${MOAN_MODEL_ID}" is not one of the free chat models Que can ask`);
+    // A viewer can look, but not spend the shared free allowance.
+    const viewer = appAs("vic", [COMPANY], "viewer");
+    expect((await request(viewer).get(`/api/companies/${COMPANY}/que/stats`)).status).toBe(200);
+    expect((await request(viewer).post(`/api/companies/${COMPANY}/que/chat`).send({ prompt: "hi" })).status).toBe(403);
+    expect((await request(viewer).post(`/api/companies/${COMPANY}/que/batch`).send({ prompts: ["hi"] })).status).toBe(403);
     expect((await request(app).post(`/api/companies/${COMPANY}/que/chat`).send({})).status).toBe(400);
     expect((await request(app).post(`/api/companies/${COMPANY}/que/batch`).send({ prompts: Array.from({ length: 21 }, () => "q") })).status).toBe(400);
     expect((await request(app).get(`/api/companies/${COMPANY}/que/conversations/bad%20id`)).status).toBe(400);
@@ -75,6 +100,37 @@ describe("Que routes", () => {
     const res = await request(appAs("ann")).post(`/api/companies/${COMPANY}/que/chat`).send({ prompt: "hi", model: "deepseek", fallback: false });
     expect(res.status).toBe(503);
     expect(res.body.error).toContain("DeepSeek V4.1 Flash has used up today's free requests");
+    // A model at its limit is not a server crash.
+    expect(sinks.captureException).not.toHaveBeenCalled();
+  });
+
+  it("stops the call when the client goes away, without a crash report", async () => {
+    let upstream: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+      upstream = init.signal;
+      init.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+    })));
+    const server = appAs("ann").listen(0);
+    try {
+      const client = http.request({
+        port: (server.address() as AddressInfo).port,
+        method: "POST",
+        path: `/api/companies/${COMPANY}/que/chat`,
+        headers: { "content-type": "application/json" },
+      });
+      client.on("error", () => undefined);
+      client.end(JSON.stringify({ prompt: "hi", model: "deepseek", cache: false }));
+      await vi.waitFor(() => expect(upstream).toBeDefined());
+      expect(queStats({ scope: COMPANY }).inFlight).toBe(1);
+      client.destroy();
+      await vi.waitFor(() => expect(upstream?.aborted).toBe(true));
+      await vi.waitFor(() => expect(queStats({ scope: COMPANY })).toMatchObject({ inFlight: 0, waiting: 0 }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(sinks.captureException).not.toHaveBeenCalled();
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 
   it("answers a batch in order", async () => {

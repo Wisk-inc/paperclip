@@ -3,7 +3,7 @@
  * "@paperclipai/shared/puter-ai" so the embedded token never ships in the web bundle.
  */
 import type { FreeModelHealthEntry, FreeModelState } from './free-models.js';
-import { queTurn } from './que-queue.js';
+import { queTurn, type QueRelease } from './que-queue.js';
 
 const _P = [
   'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik',
@@ -198,7 +198,7 @@ const APP_UID = 'automa-' + crypto.randomUUID();
 /** The model's id in Automa: a catalog key resolved, or the id as given. */
 function appModelId(input?: string): string {
   if (!input) return PUTER_DEFAULT_MODEL;
-  if (input in PUTER_MODELS) return PUTER_MODELS[input as PuterModelKey];
+  if (Object.hasOwn(PUTER_MODELS, input)) return PUTER_MODELS[input as PuterModelKey];
   return input;
 }
 
@@ -217,7 +217,7 @@ function resolveModel(input?: string): string {
 
 function resolveImageModel(input?: string): PuterImageModelId {
   if (!input) return PUTER_IMAGE_MODELS['sdxl-lightning'];
-  if (input in PUTER_IMAGE_MODELS) return PUTER_IMAGE_MODELS[input as PuterImageModelKey];
+  if (Object.hasOwn(PUTER_IMAGE_MODELS, input)) return PUTER_IMAGE_MODELS[input as PuterImageModelKey];
   if (isPuterImageModel(input)) return input;
   throw new Error(`Unknown image model: ${input}`);
 }
@@ -225,6 +225,11 @@ function resolveImageModel(input?: string): PuterImageModelId {
 function resolveToken(explicit?: string): string {
   const fromEnv = typeof process !== 'undefined' ? process.env?.PUTER_AUTH_TOKEN : undefined;
   return explicit || fromEnv || EMBEDDED_TOKEN;
+}
+
+/** A service reply with Automa's token blanked out, should the service ever echo the request back. */
+function hideToken(text: string): string {
+  return text.split(resolveToken()).join('[hidden]').split(EMBEDDED_TOKEN).join('[hidden]');
 }
 
 /**
@@ -275,6 +280,7 @@ export class PuterHttpError extends Error {
   /** For a daily limit: how long until the model answers again. */
   readonly retryAfterMs: number | null;
   constructor(readonly status: number, readonly body: string, held?: { kind: PuterRefusalKind; retryAfterMs: number | null }) {
+    body = hideToken(body);
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
     let code: string | null = null;
     let upstream: string | null = null;
@@ -463,6 +469,14 @@ function textToolMessages(messages: PuterMessage[], tools: PuterTool[]): PuterMe
   return [{ role: 'system', content: guide }, ...flat];
 }
 
+const PYTHON_ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '\\': '\\', "'": "'", '"': '"', '/': '/' };
+
+/** A quoted literal's text, its escapes read as Python reads them (an unknown one keeps its backslash, as in `\d`). */
+function pythonString(literal: string): string {
+  return literal.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (escape, code: string) =>
+    code.length > 1 ? String.fromCharCode(parseInt(code.slice(1), 16)) : Object.hasOwn(PYTHON_ESCAPES, code) ? PYTHON_ESCAPES[code]! : escape);
+}
+
 /** `query="x", count=5`: a Python-style argument list of plain literals; null when it is anything else. */
 function parseKeywordArgs(source: string): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
@@ -475,8 +489,7 @@ function parseKeywordArgs(source: string): Record<string, unknown> | null {
     if (!match) return null;
     const literal = match[2]!;
     let value: unknown;
-    if (literal.startsWith('"')) value = JSON.parse(literal);
-    else if (literal.startsWith("'")) value = literal.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+    if (literal.startsWith('"') || literal.startsWith("'")) value = pythonString(literal);
     else if (/^(true|True)$/.test(literal)) value = true;
     else if (/^(false|False)$/.test(literal)) value = false;
     else if (/^(None|null)$/.test(literal)) value = null;
@@ -548,21 +561,53 @@ function splitThoughtTags(text: string): { thinking: string; answer: string } {
   return { thinking: thoughts.join('\n\n'), answer: answer.trim() };
 }
 
-async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal): Promise<unknown> {
+// How long a call waits on the service: a one-shot reply in all, a stream for each next piece.
+const CALL_LIMIT_MS = 180_000;
+const STREAM_QUIET_MS = 300_000;
+
+/** The error AbortSignal.timeout gives, so callers treat it as a busy model that may answer on a retry. */
+function timedOut(ms: number): DOMException {
+  return new DOMException(`The free model sent nothing for ${ms / 60_000} minutes, so Automa stopped waiting. Send the message again in a minute.`, 'TimeoutError');
+}
+
+/** The caller's signal, also ended `ms` from now unless cleared first: a caller's signal alone never times out. */
+function withDeadline(ms: number, signal?: AbortSignal): { signal: AbortSignal; clear: () => void } {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(timedOut(ms)), ms);
+  return { signal: signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal, clear: () => clearTimeout(timer) };
+}
+
+/** The stream's next piece, or a TimeoutError once it has sent nothing for `ms`. */
+async function readWithin(reader: ReadableStreamDefaultReader<Uint8Array>, ms: number): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timedOut(ms)), ms); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `queueKey`: the model the call waits in line as (Automa's id, the same one a stream of it waits as). */
+async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal, queueKey?: string): Promise<unknown> {
   const model = (body.args as { model?: unknown } | undefined)?.model;
-  const release = await queTurn(signal, typeof model === 'string' ? model : undefined);
+  const release = await queTurn(signal, queueKey ?? (typeof model === 'string' ? model : undefined));
+  const deadline = withDeadline(CALL_LIMIT_MS, signal);
   try {
     const r = await fetch(PUTER_API, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;actually=json' },
       body: JSON.stringify({ ...body, auth_token: token, app_uid: APP_UID }),
-      signal: signal ?? AbortSignal.timeout(180_000),
+      signal: deadline.signal,
     });
     if (!r.ok) throw new PuterHttpError(r.status, await r.text().catch(() => ''));
     const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
     if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
     return d.result;
   } finally {
+    deadline.clear();
     release();
   }
 }
@@ -571,12 +616,14 @@ async function callChat(
   messages: PuterMessage[],
   model: string,
   token: string,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  queueKey: string,
 ): Promise<{ text: string; reasoning: string; usage: PuterUsage; costCents: number }> {
   const result = await driverCall(
     { interface: 'puter-chat-completion', driver: 'ai-chat', method: 'complete', args: { messages, model } },
     token,
     signal,
+    queueKey,
   ) as {
     message?: { content?: unknown; reasoning?: unknown };
     usage?: { prompt?: number; completion?: number; usd_cents?: number };
@@ -613,16 +660,17 @@ export async function puterComplete(
   const token = resolveToken(opts.token);
   const appId = appModelId(opts.model);
   const model = resolveModel(opts.model);
-  const held = heldRefusal(appId);
-  if (held) throw held;
   const backup = PUTER_BACKUP_ROUTES[appId];
   const retries = Math.max(1, opts.retries ?? 3);
   let lastError: unknown;
   const spent: PuterUsage = { inputTokens: 0, outputTokens: 0 };
   for (let i = 0; i < retries; i++) {
+    // Held before the first try, or since the last one (it charged, or reached its daily limit).
+    const held = heldRefusal(appId);
+    if (held) throw held;
     const onBackup = Boolean(backup && isBusy(appId));
     try {
-      const reply = await callChat(onBackup ? toolHistoryAsText(messages) : messages, onBackup ? backup!.model : model, token, opts.signal);
+      const reply = await callChat(onBackup ? toolHistoryAsText(messages) : messages, onBackup ? backup!.model : model, token, opts.signal, appId);
       spent.inputTokens += reply.usage.inputTokens;
       spent.outputTokens += reply.usage.outputTokens;
       if (reply.costCents > 0) noteCharged(appId, reply.costCents);
@@ -632,7 +680,7 @@ export async function puterComplete(
       if (appId === FREE_ROUTER_ID && isSafetyVerdict(text)) {
         lastError = new Error('The Free Router answered with a safety verdict instead of a reply.');
       } else if (text.trim() || reasoning.trim()) {
-        if (!onBackup) noteAnswered(appId);
+        if (!onBackup && reply.costCents <= 0) noteAnswered(appId);
         return { text, reasoning, model: appId, usage: spent };
       } else {
         lastError = new Error(`${appId} returned an empty reply`);
@@ -663,13 +711,24 @@ const convos: Record<string, { messages: PuterMessage[]; model: string }> = {};
 
 /** Multi-turn conversation kept in process memory. */
 export async function puterConvo(prompt: string, id = 'default', opts: PuterConvoOptions = {}): Promise<string> {
-  if (!convos[id]) convos[id] = { messages: [], model: resolveModel(opts.model) };
+  if (!convos[id]) {
+    resolveModel(opts.model);
+    // Automa's id, not the service route: the route is not on the free list it is checked against.
+    convos[id] = { messages: [], model: appModelId(opts.model) };
+  }
   const c = convos[id];
   if (opts.system && !c.messages.some((m) => m.role === 'system')) {
     c.messages.unshift({ role: 'system', content: opts.system });
   }
   c.messages.push({ role: 'user', content: prompt });
-  const { text } = await puterComplete(c.messages, { ...opts, model: c.model });
+  let text: string;
+  try {
+    ({ text } = await puterComplete(c.messages, { ...opts, model: c.model }));
+  } catch (error) {
+    // No unanswered turn left behind: strict providers refuse two user turns in a row.
+    c.messages.pop();
+    throw error;
+  }
   c.messages.push({ role: 'assistant', content: text });
   return text;
 }
@@ -737,14 +796,19 @@ export async function* puterStream(messages: PuterMessage[], opts: PuterStreamOp
   const held = heldRefusal(appModelId(opts.model));
   if (held) throw held;
   const release = await queTurn(opts.signal, appModelId(opts.model));
+  // Each piece that arrives restarts the queue's safety timer, so a long live stream keeps its turn.
+  const { refresh } = release as QueRelease & { refresh?: unknown };
+  const keepTurn = () => {
+    if (typeof refresh === 'function') refresh.call(release);
+  };
   try {
-    yield* streamTurn(messages, opts);
+    yield* streamTurn(messages, opts, keepTurn);
   } finally {
     release();
   }
 }
 
-async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): AsyncGenerator<PuterStreamEvent> {
+async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, keepTurn: () => void): AsyncGenerator<PuterStreamEvent> {
   const appId = appModelId(opts.model);
   const primary = resolveModel(opts.model);
   const held = heldRefusal(appId);
@@ -754,28 +818,34 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
   const backup = PUTER_BACKUP_ROUTES[appId];
 
   const open = async (model: string, sent: PuterMessage[], withTools?: PuterTool[]) => {
-    const response = await fetch(PUTER_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;actually=json' },
-      body: JSON.stringify({
-        interface: 'puter-chat-completion',
-        driver: 'ai-chat',
-        method: 'complete',
-        args: { messages: sent, model, stream: true, ...(withTools ? { tools: withTools } : {}) },
-        auth_token: token,
-        app_uid: APP_UID,
-      }),
-      signal: opts.signal ?? AbortSignal.timeout(300_000),
-    });
-    if (!response.ok || !response.body) throw new PuterHttpError(response.status, await response.text().catch(() => ''));
-    if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
-      // A refusal arrives as one JSON object instead of a stream.
-      const body = await response.text();
-      const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown }; } catch { return null; } })();
-      if (parsed?.success === false || parsed?.error) throw new PuterHttpError(400, body);
-      throw new PuterHttpError(502, body);
+    // A deadline until the stream starts; after that, readStream gives each piece the same time.
+    const deadline = withDeadline(STREAM_QUIET_MS, opts.signal);
+    try {
+      const response = await fetch(PUTER_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;actually=json' },
+        body: JSON.stringify({
+          interface: 'puter-chat-completion',
+          driver: 'ai-chat',
+          method: 'complete',
+          args: { messages: sent, model, stream: true, ...(withTools ? { tools: withTools } : {}) },
+          auth_token: token,
+          app_uid: APP_UID,
+        }),
+        signal: deadline.signal,
+      });
+      if (!response.ok || !response.body) throw new PuterHttpError(response.status, await response.text().catch(() => ''));
+      if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
+        // A refusal arrives as one JSON object instead of a stream.
+        const body = await response.text();
+        const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown }; } catch { return null; } })();
+        if (parsed?.success === false || parsed?.error) throw new PuterHttpError(400, body);
+        throw new PuterHttpError(502, body);
+      }
+      return response.body.getReader();
+    } finally {
+      deadline.clear();
     }
-    return response.body.getReader();
   };
   const openBackup = () => {
     const route = backup!;
@@ -813,7 +883,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
     let text = '';
     let reasoning = '';
     let done: Extract<PuterStreamEvent, { type: 'done' }> | null = null;
-    for await (const event of readStream(reader, appId, false)) {
+    for await (const event of readStream(reader, appId, false, keepTurn)) {
       if (event.type === 'text') text += event.text;
       else if (event.type === 'reasoning') reasoning += event.text;
       else if (event.type === 'done') done = event;
@@ -833,7 +903,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
   }
 
   if (appId !== FREE_ROUTER_ID) {
-    yield* readStream(reader, appId, true);
+    yield* readStream(reader, appId, true, keepTurn);
     return;
   }
   // The Free Router: hold the first words back until it is clear a chat model answered.
@@ -842,7 +912,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
     let head = '';
     let decided = false;
     let verdict = false;
-    for await (const event of readStream(reader, appId, true)) {
+    for await (const event of readStream(reader, appId, true, keepTurn)) {
       if (decided) {
         yield event;
         continue;
@@ -858,7 +928,6 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
     }
     if (!decided) yield* held;
     if (!verdict) return;
-    await reader.cancel().catch(() => undefined);
     if (attempt >= 3) {
       throw new PuterHttpError(503, JSON.stringify({ error: 'The Free Router kept handing the request to the safety classifier' }), { kind: 'busy', retryAfterMs: null });
     }
@@ -866,8 +935,8 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions): 
   }
 }
 
-/** The events in one stream; notes what the call said about the model's health. */
-async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appId: string, healthy: boolean): AsyncGenerator<PuterStreamEvent> {
+/** The events in one stream; notes what the call said about the model's health. `onPiece` runs as each piece arrives. */
+async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appId: string, healthy: boolean, onPiece: () => void): AsyncGenerator<PuterStreamEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
   let finished = false;
@@ -894,21 +963,29 @@ async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appI
     if (event.success === false || event.error) throw new PuterHttpError(502, JSON.stringify(event.error ?? event));
     return null;
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let newline = buffer.indexOf('\n');
-    while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      newline = buffer.indexOf('\n');
-      if (!line) continue;
-      const event = parse(line);
-      if (!event) continue;
-      if (event.type === 'done') finished = true;
-      yield event;
+  let ended = false;
+  try {
+    while (true) {
+      const { done, value } = await readWithin(reader, STREAM_QUIET_MS);
+      if (done) break;
+      onPiece();
+      buffer += decoder.decode(value, { stream: true });
+      let newline = buffer.indexOf('\n');
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf('\n');
+        if (!line) continue;
+        const event = parse(line);
+        if (!event) continue;
+        if (event.type === 'done') finished = true;
+        yield event;
+      }
     }
+    ended = true;
+  } finally {
+    // Left early (the caller stopped reading, the stream sent an error or went quiet): end the call upstream too.
+    if (!ended) await reader.cancel().catch(() => undefined);
   }
   const tail = buffer.trim();
   if (tail) {

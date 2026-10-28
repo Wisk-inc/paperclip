@@ -1,9 +1,9 @@
 import { QUE_MAX_IN_FLIGHT, QUE_PER_MODEL_IN_FLIGHT } from "./que.js";
 
-/** Ends a turn; calling it again does nothing. */
-export type QueRelease = () => void;
+/** Ends a turn; calling it again does nothing. `refresh()` restarts the turn's time limit while it is held. */
+export type QueRelease = (() => void) & { refresh(): void };
 
-// A turn its holder never ended (a stream whose reader dropped it) ends itself after this long.
+// A turn its holder neither ended nor refreshed for this long (a stream whose reader dropped it) ends itself.
 const TURN_LIMIT_MS = 10 * 60_000;
 
 interface Waiter {
@@ -51,7 +51,11 @@ function begin(key: string | null): QueRelease {
     }
     pump();
   }
-  return end;
+  return Object.assign(end, {
+    refresh() {
+      if (!ended) timer.refresh();
+    },
+  });
 }
 
 function abortReason(signal: AbortSignal): unknown {
