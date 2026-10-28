@@ -7,12 +7,14 @@
  * This file is the part every surface shares: the catalog entry, the model it
  * runs on, and the prompt. Retrieval lives in the server's moan service.
  */
-import { PUTER_MODELS } from "./puter-ai.js";
-
 export const MOAN_MODEL_ID = "moan/moan-1:free";
 export const MOAN_LABEL = "Moan";
-/** The model Moan runs on. */
-export const MOAN_BASE_MODEL: string = PUTER_MODELS["nemotron-ultra"];
+/**
+ * The model Moan runs on: Nemotron 3 Ultra. Written out rather than imported
+ * from puter-ai, which holds the service token and must stay out of the web
+ * bundle (moan.test.ts keeps the two in step).
+ */
+export const MOAN_BASE_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 export const MOAN_CONTEXT = 1_000_000;
 /** One line for pickers and cards. */
 export const MOAN_BLURB = "Jamaican to the bone: talks Patois first, knows the island's history, law, news and ways, and keeps up with Jamaican sources.";
