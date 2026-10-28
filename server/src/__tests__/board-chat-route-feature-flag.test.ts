@@ -2,6 +2,7 @@ import express from "express";
 import { EventEmitter } from "node:events";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTOMA_ABOUT_FOR_AGENTS } from "@paperclipai/shared";
 
 const mockGetExperimental = vi.hoisted(() => vi.fn());
 const mockIssueService = vi.hoisted(() => ({
@@ -154,5 +155,44 @@ describe("board-chat history role classification", () => {
     expect(
       isConciergeReply({ authorAgentId: "agent-1", authorUserId: "board-concierge" }),
     ).toBe(false);
+  });
+});
+
+describe("board-chat system prompt", () => {
+  it("tells the board assistant who made Automa", async () => {
+    vi.clearAllMocks();
+    mockGetExperimental.mockResolvedValue({ enableConferenceRoomChat: true });
+    mockIssueService.list.mockResolvedValue([{ id: "issue-1", title: "Board Operations", status: "todo" }]);
+    mockIssueService.addComment.mockResolvedValue({ id: "comment-1" });
+    mockIssueService.listComments.mockResolvedValue([]);
+    const proc = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      stdin: { write: vi.fn(), end: vi.fn() },
+      exitCode: null as number | null,
+      killed: false,
+      kill: vi.fn(),
+    });
+    mockSpawn.mockReturnValue(proc);
+    const app = await createApp();
+
+    const req = request(app)
+      .post("/api/board/chat/stream")
+      .send({ companyId: "company-1", message: "Who made this app?" });
+    const pending = req.then(
+      () => undefined,
+      () => undefined,
+    );
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    const args = mockSpawn.mock.calls[0]![1] as string[];
+    const systemPrompt = args[args.indexOf("--append-system-prompt") + 1]!;
+    expect(systemPrompt).toContain(AUTOMA_ABOUT_FOR_AGENTS);
+
+    req.abort();
+    await vi.waitFor(() => expect(proc.kill).toHaveBeenCalledWith("SIGTERM"));
+    proc.exitCode = 143;
+    proc.emit("close", 143);
+    await pending;
   });
 });

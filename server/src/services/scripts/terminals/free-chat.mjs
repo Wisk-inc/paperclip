@@ -14,6 +14,9 @@ const moan = await import("@paperclipai/shared/moan").catch(() =>
   import(import.meta.resolve("@paperclipai/shared/moan").replace(/\/src\/(.*)\.ts$/, "/dist/$1.js")),
 );
 const { MOAN_MODEL_ID, MOAN_LABEL, isMoanModel, resolveFreeModel, moanSystemPrompt } = moan;
+const { AUTOMA_ABOUT_FOR_AGENTS } = await import("@paperclipai/shared/automa-about").catch(() =>
+  import(import.meta.resolve("@paperclipai/shared/automa-about").replace(/\/src\/(.*)\.ts$/, "/dist/$1.js")),
+);
 
 const args = process.argv.slice(2);
 let model = args[args.indexOf("--model") + 1] && args.includes("--model") ? args[args.indexOf("--model") + 1] : PUTER_MODELS["deepseek-flash"];
@@ -22,7 +25,7 @@ const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 const label = (id) => { if (isMoanModel(id)) return MOAN_LABEL; const key = Object.keys(PUTER_MODELS).find((k) => PUTER_MODELS[k] === id); return key ? PUTER_MODEL_META[key].label : id; };
 const allModels = [MOAN_MODEL_ID, ...Object.values(PUTER_MODELS)];
 // Moan talks Patois and carries its Jamaica primer; the others get a plain terminal prompt.
-const systemFor = (id) => (isMoanModel(id) ? moanSystemPrompt({}) : "You are a helpful assistant in a terminal. Answer plainly; use Markdown lightly.");
+const systemFor = (id) => `${isMoanModel(id) ? moanSystemPrompt({}) : "You are a helpful assistant in a terminal. Answer plainly; use Markdown lightly."}\n\n${AUTOMA_ABOUT_FOR_AGENTS}`;
 const messages = [{ role: "system", content: systemFor(model) }];
 
 console.log(bold(`Free models · ${label(model)}`));

@@ -16,7 +16,7 @@ import {
   Compass,
   KeyRound,
 } from "lucide-react";
-import { AUTOMA_CREDIT, type AuthSession, type Company, type CurrentUserProfile } from "@paperclipai/shared";
+import type { AuthSession, Company, CurrentUserProfile } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { assetsApi } from "@/api/assets";
 import { authApi } from "@/api/auth";
@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { AUTOMA_RELEASES } from "@/lib/release-history";
 import { AboutAutomaSheet } from "./AboutAutomaSheet";
 import { AccountBalanceCard } from "./AccountBalanceCard";
+import { AutomaCredit } from "./AutomaCredit";
 
 const NAME_MAX = 120;
 
@@ -445,8 +446,9 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               }}
               data-testid="account-about-open"
             >
-              Automa {appVersion ?? AUTOMA_RELEASES[0]!.version} · {AUTOMA_CREDIT} · About
+              Automa {appVersion ?? AUTOMA_RELEASES[0]!.version} · About
             </button>
+            <p><AutomaCredit /></p>
             <span className="flex gap-3">
               <a href="/legal/terms.html" className="underline underline-offset-2 hover:text-foreground">Terms</a>
               <a href="/legal/privacy.html" className="underline underline-offset-2 hover:text-foreground">Privacy</a>
