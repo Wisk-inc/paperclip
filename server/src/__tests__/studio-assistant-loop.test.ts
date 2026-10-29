@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { StudioAssistantTurn } from "@paperclipai/shared";
+import type { StudioAiUsage } from "../services/studio/assistant.js";
 
 /**
  * A scripted OpenAI-compatible API: each model answers with the next reply in
@@ -67,6 +68,10 @@ async function turn(
   script: Record<string, ScriptedReply[]>,
   options: {
     team?: string[];
+    /** The teammates' provider (the lead's is openai unless `provider` says otherwise). */
+    teamProvider?: "openai" | "custom";
+    /** Records what each provider and model used, as Costs does. */
+    onUsage?: (usage: StudioAiUsage) => void;
     /** Carries on in this project instead of a new one. */
     workspaceId?: string;
     provider?: "openai" | "custom";
@@ -95,12 +100,13 @@ async function turn(
       runCommand: "python main.py",
       startApp: async () => {},
       onFileChanged: async () => {},
+      ...(options.onUsage ? { onUsage: options.onUsage } : {}),
     },
     message: options.message ?? "Build it",
     provider: options.provider ?? "openai",
     model: options.model ?? "lead",
     credentials: { apiKey: "sk-test-key", baseUrl },
-    ...(options.team ? { team: options.team.map((model) => ({ provider: "openai" as const, model, credentials: { apiKey: "sk-test-key", baseUrl } })) } : {}),
+    ...(options.team ? { team: options.team.map((model) => ({ provider: options.teamProvider ?? "openai", model, credentials: { apiKey: "sk-test-key", baseUrl } })) } : {}),
   });
   if (options.stopWhen) {
     for (let waited = 0; !currentAssistantTurn(workspaceId)?.activity?.startsWith(options.stopWhen) && waited < 10_000; waited += 10) {
@@ -353,6 +359,19 @@ describe("Studio assistant loop", () => {
     expect(teamResult).toContain("index.html is written.");
     expect(reply.text).toBe("The team built the API and the page; both are in place.");
   });
+
+  it("records a team's spend under each provider and model that did the work", async () => {
+    const recorded: StudioAiUsage[] = [];
+    await turn({
+      lead: [{ call: { name: "ask_teammate", args: { teammate: "mate", task: "Write notes.txt" } } }, { content: "The teammate wrote it." }],
+      mate: [{ call: { name: "write_file", args: { path: "notes.txt", content: "hi" } } }, { content: "notes.txt is written." }],
+    }, { team: ["mate"], teamProvider: "custom", onUsage: (usage) => { recorded.push(usage); } });
+    // Two calls each, at 10 input and 2 output tokens a call.
+    expect(recorded.map((usage) => [usage.provider, usage.model, usage.inputTokens, usage.outputTokens]).sort()).toEqual([
+      ["custom", "mate", 20, 4],
+      ["openai", "lead", 20, 4],
+    ]);
+  });
 });
 
 describe("Studio assistant on the free models", () => {
@@ -393,6 +412,88 @@ describe("Studio assistant on the free models", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  const realSetTimeout = globalThis.setTimeout;
+  const ndjson = (events: unknown[]) => new Response(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, { status: 200, headers: { "content-type": "application/x-ndjson" } });
+  const refusal = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const busy = refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited" });
+  const writeCall = () => ndjson([{ type: "tool_use", id: "t1", name: "write_file", input: { path: "hi.txt", content: "hi" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]);
+  const wrote = () => ndjson([{ type: "text", text: "Wrote hi.txt." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 3 } }]);
+
+  /** One free-model turn against scripted answers from the service; `during` runs while it works. */
+  async function freeTurn(answers: Array<() => Response>, during?: (workspaceId: string) => Promise<void>) {
+    const { resetFreeModelHealth } = await import("@paperclipai/shared/puter-ai");
+    const { runAssistantTurn, isAssistantRunning, readAssistantTranscript } = await import("../services/studio/assistant.js");
+    resetFreeModelHealth();
+    const sent: Array<{ messages: Array<{ role: string }>; tools?: unknown[] }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (!String(url).startsWith("https://api.puter.com/")) throw new Error(`Unexpected request to ${url}`);
+      sent.push((JSON.parse(String(init?.body)) as { args: (typeof sent)[number] }).args);
+      const answer = answers.shift();
+      if (!answer) throw new Error("No more scripted answers");
+      return answer();
+    });
+    try {
+      const workspaceId = `loop-free-${++workspace}`;
+      await mkdir(path.join(root, "company-1", workspaceId, "files"), { recursive: true });
+      await runAssistantTurn({
+        context: { workspaceId, companyId: "company-1", name: "Demo", language: "python", runCommand: "python main.py", startApp: async () => {}, onFileChanged: async () => {} },
+        message: "Write hi.txt",
+        provider: "free",
+        model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+        credentials: { apiKey: "free", baseUrl: null },
+      });
+      await during?.(workspaceId);
+      for (let polls = 0; isAssistantRunning(workspaceId) && polls < 500; polls += 1) await new Promise((resolve) => realSetTimeout(resolve, 20));
+      expect(isAssistantRunning(workspaceId)).toBe(false);
+      return { reply: (await readAssistantTranscript("company-1", workspaceId)).at(-1)!, sent };
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  it("stops at once while it waits to retry a busy free model", async () => {
+    const { stopAssistant } = await import("../services/studio/assistant.js");
+    // The wait before the first retry (10 ms under test) never ends by itself here: only Stop can end it.
+    let waiting = false;
+    const timers = vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, ms?: number) => {
+      if (ms === 10 && new Error().stack?.includes("runFreeModels")) {
+        waiting = true;
+        return realSetTimeout(() => undefined, 0);
+      }
+      return realSetTimeout(callback, ms);
+    }) as typeof setTimeout);
+    try {
+      const { reply } = await freeTurn([busy, busy], async (workspaceId) => {
+        for (let polls = 0; !waiting && polls < 500; polls += 1) await new Promise((resolve) => realSetTimeout(resolve, 20));
+        stopAssistant(workspaceId);
+      });
+      expect(waiting).toBe(true);
+      expect(reply.error).toBe("Stopped.");
+    } finally {
+      timers.mockRestore();
+    }
+  });
+
+  it("keeps the tools and their history through a server error or a dropped connection", async () => {
+    const dropped = () => {
+      throw new TypeError("fetch failed");
+    };
+    const { reply, sent } = await freeTurn([writeCall, refusal(503, { error: "Service temporarily unavailable" }), dropped, wrote]);
+    expect(reply.error).toBeNull();
+    expect(reply.text).toBe("Wrote hi.txt.");
+    expect(reply.steps.some((step) => step.summary.includes("did not take the tools"))).toBe(false);
+    // The answer after both retries was asked with the tools and the tool turn as they were.
+    expect(sent.at(-1)!.tools?.length).toBeGreaterThan(0);
+    expect(sent.at(-1)!.messages.some((message) => message.role === "tool")).toBe(true);
+  });
+
+  it("still sends the tool history as text when the provider refuses it", async () => {
+    const { reply, sent } = await freeTurn([writeCall, refusal(400, { error: "AI provider unavailable", code: "upstream_provider_unavailable" }), wrote]);
+    expect(reply.text).toBe("Wrote hi.txt.");
+    expect(sent.at(-1)!.tools?.length).toBeGreaterThan(0);
+    expect(sent.at(-1)!.messages.some((message) => message.role === "tool")).toBe(false);
   });
 });
 

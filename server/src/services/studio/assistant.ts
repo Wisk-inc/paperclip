@@ -186,8 +186,45 @@ const CHANGING_TOOLS = new Set(["write_file", "edit_file", "delete_path", "undo_
 /** Same-model retries when a free model is busy at its provider, and the wait between them (short under test). */
 const FREE_BUSY_RETRIES = 4;
 const FREE_RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
+/** A connection to the free-model service that dropped or never opened (common on a phone), as in the agents' free engine. */
+const DROPPED_MESSAGE = /^(?:fetch failed|terminated)$|socket hang up|other side closed|ECONNRESET/i;
+const DROPPED_CODE = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/;
 const CONTINUE_PROMPT = "(Automa) Your reply was cut off by the length limit. Continue exactly where you left off. If you were writing a large file, write it in parts (write_file for the first part, then edit_file to add the rest).";
 const SILENT_FINISH_PROMPT = "(Automa) You stopped without saying anything to the person. If any part of the task is still undone, finish it with your tools now; then reply with what you did, what works, and how to use it.";
+
+/** A dropped connection as the busy refusal it is retried like; null for anything else. */
+function droppedConnection(error: unknown): PuterHttpError | null {
+  for (let cause: unknown = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth += 1) {
+    const code = (cause as { code?: unknown }).code;
+    if (DROPPED_MESSAGE.test(cause.message) || (typeof code === "string" && DROPPED_CODE.test(code))) {
+      return new PuterHttpError(503, JSON.stringify({ error: "The connection to the free model service dropped." }), { kind: "busy", retryAfterMs: null });
+    }
+  }
+  return null;
+}
+
+/**
+ * A refusal of the request as sent (the model takes no tools, or a 4xx other
+ * than a rate limit or a timeout: the tool turns were rejected), which a
+ * reshaped history or no tools may pass.
+ */
+function refusedTheRequest(error: PuterHttpError): boolean {
+  return error.kind === "no_tools" || (error.status >= 400 && error.status < 500 && error.status !== 429 && error.status !== 408);
+}
+
+/** Waits `ms`, ending early when the turn is stopped. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+    if (signal.aborted) done();
+  });
+}
 
 /**
  * Watches one model run for the two ways a turn ends badly: calling the same
@@ -910,35 +947,35 @@ async function startTurn(
   });
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
 
-  // Every model call in the turn adds up; the turn is recorded once, so
+  // Every model call in the turn adds up; the turn is recorded once per
+  // provider and model that did the work (teammates may use others), so
   // fractions of a cent are not lost to rounding call by call.
-  const usageTotals = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 as number | null, model: input.model };
+  const usageTotals = new Map<string, StudioAiUsage>();
   const onUsage = async (usage: StudioAiUsage) => {
-    usageTotals.inputTokens += usage.inputTokens;
-    usageTotals.cachedInputTokens += usage.cachedInputTokens;
-    usageTotals.outputTokens += usage.outputTokens;
-    usageTotals.model = usage.model || usageTotals.model;
-    usageTotals.costUsd = usage.costUsd === null || usageTotals.costUsd === null ? null : usageTotals.costUsd + usage.costUsd;
+    const model = usage.model || input.model;
+    const key = `${usage.provider}:${model}`;
+    const total = usageTotals.get(key) ?? { provider: usage.provider, model, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 };
+    total.inputTokens += usage.inputTokens;
+    total.cachedInputTokens += usage.cachedInputTokens;
+    total.outputTokens += usage.outputTokens;
+    total.costUsd = usage.costUsd === null || total.costUsd === null ? null : total.costUsd + usage.costUsd;
+    usageTotals.set(key, total);
   };
 
   const finish = async () => {
-    if (usageTotals.inputTokens || usageTotals.cachedInputTokens || usageTotals.outputTokens) {
+    const totals = [...usageTotals.values()].filter((total) => total.inputTokens || total.cachedInputTokens || total.outputTokens);
+    if (totals.length) {
       turn.usage = {
-        inputTokens: usageTotals.inputTokens + usageTotals.cachedInputTokens,
-        outputTokens: usageTotals.outputTokens,
-        costUsd: usageTotals.costUsd,
+        inputTokens: totals.reduce((sum, total) => sum + total.inputTokens + total.cachedInputTokens, 0),
+        outputTokens: totals.reduce((sum, total) => sum + total.outputTokens, 0),
+        costUsd: totals.some((total) => total.costUsd === null) ? null : totals.reduce((sum, total) => sum + (total.costUsd ?? 0), 0),
       };
-      try {
-        await context.onUsage?.({
-          provider: input.provider,
-          model: usageTotals.model,
-          inputTokens: usageTotals.inputTokens,
-          cachedInputTokens: usageTotals.cachedInputTokens,
-          outputTokens: usageTotals.outputTokens,
-          costUsd: usageTotals.costUsd,
-        });
-      } catch (error) {
-        logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant usage not recorded");
+      for (const total of totals) {
+        try {
+          await context.onUsage?.(total);
+        } catch (error) {
+          logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant usage not recorded");
+        }
       }
     }
     // The reply is saved before the turn stops counting as running, so a
@@ -1614,14 +1651,16 @@ async function runFreeModels(input: {
         else if (event.type === "done") { usage = event.usage; stopReason = event.stopReason; }
       }
       for (const piece of splitter.flush()) emit(piece);
-    } catch (error) {
+    } catch (caught) {
       if (input.signal.aborted) throw new Error("Stopped.");
+      const error = caught instanceof PuterHttpError ? caught : droppedConnection(caught) ?? caught;
       if (!(error instanceof PuterHttpError)) throw error;
       // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
       if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
-      if (!textHistory && error.status !== 429 && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
-      if (useTools && error.status !== 429) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
-      if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) { retries += 1; await new Promise((r) => setTimeout(r, FREE_RETRY_BASE_MS * retries)); step -= 1; continue; }
+      // Only a refusal of the request as sent reshapes it; a busy line, a server error or a dropped connection keeps it.
+      if (!textHistory && refusedTheRequest(error) && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
+      if (useTools && refusedTheRequest(error)) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
+      if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) { retries += 1; await pause(FREE_RETRY_BASE_MS * retries, input.signal); step -= 1; continue; }
       throw describePuterError(error, label, retries);
     }
     await input.onUsage({ provider: "free", model: input.model, inputTokens: usage.inputTokens, cachedInputTokens: 0, outputTokens: usage.outputTokens, costUsd: 0 });
