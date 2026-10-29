@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { badRequest, conflict, notFound } from "../../errors.js";
-import { deleteStudioEntry, normalizeStudioPath, readStudioFile, resolveInside, studioWorkspaceDirs, writeStudioFile } from "./files.js";
+import { deleteStudioEntry, normalizeStudioPath, readStudioFile, studioWorkspaceDirs, writeStudioFile } from "./files.js";
 
 /** Text larger than this is not kept for undo (the change still happens). */
 const MAX_TRACKED_BYTES = 2 * 1024 * 1024;
@@ -79,7 +79,9 @@ export async function currentText(companyId: string, workspaceId: string, relati
     return { exists: true, text: file.content };
   } catch {
     // A folder or a link at the path is still something there.
-    const exists = await resolveInside(files, relative).then((target) => fs.lstat(target)).then(() => true, () => false);
+    const exists = await Promise.resolve()
+      .then(() => fs.lstat(path.join(files, normalizeStudioPath(relative))))
+      .then(() => true, () => false);
     return { exists, text: null };
   }
 }

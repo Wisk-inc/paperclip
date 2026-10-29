@@ -76,7 +76,12 @@ export async function resolveInside(root: string, relative: string): Promise<str
       if (real !== realRoot && !real.startsWith(realRoot + path.sep)) throw badRequest("That path points outside the project");
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ELOOP") throw badRequest("That path is a broken link");
+      if (code !== "ENOENT") throw error;
+      // Something there that doesn't resolve is a link to nothing: writing
+      // through it would create whatever it points at, wherever that is.
+      if (await fs.lstat(probe).then(() => true, () => false)) throw badRequest("That path is a broken link");
       const parent = path.dirname(probe);
       if (parent === probe) break;
       probe = parent;
