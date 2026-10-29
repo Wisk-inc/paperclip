@@ -10,7 +10,7 @@ import { FREE_MODELS_ADAPTER_TYPE, MOAN_MODEL_ID, type MoanKnowledgeStatus } fro
 import { logger } from "../../middleware/logger.js";
 import { ingestSource } from "./ingest.js";
 import { MOAN_SOURCES, type MoanSource } from "./sources.js";
-import { knowledgeStats, recentKnowledge, searchAnyWord, searchKnowledge, type KnowledgeHit } from "./store.js";
+import { knowledgeStats, pruneKnowledge, recentKnowledge, searchAnyWord, searchKnowledge, type KnowledgeHit } from "./store.js";
 import { formatContext, queryTerms, timeAgo } from "./text.js";
 
 const TICK_MS = 10 * 60_000;
@@ -19,6 +19,9 @@ const SOURCES_PER_TICK = 4;
 const IN_USE_CACHE_MS = 5 * 60_000;
 const USED_RECENTLY_MS = 24 * 60 * 60_000;
 const RUN_TIMEOUT_MS = 8 * 60_000;
+const NEWS_KEPT_MS = 365 * 24 * 60 * 60_000;
+/** A backstop on the index's size: at full intake, a few months of news beside every reference page. */
+const MAX_ROWS = 80_000;
 
 export interface MoanKnowledge {
   /** Starts the refresh clock (no-op when already started). */
@@ -104,6 +107,17 @@ function createMoanKnowledge(db: Db): MoanKnowledge {
         const seconds = Math.round((Date.now() - started) / 1000);
         if (result.error) logger.warn({ source: source.id, reason: result.error, seconds }, "moan knowledge: source failed");
         else logger.info({ source: source.id, items: result.items, stored: result.stored, seconds }, "moan knowledge: source refreshed");
+      }
+      try {
+        const removed = await pruneKnowledge(db, {
+          listed: MOAN_SOURCES.map((source) => source.id),
+          feeds: MOAN_SOURCES.filter((source) => source.kind === "rss").map((source) => source.id),
+          newsBefore: new Date(Date.now() - NEWS_KEPT_MS),
+          maxRows: MAX_ROWS,
+        });
+        if (removed) logger.info({ removed }, "moan knowledge: pruned old pages");
+      } catch (error) {
+        logger.warn({ err: error }, "moan knowledge: prune failed");
       }
     } finally {
       clearTimeout(stopAt);

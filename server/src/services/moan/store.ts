@@ -2,7 +2,7 @@
  * Moan's knowledge index in the database: pages cut into chunks, searched
  * with Postgres full-text search, plus a status row per source.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, not, notInArray, or, sql } from "drizzle-orm";
 import { moanKnowledge, moanSources, type Db } from "@paperclipai/db";
 import type { MoanTopic } from "./sources.js";
 
@@ -176,6 +176,51 @@ export async function touchSource(db: Db, id: string, patch: { ok: boolean; erro
         updatedAt: now,
       },
     });
+}
+
+export interface PruneRules {
+  /** The sources still listed: an undated page of any other source goes. */
+  listed: string[];
+  /** Feed sources, whose pages are news even without a date. */
+  feeds: string[];
+  /** News dated before this (published, or fetched when it has no date) goes. */
+  newsBefore: Date;
+  /** The most rows the index keeps. */
+  maxRows: number;
+}
+
+/**
+ * Keeps the index from growing without end on a phone. News (feed articles
+ * and pages followed from a source's page, all dated) goes once it is older
+ * than the cutoff; reference pages (a source's own pages and its laws) stay
+ * while their source is listed. Past the row cap whole pages go, the oldest
+ * news first, then the oldest of the rest. Returns the rows removed.
+ */
+export async function pruneKnowledge(db: Db, rules: PruneRules): Promise<number> {
+  const news = or(isNotNull(moanKnowledge.publishedAt), inArray(moanKnowledge.sourceId, rules.feeds))!;
+  const dated = sql`coalesce(${moanKnowledge.publishedAt}, ${moanKnowledge.fetchedAt})`;
+  const old = await db.delete(moanKnowledge).where(and(news, sql`${dated} < ${rules.newsBefore.toISOString()}`)).returning({ id: moanKnowledge.id });
+  const unlisted = await db.delete(moanKnowledge).where(and(not(news), notInArray(moanKnowledge.sourceId, rules.listed))).returning({ id: moanKnowledge.id });
+  let removed = old.length + unlisted.length;
+  const [totals] = await db.select({ rows: sql<number>`count(*)::int` }).from(moanKnowledge);
+  const excess = Number(totals?.rows ?? 0) - rules.maxRows;
+  if (excess > 0) {
+    const result = await db.execute(sql`
+      with pages as (
+        select url, count(*)::int as chunks, bool_or(${news}) as is_news, min(${dated}) as dated
+        from moan_knowledge
+        group by url
+      ), ranked as (
+        select url, chunks, sum(chunks) over (order by is_news desc, dated, url) as running
+        from pages
+      )
+      delete from moan_knowledge
+      where url in (select url from ranked where running - chunks < ${excess})
+      returning id
+    `);
+    removed += rowsOf(result).length;
+  }
+  return removed;
 }
 
 /** How many distinct pages a source has in the index. */
