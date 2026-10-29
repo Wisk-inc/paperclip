@@ -20,11 +20,13 @@ import { EmptyState } from "../components/EmptyState";
 import { FinanceBillerCard } from "../components/FinanceBillerCard";
 import { FinanceKindCard } from "../components/FinanceKindCard";
 import { FinanceTimelineCard } from "../components/FinanceTimelineCard";
+import { FreeModelsSavingsCard } from "../components/FreeModelsSavingsCard";
 import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
 import { ProviderQuotaCard } from "../components/ProviderQuotaCard";
 import { StatusBadge } from "../components/StatusBadge";
+import { UsageLimitsCard } from "../components/UsageLimitsCard";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { useDateRange, PRESET_KEYS, PRESET_LABELS } from "../hooks/useDateRange";
@@ -618,6 +620,9 @@ export function Costs() {
             />
           </div>
       </div>
+
+      <FreeModelsSavingsCard companyId={selectedCompanyId} />
+      <UsageLimitsCard companyId={selectedCompanyId} />
 
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)}>
         <TabsList variant="line" className="justify-start">

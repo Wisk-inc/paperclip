@@ -752,6 +752,86 @@ export function puterPickModel(tag: string): PuterModelId {
 }
 
 /** Text-to-image. Resolves to the image bytes and its MIME type. */
+const PUTER_USAGE_API = 'https://api.puter.com/metering/usage';
+const ALLOWANCE_CACHE_MS = 60_000;
+
+/** The free-model service's monthly allowance, and this month's requests to each of Automa's free models. */
+export interface FreeModelAllowance {
+  /** The month's allowance and what is left of it, in the service's own unit. */
+  allowance: number;
+  remaining: number;
+  unit: string;
+  /** Requests this month by Automa model id; only Automa's free models are listed. */
+  requestsByModel: Partial<Record<PuterModelId, number>>;
+  checkedAt: string;
+}
+
+let allowanceCache: { at: number; value: FreeModelAllowance } | null = null;
+
+/** Automa's model id for a usage entry's route ("openrouter:qwen/qwen3_dot_8-27b:free"), or null when it is not one of them. */
+function usageRouteModel(route: string): PuterModelId | null {
+  const name = route.replaceAll('_dot_', '.');
+  // Without the provider the service routed it through ("openrouter:", "infron:").
+  const bare = name.replace(/^[\w.-]+:/, '');
+  for (const id of PUTER_MODEL_LIST) {
+    if (id === name || id === bare || PUTER_ROUTES[id] === name || PUTER_ROUTES[id] === bare || PUTER_BACKUP_ROUTES[id]?.model === bare) return id;
+  }
+  return null;
+}
+
+/**
+ * Reads the service's usage report: the month's allowance and what is left,
+ * and how many requests each free model got this month. The report covers
+ * every Automa user, as they share the allowance. Kept for a minute.
+ */
+export async function freeModelAllowance(signal?: AbortSignal): Promise<FreeModelAllowance> {
+  if (allowanceCache && Date.now() - allowanceCache.at < ALLOWANCE_CACHE_MS) return allowanceCache.value;
+  const deadline = withDeadline(15_000, signal);
+  try {
+    const r = await fetch(PUTER_USAGE_API, { headers: { Authorization: `Bearer ${resolveToken()}` }, signal: deadline.signal });
+    if (!r.ok) throw new PuterHttpError(r.status, await r.text().catch(() => ''));
+    const data = await r.json() as {
+      usage?: Record<string, unknown>;
+      allowanceInfo?: { monthUsageAllowance?: unknown; remaining?: unknown; unit?: unknown };
+    };
+    const allowance = Number(data.allowanceInfo?.monthUsageAllowance);
+    const remaining = Number(data.allowanceInfo?.remaining);
+    if (!Number.isFinite(allowance) || !Number.isFinite(remaining)) throw new PuterHttpError(502, 'The usage report has no allowance.');
+    const counted: Partial<Record<PuterModelId, { requests: number; calls: number }>> = {};
+    for (const [key, value] of Object.entries(data.usage ?? {})) {
+      const at = key.lastIndexOf(':');
+      if (at <= 0 || !value || typeof value !== 'object') continue;
+      const model = usageRouteModel(key.slice(0, at));
+      const count = Number((value as { count?: unknown }).count);
+      if (!model || !Number.isFinite(count)) continue;
+      const entry = (counted[model] ??= { requests: 0, calls: 0 });
+      // One "request" entry per call where the route reports it; else the most-counted entry stands for the calls.
+      if (key.slice(at + 1) === 'request') entry.requests += count;
+      else entry.calls = Math.max(entry.calls, count);
+    }
+    const requestsByModel: Partial<Record<PuterModelId, number>> = {};
+    for (const [model, entry] of Object.entries(counted) as Array<[PuterModelId, { requests: number; calls: number }]>) {
+      requestsByModel[model] = entry.requests || entry.calls;
+    }
+    const value: FreeModelAllowance = {
+      allowance,
+      remaining: Math.max(0, remaining),
+      unit: typeof data.allowanceInfo?.unit === 'string' && data.allowanceInfo.unit ? data.allowanceInfo.unit : 'credits',
+      requestsByModel,
+      checkedAt: new Date().toISOString(),
+    };
+    allowanceCache = { at: Date.now(), value };
+    return value;
+  } finally {
+    deadline.clear();
+  }
+}
+
+/** Forgets the cached usage report (tests). */
+export function resetFreeModelAllowance(): void {
+  allowanceCache = null;
+}
+
 export async function puterImage(
   prompt: string,
   opts: PuterImageOptions = {},

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describePuterError,
   formatSafetyVerdict,
+  freeModelAllowance,
   freeModelHealth,
   mayHoldTextToolCalls,
   parseTextToolCalls,
@@ -13,6 +14,7 @@ import {
   puterModelTakesTools,
   PuterHttpError,
   puterStream,
+  resetFreeModelAllowance,
   resetFreeModelHealth,
   type PuterStreamEvent,
   type PuterTool,
@@ -335,5 +337,59 @@ describe("free model helpers", () => {
       { name: "get_weather", input: { city: "Negril" } },
     ]);
     expect(parsed.text).toBe('Let me look.\n\n<tool_call>{"name": "rm_rf", "arguments": {}}</tool_call>');
+  });
+});
+
+describe("freeModelAllowance", () => {
+  beforeEach(() => resetFreeModelAllowance());
+
+  const REPORT = {
+    usage: {
+      total: 366,
+      "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free:request": { units: 186, cost: 0, count: 186 },
+      "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free:prompt": { units: 90000, cost: 0, count: 186 },
+      "infron:qwen/qwen3_dot_8-27b:free:request": { units: 13, cost: 0, count: 13 },
+      "togetherai:prism-ml/ternary-bonsai-27b:prompt": { units: 400, cost: 0, count: 4 },
+      "google:gemma-4-31b-it:request": { units: 2, cost: 0, count: 2 },
+      "openrouter:google/gemma-4-31b-it:free:request": { units: 5, cost: 0, count: 5 },
+      "openrouter:openrouter/free:request": { units: 21, cost: 0, count: 21 },
+      "claude:claude-fable-5-1:output_tokens": { units: 500, cost: 106, count: 3 },
+      "egress:bytes": { units: 1000, cost: 3, count: 40 },
+    },
+    appTotals: {},
+    allowanceInfo: { remaining: 633.93, monthUsageAllowance: 1000, unit: "credits" },
+  };
+
+  it("reads the month's allowance and counts requests by Automa's own model ids", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: { headers: Record<string, string> }) => new Response(JSON.stringify(REPORT), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const allowance = await freeModelAllowance();
+    expect(allowance).toMatchObject({ allowance: 1000, remaining: 633.93, unit: "credits" });
+    expect(allowance.requestsByModel).toEqual({
+      [PUTER_MODELS["nemotron-ultra"]]: 186,
+      [PUTER_MODELS["qwen-27b"]]: 13,
+      [PUTER_MODELS["bonsai-27b"]]: 4,
+      [PUTER_MODELS["gemma-31b"]]: 7,
+      [PUTER_MODELS["free-router"]]: 21,
+    });
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://api.puter.com/metering/usage");
+    expect(fetchMock.mock.calls[0]![1].headers.Authorization).toMatch(/^Bearer .{20,}/);
+    // Kept for a minute: a second look asks nothing new.
+    await freeModelAllowance();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails without the token in the message", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { headers: Record<string, string> }) =>
+      new Response(`denied for ${init.headers.Authorization.slice(7)}`, { status: 401 })));
+    const error = (await freeModelAllowance().catch((caught: unknown) => caught)) as Error;
+    expect(error).toBeInstanceOf(PuterHttpError);
+    expect(error.message).toContain("401");
+    expect(error.message).toContain("[hidden]");
+  });
+
+  it("refuses a report without an allowance", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ usage: {} }), { status: 200 })));
+    await expect(freeModelAllowance()).rejects.toThrow(/no allowance/);
   });
 });

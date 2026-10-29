@@ -14,6 +14,7 @@ import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSi
 import { budgetsApi } from "../api/budgets";
 import { costsApi } from "../api/costs";
 import { FreeModelsSavingsCard } from "../components/FreeModelsSavingsCard";
+import { UsageLimitsCard } from "../components/UsageLimitsCard";
 import { BillerSpendCard } from "../components/BillerSpendCard";
 import { BudgetIncidentCard } from "../components/BudgetIncidentCard";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
@@ -652,6 +653,8 @@ export function Costs({
           </div>
         </div>
       ) : null}
+
+      {showSummaryChrome && selectedCompanyId ? <UsageLimitsCard companyId={selectedCompanyId} /> : null}
 
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)}>
         {!lockTab ? (

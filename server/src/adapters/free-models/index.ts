@@ -2,6 +2,7 @@ import { FREE_MODELS_ADAPTER_TYPE } from "@paperclipai/shared";
 import type { ServerAdapterModule } from "../types.js";
 import { listFreeModels } from "../../services/free-models.js";
 import { execute } from "./execute.js";
+import { getFreeModelQuotaWindows } from "./quota.js";
 import { testEnvironment } from "./test.js";
 
 export const freeModelsAdapter: ServerAdapterModule = {
@@ -10,6 +11,7 @@ export const freeModelsAdapter: ServerAdapterModule = {
   supportsLocalAgentJwt: true,
   execute,
   testEnvironment,
+  getQuotaWindows: getFreeModelQuotaWindows,
   models: listFreeModels(),
   agentConfigurationDoc: `# free_models agent configuration
 
