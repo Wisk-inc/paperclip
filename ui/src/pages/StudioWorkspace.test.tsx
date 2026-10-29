@@ -19,12 +19,14 @@ const mockStudioApi = vi.hoisted(() => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
   stop: vi.fn(),
+  complete: vi.fn(),
   archiveUrl: vi.fn(() => "/archive.zip"),
   downloadUrl: vi.fn(() => "/download"),
   rawUrl: vi.fn(() => "/raw"),
 }));
 const mockPushToast = vi.hoisted(() => vi.fn());
 const mockSocketSend = vi.hoisted(() => vi.fn());
+const mockEditor = vi.hoisted(() => ({ suggest: null as null | ((input: { prefix: string; suffix: string }, signal: AbortSignal) => Promise<string>) }));
 
 vi.mock("../api/studio", () => ({ studioApi: mockStudioApi, studioSocketUrl: () => "ws://studio.test" }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
@@ -40,9 +42,10 @@ vi.mock("@/lib/router", () => ({
 }));
 // The panes are tested on their own; here they only need to be there.
 vi.mock("../components/studio/CodeEditor", () => ({
-  CodeEditor: ({ path, value, onChange }: { path: string; value: string; onChange?: (value: string) => void }) => (
-    <textarea aria-label="editor" data-path={path} value={value} onChange={(event) => onChange?.(event.target.value)} />
-  ),
+  CodeEditor: ({ path, value, onChange, suggest }: { path: string; value: string; onChange?: (value: string) => void; suggest?: typeof mockEditor.suggest }) => {
+    mockEditor.suggest = suggest ?? null;
+    return <textarea aria-label="editor" data-path={path} value={value} onChange={(event) => onChange?.(event.target.value)} />;
+  },
 }));
 vi.mock("../components/studio/StudioFileTree", () => ({
   StudioFileTree: ({ tree, onOpen }: { tree: StudioFileNode[]; onOpen: (path: string) => void }) => (
@@ -159,6 +162,49 @@ describe("StudioWorkspace", () => {
     mockStudioApi.aiKeys.mockRejectedValue(new Error("Server unreachable"));
     await draw();
     expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't load your AI keys", body: "Server unreachable. The free models still work.", tone: "error" }));
+  });
+
+  it("rests suggestions for 30 seconds after one fails, instead of asking after every pause", async () => {
+    window.localStorage.removeItem("automa.studio.suggest");
+    await draw();
+    const ask = () => mockEditor.suggest!({ prefix: "const total = ", suffix: "" }, new AbortController().signal);
+
+    // The server answers 200 and says why in `error`.
+    mockStudioApi.complete.mockResolvedValue({ completion: "", model: "m", error: "The free models hit today's limit" });
+    await expect(ask()).rejects.toThrow("The free models hit today's limit");
+    await expect(ask()).resolves.toBe("");
+    expect(mockStudioApi.complete).toHaveBeenCalledTimes(1);
+
+    // Half a minute later it asks again.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000);
+    mockStudioApi.complete.mockResolvedValue({ completion: "0;", model: "m" });
+    await expect(ask()).resolves.toBe("0;");
+    expect(mockStudioApi.complete).toHaveBeenCalledTimes(2);
+    clock.mockRestore();
+
+    // A request that fails outright rests them too; turning suggestions off and on asks at once.
+    mockStudioApi.complete.mockRejectedValue(new Error("Network down"));
+    await expect(ask()).rejects.toThrow("Network down");
+    await expect(ask()).resolves.toBe("");
+    expect(mockStudioApi.complete).toHaveBeenCalledTimes(3);
+    const toggle = container.querySelector<HTMLButtonElement>('[data-testid="studio-suggest-toggle"]')!;
+    await act(async () => toggle.click());
+    expect(mockEditor.suggest).toBeNull();
+    await act(async () => toggle.click());
+    mockStudioApi.complete.mockResolvedValue({ completion: "1;", model: "m" });
+    await expect(ask()).resolves.toBe("1;");
+    expect(mockStudioApi.complete).toHaveBeenCalledTimes(4);
+
+    // Typing again cancels an ask; that is not a failure.
+    const typing = new AbortController();
+    mockStudioApi.complete.mockImplementation(async () => {
+      typing.abort();
+      throw new DOMException("The user aborted a request.", "AbortError");
+    });
+    await expect(mockEditor.suggest!({ prefix: "const total = ", suffix: "" }, typing.signal)).rejects.toHaveProperty("name", "AbortError");
+    mockStudioApi.complete.mockResolvedValue({ completion: "2;", model: "m" });
+    await expect(ask()).resolves.toBe("2;");
+    expect(mockStudioApi.complete).toHaveBeenCalledTimes(6);
   });
 
   it("says when Stop fails instead of doing nothing", async () => {

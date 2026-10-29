@@ -85,6 +85,8 @@ interface RemoteDraft {
 
 const SAVE_DELAY_MS = 800;
 const SUGGEST_STORAGE_KEY = "automa.studio.suggest";
+/** How long suggestions rest after one fails, instead of asking after every pause. */
+const SUGGEST_RETRY_MS = 30_000;
 
 /** The provider and model chosen in the AI panel (shared with suggestions). */
 function readAiChoice(companyId: string): { provider: StudioAiProvider; model: string } {
@@ -428,19 +430,32 @@ export function StudioWorkspace() {
 
   // Grey AI suggestions in the editor, from the provider picked in the AI
   // panel, or the free models while that provider has no key (as the panel does).
+  // A failed one (the server says why in `error`) rests them for a while, since
+  // each ask spends the shared free allowance; a good one, or turning them off
+  // and on, ends the rest. It outlasts switching files.
+  const suggestRestUntil = useRef(0);
   const suggest = useCallback(
     async (input: { prefix: string; suffix: string }, signal: AbortSignal) => {
       const current = fileRef.current;
-      if (!current) return "";
+      if (!current || Date.now() < suggestRestUntil.current) return "";
       const picked = readAiChoice(companyId);
       const choice = aiKeys.data?.keys.some((key) => key.provider === picked.provider && key.connected) ? picked : { provider: "free" as const, model: "" };
       const model = choice.provider === "custom" ? choice.model : STUDIO_AI_PROVIDER_INFO[choice.provider].completionModel;
-      const result = await studioApi.complete(workspaceId, { path: current.path, prefix: input.prefix, suffix: input.suffix, provider: choice.provider, model }, signal);
-      return result.completion;
+      try {
+        const result = await studioApi.complete(workspaceId, { path: current.path, prefix: input.prefix, suffix: input.suffix, provider: choice.provider, model }, signal);
+        if (result.error) throw new Error(result.error);
+        suggestRestUntil.current = 0;
+        return result.completion;
+      } catch (error) {
+        // Typing again cancels the ask; that is not a failure.
+        if (!signal.aborted) suggestRestUntil.current = Date.now() + SUGGEST_RETRY_MS;
+        throw error;
+      }
     },
     [aiKeys.data, companyId, workspaceId],
   );
   const toggleSuggest = () => {
+    suggestRestUntil.current = 0;
     setSuggestOn((on) => {
       try {
         window.localStorage.setItem(SUGGEST_STORAGE_KEY, on ? "off" : "on");

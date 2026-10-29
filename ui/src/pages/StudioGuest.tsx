@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { CodeXml, Eye, FolderTree, Globe, GitPullRequest, LoaderCircle, LogIn, MessageSquare, Send, SquareTerminal, Undo2 } from "lucide-react";
-import { AUTOMA_CREDIT } from "@paperclipai/shared";
 import type {
   StudioChangeRequest,
   StudioConsoleLine,
@@ -29,6 +28,7 @@ import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioChat } from "../components/studio/StudioChat";
 import { StudioDiffView } from "../components/studio/StudioDiffView";
 import { Mascot } from "../components/mascot/Mascot";
+import { AutomaCredit } from "../components/account/AutomaCredit";
 
 const SESSION_KEY = "automa.studio.guest";
 const DRAFT_INTERVAL_MS = 150;
@@ -127,7 +127,9 @@ function GuestFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-background p-4 pt-(--sz-safe-top) pb-(--sz-safe-bottom) text-foreground">
       <div className="w-full max-w-sm">{children}</div>
-      <p className="mt-8 text-xs text-muted-foreground">Automa App Studio · {AUTOMA_CREDIT}</p>
+      <p className="mt-8 text-center text-xs text-muted-foreground" data-testid="studio-guest-credit">
+        <span className="whitespace-nowrap">Automa App Studio ·</span> <AutomaCredit />
+      </p>
     </div>
   );
 }
