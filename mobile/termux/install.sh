@@ -158,8 +158,56 @@ else
     say "npm stays quiet until it finishes. Keep Termux open and the phone on charge."
   fi
   # The app ships the packages unpacked (xz-compressed); npm installs tarballs.
-  # A running Automa keeps the old code loaded (and npm would replace files
-  # under it), so stop it first; the new server starts at the end of this install.
+  tarballs="$here/tarballs"
+  rm -rf "$tarballs"
+  mkdir -p "$tarballs"
+  for pkg in "$here"/packages/*/; do
+    tar -czf "$tarballs/$(basename "$pkg").tgz" -C "$pkg" package
+  done
+  # The new server is built beside the one in use, starting from a copy of it
+  # so npm only downloads what changed, and takes its place only once it is
+  # complete: a download that fails on a slow or dropped connection leaves the
+  # old server installed and running.
+  next_dir="$server_dir.next"
+  rm -rf "$next_dir"
+  if [ -d "$server_dir" ]; then
+    say "Preparing the new server next to the one in use"
+    if ! cp -a "$server_dir" "$next_dir"; then
+      rm -rf "$next_dir"
+      echo "There is not enough free space to prepare the update next to the current server. Nothing was changed; free some space on the phone and run: automa update" >&2
+      exit 1
+    fi
+  fi
+  mkdir -p "$next_dir"
+  installed_ok=0
+  for attempt in 1 2 3; do
+    if npm install --prefix "$next_dir" --omit=dev --prefer-offline --no-audit --no-fund --no-update-notifier \
+      --fetch-retries=4 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=120000 --fetch-timeout=600000 \
+      --loglevel=error "$tarballs"/*.tgz; then
+      installed_ok=1
+      break
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      echo "The download stopped; trying again ($((attempt + 1)) of 3)." >&2
+      sleep "${AUTOMA_NPM_RETRY_WAIT:-$((attempt * 15))}"
+    fi
+  done
+  if [ "$installed_ok" = 1 ] && [ "$(node -p process.platform)" = "android" ]; then
+    say "Adding the portable image library (sharp for Android)"
+    node "$here/add-sharp-wasm.mjs" "$next_dir" || installed_ok=0
+  fi
+  if [ "$installed_ok" != 1 ]; then
+    rm -rf "$next_dir"
+    if [ -n "$installed_version" ]; then
+      echo "Could not download the update (the connection timed out or dropped). Nothing was changed: Automa $installed_version is still installed, and still running if it was. On a steadier connection (Wi-Fi often works better than mobile data), run: automa update" >&2
+    else
+      echo "Could not download Automa's packages (the connection timed out or dropped). On a steadier connection (Wi-Fi often works better than mobile data), run this installer again: what already downloaded is kept." >&2
+    fi
+    exit 1
+  fi
+  printf '%s\n' "$version" > "$next_dir/.automa-version"
+  # A running Automa keeps the old code loaded, so it stops only now, just
+  # before the new server takes its place; the new one starts at the end of this install.
   if [ -s "$automa_home/automa.pid" ] && kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null; then
     say "Stopping the running Automa server so the update takes effect"
     kill -TERM "$(cat "$automa_home/automa.pid")" 2>/dev/null || true
@@ -169,19 +217,10 @@ else
   if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null; then
     echo "An Automa server is still running (started in another Termux session?). Stop it there with Ctrl+C, or the old version keeps answering until the phone restarts." >&2
   fi
-  tarballs="$here/tarballs"
-  rm -rf "$tarballs"
-  mkdir -p "$tarballs" "$server_dir"
-  for pkg in "$here"/packages/*/; do
-    tar -czf "$tarballs/$(basename "$pkg").tgz" -C "$pkg" package
-  done
-  npm install --prefix "$server_dir" --omit=dev --prefer-offline --no-audit --no-fund --loglevel=error "$tarballs"/*.tgz
-
-  if [ "$(node -p process.platform)" = "android" ]; then
-    say "Adding the portable image library (sharp for Android)"
-    node "$here/add-sharp-wasm.mjs" "$server_dir"
-  fi
-  printf '%s\n' "$version" > "$server_dir/.automa-version"
+  rm -rf "$server_dir.prev"
+  if [ -d "$server_dir" ]; then mv "$server_dir" "$server_dir.prev"; fi
+  mv "$next_dir" "$server_dir"
+  rm -rf "$server_dir.prev"
 fi
 
 say "Adding the automa command"

@@ -362,6 +362,66 @@ describe("the automa command's backup and restore", () => {
     expect((await readdir(backups())).filter((name) => name.startsWith("automa-before-restore"))).toEqual([]);
   }, 60_000);
 
+  describe("updating the server", () => {
+    const serverDir = () => path.join(root, "home", ".automa", "server");
+    const npmCalls = async () => (await calls()).split("\n").filter((line) => line.startsWith("npm install")).length;
+    let running: ReturnType<typeof spawn> | null = null;
+    afterEach(() => {
+      running?.kill("SIGKILL");
+      running = null;
+    });
+
+    /** 9.9.9 installed and running (a stand-in process), then a 9.9.10 bundle whose npm fails `failures` times. */
+    async function updateWithFailingDownloads(failures: number) {
+      await installAutoma();
+      await writeFile(path.join(serverDir(), "old-server"), "9.9.9");
+      running = spawn("sleep", ["300"], { stdio: "ignore" });
+      await writeFile(path.join(root, "home", ".automa", "automa.pid"), `${running.pid}\n`);
+      await writeFile(path.join(root, "bundle", "VERSION"), "9.9.10\n");
+      await writeFile(path.join(root, "npm-failures"), String(failures));
+      await fake("npm", [
+        `echo "npm $*" >> "${root}/calls.log"`,
+        `left=$(cat "${root}/npm-failures")`,
+        `if [ "$left" -gt 0 ]; then echo $((left - 1)) > "${root}/npm-failures"; echo "npm error code ETIMEDOUT" >&2; echo "npm error network read ETIMEDOUT" >&2; exit 1; fi`,
+        `while [ $# -gt 0 ]; do [ "$1" = --prefix ] && dir="$2"; shift; done; mkdir -p "$dir/node_modules/paperclipai/dist"; touch "$dir/node_modules/paperclipai/dist/index.js"`,
+      ].join("\n"));
+      return runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", AUTOMA_NPM_RETRY_WAIT: "0" } });
+    }
+
+    const alive = (pid: number | undefined) => {
+      try {
+        process.kill(pid!, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    it("leaves the old server installed and running when the download keeps failing", async () => {
+      const result = await updateWithFailingDownloads(3);
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("Nothing was changed: Automa 9.9.9 is still installed");
+      expect(result.out).not.toContain("Stopping the running Automa server");
+      expect(await npmCalls()).toBe(3);
+      expect(alive(running!.pid)).toBe(true);
+      expect((await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim()).toBe("9.9.9");
+      expect(await readFile(path.join(serverDir(), "old-server"), "utf8")).toBe("9.9.9");
+      expect(await readdir(path.join(root, "home", ".automa"))).not.toContain("server.next");
+    }, 60_000);
+
+    it("tries a stalled download again, then stops the old server and switches to the new one", async () => {
+      const result = await updateWithFailingDownloads(1);
+      expect(result.code, result.out).toBe(0);
+      expect(result.out).toContain("trying again (2 of 3)");
+      expect(result.out).toContain("Stopping the running Automa server");
+      expect(await npmCalls()).toBe(2);
+      await vi.waitFor(() => expect(alive(running!.pid)).toBe(false));
+      expect((await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim()).toBe("9.9.10");
+      expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.next"]));
+      expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.prev"]));
+    }, 60_000);
+  });
+
   it("automa restore waits for an Automa started elsewhere to be stopped", async () => {
     await installAutoma();
     const good = await writeBackup("automa-manual-20261002-000000.sql.gz", COMPLETE_DUMP, 5);
