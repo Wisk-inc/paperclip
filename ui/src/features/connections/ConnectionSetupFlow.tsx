@@ -1558,9 +1558,18 @@ function StandardConnectionSetupFlow({
         hasPrefilledLink: Boolean(prefill.link),
         zapierSource,
       }));
-    } else if (entryAdvertisesManagedConnector !== requestedEntryAdvertisesManagedConnector) {
+    } else if (
+      entryAdvertisesManagedConnector !== requestedEntryAdvertisesManagedConnector
+      || (
+        !requestedDefinitionUsesManagedConnector
+        && Boolean(connectionMethodKey)
+        && !methods.some((candidate) => candidate.key === connectionMethodKey)
+      )
+    ) {
       // A capability refresh must replace the stale gallery entry as well as
-      // its method, while preserving the chosen audience and wizard step.
+      // its method, while preserving the chosen audience and wizard step. So
+      // must a managed method kept while the enrollment lookup failed, once a
+      // retry shows this server does not offer Cloud sign-in.
       setEntry(requestedEntry);
       setConnectionMethodKey(initialMethod?.key ?? "");
       setConfigValues(defaultMethodConfig(initialMethod));
@@ -2228,10 +2237,10 @@ function StandardConnectionSetupFlow({
               </div>
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-foreground">
-                  Connect with Automa
+                  Connect with Paperclip Cloud
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  You must connect this instance to Automa to connect to {entry.name} (you only need to do this once).
+                  You must connect this instance to Paperclip Cloud to connect to {entry.name} (you only need to do this once).
                 </p>
               </div>
             </div>
@@ -2256,9 +2265,19 @@ function StandardConnectionSetupFlow({
               </Button>
               <Button
                 type="button"
-                disabled={connectorEnrollmentQuery.isLoading || startConnectorEnrollment.isPending}
+                disabled={
+                  connectorEnrollmentQuery.isLoading
+                  || startConnectorEnrollment.isPending
+                  || (connectorEnrollmentQuery.isError && connectorEnrollmentQuery.isFetching)
+                }
                 onClick={() => {
                   setConnectorEnrollmentError(null);
+                  // A failed lookup is checked again first: a server that does not
+                  // offer Cloud then falls back to your own credentials.
+                  if (connectorEnrollmentQuery.isError) {
+                    void connectorEnrollmentQuery.refetch();
+                    return;
+                  }
                   reserveOAuthPopup();
                   preserveEnrollmentAccess();
                   // Let the server reuse a live enrollment or replace an expired
@@ -2267,9 +2286,11 @@ function StandardConnectionSetupFlow({
                 }}
               >
                 {startConnectorEnrollment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {connectorEnrollmentQuery.data?.status === "pending"
-                  ? "Continue"
-                  : "Connect with Automa"}
+                {connectorEnrollmentQuery.isError
+                  ? "Try again"
+                  : connectorEnrollmentQuery.data?.status === "pending"
+                    ? "Continue"
+                    : "Connect with Paperclip Cloud"}
               </Button>
             </div>
           </div>

@@ -39,6 +39,18 @@ describe("chat connector UI contract", () => {
       );
     }
   });
+  it("sends nobody to the upstream project's docs from chat setup", () => {
+    for (const file of [
+      "./ChatEndpointSetup.tsx",
+      "./GitHubChatSetup.tsx",
+      "./SlackSetupPrompt.tsx",
+      "./GitHubSetupPrompt.tsx",
+    ]) {
+      expect(source(file)).not.toContain("docs.paperclip.ing");
+    }
+    expect(source("./SlackSetupPrompt.tsx")).not.toContain("Paperclip Cloud includes HTTPS");
+  });
+
   it("keeps the exact dual-purpose choice and immutable searchable agent selection", () => {
     const setup = source("./ChatEndpointSetup.tsx");
     expect(setup).toContain("Chat with an agent");

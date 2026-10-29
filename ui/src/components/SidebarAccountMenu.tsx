@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  BookOpen,
   Flag,
   LogOut,
   Settings,
@@ -28,7 +27,6 @@ import { DiscordSupportLink } from "./DiscordSupportLink";
 import { AccountSheet } from "./account/AccountSheet";
 
 const PROFILE_SETTINGS_PATH = "/company/settings/instance/profile";
-const DOCS_URL = "https://docs.paperclip.ing/";
 // Feedback goes to the Automa community, not the upstream project's form.
 const FEEDBACK_URL = SUPPORT_DISCORD_URL;
 
@@ -219,13 +217,6 @@ export function SidebarAccountMenu({
                 icon={UserRoundPen}
                 href={PROFILE_SETTINGS_PATH}
                 onClick={closeNavigationChrome}
-              />
-              <MenuAction
-                label="Documentation"
-                icon={BookOpen}
-                href={DOCS_URL}
-                external
-                onClick={() => setOpen(false)}
               />
               <ThemeToggle variant="compact-menu-action" onAfterToggle={() => setOpen(false)} />
               {deploymentMode === "authenticated" ? (

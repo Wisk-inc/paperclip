@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PatchInstanceGeneralSettings, BackupRetentionPolicy } from "@paperclipai/shared";
 import {
+  AUTOMA_COMPANY,
   DAILY_RETENTION_PRESETS,
   WEEKLY_RETENTION_PRESETS,
   MONTHLY_RETENTION_PRESETS,
@@ -19,7 +20,7 @@ import { cn } from "../lib/utils";
 import { FEEDBACK_SHARING_AVAILABLE } from "@/lib/feedback-sharing";
 import { useSignOut } from "@/hooks/useSignOut";
 
-const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "https://paperclip.ing/tos";
+const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "/legal/terms.html";
 
 export function InstanceGeneralSettings({ embedded = false }: { embedded?: boolean }) {
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -309,8 +310,8 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
           <div className="space-y-1.5">
             <h2 className="text-sm font-semibold">AI feedback sharing</h2>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Control whether thumbs up and thumbs down votes can send the voted AI output to
-              Automa Labs. Votes are always saved locally.
+              Control whether thumbs up and thumbs down votes can send the voted AI output
+              to {AUTOMA_COMPANY}. Votes are always saved locally.
             </p>
             {FEEDBACK_TERMS_URL ? (
               <a

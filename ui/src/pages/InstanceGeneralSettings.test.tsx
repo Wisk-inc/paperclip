@@ -277,6 +277,17 @@ describe("InstanceGeneralSettings operator-hidden sections", () => {
     expect(container.textContent).toContain("Backup retention");
   });
 
+  it("links AI feedback sharing to Automa's own terms and names who would receive votes", async () => {
+    await renderPage(SELF_HOSTED_HEALTH);
+
+    const terms = Array.from(container.querySelectorAll("a"))
+      .find((link) => link.textContent === "Read our terms of service");
+    expect(terms?.getAttribute("href")).toBe("/legal/terms.html");
+    expect(container.querySelector('a[href*="paperclip.ing"]')).toBeNull();
+    expect(container.textContent).toContain("send the voted AI output to Corx Labs.");
+    expect(container.textContent).not.toContain("Automa Labs");
+  });
+
   it("leaves out AI feedback sharing in a build that keeps votes on the device", async () => {
     feedbackSharing.available = false;
     try {

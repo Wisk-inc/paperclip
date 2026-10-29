@@ -200,6 +200,55 @@ describe("Connections table (M1b / PAP-13254 door 2)", () => {
     await flushReact();
   }
 
+  it("shows no Cloud sign-in banner on a server that does not offer it", async () => {
+    getCloudConnectorEnrollmentMock.mockResolvedValue({
+      configured: false,
+      status: "not_configured",
+      brokerBaseUrl: "https://my.paperclip.app",
+      instanceId: null,
+      environment: "production",
+      origins: [],
+      enrollmentAvailable: false,
+    });
+
+    await renderApps();
+
+    expect(container.textContent).not.toContain("Paperclip-managed sign-in");
+    expect(container.textContent).not.toContain("Paperclip Cloud");
+  });
+
+  it("asks the server for a fresh Cloud enrollment link instead of opening an expired one", async () => {
+    getCloudConnectorEnrollmentMock.mockResolvedValue({
+      configured: false,
+      status: "pending",
+      brokerBaseUrl: "https://my.paperclip.app",
+      instanceId: "instance-test",
+      environment: "production",
+      origins: [],
+      enrollmentAvailable: true,
+      verificationUrl: "https://my.paperclip.app/connections/enroll?id=expired",
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+    startCloudConnectorEnrollmentMock.mockResolvedValue({
+      configured: false,
+      status: "pending",
+      brokerBaseUrl: "https://my.paperclip.app",
+      instanceId: "instance-test",
+      environment: "production",
+      origins: [],
+    });
+
+    await renderApps();
+    const continueEnrollment = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Continue enrollment"));
+    await act(async () => {
+      continueEnrollment?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(startCloudConnectorEnrollmentMock).toHaveBeenCalledWith("company-1", "Automa");
+  });
+
   it("renders applications without connections as not connected with a Connect action", async () => {
     listApplicationsMock.mockResolvedValue({
       applications: [application({ id: "app-github", name: "GitHub" })],

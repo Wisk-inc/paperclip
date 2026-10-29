@@ -319,9 +319,11 @@ export function Connections() {
           unavailable={connectorEnrollmentQuery.isError}
           busy={startConnectorEnrollment.isPending}
           onEnable={() => {
-            const verificationUrl = connectorEnrollmentQuery.data?.verificationUrl;
-            if (verificationUrl) window.location.assign(verificationUrl);
-            else startConnectorEnrollment.mutate();
+            const pending = connectorEnrollmentQuery.data;
+            // An expired link is a dead end: the server replaces it with a fresh one.
+            if (pending?.verificationUrl && Date.parse(pending.expiresAt ?? "") > Date.now()) {
+              window.location.assign(pending.verificationUrl);
+            } else startConnectorEnrollment.mutate();
           }}
         />
       ) : null}

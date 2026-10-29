@@ -229,17 +229,10 @@ describe("SidebarAccountMenu", () => {
     expect(document.body.textContent).toContain("Edit profile");
     expect(document.body.textContent).toContain("Settings");
     expect(document.body.textContent).not.toContain("Instance settings");
-    expect(document.body.textContent).toContain("Documentation");
-
     const popover = document.body.querySelector('[data-slot="popover-content"]');
     expect(popover?.textContent).not.toContain("Feedback");
     expect(popover?.querySelector('a[href="https://discord.gg/NfnSrFK7YM"]')).toBeNull();
-
-    // Documentation still appears before the theme toggle.
-    const menuText = popover?.textContent ?? "";
-    const docsPos = menuText.indexOf("Documentation");
-    const themePos = menuText.indexOf("Switch to");
-    expect(docsPos).toBeLessThan(themePos);
+    expect(popover?.textContent).toContain("Switch to");
 
     // The popover header stays down to name + email: no "Account" badge, no version line.
     expect(popover?.textContent).not.toContain("Account");
@@ -321,6 +314,33 @@ describe("SidebarAccountMenu", () => {
     expect(mockNavigateTopLevel).toHaveBeenCalledOnce();
     expect(mockNavigateTopLevel).toHaveBeenCalledWith("/cloud/logout");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it.each([SidebarAccountMenu, ProductionSidebarAccountMenu])("sends nobody to the upstream project's docs (%#)", async (AccountMenu) => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <AccountMenu deploymentMode="local_trusted" open />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const popover = document.body.querySelector('[data-slot="popover-content"]');
+    expect(popover?.textContent).toContain("Edit profile");
+    expect(popover?.textContent).not.toContain("Documentation");
+    expect(document.body.querySelector('a[href*="paperclip.ing"]')).toBeNull();
 
     await act(async () => {
       root.unmount();

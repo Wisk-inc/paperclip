@@ -83,6 +83,17 @@ describe("connection intent OAuth callback document", () => {
     );
   });
 
+  it("tells the person it is returning to Automa", () => {
+    const html = connectionIntentOAuthOutcomeHtml({
+      interactionId: "interaction-123",
+      issueId: "issue-456",
+      outcome: "connected",
+    });
+
+    expect(html).toContain("<p>Returning to Automa…</p>");
+    expect(html).not.toContain("Returning to Paperclip");
+  });
+
   it("escapes script-significant interaction ids", () => {
     const html = connectionIntentOAuthOutcomeHtml({
       interactionId: "</script><script>alert(1)</script>",

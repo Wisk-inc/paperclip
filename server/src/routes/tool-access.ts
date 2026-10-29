@@ -189,7 +189,13 @@ export function connectionIntentOAuthOutcomeHtml(input: {
     }
   })();
   const targetOrigin = JSON.stringify(openerOrigin ?? "");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Connection authorization</title></head><body><p>Returning to Paperclip…</p><script>const message=${message};const targetOrigin=${targetOrigin}||window.location.origin;if(window.opener&&window.opener!==window){window.opener.postMessage(message,targetOrigin);window.close();}else{window.location.replace(${fallback});}</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Connection authorization</title></head><body><p>Returning to Automa…</p><script>const message=${message};const targetOrigin=${targetOrigin}||window.location.origin;if(window.opener&&window.opener!==window){window.opener.postMessage(message,targetOrigin);window.close();}else{window.location.replace(${fallback});}</script></body></html>`;
+}
+
+function cloudConnectorEnrollmentUnavailable() {
+  return unprocessable("This server connects apps with your own credentials; Paperclip Cloud sign-in is not available here.", {
+    code: "paperclip_cloud_connector_enrollment_unavailable",
+  });
 }
 
 function normalizeCloudConnectorEnrollmentReturnTo(returnTo?: string | null): string | null {
@@ -1010,12 +1016,8 @@ function connectorEnrollmentPrincipal(req: Request): string {
     const companyId = typeof req.body?.companyId === "string" ? req.body.companyId : "";
     if (!companyId) throw badRequest("Paperclip Cloud enrollment requires a company");
     assertCompanyAccess(req, companyId);
-    if (!paperclipCloudConnectorEnrollmentOffered()) {
-      // Never send people to a cloud this instance is not part of.
-      throw unprocessable("This server connects apps with your own credentials; Paperclip Cloud sign-in is not available here.", {
-        code: "paperclip_cloud_connector_enrollment_unavailable",
-      });
-    }
+    // Never send people to a cloud this instance is not part of.
+    if (!paperclipCloudConnectorEnrollmentOffered()) throw cloudConnectorEnrollmentUnavailable();
     const origin = new URL(oauthRedirectUri(req)).origin;
     const returnTo = normalizeCloudConnectorEnrollmentReturnTo(
       typeof req.body?.returnTo === "string" ? req.body.returnTo : undefined,
@@ -1048,6 +1050,9 @@ function connectorEnrollmentPrincipal(req: Request): string {
 
   router.get("/tools/oauth/cloud-connector/enrollment-callback", async (req, res) => {
     assertInstanceAdmin(req);
+    // An enrollment started before an operator turned enrollment off must not
+    // finish: completing it would connect this server to Paperclip Cloud.
+    if (!paperclipCloudConnectorEnrollmentOffered()) throw cloudConnectorEnrollmentUnavailable();
     const enrollmentId = typeof req.query.enrollment_id === "string" ? req.query.enrollment_id : "";
     const approvalCode = typeof req.query.approval_code === "string" ? req.query.approval_code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";

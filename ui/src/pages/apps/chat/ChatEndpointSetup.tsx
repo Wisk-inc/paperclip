@@ -1587,14 +1587,6 @@ settings:
               Slack needs a public HTTPS URL to send messages to Automa.
               Configure one for this instance before creating or connecting your Slack app.
             </p>
-            <a
-              href="https://docs.paperclip.ing/reference/deploy/https/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm underline underline-offset-4"
-            >
-              Learn how to set up HTTPS
-            </a>
           </div>
         </div>
       )}

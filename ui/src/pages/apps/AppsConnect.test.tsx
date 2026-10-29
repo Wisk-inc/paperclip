@@ -1043,16 +1043,16 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     await render();
     await passAccessStep();
 
-    expect(container.textContent).toContain("Connect with Automa");
+    expect(container.textContent).toContain("Connect with Paperclip Cloud");
     expect(container.textContent).toContain(
-      "You must connect this instance to Automa to connect to Gmail (you only need to do this once).",
+      "You must connect this instance to Paperclip Cloud to connect to Gmail (you only need to do this once).",
     );
-    expect(buttonByText("Connect with Automa")?.closest(".rounded-xl")?.classList.contains("border-border")).toBe(true);
+    expect(buttonByText("Connect with Paperclip Cloud")?.closest(".rounded-xl")?.classList.contains("border-border")).toBe(true);
     expect(container.textContent).not.toContain("Required once for managed Google sign-in.");
     expect(container.textContent).not.toContain("Your OAuth app");
 
     await act(async () => {
-      buttonByText("Connect with Automa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      buttonByText("Connect with Paperclip Cloud")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flushReact();
 
@@ -1088,11 +1088,102 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     await render();
     await passAccessStep();
 
-    expect(container.textContent).not.toContain("Connect with Automa");
-    expect(container.textContent).not.toContain("You must connect this instance to Automa");
+    expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
+    expect(container.textContent).not.toContain("You must connect this instance to Paperclip Cloud");
     expect(container.textContent).toContain("Your OAuth app");
     expect(startCloudConnectorEnrollmentMock).not.toHaveBeenCalled();
     expect(navigateTopLevelMock).not.toHaveBeenCalled();
+  });
+
+  it("lets GitHub connect with a personal token when the server does not offer Cloud enrollment", async () => {
+    mockParams.appKey = "github";
+    listGalleryMock.mockResolvedValue({
+      apps: [{
+        ...GITHUB,
+        methods: GITHUB.methods.filter((method) => !method.oauthStrategy),
+        ownershipAvailability: { platform_shared: false, customer: true, dcr: true },
+      }],
+    });
+    getCloudConnectorEnrollmentMock.mockResolvedValue({
+      configured: false,
+      status: "not_configured",
+      brokerBaseUrl: "https://my.paperclip.app",
+      instanceId: null,
+      environment: "production",
+      origins: [],
+      enrollmentAvailable: false,
+    });
+
+    await render();
+    await passAccessStep();
+
+    expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
+    const keyField = container.querySelector<HTMLInputElement>("input[type=password]");
+    await act(async () => setInputValue(keyField!, "github-token"));
+    await flushReact();
+    await act(async () => {
+      buttonByText("Connect")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(connectAppMock).toHaveBeenCalledTimes(1);
+    expect(connectAppMock.mock.calls[0]?.[1]).toMatchObject({
+      galleryKey: "github",
+      credentialValues: { "credentials.authorization": "github-token" },
+    });
+    expect(startCloudConnectorEnrollmentMock).not.toHaveBeenCalled();
+    expect(navigateTopLevelMock).not.toHaveBeenCalled();
+  });
+
+  it("checks Cloud registration again from Try again and then offers Gmail's own OAuth app", async () => {
+    mockParams.appKey = "gmail";
+    listGalleryMock.mockResolvedValue({
+      apps: [{
+        ...GMAIL,
+        methods: GMAIL.methods.filter((method) => !method.oauthStrategy),
+        ownershipAvailability: { platform_shared: false, customer: true, dcr: true },
+      }],
+    });
+    getCloudConnectorEnrollmentMock
+      .mockRejectedValueOnce(new Error("Server restarting"))
+      .mockResolvedValue({
+        configured: false,
+        status: "not_configured",
+        brokerBaseUrl: "https://my.paperclip.app",
+        instanceId: null,
+        environment: "production",
+        origins: [],
+        enrollmentAvailable: false,
+      });
+
+    await render();
+    await passAccessStep();
+
+    expect(container.textContent).toContain("Automa couldn’t check Cloud registration. Try again.");
+    await act(async () => {
+      buttonByText("Try again")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
+    expect(container.textContent).toContain("Your OAuth app");
+
+    await act(async () => {
+      setInputValue(container.querySelector<HTMLInputElement>("#curated-oauth-client-id")!, "google-client-id");
+      setInputValue(container.querySelector<HTMLInputElement>("#curated-oauth-client-secret")!, "google-client-secret");
+    });
+    await flushReact();
+    await act(async () => {
+      buttonByText("Continue to sign in")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(connectAppMock).toHaveBeenCalledWith("company-1", expect.objectContaining({
+      galleryKey: "gmail",
+      connectionMethodKey: expect.stringMatching(/^customer-.+-oauth$/),
+      oauthClient: { clientId: "google-client-id", clientSecret: "google-client-secret" },
+    }));
+    expect(startCloudConnectorEnrollmentMock).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("retains task access and interaction through enrollment (popup blocked: %s)", async (popupBlocked) => {
@@ -1106,7 +1197,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     getCloudConnectorEnrollmentMock.mockResolvedValue({ status: "not_configured" });
     await render(client, false, <ConnectionSetupFlow host="dialog" serviceSlug="gmail" interactionId="intent-1" requestedAgentId="agent-1" />);
     await passAccessStep();
-    await act(async () => buttonByText("Connect with Automa")?.click());
+    await act(async () => buttonByText("Connect with Paperclip Cloud")?.click());
     await flushReact();
     expect(open).toHaveBeenCalled();
     if (popupBlocked) {
@@ -1154,7 +1245,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     }
     await render(undefined, false, <ConnectionSetupFlow host="dialog" serviceSlug="gmail" interactionId="intent-1" requestedAgentId="agent-1" />);
     await passAccessStep();
-    await act(async () => buttonByText("Connect with Automa")?.click());
+    await act(async () => buttonByText("Connect with Paperclip Cloud")?.click());
     await flushReact();
     expect(popup.close).toHaveBeenCalledOnce();
     expect(popup.location.assign).not.toHaveBeenCalled();
@@ -1275,7 +1366,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
 
     await passAccessStep();
 
-    expect(container.textContent).toContain("Connect with Automa");
+    expect(container.textContent).toContain("Connect with Paperclip Cloud");
     expect(container.textContent).not.toContain("GitHub token");
   });
 
@@ -1288,7 +1379,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     expect(container.textContent).toContain("Step 2 of 2");
     expect(container.textContent).toContain("Continue to GitHub");
     expect(container.textContent).not.toContain("Connect GitHub as");
-    expect(container.textContent).not.toContain("Connect with Automa");
+    expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
   });
 
   it("explains unavailable GitHub sign-in without silently switching to a PAT", async () => {
@@ -1398,7 +1489,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     });
     await flushReact();
     await act(async () => {
-      buttonByText("Connect with Automa")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      buttonByText("Connect with Paperclip Cloud")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flushReact();
 
@@ -1496,7 +1587,7 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
       await flushReact();
       // Change auth methods too, including apps with only one capability.
       expect(container.textContent).not.toContain("How do you want to connect?");
-      expect(container.textContent).not.toContain("Connect with Automa");
+      expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
       expect(container.textContent).not.toContain("Your OAuth app");
       expect(buttonByText("Continue to sign in")?.disabled).toBe(false);
       const customerAuth = buttonByText("Use your own Google OAuth app");
@@ -1541,8 +1632,8 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
 
     await render();
 
-    expect(container.textContent).not.toContain("You must connect this instance to Automa");
-    expect(container.textContent).not.toContain("Connect with Automa");
+    expect(container.textContent).not.toContain("You must connect this instance to Paperclip Cloud");
+    expect(container.textContent).not.toContain("Connect with Paperclip Cloud");
   });
 
   it("keeps Google Drive prerequisites off access and defaults to its write-capable method", async () => {

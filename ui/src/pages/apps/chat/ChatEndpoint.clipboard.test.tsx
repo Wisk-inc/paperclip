@@ -562,13 +562,12 @@ describe("chat setup and identity-link clipboard actions", () => {
     expect(mocks.createLinkIntent).not.toHaveBeenCalled();
   });
 
-  it("links the missing HTTPS warning to the setup guide", async () => {
+  it("explains the missing HTTPS address without sending people to the upstream project's docs", async () => {
     await render("slack", false, false);
     const warning = container.querySelector('[role="alert"]')!;
     expect(warning.textContent).toContain("Public HTTPS URL required");
-    const link = warning.querySelector("a")!;
-    expect(link.textContent).toBe("Learn how to set up HTTPS");
-    expect(link.href).toBe("https://docs.paperclip.ing/reference/deploy/https/");
+    expect(warning.textContent).toContain("Configure one for this instance before creating or connecting your Slack app.");
+    expect(warning.querySelector('a[href*="paperclip.ing"]')).toBeNull();
   });
 
   it("cancels the delayed Slack advance when returning to the agent step", async () => {
