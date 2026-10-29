@@ -567,6 +567,7 @@ export function studioService(db: Db) {
   }
 
   async function saveAiKey(companyId: string, userId: string, provider: StudioAiProvider, apiKey: string, baseUrl: string | null) {
+    if (provider === "free") throw badRequest("The free models need no key");
     if (provider === "custom" && !baseUrl) throw badRequest("Add the API's base URL (for example https://host/v1)");
     const prepared = await localEncryptedProvider.createSecret({ value: apiKey });
     const values = {

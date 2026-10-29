@@ -3,7 +3,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import os from "node:os";
 import { request as httpRequest } from "node:http";
 import path from "node:path";
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
 import { eq } from "drizzle-orm";
 import { authUsers, type Db, type studioWorkspaces } from "@paperclipai/db";
@@ -80,8 +80,16 @@ const joinLimiter = new AttemptLimiter({ windowMs: 10 * 60_000, perKey: 10, tota
 
 // Project uploads stream to temporary files instead of memory: thirty 50 MB
 // files at once were held in the server's memory, which a phone can't spare.
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
-const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+// Browsers send file names as UTF-8.
+const upload = multer({ dest: os.tmpdir(), defParamCharset: "utf8", limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), defParamCharset: "utf8", limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+
+/** Reads a multipart body only once the caller is known: multer stores the files before the handler runs. */
+function readMultipart(parse: RequestHandler, req: Request, res: Response) {
+  return new Promise<void>((resolve, reject) => {
+    parse(req, res, (error?: unknown) => (error ? reject(error) : resolve()));
+  });
+}
 
 /** One gateway for collaborators per server, and its public link. */
 const gateway = new StudioGateway(() => Number(process.env.PAPERCLIP_LISTEN_PORT || 3100));
@@ -156,7 +164,9 @@ async function broadcastFile(workspace: WorkspaceRow, relative: string, by: stri
 }
 
 function sendDownload(res: Response, absolute: string, name: string) {
-  res.setHeader("content-disposition", `attachment; filename="${name.replace(/["\\\r\n]/g, "_")}"`);
+  // Header values must be Latin-1: the real name (emoji, accents) goes in filename*.
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  res.setHeader("content-disposition", `attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encoded}`);
   res.setHeader("content-type", "application/octet-stream");
   res.setHeader("x-content-type-options", "nosniff");
   createReadStream(absolute).on("error", () => res.status(404).end()).pipe(res);
@@ -167,7 +177,9 @@ async function saveAttachment(workspace: WorkspaceRow, file: Express.Multer.File
   const dirs = studioWorkspaceDirs(workspace.companyId, workspace.id);
   const dir = path.join(dirs.meta, "shared", id);
   await fs.mkdir(dir, { recursive: true });
-  const name = path.basename(file.originalname || "file").replace(/[\0/\\]/g, "_").slice(0, 200) || "file";
+  // At most 200 bytes: a file name may have 255, and one character can take four.
+  const cut = Buffer.from(path.basename(file.originalname || "file").replace(/[\0/\\]/g, "_")).subarray(0, 200).toString("utf8");
+  const name = cut.replace(/\uFFFD+$/, "") || "file";
   await fs.writeFile(path.join(dir, name), file.buffer);
   return { id, name, size: file.size, contentType: file.mimetype || null };
 }
@@ -442,8 +454,9 @@ export function studioRoutes(db: Db) {
     res.json({ ok: true });
   });
 
-  router.post("/studio/workspaces/:id/upload", upload.array("files", 30), async (req, res) => {
+  router.post("/studio/workspaces/:id/upload", async (req, res) => {
     const workspace = await workspaceFor(req);
+    await readMultipart(upload.array("files", 30), req, res);
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     try {
       if (files.length === 0) throw badRequest("Choose at least one file");
@@ -522,6 +535,12 @@ export function studioRoutes(db: Db) {
   // ── Inline suggestions ───────────────────────────────────────────────────
 
   router.post("/studio/workspaces/:id/complete", validate(studioCompleteSchema), async (req, res) => {
+    const controller = new AbortController();
+    // The request's own "close" fires as soon as its body is read; only the
+    // response closing unanswered means the editor stopped waiting.
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
     const workspace = await workspaceFor(req);
     // Suggestions are paid calls too; a company over its hard-stop gets none.
     if (await budgets.getCompanyInvocationBlock(workspace.companyId)) {
@@ -533,8 +552,6 @@ export function studioRoutes(db: Db) {
     if (!credentials) throw unprocessable("Add your API key for this provider first", { code: "studio_ai_key_missing" });
     const model = req.body.model?.trim() || STUDIO_AI_PROVIDER_INFO[provider].completionModel;
     if (!model) throw unprocessable("Pick a model for suggestions");
-    const controller = new AbortController();
-    req.on("close", () => controller.abort());
     try {
       const completion = await completeCode({
         provider,
@@ -642,15 +659,19 @@ export function studioRoutes(db: Db) {
     runtime.setTunnel({ tunnelStatus: "starting", tunnelError: null, publicUrl: null });
     try {
       const tunnel = await openQuickTunnel(port, (detail) => {
+        // A link closed on purpose (or when the app stopped) is not an error.
+        if (runtime.tunnelProcess !== tunnel.process) return;
         runtime.tunnelProcess = null;
         runtime.setTunnel({ tunnelStatus: "off", publicUrl: null, tunnelError: detail });
       });
+      if (!runtime.running || runtime.state.port !== port) {
+        tunnel.process.kill("SIGTERM");
+        throw new Error("The app stopped before its public link was ready. Run it and try again.");
+      }
+      // The runtime ends the link when the app stops or exits.
       runtime.tunnelProcess = tunnel.process;
       runtime.setTunnel({ tunnelStatus: "on", publicUrl: tunnel.url, tunnelError: null });
       runtime.append("system", `Public link: ${tunnel.url} (anyone with it can open your app while it runs).`);
-      runtime.once("exit", () => {
-        tunnel.process.kill("SIGTERM");
-      });
       await log(req, workspace, "studio.public_link_opened", { url: tunnel.url });
       res.json({ run: runtime.state });
     } catch (error) {
@@ -666,6 +687,7 @@ export function studioRoutes(db: Db) {
     runtime.tunnelProcess?.kill("SIGTERM");
     runtime.tunnelProcess = null;
     runtime.setTunnel({ tunnelStatus: "off", publicUrl: null, tunnelError: null });
+    await log(req, workspace, "studio.public_link_closed");
     res.json({ run: runtime.state });
   });
 
@@ -730,8 +752,9 @@ export function studioRoutes(db: Db) {
     res.json({ messages: await svc.messages(workspace.id) });
   });
 
-  router.post("/studio/workspaces/:id/messages", attachmentUpload.single("file"), async (req, res) => {
+  router.post("/studio/workspaces/:id/messages", async (req, res) => {
     const workspace = await workspaceFor(req);
+    await readMultipart(attachmentUpload.single("file"), req, res);
     const parsed = postStudioMessageSchema.safeParse({ body: typeof req.body?.body === "string" ? req.body.body : "" });
     if (!parsed.success) throw badRequest("Message is too long");
     const attachment = req.file ? await saveAttachment(workspace, req.file) : null;
@@ -757,6 +780,7 @@ export function studioRoutes(db: Db) {
     const file = await attachmentPath(workspace, String(req.params.attachmentId));
     const saved = await saveUploadedFile(studioWorkspaceDirs(workspace.companyId, workspace.id).files, typeof req.body?.folder === "string" ? req.body.folder : null, file.name, await fs.readFile(file.absolute));
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
+    await log(req, workspace, "studio.shared_file_added", { path: saved });
     res.status(201).json({ path: saved });
   });
 
@@ -930,6 +954,28 @@ export function studioRoutes(db: Db) {
 }
 
 /**
+ * Response headers a previewed app can't send through Automa: the ones
+ * Automa sets itself, and ones that act on all of Automa's site (wiping its
+ * cookies and storage, or setting its reporting and transport rules).
+ */
+const PREVIEW_DROPPED_RESPONSE_HEADERS = new Set([
+  "set-cookie",
+  "x-frame-options",
+  "content-security-policy",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "access-control-allow-origin",
+  "access-control-allow-credentials",
+  "clear-site-data",
+  "nel",
+  "report-to",
+  "reporting-endpoints",
+  "alt-svc",
+  "strict-transport-security",
+]);
+
+/**
  * Routes that do not use the board session: collaborators (with the token
  * they got from a share code) and the running app's preview (with its
  * per-run random path). Mounted before the board-only middleware.
@@ -1020,8 +1066,9 @@ export function studioPublicRoutes(db: Db) {
     res.json({ messages: await svc.messages(guest.workspace.id) });
   });
 
-  router.post("/studio-guest/messages", attachmentUpload.single("file"), async (req, res) => {
+  router.post("/studio-guest/messages", async (req, res) => {
     const guest = await guestFor(req);
+    await readMultipart(attachmentUpload.single("file"), req, res);
     const parsed = postStudioMessageSchema.safeParse({ body: typeof req.body?.body === "string" ? req.body.body : "" });
     if (!parsed.success) throw badRequest("Message is too long");
     const attachment = req.file ? await saveAttachment(guest.workspace, req.file) : null;
@@ -1113,7 +1160,7 @@ export function studioPublicRoutes(db: Db) {
       (upstreamRes) => {
         const outHeaders: Record<string, string | string[] | number> = {};
         for (const [key, value] of Object.entries(upstreamRes.headers)) {
-          if (value === undefined || ["set-cookie", "x-frame-options", "content-security-policy", "content-length", "transfer-encoding", "connection", "access-control-allow-origin", "access-control-allow-credentials"].includes(key)) continue;
+          if (value === undefined || PREVIEW_DROPPED_RESPONSE_HEADERS.has(key)) continue;
           outHeaders[key] = value;
         }
         if (typeof outHeaders.location === "string" && outHeaders.location.startsWith("/")) outHeaders.location = `${prefix}${outHeaders.location.slice(1)}`;

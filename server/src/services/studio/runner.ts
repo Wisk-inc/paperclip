@@ -14,7 +14,7 @@ const READY_TIMEOUT_MS = 10 * 60_000;
 const STOP_GRACE_MS = 3000;
 
 /** Environment variables that hold the server's own secrets never reach user code. */
-const SECRET_ENV = /(SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL|DATABASE_URL|SESSION)|^PAPERCLIP_|^BETTER_AUTH|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AWS_|^GOOGLE_|^FIREBASE/i;
+const SECRET_ENV = /(SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL|DATABASE_|SESSION)|^PAPERCLIP_|^BETTER_AUTH|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AWS_|^GOOGLE_|^FIREBASE|^OTEL_/i;
 
 export function studioChildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -174,6 +174,19 @@ export class StudioRuntime extends EventEmitter {
     this.setState(patch);
   }
 
+  /** Ends the public link: it points at this run's port, so it lives only while the app runs. */
+  closeTunnel() {
+    const tunnel = this.tunnelProcess;
+    if (!tunnel) return;
+    this.tunnelProcess = null;
+    try {
+      tunnel.kill("SIGTERM");
+    } catch {
+      // already gone
+    }
+    this.setTunnel({ tunnelStatus: "off", publicUrl: null, tunnelError: null });
+  }
+
   append(stream: StudioConsoleLine["stream"], text: string) {
     for (const raw of text.split("\n")) {
       const line: StudioConsoleLine = {
@@ -290,6 +303,7 @@ export class StudioRuntime extends EventEmitter {
       if (token !== this.runToken) return;
       this.flushPartials();
       this.child = null;
+      this.closeTunnel();
       const stopped = this.stopping;
       this.append("system", stopped ? "Stopped." : code === 0 ? "Finished (exit code 0)." : `Exited with code ${code ?? signal}.`);
       this.setState({
@@ -328,6 +342,7 @@ export class StudioRuntime extends EventEmitter {
 
   async stop() {
     this.runToken += 1;
+    this.closeTunnel();
     if (this.staticServer) {
       const server = this.staticServer;
       this.staticServer = null;

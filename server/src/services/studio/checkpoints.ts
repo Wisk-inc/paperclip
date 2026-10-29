@@ -32,6 +32,20 @@ async function readIndex(file: string): Promise<IndexEntry[]> {
   }
 }
 
+/** Files a checkpoint left out (too large), kept beside it so a restore leaves them alone. */
+function leftOutFile(base: string, checkpointId: string) {
+  return path.join(base, `${checkpointId}.left-out.json`);
+}
+
+async function readLeftOut(base: string, checkpointId: string): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(leftOutFile(base, checkpointId), "utf8")) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 async function writeIndex(file: string, entries: IndexEntry[]) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
@@ -87,10 +101,10 @@ export async function walkProjectFiles(root: string, start = ""): Promise<Array<
 async function copyInto(sourceRoot: string, destRoot: string, files: Array<{ relative: string; size: number }>, limit = true) {
   let bytes = 0;
   let copied = 0;
-  let skipped = 0;
+  const skipped: string[] = [];
   for (const file of files) {
     if (limit && (file.size > MAX_FILE_BYTES || bytes + file.size > MAX_SNAPSHOT_BYTES)) {
-      skipped += 1;
+      skipped.push(file.relative);
       continue;
     }
     const target = path.join(destRoot, file.relative);
@@ -102,16 +116,37 @@ async function copyInto(sourceRoot: string, destRoot: string, files: Array<{ rel
   return { bytes, copied, skipped };
 }
 
+/**
+ * Empties the project for a restore, except what no checkpoint holds:
+ * dependency and cache folders at any depth, and the `keep` files.
+ * Returns whether anything is left in the folder.
+ */
+async function clearForRestore(root: string, relative: string, keep: ReadonlySet<string>): Promise<boolean> {
+  const entries = await fs.readdir(relative ? path.join(root, relative) : root, { withFileTypes: true }).catch(() => []);
+  let left = false;
+  for (const entry of entries) {
+    const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory() && (SKIPPED.has(entry.name) || (await clearForRestore(root, childRelative, keep)))) left = true;
+    else if (entry.isFile() && keep.has(childRelative)) left = true;
+    else await fs.rm(path.join(root, childRelative), { recursive: true, force: true });
+  }
+  return left;
+}
+
 export async function listCheckpoints(companyId: string, workspaceId: string): Promise<StudioCheckpoint[]> {
   const dirs = checkpointDirs(companyId, workspaceId);
   return (await readIndex(dirs.index)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** Saves a copy of the project's files (not dependencies) to come back to later. */
+/**
+ * Saves a copy of the project's files (not dependencies) to come back to
+ * later. The oldest checkpoints beyond the limit are dropped, never `keepId`.
+ */
 export async function createCheckpoint(
   companyId: string,
   workspaceId: string,
   input: { label: string; kind: StudioCheckpoint["kind"]; by: string },
+  keepId?: string,
 ): Promise<StudioCheckpoint> {
   const dirs = checkpointDirs(companyId, workspaceId);
   const id = randomUUID();
@@ -119,6 +154,7 @@ export async function createCheckpoint(
   await fs.mkdir(snapshot, { recursive: true });
   const files = await walkProjectFiles(dirs.files).catch(() => []);
   const result = await copyInto(dirs.files, snapshot, files);
+  if (result.skipped.length) await fs.writeFile(leftOutFile(dirs.base, id), JSON.stringify(result.skipped));
   const entry: StudioCheckpoint = {
     id,
     label: input.label.slice(0, 160),
@@ -126,25 +162,30 @@ export async function createCheckpoint(
     by: input.by,
     fileCount: result.copied,
     bytes: result.bytes,
-    skippedFiles: result.skipped,
+    skippedFiles: result.skipped.length,
     createdAt: new Date().toISOString(),
   };
   const removed = await withIndexLock(dirs.index, async () => {
     const index = await readIndex(dirs.index);
     index.push(entry);
     index.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const dropped = index.splice(MAX_CHECKPOINTS);
-    await writeIndex(dirs.index, index);
+    const kept = index.some((item) => item.id === keepId) ? 1 : 0;
+    const dropped = index.filter((item) => item.id !== keepId).slice(MAX_CHECKPOINTS - kept);
+    await writeIndex(dirs.index, index.filter((item) => !dropped.includes(item)));
     return dropped;
   });
-  for (const old of removed) await fs.rm(path.join(dirs.base, old.id), { recursive: true, force: true });
+  for (const old of removed) {
+    await fs.rm(path.join(dirs.base, old.id), { recursive: true, force: true });
+    await fs.rm(leftOutFile(dirs.base, old.id), { force: true });
+  }
   return entry;
 }
 
 /**
  * Puts the project's files back the way they were at a checkpoint. The
  * current files are saved as a checkpoint first, so a restore can be undone.
- * Dependencies (node_modules and similar) are left alone.
+ * Dependencies (node_modules and similar) are left alone, and so are files
+ * too large for either checkpoint: deleting them could not be undone.
  */
 export async function restoreCheckpoint(companyId: string, workspaceId: string, checkpointId: string, by: string) {
   const dirs = checkpointDirs(companyId, workspaceId);
@@ -152,14 +193,11 @@ export async function restoreCheckpoint(companyId: string, workspaceId: string, 
   const target = index.find((entry) => entry.id === checkpointId);
   if (!target || !/^[0-9a-f-]{36}$/.test(checkpointId)) throw notFound("Checkpoint not found");
   const snapshot = path.join(dirs.base, checkpointId);
-  const safety = await createCheckpoint(companyId, workspaceId, { label: `Before going back to “${target.label}”`, kind: "restore", by });
-  const entries = await fs.readdir(dirs.files, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (entry.isDirectory() && SKIPPED.has(entry.name)) continue;
-    await fs.rm(path.join(dirs.files, entry.name), { recursive: true, force: true });
-  }
-  await fs.mkdir(dirs.files, { recursive: true });
   const files = await walkProjectFiles(snapshot);
+  const safety = await createCheckpoint(companyId, workspaceId, { label: `Before going back to “${target.label}”`, kind: "restore", by }, checkpointId);
+  const keep = new Set([...(await readLeftOut(dirs.base, checkpointId)), ...(await readLeftOut(dirs.base, safety.id))]);
+  await clearForRestore(dirs.files, "", keep);
+  await fs.mkdir(dirs.files, { recursive: true });
   await copyInto(snapshot, dirs.files, files, false);
   return { restored: target, safety };
 }
@@ -173,6 +211,7 @@ export async function deleteCheckpoint(companyId: string, workspaceId: string, c
     await writeIndex(dirs.index, next);
   });
   await fs.rm(path.join(dirs.base, checkpointId), { recursive: true, force: true });
+  await fs.rm(leftOutFile(dirs.base, checkpointId), { force: true });
 }
 
 /**

@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +17,7 @@ import {
   saveUploadedTempFile,
   writeStudioFile,
 } from "../services/studio/files.js";
-import { detectStudioLanguage, nameIsClaimed, normalizeShareCode, validateGitUrl } from "../services/studio/service.js";
+import { detectStudioLanguage, nameIsClaimed, normalizeShareCode, studioService, validateGitUrl } from "../services/studio/service.js";
 import { studioChildEnv } from "../services/studio/runner.js";
 
 describe("Studio collaborator gateway", () => {
@@ -157,6 +158,13 @@ describe("Studio projects", () => {
     expect(nameIsClaimed("Alex", taken)).toBe(false);
   });
 
+  it("refuses a key for the free models, which need none", async () => {
+    await expect(studioService({} as never).saveAiKey("company_1", "user_1", "free", "sk-free-0123456789", null)).rejects.toMatchObject({
+      status: 400,
+      message: "The free models need no key",
+    });
+  });
+
   it("guesses a cloned project's language", () => {
     expect(detectStudioLanguage(["package.json", "vite.config.ts", "src/main.tsx"])).toBe("vite-react");
     expect(detectStudioLanguage(["requirements.txt", "app.py"])).toBe("python");
@@ -165,10 +173,24 @@ describe("Studio projects", () => {
   });
 
   it("keeps secrets out of the apps it runs", () => {
-    const env = studioChildEnv({ PORT: "4000" });
-    expect(env.PORT).toBe("4000");
-    for (const key of Object.keys(env)) {
-      expect(key).not.toMatch(/SECRET|TOKEN|PASSWORD|DATABASE_URL|API_KEY/i);
+    const planted = {
+      DATABASE_MIGRATION_URL: "postgres://automa:hunter2@127.0.0.1:5432/automa",
+      OTEL_EXPORTER_OTLP_HEADERS: "authorization=Bearer collector-key",
+    };
+    const before = Object.fromEntries(Object.keys(planted).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, planted);
+    try {
+      const env = studioChildEnv({ PORT: "4000" });
+      expect(env.PORT).toBe("4000");
+      for (const key of Object.keys(planted)) expect(env[key], key).toBeUndefined();
+      for (const key of Object.keys(env)) {
+        expect(key).not.toMatch(/SECRET|TOKEN|PASSWORD|DATABASE_URL|API_KEY/i);
+      }
+    } finally {
+      for (const [key, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 });
@@ -235,6 +257,50 @@ describe("Studio checkpoints and zips", () => {
     expect(await readFile(path.join(files, "app.py"), "utf8")).toBe("v2");
     expect((await listCheckpoints(companyId, workspaceId)).map((entry) => entry.kind)).toContain("restore");
     await expect(restoreCheckpoint(companyId, workspaceId, "00000000-0000-0000-0000-000000000000", "me")).rejects.toThrow();
+  });
+
+  it("leaves what a checkpoint can't hold: large files and dependency folders at any depth", async () => {
+    const { createCheckpoint, restoreCheckpoint } = await import("../services/studio/checkpoints.js");
+    const { studioWorkspaceDirs } = await import("../services/studio/files.js");
+    const files = studioWorkspaceDirs(companyId, workspaceId).files;
+    const big = 10 * 1024 * 1024 + 1;
+    await mkdir(path.join(files, "assets"), { recursive: true });
+    await mkdir(path.join(files, "packages", "web", "node_modules", "dep"), { recursive: true });
+    await writeFile(path.join(files, "assets", "intro.mp4"), Buffer.alloc(big));
+    await writeFile(path.join(files, "packages", "web", "node_modules", "dep", "index.js"), "dep");
+    await writeFile(path.join(files, "packages", "web", "app.js"), "v1");
+    const first = await createCheckpoint(companyId, workspaceId, { label: "v1", kind: "manual", by: "me" });
+    expect(first.skippedFiles).toBe(1);
+    await writeFile(path.join(files, "packages", "web", "app.js"), "v2");
+    await writeFile(path.join(files, "packages", "web", "new.js"), "new");
+    await restoreCheckpoint(companyId, workspaceId, first.id, "me");
+    expect(await readFile(path.join(files, "packages", "web", "app.js"), "utf8")).toBe("v1");
+    await expect(readFile(path.join(files, "packages", "web", "new.js"))).rejects.toThrow();
+    expect((await stat(path.join(files, "assets", "intro.mp4"))).size).toBe(big);
+    expect(await readFile(path.join(files, "packages", "web", "node_modules", "dep", "index.js"), "utf8")).toBe("dep");
+  });
+
+  it("goes back to the oldest checkpoint when the list is full", async () => {
+    const { createCheckpoint, restoreCheckpoint, listCheckpoints } = await import("../services/studio/checkpoints.js");
+    const { studioWorkspaceDirs } = await import("../services/studio/files.js");
+    const dirs = studioWorkspaceDirs(companyId, workspaceId);
+    await mkdir(dirs.files, { recursive: true });
+    await writeFile(path.join(dirs.files, "app.py"), "oldest");
+    const oldest = await createCheckpoint(companyId, workspaceId, { label: "oldest", kind: "manual", by: "me" });
+    // Twenty-nine newer ones fill the list of thirty.
+    const indexFile = path.join(dirs.meta, "checkpoints", "index.json");
+    const index = JSON.parse(await readFile(indexFile, "utf8"));
+    index[0].createdAt = "2020-01-01T00:00:00.000Z";
+    for (let i = 0; i < 29; i += 1) {
+      index.push({ ...index[0], id: randomUUID(), label: `newer ${i}`, createdAt: new Date(Date.UTC(2021, 0, 1, 0, i)).toISOString() });
+    }
+    await writeFile(indexFile, JSON.stringify(index));
+    await writeFile(path.join(dirs.files, "app.py"), "latest");
+    await restoreCheckpoint(companyId, workspaceId, oldest.id, "me");
+    expect(await readFile(path.join(dirs.files, "app.py"), "utf8")).toBe("oldest");
+    const ids = (await listCheckpoints(companyId, workspaceId)).map((entry) => entry.id);
+    expect(ids).toHaveLength(30);
+    expect(ids).toContain(oldest.id);
   });
 
   it("zips the project without dependencies or symlinks", async () => {
