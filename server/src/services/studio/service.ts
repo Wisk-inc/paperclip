@@ -520,15 +520,24 @@ export function studioService(db: Db) {
     return toChangeRequest(row!);
   }
 
+  /** Accepts or rejects an open change request. Of two at once (accept on one device, reject on another), one wins. */
   async function resolveChangeRequest(workspaceId: string, id: string, status: "accepted" | "rejected", userId: string | null, files?: StudioChangeFile[]) {
-    const row = await getChangeRequest(workspaceId, id);
-    if (row.status !== "open") throw conflict("This change request was already handled");
+    await getChangeRequest(workspaceId, id);
     const [updated] = await db
       .update(studioChangeRequests)
       .set({ status, resolvedAt: new Date(), resolvedByUserId: userId, ...(files ? { files } : {}) })
-      .where(eq(studioChangeRequests.id, id))
+      .where(and(eq(studioChangeRequests.workspaceId, workspaceId), eq(studioChangeRequests.id, id), eq(studioChangeRequests.status, "open")))
       .returning();
-    return toChangeRequest(updated!);
+    if (!updated) throw conflict("This change request was already handled");
+    return toChangeRequest(updated);
+  }
+
+  /** Opens an accepted change request again (its files could not be written), as proposed. */
+  async function reopenChangeRequest(workspaceId: string, id: string, files: StudioChangeFile[]) {
+    await db
+      .update(studioChangeRequests)
+      .set({ status: "open", resolvedAt: null, resolvedByUserId: null, files })
+      .where(and(eq(studioChangeRequests.workspaceId, workspaceId), eq(studioChangeRequests.id, id), eq(studioChangeRequests.status, "accepted")));
   }
 
   /** Studio providers that the organization's API keys page can also supply. */
@@ -633,6 +642,7 @@ export function studioService(db: Db) {
     getChangeRequest,
     createChangeRequest,
     resolveChangeRequest,
+    reopenChangeRequest,
     aiKeyStatuses,
     saveAiKey,
     deleteAiKey,

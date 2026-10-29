@@ -334,6 +334,55 @@ describe("Studio checkpoints and zips", () => {
   });
 });
 
+describe("Studio live typing", () => {
+  function fakeSocket() {
+    const sent: Array<Record<string, any>> = [];
+    const listeners = new Map<string, Array<(data?: unknown) => void>>();
+    return {
+      sent,
+      readyState: 1,
+      send: (data: string) => void sent.push(JSON.parse(data)),
+      close: () => undefined,
+      on: (event: string, listener: (data?: unknown) => void) => void listeners.set(event, [...(listeners.get(event) ?? []), listener]),
+      emit: (event: string, data?: unknown) => listeners.get(event)?.forEach((listener) => listener(data)),
+      type: (event: object) => listeners.get("message")?.forEach((listener) => listener(JSON.stringify(event))),
+    };
+  }
+
+  it("caps everyone's live typing in a project and tells the person typing", async () => {
+    const { studioHub } = await import("../services/studio/hub.js");
+    const workspaceId = "live-typing-workspace";
+    const owner = fakeSocket();
+    const guest = fakeSocket();
+    studioHub.join({ workspaceId, socket: owner, participant: { id: "owner", name: "Owner", role: "owner", color: "#7048E8" } });
+    studioHub.join({ workspaceId, socket: guest, participant: { id: "guest:1", name: "Sam", role: "guest", color: "#2F9E44" }, collaboratorId: "1" });
+    const notices = () => guest.sent.filter((event) => event.type === "chat").map((event) => event.message.body as string);
+    const shared = () => owner.sent.filter((event) => event.type === "draft").map((event) => event.path as string);
+    try {
+      // Four drafts near 2 MB fit; a fifth would pass 8 MB for the project.
+      for (const name of ["a", "b", "c", "d", "e"]) guest.type({ type: "draft", path: `${name}.txt`, text: "x".repeat(1_900_000) });
+      expect(shared()).toEqual(["a.txt", "b.txt", "c.txt", "d.txt"]);
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]).toContain("e.txt");
+      // One draft over 2 MB, told once however often it is sent.
+      guest.type({ type: "draft", path: "huge.txt", text: "x".repeat(2_000_001) });
+      guest.type({ type: "draft", path: "huge.txt", text: "x".repeat(2_000_002) });
+      expect(notices()).toHaveLength(2);
+      expect(notices()[1]).toContain("huge.txt");
+      // At most 200 drafts in a project, however small.
+      for (const name of ["a", "b", "c", "d"]) guest.type({ type: "draft:clear", path: `${name}.txt` });
+      for (let i = 0; i < 201; i += 1) guest.type({ type: "draft", path: `small-${i}.txt`, text: "x" });
+      expect(studioHub.draftsFor(workspaceId)).toHaveLength(200);
+      expect(notices().at(-1)).toContain("small-200.txt");
+      expect(shared()).not.toContain("small-200.txt");
+    } finally {
+      owner.emit("close");
+      guest.emit("close");
+    }
+    expect(studioHub.draftsFor(workspaceId)).toEqual([]);
+  });
+});
+
 describe("Studio join limiter", () => {
   it("slows a client down after wrong codes, and everyone after many", async () => {
     const { AttemptLimiter, joinLimiterKey } = await import("../services/studio/join-limiter.js");

@@ -668,6 +668,12 @@ export function studioRoutes(db: Db) {
         tunnel.process.kill("SIGTERM");
         throw new Error("The app stopped before its public link was ready. Run it and try again.");
       }
+      // A second tap opened one meanwhile: keep that link, or this one could never be closed.
+      if (runtime.tunnelProcess) {
+        tunnel.process.kill("SIGTERM");
+        res.json({ run: runtime.state });
+        return;
+      }
       // The runtime ends the link when the app stops or exits.
       runtime.tunnelProcess = tunnel.process;
       runtime.setTunnel({ tunnelStatus: "on", publicUrl: tunnel.url, tunnelError: null });
@@ -795,9 +801,15 @@ export function studioRoutes(db: Db) {
     if (row.status !== "open") throw conflict("This change request was already handled");
     const edited = new Map<string, string | null>((req.body.files ?? []).map((file: { path: string; after: string | null }) => [normalizeStudioPath(file.path), file.after]));
     const files: StudioChangeFile[] = row.files.map((file) => (edited.has(normalizeStudioPath(file.path)) ? { ...file, after: edited.get(normalizeStudioPath(file.path))! } : file));
-    await createCheckpoint(workspace.companyId, workspace.id, { label: `Before ${row.authorName}'s change`, kind: "change", by: await ownerName(req.actor.userId) }).catch(() => null);
-    await applyChangeFiles(workspace, files);
+    // Taken first, so a reject at the same moment either wins (nothing is written) or is refused.
     const resolved = await svc.resolveChangeRequest(workspace.id, row.id, "accepted", req.actor.userId ?? null, files);
+    await createCheckpoint(workspace.companyId, workspace.id, { label: `Before ${row.authorName}'s change`, kind: "change", by: await ownerName(req.actor.userId) }).catch(() => null);
+    try {
+      await applyChangeFiles(workspace, files);
+    } catch (error) {
+      await svc.reopenChangeRequest(workspace.id, row.id, row.files).catch(() => undefined);
+      throw error;
+    }
     for (const file of files) await broadcastFile(workspace, file.path, actor(req));
     studioHub.broadcast(workspace.id, { type: "change:resolved", changeRequest: resolved });
     await log(req, workspace, "studio.change_accepted", { changeRequestId: row.id, author: row.authorName, files: files.map((file) => file.path) });

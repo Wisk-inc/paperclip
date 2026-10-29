@@ -1,10 +1,11 @@
-import { mkdtemp, mkdir, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { conflict } from "../errors.js";
 
 const svc = vi.hoisted(() => ({
   get: vi.fn(),
@@ -14,6 +15,9 @@ const svc = vi.hoisted(() => ({
   update: vi.fn(),
   touch: vi.fn(async () => undefined),
   expireShares: vi.fn(async () => []),
+  getChangeRequest: vi.fn(),
+  resolveChangeRequest: vi.fn(),
+  reopenChangeRequest: vi.fn(async () => undefined),
 }));
 const completeCode = vi.hoisted(() => vi.fn());
 const openQuickTunnel = vi.hoisted(() => vi.fn());
@@ -238,15 +242,25 @@ describe("Studio preview", () => {
 });
 
 describe("Studio public link", () => {
-  function fakeTunnel() {
-    const tunnel = { onExit: (_detail: string) => {}, kill: vi.fn() };
+  /**
+   * The next cloudflared. It exits right after it is told to stop, or (slow)
+   * only when the test says so; held, it gives its link only on release().
+   */
+  function fakeTunnel(url = "https://test.trycloudflare.com", options: { slow?: boolean; held?: boolean } = {}) {
+    let release = () => {};
+    const ready = options.held ? new Promise<void>((resolve) => (release = resolve)) : Promise.resolve();
+    let started = () => {};
+    const asked = new Promise<void>((resolve) => (started = resolve));
+    const tunnel = { url, onExit: (_detail: string) => {}, kill: vi.fn(), exit: () => tunnel.onExit("cloudflared exited (signal)."), release: () => release(), asked };
     tunnel.kill.mockImplementation(() => {
-      setImmediate(() => tunnel.onExit("cloudflared exited (signal)."));
+      if (!options.slow) setImmediate(tunnel.exit);
       return true;
     });
     openQuickTunnel.mockImplementationOnce(async (_port: number, onExit: (detail: string) => void) => {
+      started();
+      await ready;
       tunnel.onExit = onExit;
-      return { url: "https://test.trycloudflare.com", process: tunnel };
+      return { url, process: tunnel };
     });
     return tunnel;
   }
@@ -280,5 +294,71 @@ describe("Studio public link", () => {
     expect(third.kill).toHaveBeenCalled();
     expect(closed.body.run).toMatchObject({ tunnelStatus: "off", publicUrl: null });
     expect(runner.studioRuntime(WORKSPACE.id).state.tunnelError).toBeNull();
+  });
+
+  it("keeps a link opened again while the closed one is still shutting down", async () => {
+    const app = createApp(BOARD);
+    expect((await request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/run`).send({})).status).toBe(200);
+    const closing = fakeTunnel("https://old.trycloudflare.com", { slow: true });
+    await request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/public-link`).send({});
+    await request(app).delete(`/api/studio/workspaces/${WORKSPACE.id}/public-link`);
+    const reopened = fakeTunnel("https://new.trycloudflare.com");
+    await request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/public-link`).send({});
+    closing.exit();
+    await settle();
+    expect(runner.studioRuntime(WORKSPACE.id).state).toMatchObject({ tunnelStatus: "on", publicUrl: reopened.url });
+    await request(app).delete(`/api/studio/workspaces/${WORKSPACE.id}/public-link`);
+    expect(reopened.kill).toHaveBeenCalled();
+  });
+
+  it("keeps one link when two are asked for at once, so closing it ends both", async () => {
+    const app = createApp(BOARD);
+    expect((await request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/run`).send({})).status).toBe(200);
+    const one = fakeTunnel("https://one.trycloudflare.com", { held: true });
+    const two = fakeTunnel("https://two.trycloudflare.com", { held: true });
+    const asking = [
+      request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/public-link`).send({}).then((res) => res),
+      request(app).post(`/api/studio/workspaces/${WORKSPACE.id}/public-link`).send({}).then((res) => res),
+    ];
+    await Promise.all([one.asked, two.asked]);
+    one.release();
+    two.release();
+    const answers = await Promise.all(asking);
+    expect(answers.map((res) => res.body.run.publicUrl)).toEqual([one.url, one.url]);
+    expect(two.kill).toHaveBeenCalled();
+    await request(app).delete(`/api/studio/workspaces/${WORKSPACE.id}/public-link`);
+    expect(one.kill).toHaveBeenCalled();
+  });
+});
+
+describe("Studio change requests", () => {
+  const changeId = "5e7a1c2b-8d9f-4a3b-9c1d-2e3f4a5b6c7d";
+  const proposal = (file: string) => ({
+    id: changeId,
+    workspaceId: WORKSPACE.id,
+    status: "open",
+    authorName: "Sam",
+    files: [{ path: file, before: null, after: "from Sam" }],
+  });
+  const projectFile = (file: string) => path.join(studioDir, WORKSPACE.companyId, WORKSPACE.id, "files", file);
+
+  it("writes nothing when a reject at the same moment won", async () => {
+    svc.getChangeRequest.mockResolvedValue(proposal("raced.txt"));
+    svc.resolveChangeRequest.mockRejectedValue(conflict("This change request was already handled"));
+    const res = await request(createApp(BOARD)).post(`/api/studio/workspaces/${WORKSPACE.id}/changes/${changeId}/accept`).send({});
+    expect(res.status).toBe(409);
+    await expect(readFile(projectFile("raced.txt"))).rejects.toThrow();
+  });
+
+  it("opens the change again, as proposed, when its files can't be written", async () => {
+    const row = proposal("blocked.txt");
+    svc.getChangeRequest.mockResolvedValue(row);
+    svc.resolveChangeRequest.mockResolvedValue({ ...row, status: "accepted" });
+    await mkdir(projectFile("blocked.txt"), { recursive: true });
+    const res = await request(createApp(BOARD))
+      .post(`/api/studio/workspaces/${WORKSPACE.id}/changes/${changeId}/accept`)
+      .send({ files: [{ path: "blocked.txt", after: "edited by the owner" }] });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(svc.reopenChangeRequest).toHaveBeenCalledWith(WORKSPACE.id, changeId, row.files);
   });
 });
