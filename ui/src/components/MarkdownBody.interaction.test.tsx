@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../context/ThemeContext";
-import { MarkdownBody } from "./MarkdownBody";
+import { MarkdownBody, SiteFavicon } from "./MarkdownBody";
 
 vi.mock("@/lib/router", () => ({
   Link: ({
@@ -69,6 +69,23 @@ function click(element: Element | null) {
     element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 }
+
+describe("SiteFavicon", () => {
+  it("loads the icon from the site itself and falls back to a globe when the site has none", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    flushSync(() => root?.render(<SiteFavicon host="example.com" />));
+
+    const icon = container.querySelector("img");
+    expect(icon?.getAttribute("src")).toBe("https://example.com/favicon.ico");
+    expect(icon?.getAttribute("referrerpolicy")).toBe("no-referrer");
+
+    flushSync(() => icon?.dispatchEvent(new Event("error")));
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".lucide-globe")).not.toBeNull();
+  });
+});
 
 describe("MarkdownBody code block interactions", () => {
   it("toggles line wrapping for indented preformatted markdown blocks", () => {

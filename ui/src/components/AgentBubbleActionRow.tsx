@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type {
-  FeedbackDataSharingPreference,
-  FeedbackVoteValue,
+import {
+  AUTOMA_COMPANY,
+  type FeedbackDataSharingPreference,
+  type FeedbackVoteValue,
 } from "@paperclipai/shared";
 import { cn, formatShortDate } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Check, Copy, MoreHorizontal, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { haptic } from "@/lib/haptics";
+import { effectiveFeedbackSharingPreference } from "@/lib/feedback-sharing";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -175,7 +177,7 @@ export function AgentBubbleActionRow({
  */
 export function IssueChatFeedbackButtons({
   activeVote,
-  sharingPreference = "prompt",
+  sharingPreference: requestedSharingPreference = "prompt",
   termsUrl,
   onVote,
 }: {
@@ -184,6 +186,7 @@ export function IssueChatFeedbackButtons({
   termsUrl: string | null;
   onVote: (vote: FeedbackVoteValue, options?: { allowSharing?: boolean; reason?: string }) => Promise<void>;
 }) {
+  const sharingPreference = effectiveFeedbackSharingPreference(requestedSharingPreference);
   const [isSaving, setIsSaving] = useState(false);
   const [optimisticVote, setOptimisticVote] = useState<FeedbackVoteValue | null>(null);
   const [reasonOpen, setReasonOpen] = useState(false);
@@ -340,8 +343,8 @@ export function IssueChatFeedbackButtons({
           <DialogHeader>
             <DialogTitle>Save your feedback sharing preference</DialogTitle>
             <DialogDescription>
-              Choose whether voted AI outputs can be shared with Automa Labs. This
-              answer becomes the default for future thumbs up and thumbs down votes.
+              Choose whether voted AI outputs can be shared with {AUTOMA_COMPANY}.
+              This answer becomes the default for future thumbs up and thumbs down votes.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">

@@ -187,9 +187,10 @@ export function SiteFavicon({ host }: { host: string }) {
   }
   return (
     <img
-      src={`https://icons.duckduckgo.com/ip3/${host}.ico`}
+      src={`https://${host}/favicon.ico`}
       alt=""
       aria-hidden="true"
+      referrerPolicy="no-referrer"
       loading="lazy"
       decoding="async"
       width={14}

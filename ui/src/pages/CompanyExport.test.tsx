@@ -293,6 +293,17 @@ describe("CompanyExport", () => {
     });
   });
 
+  it("writes a README that sends nobody to the upstream project's site", async () => {
+    mockCompaniesApi.exportPreview.mockResolvedValue(buildExportPreviewResult());
+
+    await renderPage();
+    await clickElement(container.querySelector<HTMLElement>('[data-file-tree-path="README.md"]')!);
+
+    expect(container.textContent).toContain("This is an Agent Company package.");
+    expect(container.textContent).toMatch(/Exported from Automa on \d{4}-\d{2}-\d{2}/);
+    expect(container.textContent).not.toContain("paperclip.ing");
+  });
+
   it("renders the generated org chart through the independent SVG endpoint", () => {
     expect(resolveExportPreviewImageSrc({
       src: "images/org-chart.png",

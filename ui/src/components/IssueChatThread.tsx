@@ -205,7 +205,7 @@ import {
   summarizeToolInput,
   summarizeToolResult,
 } from "../lib/transcriptPresentation";
-import { buildAgentMentionHref } from "@paperclipai/shared";
+import { AUTOMA_COMPANY, buildAgentMentionHref } from "@paperclipai/shared";
 import { useComposerStop } from "@/hooks/useComposerStop";
 import { cn, formatDateTime, formatShortDate } from "../lib/utils";
 import { effectiveFeedbackSharingPreference } from "@/lib/feedback-sharing";
@@ -2918,7 +2918,7 @@ function IssueChatFeedbackButtons({
           <DialogHeader>
             <DialogTitle>Save your feedback sharing preference</DialogTitle>
             <DialogDescription>
-              Choose whether voted AI outputs can be shared with Automa Labs.
+              Choose whether voted AI outputs can be shared with {AUTOMA_COMPANY}.
               This answer becomes the default for future thumbs up and thumbs
               down votes.
             </DialogDescription>

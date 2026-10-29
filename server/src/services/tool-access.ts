@@ -14360,7 +14360,7 @@ export function toolAccessService(
       const cloudConnector = currentCloudConnector();
       if (!cloudConnector) {
         throw unprocessable(
-          `${providerName} connections through Paperclip are not available on this instance yet`,
+          `${providerName} sign-in through Paperclip Cloud is not available on this server. Connect ${providerName} with your own OAuth app or a personal access token instead.`,
           {
             code: "paperclip_cloud_connector_unavailable",
           },
@@ -15037,7 +15037,7 @@ export function toolAccessService(
     const cloudConnector = currentCloudConnector();
     if (!cloudConnector) {
       throw unprocessable(
-        `${providerName} connections through Paperclip are not available on this instance yet`,
+        `${providerName} sign-in through Paperclip Cloud is not available on this server. Connect ${providerName} with your own OAuth app or a personal access token instead.`,
         {
           code: "paperclip_cloud_connector_unavailable",
         },

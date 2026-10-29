@@ -540,14 +540,16 @@ describe("MarkdownBody", () => {
     expect(html).toContain('class="lucide lucide-github mr-1 inline h-3.5 w-3.5 align-(--va-0_125em)"');
   });
 
-  it("shows the site favicon before a non-GitHub source link", () => {
+  it("shows the site's own favicon before a non-GitHub source link, without asking a third party", () => {
     const html = renderMarkdown("[docs](https://example.com/docs)");
-    expect(html).toContain("icons.duckduckgo.com/ip3/example.com.ico");
+    expect(html).toContain('src="https://example.com/favicon.ico"');
+    expect(html).toMatch(/referrerpolicy="no-referrer"/i);
+    expect(html).not.toContain("duckduckgo");
   });
 
   it("does not show a favicon on GitHub or internal links", () => {
-    expect(renderMarkdown("[pr](https://github.com/paperclipai/paperclip/pull/1)")).not.toContain("icons.duckduckgo.com");
-    expect(renderMarkdown("[settings](/company/settings)")).not.toContain("icons.duckduckgo.com");
+    expect(renderMarkdown("[pr](https://github.com/paperclipai/paperclip/pull/1)")).not.toContain("favicon.ico");
+    expect(renderMarkdown("[settings](/company/settings)")).not.toContain("favicon.ico");
   });
 
   it("does not prefix non-GitHub markdown links with the GitHub icon", () => {

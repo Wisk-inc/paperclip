@@ -101,7 +101,8 @@ describe("TriggersSection", () => {
     await render();
     await click("Resume setup");
     expect(container.textContent).toContain("This webhook URL appears to be private");
-    expect(container.querySelector('a[href="https://docs.paperclip.ing/reference/deploy/https/"]')).not.toBeNull();
+    expect(container.textContent).toContain("such as Tailscale Funnel or a reverse proxy with a trusted certificate");
+    expect(container.querySelector('a[href*="paperclip.ing"]')).toBeNull();
     expect(button("Check connection").disabled).toBe(false);
     await click("Check connection");
     expect(container.textContent).toContain("This webhook URL appears to be private");

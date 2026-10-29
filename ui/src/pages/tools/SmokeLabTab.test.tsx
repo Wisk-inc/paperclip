@@ -176,6 +176,13 @@ describe("SmokeLabTab", () => {
     expect(container.textContent).toContain("oauth-login");
   });
 
+  it("points to the tutorial in this repository, not the upstream project's", async () => {
+    await render();
+
+    expect(container.textContent).toContain("Follow the hands-on tutorial in doc/connections/SMOKE-LAB-TUTORIAL.md.");
+    expect(container.querySelector('a[href*="github.com/paperclipai"]')).toBeNull();
+  });
+
   it("starts a manual run when 'Run browser smoke now' is clicked", async () => {
     await render();
 
