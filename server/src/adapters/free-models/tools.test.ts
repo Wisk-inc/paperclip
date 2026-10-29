@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PuterHttpError } from "@paperclipai/shared/puter-ai";
 import { runFreeTool, type FreeToolContext, type FreeToolToggles } from "./tools.js";
 
 let tmp: string;
@@ -120,5 +121,16 @@ describe("free agent tools", () => {
     const result = await runFreeTool(toolContext({}), "WebCrawl", { url: "https://example.com/", depth: 0 });
     expect(result.content).toMatch(/^1 pages:/);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains a GenerateImage failure in plain words, not the service's raw answer", async () => {
+    const ctx = toolContext({ imageModel: "@cf/bytedance/stable-diffusion-xl-lightning" }, {
+      generateImage: vi.fn(async () => { throw new PuterHttpError(429, JSON.stringify({ message: "daily limit: try again after 3600" })); }),
+    });
+    const result = await runFreeTool(ctx, "GenerateImage", { prompt: "a red fox in snow" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("SDXL Lightning");
+    expect(result.content).not.toContain("Free model service answered 429");
+    expect(result.content).not.toContain("{");
   });
 });

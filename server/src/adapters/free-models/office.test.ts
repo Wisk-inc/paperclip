@@ -1,3 +1,4 @@
+import { zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import {
   buildDocument,
@@ -111,11 +112,26 @@ describe("office documents", () => {
   });
 
   it("turns converter HTML into Markdown", () => {
-    const markdown = htmlToMarkdown("<h1>Hi</h1><p>A <strong>b</strong> &amp; <em>c</em></p><ul><li>one</li><li>two</li></ul><table><tr><th>X</th><th>Y</th></tr><tr><td>1</td><td>2</td></tr></table>");
+    const markdown = htmlToMarkdown("<h1>Hi</h1><p>A <strong>b</strong> &amp; <em>c</em> &#99999999; d &#65;</p><ul><li>one</li><li>two</li></ul><table><tr><th>X</th><th>Y</th></tr><tr><td>1</td><td>2</td></tr></table>");
     expect(markdown).toContain("# Hi");
+    // &amp; stays a literal ampersand, a valid reference decodes to its character, and one naming no character
+    // becomes a space rather than throwing and losing the text.
     expect(markdown).toContain("A **b** & *c*");
+    expect(markdown).toContain("d A");
+    expect(markdown).not.toContain("99999999");
     expect(markdown).toContain("- one\n- two");
     expect(markdown).toContain("| X | Y |\n| --- | --- |\n| 1 | 2 |");
+  });
+
+  it("refuses a zip bomb before unpacking it", async () => {
+    // 110 MB of zeros compresses to a tiny archive; inflating it would exhaust memory, so it is refused on the declared size alone.
+    const bomb = zipSync({ "xl/worksheets/sheet1.xml": new Uint8Array(110_000_000) }, { level: 6 });
+    expect(bomb.length).toBeLessThan(1_000_000);
+    for (const name of ["bomb.xlsx", "bomb.pptx", "bomb.docx"]) {
+      await expect(readDocument(bomb, name)).rejects.toThrow(/unpacks to more than 100 MB/);
+    }
+    // A damaged archive is reported plainly, not left to crash a reader.
+    await expect(readDocument(new Uint8Array([0x50, 0x4b, 3, 4, 9, 9]), "torn.docx")).rejects.toThrow(/could not be opened/);
   });
 
   it("reads CSV and text, pages long content, and names files safely", async () => {

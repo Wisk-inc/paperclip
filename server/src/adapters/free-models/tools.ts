@@ -7,7 +7,14 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AdapterRuntimeToolAccess } from "@paperclipai/adapter-utils";
-import type { PuterImageModelId, PuterTool } from "@paperclipai/shared/puter-ai";
+import {
+  describePuterError,
+  PUTER_IMAGE_MODEL_META,
+  PUTER_IMAGE_MODELS,
+  type PuterImageModelId,
+  type PuterImageModelKey,
+  type PuterTool,
+} from "@paperclipai/shared/puter-ai";
 import {
   buildDocument,
   buildPresentation,
@@ -372,6 +379,13 @@ function num(input: Record<string, unknown>, key: string): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** Why the paired image model did not draw, in plain words naming it, not the service's raw answer. */
+function imageFailure(ctx: FreeToolContext, error: unknown): string {
+  const model = ctx.toggles.imageModel;
+  const key = (Object.keys(PUTER_IMAGE_MODELS) as PuterImageModelKey[]).find((candidate) => PUTER_IMAGE_MODELS[candidate] === model);
+  return describePuterError(error, key ? PUTER_IMAGE_MODEL_META[key].label : model ?? "The image model").message;
+}
+
 /** The file name a URL ends in, without any folders a decoded name would bring. */
 function urlFileName(url: string): string {
   const last = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
@@ -484,7 +498,12 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
     if (name === "GenerateImage") {
       const prompt = str(input, "prompt").trim();
       if (!prompt) return { content: "GenerateImage needs a prompt.", isError: true };
-      const image = await ctx.generateImage(prompt);
+      let image: { markdown: string; attachmentId: string };
+      try {
+        image = await ctx.generateImage(prompt);
+      } catch (error) {
+        return { content: `GenerateImage failed: ${imageFailure(ctx, error)}`, isError: true };
+      }
       return { content: "The picture was drawn and added to your reply. Do not repeat the image markdown yourself.", isError: false, attachmentId: image.attachmentId, imageMarkdown: image.markdown };
     }
     if (name === "CreateSpreadsheet") {
@@ -510,7 +529,7 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
           try {
             images.set(index, await ctx.drawPicture(slide.image_prompt));
           } catch (error) {
-            drawn.push(`slide ${index + 1}: picture not drawn (${error instanceof Error ? error.message : String(error)})`);
+            drawn.push(`slide ${index + 1}: picture not drawn (${imageFailure(ctx, error)})`);
           }
         }
       } else if (slides.some((slide) => slide.image_prompt)) {

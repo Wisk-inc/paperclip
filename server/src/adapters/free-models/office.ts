@@ -442,9 +442,12 @@ async function readSpreadsheet(bytes: Uint8Array, maxRows: number): Promise<Read
 
 /** HTML from a document converter to Markdown: headings, lists, tables, emphasis, links. */
 export function htmlToMarkdown(html: string): string {
+  // &amp; goes last, so a document whose text reads "&#65;" keeps it as written;
+  // a reference naming no storable character (NUL, past U+10FFFF) becomes a space.
   const decode = (text: string) => text
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => (Number(code) > 0 && Number(code) <= 0x10ffff ? String.fromCodePoint(Number(code)) : " "))
+    .replace(/&amp;/g, "&");
   let text = html
     .replace(/\r?\n/g, " ")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -532,6 +535,24 @@ async function readPdf(bytes: Uint8Array): Promise<ReadDocumentResult> {
   }
 }
 
+/** An office file's zip may unpack to at most this much, in at most this many files. */
+const MAX_UNZIPPED_BYTES = 100_000_000;
+const MAX_ZIP_FILES = 10_000;
+
+/** Refuses a zip bomb before anything is unpacked: the sizes the archive's directory declares are added up without inflating a byte. */
+function assertSafeArchive(bytes: Uint8Array, name: string): void {
+  let total = 0;
+  let files = 0;
+  try {
+    unzipSync(bytes, { filter: (file) => { total += file.originalSize; files += 1; return false; } });
+  } catch {
+    throw new Error(`${name} could not be opened: the file is damaged, or it is not the kind of file its name says.`);
+  }
+  if (total > MAX_UNZIPPED_BYTES || files > MAX_ZIP_FILES) {
+    throw new Error(`${name} unpacks to more than 100 MB or ${MAX_ZIP_FILES.toLocaleString("en-US")} files, too much to read here.`);
+  }
+}
+
 /**
  * The readable content of a document the person shared: spreadsheets as
  * Markdown tables per sheet, documents as Markdown, decks slide by slide,
@@ -545,6 +566,7 @@ export async function readDocument(
   const kind = documentKind(name, options.contentType);
   if (!kind) throw new Error(`${name} is not a document type that can be read (spreadsheets, Word documents, presentations, PDFs, CSV and text files are).`);
   let result: ReadDocumentResult;
+  if (kind === "xlsx" || kind === "docx" || kind === "pptx") assertSafeArchive(bytes, name);
   if (kind === "xlsx") result = await readSpreadsheet(bytes, options.maxRows ?? 300);
   else if (kind === "docx") result = await readWordDocument(bytes);
   else if (kind === "pptx") result = await readPresentation(bytes);
