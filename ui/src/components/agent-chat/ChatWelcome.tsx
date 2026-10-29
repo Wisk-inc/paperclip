@@ -9,7 +9,7 @@ import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link } from "@/lib/router";
 import { cn, relativeTime } from "@/lib/utils";
-import { agentStatusLabel, EditAgentButton } from "./AgentChatHeader";
+import { agentStatusDotClass, agentStatusLabel, EditAgentButton } from "./AgentChatHeader";
 import { connectKeyHref } from "./ByokKeysCard";
 import { ROLE_PROMPTS, roleIcon } from "./role-icons";
 
@@ -42,19 +42,16 @@ export function ChatWelcome({ agent }: { agent: Agent }) {
   });
   const manager = agent.reportsTo ? agents.data?.find((item) => item.id === agent.reportsTo) : null;
   const live = agent.status === "running";
+  const dotClass = agentStatusDotClass(agent.status);
   const lastActive = agent.lastHeartbeatAt ? `active ${relativeTime(agent.lastHeartbeatAt)}` : "not started yet";
 
   return (
     <div data-slot="chat-welcome" className="mx-auto flex w-full max-w-md flex-col items-center gap-4 px-4 pt-4 pb-6 text-center text-foreground hero-enter">
       <div className="relative mascot-float">
         <AgentAvatar agent={agent} size={96} pose={live ? "working" : "listening"} label={`${agent.name}'s character`} />
-        <span
-          className={cn(
-            "absolute right-2 bottom-3 size-4 rounded-full border-4 border-background",
-            live ? "bg-emerald-500 motion-safe:animate-pulse" : agent.status === "error" ? "bg-red-500" : agent.status === "paused" ? "bg-amber-500" : "bg-emerald-500",
-          )}
-          aria-hidden="true"
-        />
+        {dotClass ? (
+          <span className={cn("absolute right-2 bottom-3 size-4 rounded-full border-4 border-background", dotClass)} aria-hidden="true" />
+        ) : null}
       </div>
 
       <div className="flex flex-col items-center gap-1.5">

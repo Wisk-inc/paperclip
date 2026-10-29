@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { IssueGalleryContext } from "@/context/IssueGalleryContext";
 import { TaskChatBubble } from "./TaskChatBubble";
+import { HeldActionsContext } from "./held-actions-context";
 import type { TaskChatMessageItem } from "./task-chat-model";
 
 describe("TaskChatBubble attachment chips", () => {
@@ -559,5 +560,75 @@ describe("TaskChatBubble footer actions (PAP-413)", () => {
     expect(container.querySelector('[data-testid="fake-actions"]')).toBeNull();
     const stamp = [...container.querySelectorAll("span")].find((el) => el.textContent === "2:34 PM");
     expect(stamp).not.toBeNull();
+  });
+});
+
+describe("TaskChatBubble press-and-hold menu", () => {
+  let container: HTMLDivElement;
+  let root: Root | null = null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    flushSync(() =>
+      root!.render(
+        <ThemeProvider>
+          <HeldActionsContext.Provider
+            value={{ latestAgentMessageId: "newest", renderHeldActions: () => <button type="button">Copy</button> }}
+          >
+            <TaskChatBubble item={{ id: "older", kind: "message", author: "agent", text: "An older reply" }} />
+          </HeldActionsContext.Provider>
+        </ThemeProvider>,
+      ),
+    );
+  });
+
+  afterEach(() => {
+    flushSync(() => root?.unmount());
+    root = null;
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  const bubble = () => container.firstElementChild as HTMLElement;
+  const menu = () => container.querySelector('[data-testid="task-chat-held-actions"]');
+  function hold() {
+    flushSync(() => {
+      bubble().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    flushSync(() => vi.advanceTimersByTime(500));
+  }
+
+  it("stays closed after a tap away closes it", () => {
+    hold();
+    expect(menu()).not.toBeNull();
+    const close = container.querySelector('[aria-label="Close message actions"]')!;
+    flushSync(() => {
+      close.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    // The finger lifts over whatever sat under the closed menu, outside the bubble.
+    document.body.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    flushSync(() => vi.advanceTimersByTime(1000));
+    expect(menu()).toBeNull();
+  });
+
+  function animationEnd(target: Element, animationName: string) {
+    // React listens for the prefixed name where the browser lacks AnimationEvent (jsdom).
+    const event = new Event("AnimationEvent" in window ? "animationend" : "webkitAnimationEnd", { bubbles: true });
+    Object.defineProperty(event, "animationName", { value: animationName });
+    flushSync(() => {
+      target.dispatchEvent(event);
+    });
+  }
+
+  it("shakes until its own shake ends, not when the menu finishes popping in", () => {
+    hold();
+    expect(bubble().className).toContain("hold-shake");
+    animationEnd(menu()!, "tc-pop-in");
+    expect(bubble().className).toContain("hold-shake");
+    animationEnd(bubble(), "hold-shake");
+    expect(bubble().className).not.toContain("hold-shake");
   });
 });

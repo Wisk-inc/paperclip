@@ -264,7 +264,7 @@ function TaskChatBubbleContent({
             }
           : undefined
       }
-      onAnimationEnd={holdable ? () => setShake(false) : undefined}
+      onAnimationEnd={holdable ? (event) => { if (event.target === event.currentTarget) setShake(false); } : undefined}
     >
       {holdable && heldOpen ? (
         <>
@@ -272,7 +272,11 @@ function TaskChatBubbleContent({
             type="button"
             aria-label="Close message actions"
             className="fixed inset-0 z-40 cursor-default"
-            onPointerDown={() => setHeldOpen(false)}
+            onPointerDown={(event) => {
+              // The tap that closes the menu must not start a new press-and-hold.
+              event.stopPropagation();
+              setHeldOpen(false);
+            }}
           />
           <div
             data-testid="task-chat-held-actions"

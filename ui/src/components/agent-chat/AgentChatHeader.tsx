@@ -20,6 +20,11 @@ export function agentStatusLabel(status: string): string {
   return STATUS_DOT[status]?.label ?? status;
 }
 
+/** The status dot's colour, or null for a status that shows no dot. */
+export function agentStatusDotClass(status: string): string | null {
+  return STATUS_DOT[status]?.className ?? null;
+}
+
 /** The agent's character with a live status dot (green ready, pulsing while it works). */
 export function AgentStatusAvatar({ agent, size = 24 }: { agent: Agent; size?: 24 | 32 | 40 | 48 }) {
   const dot = STATUS_DOT[agent.status];

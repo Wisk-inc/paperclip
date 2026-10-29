@@ -94,6 +94,7 @@ import {
 import { TaskChatQueuedMessages } from "@/components/task-chat/TaskChatQueuedMessages";
 import { TaskChatWindowScroll } from "@/components/task-chat/useWindowAutoFollow";
 import { useSidebar } from "@/context/SidebarContext";
+import { useOptionalToastActions } from "@/context/ToastContext";
 import { useStreamlinedUiEnabled } from "@/hooks/useStreamlinedUiEnabled";
 import { cn } from "@/lib/utils";
 import { useLatestCallback } from "@/lib/stable-value";
@@ -2579,15 +2580,24 @@ export function TaskChatThread(props: TaskChatThreadProps) {
   // and system bubbles get nothing; copy is always available, and the feedback
   // buttons render only when the host wired a vote handler.
   // Lets a bubble ask for something as the person (e.g. draw a picture again).
+  const toast = useOptionalToastActions();
   const sendChatMessage = useCallback(
     async (text: string) => {
       if (!issueId) return;
-      // Chat messages carry a client request id so a retry never double-posts.
-      await issuesApi.addComment(issueId, text, undefined, undefined, undefined, crypto.randomUUID());
+      try {
+        // Chat messages carry a client request id so a retry never double-posts.
+        await issuesApi.addComment(issueId, text, undefined, undefined, undefined, crypto.randomUUID());
+      } catch (error) {
+        toast?.pushToast({ title: "Couldn’t send that", body: error instanceof Error ? error.message : String(error), tone: "error" });
+      }
     },
-    [issueId],
+    [issueId, toast],
   );
 
+  // Read when the actions are drawn: the thread is rebuilt many times a second
+  // while a reply streams, and a renderer tied to it redrew every message.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const renderMessageActions = useCallback(
     (item: TaskChatMessageItem) => {
       if (item.optimistic) return null;
@@ -2602,9 +2612,10 @@ export function TaskChatThread(props: TaskChatThreadProps) {
       }
       if (item.author !== "agent") return null;
       // The question this reply answered, so Retry can ask it again.
-      const index = items.findIndex((entry) => entry.kind === "message" && entry.id === item.id);
+      const thread = itemsRef.current;
+      const index = thread.findIndex((entry) => entry.kind === "message" && entry.id === item.id);
       const asked = index > 0
-        ? [...items.slice(0, index)].reverse().find((entry): entry is TaskChatMessageItem => entry.kind === "message" && entry.author === "human")
+        ? [...thread.slice(0, index)].reverse().find((entry): entry is TaskChatMessageItem => entry.kind === "message" && entry.author === "human")
         : undefined;
       const onRetry = conversationMode && asked?.text.trim() ? () => sendChatMessage(asked.text) : undefined;
       return (
@@ -2628,7 +2639,6 @@ export function TaskChatThread(props: TaskChatThreadProps) {
       );
     },
     [
-      items,
       sendChatMessage,
       onVote,
       onDeleteComment,
