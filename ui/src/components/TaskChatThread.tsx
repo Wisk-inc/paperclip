@@ -1725,7 +1725,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? `${failedAgentName} couldn't start a session with its model (${code}). Almost always the API key is missing, wrong, or out of credit. Add or check it under Settings → API keys, then send again.`
             : code === "acpx_turn_failed"
             ? `${failedAgentName}'s model call failed (${code}). ${retryDetail} If it keeps happening, check the API key and the provider under Settings → API keys.`
-            : directApiFailureDetail(code, failedAgentName, retryDetail) ?? `The run failed (${code}). ${retryDetail}`;
+            : directApiFailureDetail(code, failedAgentName, retryDetail) ?? meta?.error ?? `The run failed (${code}). ${retryDetail}`;
         const id = `${source.id}:failure`;
         entriesWithFailures.push({
           ms: toMs(meta?.finishedAt ?? meta?.startedAt ?? meta?.createdAt),

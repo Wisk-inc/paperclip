@@ -58,6 +58,8 @@ export interface IssueChatLinkedRun {
   finishedAt?: Date | string | null;
   hasStoredOutput?: boolean;
   logBytes?: number | null;
+  /** Why the run failed, short and with credentials taken out. */
+  error?: string | null;
   errorCode?: string | null;
   scheduledRetryAt?: string | null;
   nextAction?: string | null;

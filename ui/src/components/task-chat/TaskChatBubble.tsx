@@ -232,6 +232,7 @@ function TaskChatBubbleContent({
     ...hydratedLinkedRefs.filter((ref) => !isImageAttachment(ref)),
     ...boundAttachmentRefs.filter((ref) => !isImageAttachment(ref)),
   ]);
+  const singleImage = imageRefs.length === 1;
   const mediaRefs = [...imageRefs, ...attachmentRefs.filter((ref) => isVideoLikeOutput(ref.contentType, ref.name))];
   const galleryItems: GalleryMediaItem[] =
     lightboxSrc !== null && !mediaRefs.some((ref) => ref.url === lightboxSrc)
@@ -331,13 +332,15 @@ function TaskChatBubbleContent({
       ) : null}
       {imageRefs.length > 0 ? (
         <div
-          className="flex max-w-(--pct-85) flex-col gap-2"
+          // One picture (a drawing, a photo) gets the bubble's full width,
+          // uncropped; several share a row of thumbnails.
+          className={cn("flex max-w-(--pct-85) flex-col gap-2", singleImage && "w-full md:max-w-md")}
           data-testid="task-chat-bubble-media"
         >
           <span className="text-xs text-muted-foreground">
             Images · {imageRefs.length}
           </span>
-          <div className="grid grid-cols-4 gap-2">
+          <div className={cn("grid gap-2", singleImage ? "grid-cols-1" : "grid-cols-4")}>
             {imageRefs
               .slice(0, imageRefs.length > 4 ? 3 : 4)
               .map((ref, index) => {
@@ -349,7 +352,10 @@ function TaskChatBubbleContent({
                   <span key={ref.url} className="relative min-w-0">
                     <button
                       type="button"
-                      className="group aspect-video w-full min-w-0 overflow-hidden rounded-md bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        "group w-full min-w-0 overflow-hidden rounded-md bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        singleImage ? "aspect-square" : "aspect-video",
+                      )}
                       aria-label={`Open ${ref.name || `image ${index + 1}`}`}
                       onClick={() => openImage(ref.url)}
                     >
@@ -357,7 +363,10 @@ function TaskChatBubbleContent({
                         src={ref.openPath ?? ref.url}
                         alt={ref.name}
                         className="h-full w-full"
-                        imgClassName="h-full w-full object-cover transition-transform group-hover:scale-(--s-1_02)"
+                        imgClassName={cn(
+                          "h-full w-full transition-transform group-hover:scale-(--s-1_02)",
+                          singleImage ? "object-contain" : "object-cover",
+                        )}
                       />
                     </button>
                     {prompt ? (

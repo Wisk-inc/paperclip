@@ -18,6 +18,7 @@ import {
 } from "@paperclipai/db";
 import { hasWorkspaceRestoreFailure, safeWorkspaceRestorePath, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared";
 import { logger } from "../middleware/logger.js";
+import { REDACTED_EVENT_VALUE, redactSensitiveText } from "../redaction.js";
 import { visibleIssueCondition } from "./issue-visibility.js";
 import { classifyRunLiveness } from "./run-liveness.js";
 
@@ -35,6 +36,19 @@ const MAX_ACTIVITY_LIMIT = 500;
 export function normalizeActivityLimit(limit: number | undefined) {
   if (!Number.isFinite(limit)) return DEFAULT_ACTIVITY_LIMIT;
   return Math.max(1, Math.min(MAX_ACTIVITY_LIMIT, Math.floor(limit ?? DEFAULT_ACTIVITY_LIMIT)));
+}
+
+const RUN_ERROR_PREVIEW_CHARS = 300;
+// Key- and token-shaped words a provider's error can echo back.
+const CREDENTIAL_WORD_RE =
+  /\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAIza[0-9A-Za-z_-]{30,}|\bAKIA[0-9A-Z]{16}\b/g;
+
+/** Why a run failed, short enough for the chat's notice and with credentials taken out. */
+export function runErrorPreview(error: string | null | undefined): string | null {
+  if (!error) return null;
+  const text = redactSensitiveText(error).replace(CREDENTIAL_WORD_RE, REDACTED_EVENT_VALUE).replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > RUN_ERROR_PREVIEW_CHARS ? `${text.slice(0, RUN_ERROR_PREVIEW_CHARS - 1).trimEnd()}…` : text;
 }
 
 export function activityService(db: Db) {
@@ -402,6 +416,7 @@ export function activityService(db: Db) {
           createdAt: heartbeatRuns.createdAt,
           invocationSource: heartbeatRuns.invocationSource,
           responsibleUserId: heartbeatRuns.responsibleUserId,
+          error: heartbeatRuns.error,
           errorCode: heartbeatRuns.errorCode,
           usageJson: summarizedUsageJson,
           resultJson: summarizedResultJson,
@@ -519,6 +534,7 @@ export function activityService(db: Db) {
               : null;
         return {
           ...run,
+          error: runErrorPreview(run.error),
           resultJson: run.resultJson ? {
             ...run.resultJson,
             ...(Object.hasOwn(run.resultJson, "workspaceRestorePath") ? {

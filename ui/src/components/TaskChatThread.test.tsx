@@ -714,6 +714,18 @@ describe("TaskChatThread runtime transcript selection", () => {
     expect(container.textContent).not.toContain("Workspace restore failed");
   });
 
+  it("says why a run failed when the run recorded a reason", () => {
+    const reason = "This free model has used up today's free requests. It's back in 5 hours: send the message again then, or pick another model in the switcher.";
+    render(<TaskChatThread comments={[]} onAdd={async () => {}} linkedRuns={[{
+      runId: "free-run", runtimeMode: "legacy", status: "failed", errorCode: "adapter_failed", error: reason,
+      agentId: "agent-1", agentName: "Runner", adapterType: "free_models",
+      createdAt: "2026-10-28T18:00:00.000Z", startedAt: "2026-10-28T18:00:00.000Z", finishedAt: "2026-10-28T18:00:02.000Z",
+    }]} />);
+    expect(container.textContent).toContain("Run failed");
+    expect(container.textContent).toContain(reason);
+    expect(container.textContent).not.toContain("(adapter_failed)");
+  });
+
   it("projects the saved Plan inline at its native write_document boundary", () => {
     planState.data = planDocument({
       updatedAt: new Date("2026-08-25T18:00:02.000Z"),

@@ -15,6 +15,8 @@ export interface RunForIssue {
   createdAt: string;
   invocationSource: string;
   responsibleUserId?: string | null;
+  /** Why the run failed, short and with credentials taken out. */
+  error?: string | null;
   errorCode?: string | null;
   usageJson: Record<string, unknown> | null;
   resultJson: Record<string, unknown> | null;

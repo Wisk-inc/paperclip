@@ -149,6 +149,19 @@ describe("TaskChatBubble attachment chips", () => {
     expect(container.querySelector('[data-testid="task-chat-bubble-attachments"]')).toBeNull();
   });
 
+  it("shows a single picture at full width without cropping it, and several as thumbnails", () => {
+    renderMessage("![A lighthouse at dusk](/api/attachments/drawn/content)", "agent");
+    let media = container.querySelector<HTMLElement>('[data-testid="task-chat-bubble-media"]')!;
+    expect(media.className).toContain("w-full");
+    expect(media.querySelector("button")?.className).toContain("aspect-square");
+    expect(media.querySelector("img")?.className).toContain("object-contain");
+
+    renderMessage("![One](/api/attachments/one/content)\n![Two](/api/attachments/two/content)", "agent");
+    media = container.querySelector<HTMLElement>('[data-testid="task-chat-bubble-media"]')!;
+    expect(media.querySelector("button")?.className).toContain("aspect-video");
+    expect(media.querySelector("img")?.className).toContain("object-cover");
+  });
+
   it("shows three thumbnails and an overflow tile for five images", () => {
     const links = Array.from(
       { length: 5 },

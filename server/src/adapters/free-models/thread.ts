@@ -153,7 +153,8 @@ export async function drawAndUploadImage(
   const image = await puterImage(prompt, { model, signal });
   const ext = image.mimeType === "image/jpeg" ? "jpg" : "png";
   const uploaded = await uploadFile(api, companyId, issueId, `automa-${runId.slice(0, 8)}-${Date.now().toString(36)}.${ext}`, image.bytes, image.mimeType);
-  const alt = prompt.slice(0, 80).replace(/[[\]\n]/g, " ");
+  // The whole prompt rides the alt text, so Draw again asks for the same picture.
+  const alt = prompt.replace(/[[\]\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
   return { attachmentId: uploaded.attachmentId, contentPath: uploaded.contentPath, mimeType: image.mimeType, markdown: `![${alt}](${uploaded.contentPath})` };
 }
 

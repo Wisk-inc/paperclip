@@ -18,7 +18,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
-import { activityService } from "../services/activity.ts";
+import { activityService, runErrorPreview } from "../services/activity.ts";
 import { issueService } from "../services/issues.ts";
 import { documentService } from "../services/documents.ts";
 
@@ -148,6 +148,37 @@ describeEmbeddedPostgres("activity service", () => {
     const result = await activityService(db).list({ companyId, limit: 2 });
 
     expect(result.map((event) => event.action)).toEqual(["test.newest", "test.middle"]);
+  });
+
+  it("returns why a failed run stopped, short and without credentials", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issueId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({ id: agentId, companyId, name: "Runner", role: "general", status: "idle", adapterType: "free_models" });
+    const reason = "This free model has used up today's free requests. It's back in 5 hours: send the message again then, or pick another model in the switcher.";
+    await db.insert(heartbeatRuns).values({
+      id: randomUUID(),
+      companyId,
+      agentId,
+      invocationSource: "assignment",
+      status: "failed",
+      contextSnapshot: { issueId },
+      errorCode: "adapter_failed",
+      error: `${reason}\n  Provider said: Authorization: Bearer sk-ant-api03-${"a".repeat(40)} ${"detail ".repeat(80)}`,
+    });
+
+    const [run] = await activityService(db).runsForIssue(companyId, issueId);
+
+    expect(run.error?.startsWith(reason)).toBe(true);
+    expect(run.error!.length).toBeLessThanOrEqual(300);
+    expect(run.error).not.toContain("sk-ant-api03");
+    expect(run.error).not.toContain("\n");
   });
 
   it("returns compact usage and result summaries for issue runs", async () => {
@@ -570,5 +601,20 @@ describeEmbeddedPostgres("activity service", () => {
       livenessReason: "Run described runnable future work without concrete action evidence",
       lastUsefulActionAt: null,
     });
+  });
+});
+
+describe("runErrorPreview", () => {
+  it("keeps the reason and drops keys and tokens a provider echoed back", () => {
+    const jwt = `eyJ${"a".repeat(20)}.${"b".repeat(20)}.${"c".repeat(20)}`;
+    const preview = runErrorPreview(`The model refused the request: key sk-proj-${"x".repeat(30)} and token ${jwt} were rejected.`);
+    expect(preview).toContain("The model refused the request");
+    expect(preview).not.toContain("sk-proj-");
+    expect(preview).not.toContain(jwt);
+  });
+
+  it("is empty when the run recorded no reason", () => {
+    expect(runErrorPreview(null)).toBeNull();
+    expect(runErrorPreview("   ")).toBeNull();
   });
 });
