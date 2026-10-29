@@ -290,10 +290,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
 
-  const { answer, answeredBy, stopReason, hitTurnLimit } = await runToolLoop({
-    ctx, model, puterModel: resolved.puterModel, messages, tools, toolCtx, level, onLog, addUsage,
-    maxTurns: Math.max(1, asNumber(config.maxTurnsPerRun, 0) || DEFAULT_MAX_TOOL_TURNS),
-  });
+  let loop: Awaited<ReturnType<typeof runToolLoop>>;
+  try {
+    loop = await runToolLoop({
+      ctx, model, puterModel: resolved.puterModel, messages, tools, toolCtx, level, onLog, addUsage,
+      maxTurns: Math.max(1, asNumber(config.maxTurnsPerRun, 0) || DEFAULT_MAX_TOOL_TURNS),
+    });
+  } catch (error) {
+    if (!(error instanceof FreeModelRefusal)) throw error;
+    // The run's reason in the chat; a daily limit leaves the agent idle and is retried once it lifts.
+    return { exitCode: 1, signal: null, timedOut: false, errorMessage: error.message, errorCode: "adapter_failed", errorFamily: error.errorFamily, retryNotBefore: error.retryNotBefore, provider: "free_models", model, costUsd: 0, summary: null };
+  }
+  const { answer, answeredBy, stopReason, hitTurnLimit } = loop;
 
   const imageMarkdown = drawn.filter((image) => !answer.includes(image.attachmentId)).map((image) => image.markdown).join("\n\n");
   // Made files the reply does not link itself get a download line each.
@@ -418,6 +426,25 @@ interface LoopInput {
   addUsage: (model: string, usage: PuterUsage) => void;
 }
 
+/**
+ * A refusal said for the person, carrying what the server needs to retry it
+ * sensibly: a daily limit is the provider's quota and is tried again once it
+ * lifts, a busy provider shortly, anything else not at all.
+ */
+class FreeModelRefusal extends Error {
+  constructor(message: string, readonly errorFamily: "provider_quota" | "transient_upstream" | null, readonly retryNotBefore: string | null) {
+    super(message);
+  }
+}
+
+function refusalFor(error: PuterHttpError, label: string, retries: number): FreeModelRefusal {
+  const message = describePuterError(error, label, retries).message;
+  if (error.kind === "daily_limit") {
+    return new FreeModelRefusal(message, "provider_quota", error.retryAfterMs == null ? null : new Date(Date.now() + error.retryAfterMs).toISOString());
+  }
+  return new FreeModelRefusal(message, isTransientPuterError(error) ? "transient_upstream" : null, null);
+}
+
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
   const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage, puterModel } = input;
   const model = input.model;
@@ -473,7 +500,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       if (!(error instanceof PuterHttpError)) throw error;
       const status = `${error.status}${error.code ? ` ${error.code}` : ""}`;
       // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
-      if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
+      if (isLastingPuterError(error)) throw refusalFor(error, label, retries);
       // The provider refused the history with tool turns in it: say the same things as text.
       // (A busy line, a server error or a dropped connection is no refusal: it keeps its native shape.)
       if (!textHistory && refusedTheRequest(error) && messages.some((message) => message.role === "tool")) {
@@ -514,8 +541,8 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         }
         if (ctx.signal?.aborted) break;
       }
-      if (dropped) throw new Error(`The connection to ${label} kept dropping, so no reply came back. Automa stayed on this model and retried ${retries} time${retries === 1 ? "" : "s"}. Check the connection and send the message again.`);
-      throw describePuterError(error, label, retries);
+      if (dropped) throw new FreeModelRefusal(`The connection to ${label} kept dropping, so no reply came back. Automa stayed on this model and retried ${retries} time${retries === 1 ? "" : "s"}. Check the connection and send the message again.`, "transient_upstream", null);
+      throw refusalFor(error, label, retries);
     }
 
     addUsage(puterModel, usage);

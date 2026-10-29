@@ -242,10 +242,16 @@ describe("free models engine", () => {
     const net = stubPuter([
       refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Free model daily limit exceeded (1000 requests per day). Please try again after 600 seconds." }] }),
     ]);
-    const outcome = await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS })).then((r) => r.errorMessage ?? "", (e: Error) => e.message);
+    const result = await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", ...NO_TOOLS }));
     expect(net.puterModels()).toEqual(["deepseek/deepseek-v4.1-flash:free"]);
-    expect(outcome).toContain("DeepSeek V4.1 Flash has used up today's free requests");
-    expect(outcome).toContain("back in about 10 minutes");
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toContain("DeepSeek V4.1 Flash has used up today's free requests");
+    expect(result.errorMessage).toContain("back in about 10 minutes");
+    // The provider's quota: the server keeps the agent idle and tries again once it lifts, not seconds later.
+    expect(result.errorFamily).toBe("provider_quota");
+    const back = Date.parse(result.retryNotBefore!) - Date.now();
+    expect(back).toBeGreaterThan(590_000);
+    expect(back).toBeLessThanOrEqual(600_000);
   });
 
   it("asks Content Safety without tools and answers with a readable verdict", async () => {
@@ -556,12 +562,16 @@ describe("free models engine", () => {
       comments: hi,
       turns: [() => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo EAI_AGAIN api.puter.com"), { code: "EAI_AGAIN" }) }); }],
     });
-    const outcome = await execute(context({ model: NEMOTRON, ...NO_TOOLS })).then(() => "", (e: Error) => e.message);
+    const result = await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
+    const outcome = result.errorMessage ?? "";
     // The first try, four retries, then the one try without streaming.
     expect(net.sent()).toHaveLength(6);
     expect(outcome).toContain("Nemotron 3 Ultra 550B");
     expect(outcome).toMatch(/connection/i);
     expect(outcome).not.toContain("fetch failed");
+    // A dropped line is a passing upstream problem: the server may try once more, shortly.
+    expect(result.errorFamily).toBe("transient_upstream");
+    expect(result.retryNotBefore).toBeNull();
   });
 
   it("stops at once when the run is cancelled while it waits to retry", async () => {
