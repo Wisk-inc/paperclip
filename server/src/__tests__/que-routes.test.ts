@@ -61,7 +61,10 @@ beforeEach(() => {
   resetQue();
   sinks.captureException.mockClear();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("Que routes", () => {
   it("answers a question, then the same question from the cache", async () => {
@@ -131,6 +134,34 @@ describe("Que routes", () => {
       server.closeAllConnections();
       server.close();
     }
+  });
+
+  it("lets each person or agent ask 30 questions a minute, then answers 429 with when to ask again", async () => {
+    let now = Date.parse("2026-10-29T12:00:00Z");
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    serve(...Array.from({ length: 21 }, () => stream("ok")));
+    const app = appAs("ann");
+    const chat = `/api/companies/${COMPANY}/que/chat`;
+    const batch = `/api/companies/${COMPANY}/que/batch`;
+    const prompts = (count: number) => Array.from({ length: count }, (_, i) => `question ${i}`);
+    expect((await request(app).post(batch).send({ prompts: prompts(20), cache: false })).status).toBe(200);
+    now += 30_000;
+    // Answers from the cache count too: each is a question asked.
+    for (let i = 0; i < 10; i += 1) expect((await request(app).post(chat).send({ prompt: "same" })).status).toBe(200);
+    now += 10_000;
+    const refused = await request(app).post(batch).send({ prompts: ["same", "same", "same", "same", "same"] });
+    expect(refused.status).toBe(429);
+    // Five of the 20 asked at the start must leave the minute first: 20 seconds from now.
+    expect(refused.headers["retry-after"]).toBe("20");
+    expect(refused.body.error).toBe("Que answers up to 30 questions a minute from each person or agent, counting each prompt in a batch, because the free models are shared by everyone on Automa. Ask again in 20 seconds.");
+    expect((await request(app).post(chat).send({ prompt: "same" })).status).toBe(429);
+    expect((await request(app).post(`/api/companies/${COMPANY}/que/conversations/talk`).send({ prompt: "same" })).status).toBe(429);
+    // Someone else has their own minute.
+    expect((await request(appAs("ben")).post(chat).send({ prompt: "same" })).status).toBe(200);
+    // Once the first 20 leave the minute, 20 fit again: the refused questions spent none of it.
+    now += 20_001;
+    expect((await request(app).post(batch).send({ prompts: Array.from({ length: 20 }, () => "same") })).status).toBe(200);
+    expect(sent).toHaveLength(21);
   });
 
   it("answers a batch in order", async () => {

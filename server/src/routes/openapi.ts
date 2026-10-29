@@ -7825,13 +7825,37 @@ registerCurrentRoute({
   }),
 });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/terminals/sessions/{id}/stop", tags: ["terminals"], summary: "Stop a terminal" });
-registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/free-models/usage", tags: ["free-models"], summary: "Tokens and images spent on free models since the last reset, with what paid prices would have charged" });
-registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/free-models/usage/reset", tags: ["free-models"], summary: "Start the free-model usage count again from now" });
-registerCurrentRoute({ method: "get", path: "/api/free-models/health", tags: ["free-models"], summary: "Each free model's last known state: fine, at its daily limit (and when it resets), busy, or closed by its provider" });
-registerCurrentRoute({ method: "get", path: "/api/free-models/moan/status", tags: ["free-models"], summary: "Moan's Jamaican knowledge index: pages, sources and when it last refreshed" });
-registerCurrentRoute({ method: "post", path: "/api/free-models/moan/refresh", tags: ["free-models"], summary: "Read Moan's Jamaican sources again now" });
-registerCurrentRoute({ method: "get", path: "/api/free-models/moan/context", tags: ["free-models"], summary: "The passages Moan's knowledge index returns for a question (q)" });
-const queAsked = { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 503: r.serviceUnavailable };
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/free-models/usage", tags: ["free-models"], summary: "Tokens and images spent on free models (agent replies and App Studio) since the last reset, with what paid prices would have charged", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
+registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/free-models/usage/reset", tags: ["free-models"], summary: "Start the free-model usage count again from now (the company's board, not viewers or agents)", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
+registerCurrentRoute({ method: "get", path: "/api/free-models/health", tags: ["free-models"], summary: "Each free model's last known state: fine, at its daily limit (and when it resets), busy, or closed by its provider", responses: { 200: r.ok(), 401: r.unauthorized } });
+registerCurrentRoute({ method: "get", path: "/api/free-models/moan/status", tags: ["free-models"], summary: "Moan's Jamaican knowledge index: pages, sources and when it last refreshed", responses: { 200: r.ok(), 401: r.unauthorized } });
+registerCurrentRoute({
+  method: "post",
+  path: "/api/free-models/moan/refresh",
+  tags: ["free-models"],
+  summary: "Read Moan's Jamaican sources that are due now (the board); force: true reads every source again (the instance's admins only, 403 for anyone else)",
+  body: z.object({ force: z.boolean().optional() }),
+  responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden },
+});
+registerCurrentRoute({
+  method: "get",
+  path: "/api/free-models/moan/context",
+  tags: ["free-models"],
+  summary: "The passages Moan's knowledge index returns for a question (q; only its first 1,000 characters are used)",
+  query: z.object({ q: z.string().optional() }),
+  responses: { 200: r.ok(), 401: r.unauthorized },
+});
+const queAsked = {
+  200: r.ok(),
+  400: r.badRequest,
+  401: r.unauthorized,
+  403: r.forbidden,
+  429: {
+    ...r.tooManyRequests,
+    description: "Over the 30 questions a minute each person or agent may ask Que in a company (a batch counts each prompt); Retry-After says how many seconds until the questions fit",
+  },
+  503: r.serviceUnavailable,
+};
 const queRead = { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden, 404: r.notFound };
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/que/stats", tags: ["que"], summary: "The Que engine: free-model calls in flight and waiting, and this company's cached answers and your conversations", responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden } });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/que/chat", tags: ["que"], summary: "Ask the free models one question (prompt or messages): cached for 5 minutes, retried while busy, and handed to the next free model when this one can't answer today (fallback: false keeps it on this model)", body: queChatSchema, responses: queAsked });

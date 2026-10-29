@@ -14,7 +14,7 @@ import {
   type QueOptions,
   type QueScope,
 } from "@paperclipai/shared/que-engine";
-import { badRequest, HttpError, notFound } from "../errors.js";
+import { badRequest, HttpError, notFound, tooManyRequests } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
@@ -26,6 +26,34 @@ interface QueBody {
   fallback?: boolean;
 }
 
+/** Questions each person or agent may ask Que in a minute, in each company; a batch counts each prompt. */
+export const QUE_QUESTIONS_PER_MINUTE = 30;
+const QUE_BUDGET_WINDOW_MS = 60_000;
+
+/**
+ * Each caller's questions in the last minute. The free models' daily limits
+ * are shared by everyone on Automa, so no one caller may spend them in a burst.
+ */
+function questionBudget() {
+  const asked = new Map<string, number[]>();
+  return {
+    /** Counts the questions when they fit in the last minute; otherwise, the seconds until they would. */
+    take(key: string, questions: number): number {
+      const now = Date.now();
+      const recent = (asked.get(key) ?? []).filter((at) => at > now - QUE_BUDGET_WINDOW_MS);
+      const over = recent.length + questions - QUE_QUESTIONS_PER_MINUTE;
+      if (over > 0) {
+        asked.set(key, recent);
+        const frees = recent[Math.min(over, recent.length) - 1] ?? now;
+        return Math.max(1, Math.ceil((frees + QUE_BUDGET_WINDOW_MS - now) / 1000));
+      }
+      for (let i = 0; i < questions; i += 1) recent.push(now);
+      asked.set(key, recent);
+      return 0;
+    },
+  };
+}
+
 /**
  * The Que engine's routes. Cached answers are shared inside a company;
  * conversations belong to the person or agent that started them. Both live
@@ -33,6 +61,7 @@ interface QueBody {
  */
 export function queRoutes(_db: Db): Router {
   const router = Router();
+  const budget = questionBudget();
 
   function who(req: Request): QueScope {
     const companyId = req.params.companyId as string;
@@ -42,9 +71,17 @@ export function queRoutes(_db: Db): Router {
   }
 
   /** Options for one call; the call stops (and leaves the queue) when the client goes away. */
-  function optionsFor(req: Request, res: Response, body: QueBody): QueOptions {
+  function optionsFor(req: Request, res: Response, body: QueBody, questions = 1): QueOptions {
     const scope = who(req);
     if (body.model && !queModelId(body.model)) throw badRequest(`"${body.model}" is not one of the free chat models Que can ask`);
+    const wait = budget.take(`${scope.scope}\u0000${scope.owner}`, questions);
+    if (wait) {
+      res.set("Retry-After", String(wait));
+      throw tooManyRequests(
+        `Que answers up to ${QUE_QUESTIONS_PER_MINUTE} questions a minute from each person or agent, counting each prompt in a batch, because the free models are shared by everyone on Automa. Ask again in ${wait} second${wait === 1 ? "" : "s"}.`,
+        { retryAfterSeconds: wait },
+      );
+    }
     const controller = new AbortController();
     res.on("close", () => {
       if (!res.writableEnded) controller.abort();
@@ -86,7 +123,7 @@ export function queRoutes(_db: Db): Router {
 
   router.post("/companies/:companyId/que/batch", validate(queBatchSchema), async (req, res) => {
     const body = req.body as QueBody & { prompts: string[] };
-    const opts = optionsFor(req, res, body);
+    const opts = optionsFor(req, res, body, body.prompts.length);
     const results = await answering(res, opts, () => queBatch(body.prompts, opts));
     if (results) res.json({ results });
   });

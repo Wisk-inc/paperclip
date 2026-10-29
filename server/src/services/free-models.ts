@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
-import { activityLog, heartbeatRuns, type Db } from "@paperclipai/db";
+import { activityLog, costEvents, heartbeatRuns, type Db } from "@paperclipai/db";
 import type { AdapterModel } from "@paperclipai/adapter-utils";
-import { MOAN_LABEL, MOAN_MODEL_ID, type FreeModelUsageSummary } from "@paperclipai/shared";
+import { MOAN_LABEL, MOAN_MODEL_ID, resolveFreeModel, type FreeModelUsageSummary } from "@paperclipai/shared";
 import {
   PUTER_IMAGE_MODEL_META,
   PUTER_IMAGE_MODELS,
@@ -75,6 +75,11 @@ export function equivalentImageCostUsd(images: number): number {
   return images * IMAGE_REFERENCE_USD;
 }
 
+/**
+ * Free usage since the last reset: agent replies (each run records its own),
+ * and App Studio's assistant and code suggestions, which record their tokens
+ * as $0 cost events and are priced here the same way, per model.
+ */
 export async function freeModelUsage(db: Db, companyId: string): Promise<FreeModelUsageSummary> {
   const since = await db
     .select({ createdAt: activityLog.createdAt })
@@ -99,12 +104,32 @@ export async function freeModelUsage(db: Db, companyId: string): Promise<FreeMod
       sql`${usage} is not null`,
       since ? gt(heartbeatRuns.createdAt, since) : undefined,
     ));
+  const studio = await db
+    .select({
+      model: costEvents.model,
+      replies: sql<number>`count(*)::int`,
+      inputTokens: sql<number>`coalesce(sum(${costEvents.inputTokens} + ${costEvents.cachedInputTokens}), 0)::float8`,
+      outputTokens: sql<number>`coalesce(sum(${costEvents.outputTokens}), 0)::float8`,
+    })
+    .from(costEvents)
+    .where(and(
+      eq(costEvents.companyId, companyId),
+      eq(costEvents.source, "studio"),
+      eq(costEvents.provider, "free"),
+      since ? gt(costEvents.occurredAt, since) : undefined,
+    ))
+    .groupBy(costEvents.model);
+  const studioUsd = await Promise.all(studio.map((part) => {
+    const spent = { inputTokens: Number(part.inputTokens), outputTokens: Number(part.outputTokens) };
+    return spent.inputTokens + spent.outputTokens > 0 ? equivalentTokenCostUsd(resolveFreeModel(part.model).puterModel, spent) : 0;
+  }));
+  const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
   return {
     since: since ? since.toISOString() : null,
-    replies: Number(row?.replies ?? 0),
+    replies: Number(row?.replies ?? 0) + sum(studio.map((part) => Number(part.replies))),
     images: Number(row?.images ?? 0),
-    inputTokens: Number(row?.inputTokens ?? 0),
-    outputTokens: Number(row?.outputTokens ?? 0),
-    equivalentUsd: Number(row?.equivalentUsd ?? 0),
+    inputTokens: Number(row?.inputTokens ?? 0) + sum(studio.map((part) => Number(part.inputTokens))),
+    outputTokens: Number(row?.outputTokens ?? 0) + sum(studio.map((part) => Number(part.outputTokens))),
+    equivalentUsd: Number(row?.equivalentUsd ?? 0) + sum(studioUsd),
   };
 }

@@ -33,7 +33,8 @@ index of Jamaican sources on every turn.
 - Routes (`server/src/routes/free-models.ts`):
   - `GET /api/free-models/moan/status`: pages, sources, last refresh.
   - `POST /api/free-models/moan/refresh` (board): read due sources now;
-    `{ "force": true }` reads all of them.
+    `{ "force": true }` reads all of them, and only the instance's admins
+    may ask for that (anyone else gets 403).
   - `GET /api/free-models/moan/context?q=`: what the engine calls each turn.
 - UI: the model picker shows Moan first among the free models with its blurb,
   and, when an agent runs on Moan, a "Jamaica knowledge" card with the index
@@ -48,6 +49,10 @@ web tools are on, from the sites it looks up itself).
 
 The first Moan reply on an empty index starts a refresh in the background;
 the reply itself does not wait for it.
+
+After each refresh, news older than a year goes, along with the pages of
+sources no longer listed; past 80,000 rows the oldest news goes first. The
+index therefore stays a bounded size on a phone.
 
 ## Scope and privacy
 

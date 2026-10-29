@@ -5,7 +5,7 @@ import { freeModelHealth } from "@paperclipai/shared/puter-ai";
 import { logActivity } from "../services/activity-log.js";
 import { FREE_MODELS_RESET_ACTION, freeModelUsage } from "../services/free-models.js";
 import { moanKnowledge } from "../services/moan/index.js";
-import { assertAuthenticated, assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertAuthenticated, assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 
 export function freeModelRoutes(db: Db): Router {
   const router = Router();
@@ -42,7 +42,8 @@ export function freeModelRoutes(db: Db): Router {
 
   // Moan's Jamaican knowledge index is instance-level public content (see
   // doc/moan.md): any signed-in person or agent can read it; the board
-  // starts a refresh.
+  // starts a refresh of the sources that are due, and only the instance's
+  // admins have every source read again.
   router.get("/free-models/moan/status", async (req, res) => {
     assertAuthenticated(req);
     res.json(await moanKnowledge(db).status());
@@ -52,6 +53,7 @@ export function freeModelRoutes(db: Db): Router {
     assertAuthenticated(req);
     assertBoard(req);
     const force = (req.body as { force?: unknown } | undefined)?.force === true;
+    if (force) assertInstanceAdmin(req);
     const started = await moanKnowledge(db).refresh({ force });
     res.json({ ...started, status: await moanKnowledge(db).status() });
   });
