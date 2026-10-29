@@ -12,7 +12,7 @@ import { byRecency, freeHealthNote, modelVersion, ModelPickerSheet } from "./Mod
 const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn() }));
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockPushToast = vi.hoisted(() => vi.fn());
-const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), queStats: vi.fn(), moanStatus: vi.fn() }));
+const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), queStats: vi.fn(), moanStatus: vi.fn(), moanRefresh: vi.fn() }));
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
@@ -397,5 +397,43 @@ describe("ModelPickerSheet on a phone server older than the app", () => {
     await render(<ModelPickerSheet agent={agent()} open onOpenChange={() => {}} />, new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } }));
     await settle(() => expect(document.body.textContent).toContain("The Que engine is not answering"));
     expect(mockFreeModelsApi.queStats).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("Moan's knowledge card", () => {
+  const MOAN_STATUS = {
+    enabled: true,
+    inUse: true,
+    running: false,
+    pages: 120,
+    chunks: 900,
+    lastFetchedAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+    lastTickAt: null,
+    sources: [{ id: "gleaner", name: "The Gleaner", topic: "news", kind: "rss", url: "https://jamaica-gleaner.com/feed", everyMinutes: 60, lastRunAt: null, lastOkAt: null, lastError: null, pages: 120, due: false }],
+  };
+
+  it("says a refresh is still reading, not that all is up to date, when one is already running", async () => {
+    mockFreeModelsApi.moanStatus.mockResolvedValue(MOAN_STATUS);
+    // The schedule started reading after the card loaded, so the card still offers Refresh.
+    mockFreeModelsApi.moanRefresh.mockResolvedValue({ started: false, sources: 0, status: { ...MOAN_STATUS, running: true } });
+    const moan = agent({ adapterType: "free_models", adapterConfig: { model: "moan/moan-1:free" } });
+    await render(<ModelPickerSheet agent={moan} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="moan-knowledge"]')?.textContent).toContain("Refreshed 3 hours ago"));
+    const refresh = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="moan-knowledge"] button')].find((button) => button.textContent?.includes("Refresh"))!;
+    await act(async () => refresh.click());
+    await settle(() => expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Still reading Jamaican sources" })));
+    expect(mockPushToast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Everything is up to date" }));
+    await settle(() => expect(document.querySelector('[data-testid="moan-knowledge"]')?.textContent).toContain("Reading Jamaican sources now"));
+  });
+
+  it("still says everything is up to date when nothing was due and nothing is running", async () => {
+    mockFreeModelsApi.moanStatus.mockResolvedValue(MOAN_STATUS);
+    mockFreeModelsApi.moanRefresh.mockResolvedValue({ started: false, sources: 0, status: MOAN_STATUS });
+    const moan = agent({ adapterType: "free_models", adapterConfig: { model: "moan/moan-1:free" } });
+    await render(<ModelPickerSheet agent={moan} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="moan-knowledge"]')).not.toBeNull());
+    const refresh = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="moan-knowledge"] button')].find((button) => button.textContent?.includes("Refresh"))!;
+    await act(async () => refresh.click());
+    await settle(() => expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Everything is up to date" })));
   });
 });

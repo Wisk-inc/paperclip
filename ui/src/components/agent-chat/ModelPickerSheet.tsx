@@ -265,6 +265,11 @@ function MoanKnowledgeCard() {
     onSuccess: (data) => {
       haptic("success");
       client.setQueryData(queryKeys.freeModels.moan(), data.status);
+      // Nothing started because a refresh (the schedule's, or Moan's first reply's) is already reading: not "up to date".
+      if (!data.started && data.status.running) {
+        pushToast({ title: "Still reading Jamaican sources", body: "A refresh is already under way.", tone: "info" });
+        return;
+      }
       pushToast({ title: data.started ? `Reading ${data.sources} Jamaican source${data.sources === 1 ? "" : "s"}` : "Everything is up to date", tone: "success" });
     },
     onError: (error) => {
