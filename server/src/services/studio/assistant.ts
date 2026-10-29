@@ -2,6 +2,7 @@ import { conflict } from "../../errors.js";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import {
@@ -39,7 +40,7 @@ import {
 import { createThinkingTagSplitter, readThinkingLevel, thinkingInstruction } from "../../adapters/free-models/thinking.js";
 import { modelLabel } from "../../adapters/free-models/execute.js";
 import { webFetch, webSearch } from "../../adapters/free-models/web.js";
-import { currentText, recordEdit, undoEdit } from "./edits.js";
+import { currentText, listEdits, recordEdit, undoEdit } from "./edits.js";
 import { logger } from "../../middleware/logger.js";
 import {
   deleteStudioEntry,
@@ -180,6 +181,8 @@ const MAX_LENGTH_CONTINUATIONS = 20;
 const MAX_SILENT_FINISH_NUDGES = 2;
 /** The same tool call with the same input past this many times is a loop. */
 const MAX_IDENTICAL_CALLS = 3;
+/** Tools that change the project: after one, reading or running the same thing again can give a new result. */
+const CHANGING_TOOLS = new Set(["write_file", "edit_file", "delete_path", "undo_edit", "ask_teammate", "run_team"]);
 /** Same-model retries when a free model is busy at its provider, and the wait between them (short under test). */
 const FREE_BUSY_RETRIES = 4;
 const FREE_RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
@@ -208,6 +211,10 @@ class RunGuard {
 
   noteStep(step: StudioAssistantStep) {
     if (step.tool !== "say" && step.tool !== "think") this.stepsDone.push(step.summary);
+    // After a change, the same read or test run is a new check, not a repeat; the same change made again still is.
+    if (step.ok && CHANGING_TOOLS.has(step.tool)) {
+      for (const key of this.counts.keys()) if (!CHANGING_TOOLS.has(key.slice(0, key.indexOf(":")))) this.counts.delete(key);
+    }
   }
 
   /** On a reply with no tool calls and no words: the message that asks for the rest, or null when it may end. */
@@ -366,6 +373,20 @@ const TOOLS: ToolDef[] = [
 function clip(text: string, max = MAX_TOOL_OUTPUT) {
   return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters cut off)` : text;
 }
+
+/** Like clip, but keeps the end: in a console the newest lines matter most. */
+function clipTail(text: string, max = MAX_TOOL_OUTPUT) {
+  return text.length > max ? `… (${text.length - max} earlier characters cut off)\n${text.slice(-max)}` : text;
+}
+
+/**
+ * The lines of one file a search pattern matches, run with a time limit: a
+ * pattern that backtracks without end, such as (a+)+$, is stopped instead of
+ * freezing the server. Only the start of very long lines (minified code) is
+ * searched.
+ */
+const SCAN_LINES = new vm.Script("found = ((pattern, lines, limit) => { const out = []; for (let i = 0; i < lines.length && out.length < limit; i += 1) if (pattern.test(lines[i].slice(0, 4000))) out.push(i); return out; })(pattern, lines, limit);");
+const SCAN_TIMEOUT_MS = 1000;
 
 /** What a tool call is about to do, said the way the panel says it. */
 export function describeActivity(name: string, rawInput: unknown): string {
@@ -568,16 +589,20 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
         const files = (await listFilePaths(dirs.files, 5000)).filter((file) => !under || file === under || file.startsWith(`${under}/`));
         const matches: string[] = [];
         let scanned = 0;
+        const sandbox = vm.createContext({ pattern, lines: [] as string[], limit: 0, found: [] as number[] });
         for (const file of files) {
           if (matches.length >= limit) break;
           const content = await readStudioFile(dirs.files, file).then((entry) => entry.content).catch(() => null);
           if (content === null) continue;
           scanned += 1;
           const lines = content.split("\n");
-          for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
-            // Only the start of very long lines (minified code) is searched, so a heavy pattern cannot stall the server.
-            if (pattern.test(lines[index]!.slice(0, 4000))) matches.push(`${file}:${index + 1}: ${lines[index]!.trim().slice(0, 240)}`);
+          Object.assign(sandbox, { lines, limit: limit - matches.length });
+          try {
+            SCAN_LINES.runInContext(sandbox, { timeout: SCAN_TIMEOUT_MS });
+          } catch {
+            throw new Error("That pattern takes too long to run (it backtracks without end, like (a+)+); search with a simpler one");
           }
+          for (const index of sandbox.found as number[]) matches.push(`${file}:${index + 1}: ${lines[index]!.trim().slice(0, 240)}`);
         }
         return {
           ok: true,
@@ -616,13 +641,13 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
       }
       case "read_console": {
         const tail = runtime.consoleTail(Number(input.lines) || 200);
-        return { ok: true, output: tail || "(the console is empty)", step: { tool: name, summary: "Read the console", ok: true, detail: null } };
+        return { ok: true, output: clipTail(tail) || "(the console is empty)", step: { tool: name, summary: "Read the console", ok: true, detail: null } };
       }
       case "start_app": {
         await context.startApp();
         await new Promise((resolve) => setTimeout(resolve, 4000));
         const state = runtime.state;
-        const output = `status: ${state.status}${state.exitCode !== null ? ` (exit code ${state.exitCode})` : ""}\nweb preview ready: ${state.previewReady ? `yes (port ${state.port})` : "no"}\nconsole:\n${runtime.consoleTail(80)}`;
+        const output = `status: ${state.status}${state.exitCode !== null ? ` (exit code ${state.exitCode})` : ""}\nweb preview ready: ${state.previewReady ? `yes (port ${state.port})` : "no"}\nconsole:\n${clipTail(runtime.consoleTail(80))}`;
         return { ok: state.status !== "failed", output, step: { tool: name, summary: "Started the app", ok: state.status !== "failed", detail: clip(runtime.consoleTail(20), 1200) || null } };
       }
       case "stop_app": {
@@ -685,9 +710,9 @@ function historyFromTranscript(turns: StudioAssistantTurn[]): Array<{ role: "use
   return out;
 }
 
-/** User messages in a provider history that are the person speaking (not tool results). */
+/** User messages in a provider history that are the person speaking (not tool results, nor Automa's own "(Automa) …" nudges). */
 function spokenUserTurns(messages: Array<{ role: string; content: unknown }>): number {
-  return messages.filter((m) => m.role === "user" && (typeof m.content === "string" || (Array.isArray(m.content) && m.content.some((part) => (part as { type?: string }).type === "text" || (part as { type?: string }).type === "image" || (part as { type?: string }).type === "image_url")))).length;
+  return messages.filter((m) => m.role === "user" && (typeof m.content === "string" ? !m.content.startsWith("(Automa)") : (Array.isArray(m.content) && m.content.some((part) => (part as { type?: string }).type === "text" || (part as { type?: string }).type === "image" || (part as { type?: string }).type === "image_url")))).length;
 }
 
 async function projectOverview(context: StudioAssistantContext) {
@@ -721,14 +746,38 @@ export async function readAssistantTranscript(companyId: string, workspaceId: st
   return readJson(path.join(studioWorkspaceDirs(companyId, workspaceId).meta, "assistant-transcript.json"), []);
 }
 
-/** Marks the step that made a change as undone in the saved transcript; returns the turn that holds it. */
+/**
+ * Marks each step that made a change as undone or not, as the edit log says
+ * now (whoever undid it, and an undo can itself be undone, bringing the
+ * change back). Returns the turns whose marks changed.
+ */
+async function syncUndoneSteps(companyId: string, workspaceId: string, turns: StudioAssistantTurn[]): Promise<StudioAssistantTurn[]> {
+  const log = new Map((await listEdits(companyId, workspaceId)).map((entry) => [entry.id, entry]));
+  return turns.filter((turn) => {
+    let changed = false;
+    for (const step of turn.steps) {
+      const entry = step.editId ? log.get(step.editId) : undefined;
+      if (!entry || Boolean(step.undone) === Boolean(entry.undoneBy)) continue;
+      if (entry.undoneBy) step.undone = true;
+      else delete step.undone;
+      changed = true;
+    }
+    return changed;
+  });
+}
+
+/**
+ * After the person undoes a step: brings the saved steps' undone marks in
+ * line with the edit log and returns the turn that holds the step. Other
+ * turns whose marks changed (a change an undo brought back) go out here.
+ */
 export async function markEditUndone(companyId: string, workspaceId: string, editId: string): Promise<StudioAssistantTurn | null> {
   const file = path.join(studioWorkspaceDirs(companyId, workspaceId).meta, "assistant-transcript.json");
   const transcript = await readJson<StudioAssistantTurn[]>(file, []);
-  const turn = transcript.find((candidate) => candidate.steps.some((step) => step.editId === editId));
-  if (!turn) return null;
-  for (const step of turn.steps) if (step.editId === editId) step.undone = true;
-  await writeJson(file, transcript);
+  const changed = await syncUndoneSteps(companyId, workspaceId, transcript);
+  if (changed.length) await writeJson(file, transcript);
+  const turn = transcript.find((candidate) => candidate.steps.some((step) => step.editId === editId)) ?? null;
+  for (const other of changed) if (other !== turn) studioHub.broadcast(workspaceId, { type: "assistant", turn: other, done: true });
   return turn;
 }
 
@@ -895,6 +944,8 @@ async function startTurn(
     // The reply is saved before the turn stops counting as running, so a
     // reload or a "New chat" in between never sees it missing or revives it.
     transcript.push(turn);
+    // A change undone this turn (undo_edit), in this turn or an earlier one, shows as undone.
+    const remarked = await syncUndoneSteps(context.companyId, context.workspaceId, transcript).catch(() => [] as StudioAssistantTurn[]);
     try {
       await writeJson(transcriptFile, transcript.slice(-200));
     } catch (error) {
@@ -904,6 +955,7 @@ async function startTurn(
     running.delete(context.workspaceId);
     liveTurns.delete(context.workspaceId);
     publish(true);
+    for (const other of remarked) if (other !== turn) studioHub.broadcast(context.workspaceId, { type: "assistant", turn: other, done: true });
   };
 
   const onStep = (step: StudioAssistantStep) => {
@@ -1189,6 +1241,15 @@ async function runAnthropic(input: {
     ...(baseURL ? {} : { eager_input_streaming: true }),
   }));
   const useFallbacks = FALLBACK_MODELS.has(input.model);
+  // Thinking is shown in the panel as it happens (summarized). Earlier turns'
+  // thinking stops matching the conversation when its prompt or tools change
+  // between turns (a rename, a team added, an image kept only as a note): the
+  // API then drops it instead of refusing every later message. Like the
+  // streamed tool input, that setting is only sent to Anthropic itself.
+  const thinking = supportsAdaptiveThinking(input.model)
+    ? ({ type: "adaptive", display: "summarized", ...(baseURL ? {} : { block_binding: { prefix_mismatch_behavior: "drop_block" } }) } as Anthropic.Beta.BetaThinkingConfigParam)
+    : null;
+  const betas = [...(useFallbacks ? ["server-side-fallback-2026-07-01"] : []), ...(thinking && !baseURL ? ["thinking-binding-controls-2026-08-01"] : [])];
   // High unless the person picked another level the model takes.
   const effort = supportsEffort(input.model) ? thinkingLevelFor("anthropic", input.model, input.thinking) ?? "high" : null;
   let jsonRetries = 0;
@@ -1206,10 +1267,10 @@ async function runAnthropic(input: {
         system: [{ type: "text", text: input.systemExtra ? `${systemPrompt(context)}\n\n${input.systemExtra}` : systemPrompt(context), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
-        // Thinking is shown in the panel as it happens (summarized).
-        ...(supportsAdaptiveThinking(input.model) ? { thinking: { type: "adaptive" as const, display: "summarized" as const } } : {}),
+        ...(thinking ? { thinking } : {}),
         ...(effort ? { output_config: { effort } } : {}),
-        ...(useFallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
+        ...(betas.length ? { betas } : {}),
+        ...(useFallbacks ? { fallbacks: "default" as const } : {}),
       },
       { signal: input.signal },
     );
@@ -1448,6 +1509,7 @@ async function runOpenAiCompatible(input: {
       return;
     }
     for (const call of message.tool_calls) {
+      if (input.signal.aborted) throw new Error("Stopped.");
       let args: unknown = {};
       try {
         args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
@@ -1660,6 +1722,8 @@ export async function completeCode(input: {
   if (input.provider === "anthropic") {
     const client = new Anthropic({
       apiKey: input.credentials.apiKey,
+      // As in runAnthropic: never the server's own ANTHROPIC_AUTH_TOKEN.
+      authToken: null,
       baseURL: input.credentials.baseUrl || process.env.PAPERCLIP_STUDIO_ANTHROPIC_BASE_URL || undefined,
       maxRetries: 0,
       timeout: 20_000,
@@ -1687,10 +1751,12 @@ export async function completeCode(input: {
     const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
     return cleanCompletion(text, input.prefix);
   }
+  // The editor giving up and the time limit both end a suggestion.
+  const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000);
   if (input.provider === "free") {
     const reply = await puterComplete(
       [{ role: "system", content: COMPLETION_SYSTEM }, { role: "user", content: prompt }],
-      { model: resolveFreeModel(input.model).puterModel, retries: 1, signal: input.signal ?? AbortSignal.timeout(20_000) },
+      { model: resolveFreeModel(input.model).puterModel, retries: 1, signal },
     );
     input.onUsage?.({ provider: "free", model: reply.model, inputTokens: reply.usage.inputTokens, cachedInputTokens: 0, outputTokens: reply.usage.outputTokens, costUsd: 0 });
     return cleanCompletion(reply.text, input.prefix);
@@ -1700,7 +1766,7 @@ export async function completeCode(input: {
   if (!baseUrl) throw new Error("Add the API's base URL in Studio's AI settings.");
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    signal: input.signal ?? AbortSignal.timeout(20_000),
+    signal,
     headers: {
       authorization: `Bearer ${input.credentials.apiKey}`,
       "content-type": "application/json",
