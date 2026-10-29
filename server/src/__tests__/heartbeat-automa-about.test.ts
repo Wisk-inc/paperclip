@@ -12,6 +12,19 @@ describe("who made Automa, in the wake prompt", () => {
     expect(prompt.split(AUTOMA_ABOUT_FOR_AGENTS)).toHaveLength(2);
   });
 
+  it.each(["slack", "discord", "telegram"])("is told once to an agent chatting through %s", (externalChatProvider) => {
+    for (const conversationAgentId of [null, "agent"]) {
+      for (const nativeRunner of [true, false]) {
+        const prompt = buildPaperclipTaskMarkdown({
+          issue: { id: "chat", title: "Chat", conversationAgentId },
+          externalChatProvider,
+          nativeRunner,
+        });
+        expect(prompt.split(AUTOMA_ABOUT_FOR_AGENTS)).toHaveLength(2);
+      }
+    }
+  });
+
   it("stays out of task work, where nobody is chatting", () => {
     const prompt = buildPaperclipTaskMarkdown({ issue: { id: "task", title: "Ship the release" } });
     expect(prompt).not.toContain(AUTOMA_ABOUT_FOR_AGENTS);

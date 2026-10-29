@@ -8647,6 +8647,7 @@ export function buildPaperclipTaskMarkdown(input: {
             "No public task URL is configured. If asked for a link, explain that a public Paperclip URL must be configured; do not invent a URL or expose an internal API or sandbox address.",
           ]),
     );
+    if (!issue.conversationAgentId) lines.push("", AUTOMA_ABOUT_FOR_AGENTS);
   }
   if (input.externalChatProvider && input.nativeRunner) {
     lines.push(
