@@ -7665,6 +7665,46 @@ describeEmbeddedPostgres("tool access service", () => {
     }
   });
 
+  it("points a managed connection to the person's own OAuth app or token once Cloud sign-in is gone", async () => {
+    const company = await createCompany(db);
+    const userId = `drive-member-${randomUUID()}`;
+    await grantBoardUser(db, company.id, userId, [], "owner");
+    const actor = { actorType: "user" as const, actorId: userId };
+    const driveDefinition = getConnectableAppDefinition("google-drive")!;
+    const previousOwnershipAvailability = driveDefinition.ownershipAvailability;
+    driveDefinition.ownershipAvailability = {
+      ...previousOwnershipAvailability,
+      platform_shared: true,
+    };
+
+    try {
+      const connected = await createTestToolAccessService(db, {
+        paperclipCloudConnector: fakeGoogleWorkspaceConnector(company.id, userId, "drive.read"),
+      }).connectGalleryApp(
+        company.id,
+        {
+          galleryKey: "google-drive",
+          connectionMethodKey: "paperclip-read",
+          grantKind: "user",
+          name: "Drive managed read",
+        },
+        actor,
+      );
+      const withoutCloud = createTestToolAccessService(db, { paperclipCloudConnector: null });
+
+      await expect(withoutCloud.startOAuth(company.id, connected.connectionId, {
+        redirectUri: "https://paperclip.example/api/tools/oauth/cloud-connector/callback",
+        actor,
+      })).rejects.toMatchObject({
+        status: 422,
+        message: "Google Drive sign-in through Paperclip Cloud is not available on this server. Connect Google Drive with your own OAuth app or a personal access token instead.",
+        details: { code: "paperclip_cloud_connector_unavailable" },
+      });
+    } finally {
+      driveDefinition.ownershipAvailability = previousOwnershipAvailability;
+    }
+  });
+
   it("routes a managed Drive callback into the personal vault, filtered catalog, and provider-specific activity", async () => {
     const company = await createCompany(db);
     const userId = `drive-member-${randomUUID()}`;
