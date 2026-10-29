@@ -10,7 +10,7 @@
 set -euo pipefail
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
 ask() {
@@ -87,6 +87,10 @@ mdns() {
   # adb's own mDNS browser; may be unavailable or empty on some phones.
   timeout 6 adb mdns services 2>/dev/null | awk -v kind="$1" '$0 ~ kind { print $NF }' | grep -E '^[0-9.]+:[0-9]+$' | head -1 || true
 }
+
+# Every step from here asks for numbers shown on the phone; without a terminal
+# to type them in, the questions would repeat forever.
+{ : </dev/tty; } 2>/dev/null || fail "automa adb link asks for the numbers shown on the phone: run it in the Termux app."
 
 say "1. Open Settings → Developer options → Wireless debugging and turn it on."
 say "   Use split screen (or a floating window) so Termux stays visible."

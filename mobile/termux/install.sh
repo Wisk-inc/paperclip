@@ -63,9 +63,15 @@ if command -v termux-wake-lock >/dev/null 2>&1; then
 fi
 
 say "Checking Node.js and PostgreSQL"
-if ! command -v node >/dev/null 2>&1 || ! command -v pg_ctl >/dev/null 2>&1; then
+# Only what is missing: installing postgresql while it is there upgrades it, and
+# a new major version cannot open the database (see the check below).
+missing=""
+command -v node >/dev/null 2>&1 || missing="nodejs-lts"
+command -v pg_ctl >/dev/null 2>&1 || missing="$missing postgresql"
+if [ -n "$missing" ]; then
   # git: tasks that use a project repository check it out before the agent runs.
-  termux_pkg_install nodejs-lts postgresql git
+  # shellcheck disable=SC2086
+  termux_pkg_install $missing git
 fi
 # python: the Terminals page's PTY relay. proot-distro: the small Debian layer
 # Claude Code and Codex run in on a phone. Both small; the layer itself is set
@@ -209,9 +215,26 @@ export PAPERCLIP_LOCAL_TRUSTED_SECRET="\$(cat "$secret_file")"
 # this server and connects by itself, counting down while the server starts.
 link_app() {
   command -v am >/dev/null 2>&1 || return 1
-  am start -n com.corxlabs.automa/.MainActivity \\
+  am start -a android.intent.action.MAIN -n com.corxlabs.automa/.MainActivity \\
     --es com.corxlabs.automa.CONNECT http://127.0.0.1:3100 \\
     --es com.corxlabs.automa.SECRET "\$PAPERCLIP_LOCAL_TRUSTED_SECRET" >/dev/null 2>&1
+}
+# A complete copy of the database in \$1. It is written beside it first, so a
+# dump that fails (no space left, say) never leaves a file that looks like a backup.
+dump_db() {
+  if ( set -o pipefail; pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "\$1.part" ); then
+    mv "\$1.part" "\$1"
+  else
+    rm -f "\$1.part"
+    return 1
+  fi
+}
+# A backup restore can use: whole, and a dump that ran to its end (pg_dump's
+# closing line, or the COMMIT that ends Automa's own hourly backups).
+backup_ok() {
+  local end
+  end="\$(set -o pipefail; gunzip -c "\$1" 2>/dev/null | tail -n 20)" || return 1
+  printf '%s\n' "\$end" | grep -Eq '^(-- PostgreSQL database dump complete|COMMIT;)'
 }
 case "\${1:-}" in
   adb)
@@ -260,9 +283,10 @@ case "\${1:-}" in
     # (Send to Termux). Its installer updates in place and keeps the data.
     bundle="\$HOME/downloads/automa-server.tar.xz"
     [ -s "\$bundle" ] || { echo "No new server to install. In the Automa app, open the setup screen and tap Send to Termux, then run: automa update" >&2; exit 1; }
-    rm -rf "\$TMPDIR/automa-server"
-    tar -xf "\$bundle" -C "\$TMPDIR"
-    exec bash "\$TMPDIR/automa-server/install.sh"
+    tmp="\${TMPDIR:-$PREFIX/tmp}"
+    rm -rf "\$tmp/automa-server"
+    tar -xf "\$bundle" -C "\$tmp"
+    exec bash "\$tmp/automa-server/install.sh"
     ;;
   backup)
     # Same shape as the server's hourly backups, so automa restore reads both.
@@ -270,7 +294,7 @@ case "\${1:-}" in
     export PGPASSWORD="\$(cat "$db_password_file")"
     mkdir -p "$backup_dir"
     file="$backup_dir/automa-manual-\$(date +%Y%m%d-%H%M%S).sql.gz"
-    pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "\$file"
+    dump_db "\$file" || { echo "Could not back up the database (is there free space?). No backup was saved." >&2; exit 1; }
     echo "Database backed up to \$file"
     exit 0
     ;;
@@ -284,26 +308,45 @@ case "\${1:-}" in
     if [ -z "\$file" ]; then
       echo "Backups (newest first) in $backup_dir:"
       ls -t "$backup_dir"/*.sql.gz 2>/dev/null | head -n 10 | while read -r f; do printf '  %s  (%s)\n' "\$f" "\$(du -h "\$f" | cut -f1)"; done
-      file="\$(ls -t "$backup_dir"/*.sql.gz 2>/dev/null | head -n 1)"
-      [ -n "\$file" ] || { echo "No backups yet. automa backup makes one; Automa saves one every hour while it runs." >&2; exit 1; }
-      echo "Newest: \$file"
+      # A backup cut short (the phone ran out of space mid-way, say) is passed over.
+      file="\$(ls -t "$backup_dir"/*.sql.gz 2>/dev/null | while read -r f; do if backup_ok "\$f"; then echo "\$f"; break; fi; echo "Skipping \$f: it is not a complete backup." >&2; done)"
+      [ -n "\$file" ] || { echo "No complete backup yet. automa backup makes one; Automa saves one every hour while it runs." >&2; exit 1; }
+      echo "Newest complete backup: \$file"
+    elif [ ! -s "\$file" ]; then
+      echo "No such backup: \$file" >&2
+      exit 1
+    elif ! backup_ok "\$file"; then
+      echo "\$file is not a complete backup (it was cut short or is damaged). Nothing changed." >&2
+      exit 1
     fi
-    [ -s "\$file" ] || { echo "No such backup: \$file" >&2; exit 1; }
     if [ "\${2:-}" != "--yes" ] && [ "\${3:-}" != "--yes" ]; then
       printf 'Replace the current Automa database with %s? Type yes to continue: ' "\$file"
       read -r answer
       [ "\$answer" = "yes" ] || { echo "Nothing changed."; exit 1; }
     fi
-    # Keep what is there now, so a restore can itself be undone.
+    # Keep what is there now, so a restore can itself be undone; without that
+    # copy nothing is replaced.
     mkdir -p "$backup_dir"
-    before="$backup_dir/automa-before-restore-\$(date +%Y%m%d-%H%M%S).sql.gz"
-    pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa 2>/dev/null | gzip > "\$before" || rm -f "\$before"
+    before=""
+    if psql -h 127.0.0.1 -d postgres -tAc "select 1 from pg_database where datname = 'automa'" | grep -q 1; then
+      before="$backup_dir/automa-before-restore-\$(date +%Y%m%d-%H%M%S).sql.gz"
+      dump_db "\$before" || { echo "Could not save a copy of the current database first (is there free space?). Nothing changed." >&2; exit 1; }
+    fi
+    # Automa must be down while its database is swapped: one started by
+    # automa start/run stops here, one started some other way must be stopped first.
+    pid="\$(cat "$automa_home/automa.pid" 2>/dev/null || true)"
     "\$0" stop >/dev/null 2>&1 || true
+    for _ in \$(seq 1 30); do { [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null; } || break; sleep 1; done
+    if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null; then
+      echo "Automa is still running (started in another Termux session?). Stop it there with Ctrl+C, then run automa restore again. Nothing changed." >&2
+      exit 1
+    fi
     psql -h 127.0.0.1 -d postgres -tAc "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'automa' and pid <> pg_backend_pid()" >/dev/null || true
     dropdb -h 127.0.0.1 --if-exists automa
     createdb -h 127.0.0.1 automa
     gunzip -c "\$file" | psql -h 127.0.0.1 -d automa --quiet --no-psqlrc --set=ON_ERROR_STOP=0 >/dev/null
-    echo "Restored \$file. The copy from before this restore is \$before"
+    echo "Restored \$file."
+    [ -z "\$before" ] || echo "The copy from before this restore is \$before"
     echo "Start Automa again with: automa run"
     exit 0
     ;;

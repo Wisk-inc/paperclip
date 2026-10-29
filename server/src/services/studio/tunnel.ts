@@ -42,6 +42,7 @@ export function openQuickTunnel(port: number, onExit: (detail: string) => void):
       stdio: ["ignore", "pipe", "pipe"],
     });
     let settled = false;
+    let opened = false;
     const recent: string[] = [];
     const timer = setTimeout(() => {
       if (settled) return;
@@ -56,6 +57,7 @@ export function openQuickTunnel(port: number, onExit: (detail: string) => void):
       const match = text.match(QUICK_TUNNEL_URL);
       if (match && !settled) {
         settled = true;
+        opened = true;
         clearTimeout(timer);
         resolve({ url: match[0], process: child });
       }
@@ -76,7 +78,9 @@ export function openQuickTunnel(port: number, onExit: (detail: string) => void):
         reject(new Error(detail));
         return;
       }
-      onExit(detail);
+      // A tunnel that never gave a link was already reported as failed; its late
+      // exit must not touch the state of a link opened since.
+      if (opened) onExit(detail);
     });
   });
 }

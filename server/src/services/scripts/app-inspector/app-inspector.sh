@@ -38,15 +38,29 @@ ensure_java_runtime() { command -v java >/dev/null 2>&1 || need java openjdk-21 
 # apktool from its own release jar, for when the package can't be installed:
 # the newest apktool_*.jar from GitHub, run through a small wrapper.
 apktool_from_jar() {
-  local tools="$HOME/.automa/tools" url
+  local tools="$HOME/.automa/tools" url tag
   ensure_java_runtime
   mkdir -p "$tools"
   if [ ! -s "$tools/apktool.jar" ]; then
     say "Downloading apktool from its GitHub release instead"
     url="$(curl -fsSL https://api.github.com/repos/iBotPeaches/Apktool/releases/latest 2>/dev/null \
       | grep -o '"browser_download_url": *"[^"]*apktool_[^"]*\.jar"' | head -n 1 | sed 's/.*"\(https[^"]*\)"/\1/')"
+    if [ -z "$url" ]; then
+      # GitHub's API answers 60 calls an hour per address, shared by everyone on
+      # the same phone network: name the jar from the release page's redirect.
+      tag="$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://github.com/iBotPeaches/Apktool/releases/latest 2>/dev/null \
+        | sed -n 's#.*/releases/tag/v\([0-9][0-9.]*\)$#\1#p')"
+      [ -z "$tag" ] || url="https://github.com/iBotPeaches/Apktool/releases/download/v$tag/apktool_$tag.jar"
+    fi
     [ -n "$url" ] || return 1
-    curl -fL --retry 3 -o "$tools/apktool.jar.part" "$url" && mv "$tools/apktool.jar.part" "$tools/apktool.jar" || { rm -f "$tools/apktool.jar.part"; return 1; }
+    # Kept only when it is a jar (a zip): an error page kept as apktool.jar
+    # would break apktool until the file was deleted by hand.
+    if curl -fL --retry 3 -o "$tools/apktool.jar.part" "$url" && [ "$(head -c 2 "$tools/apktool.jar.part")" = "PK" ]; then
+      mv "$tools/apktool.jar.part" "$tools/apktool.jar"
+    else
+      rm -f "$tools/apktool.jar.part"
+      return 1
+    fi
   fi
   local bin="${PREFIX:-$HOME/.local}/bin"
   mkdir -p "$bin"
@@ -164,7 +178,8 @@ case "${1:-}" in
     ks="$(inspector_keystore)"
     pass="$(cat "$HOME/.automa/inspector-keystore.pass")"
     say "Signing"
-    if command -v apksigner >/dev/null 2>&1 || { on_phone && need apksigner apksigner "" ; }; then
+    # need exits when apksigner can't be installed; in a subshell that leaves jarsigner to sign.
+    if command -v apksigner >/dev/null 2>&1 || { on_phone && ( need apksigner apksigner "Signing with jarsigner instead." ); }; then
       apksigner sign --ks "$ks" --ks-key-alias automa --ks-pass "pass:$pass" --key-pass "pass:$pass" --v4-signing-enabled false --out "$out" "$aligned"
     else
       # v1 (jar) signing only: fine for old phones; Android 11+ apps need apksigner.

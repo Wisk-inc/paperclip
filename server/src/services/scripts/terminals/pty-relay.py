@@ -63,13 +63,16 @@ def main():
     except OSError:
         control_fd = -1
     control_buf = b""
+    stdin_open = True
 
     for fd in (stdin_fd, master) + ((control_fd,) if control_fd >= 0 else ()):
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
     while True:
-        watch = [master, stdin_fd] + ([control_fd] if control_fd >= 0 else [])
+        # A closed pipe reads as ready forever: once stdin or the resize channel
+        # ends it is no longer watched, or this loop would spin a CPU core.
+        watch = [master] + ([stdin_fd] if stdin_open else []) + ([control_fd] if control_fd >= 0 else [])
         try:
             readable, _, _ = select.select(watch, [], [])
         except (InterruptedError, OSError):
@@ -88,6 +91,8 @@ def main():
         if stdin_fd in readable:
             try:
                 data = os.read(stdin_fd, 65536)
+            except BlockingIOError:
+                data = None
             except OSError:
                 data = b""
             if data:
@@ -95,13 +100,19 @@ def main():
                     os.write(master, data)
                 except OSError:
                     pass
-            # EOF on stdin is not a reason to kill the program; it keeps running.
+            elif data is not None:
+                # EOF on stdin is not a reason to kill the program; it keeps running.
+                stdin_open = False
         if control_fd >= 0 and control_fd in readable:
             try:
                 chunk = os.read(control_fd, 4096)
+            except BlockingIOError:
+                chunk = None
             except OSError:
                 chunk = b""
-            if chunk:
+            if chunk == b"":
+                control_fd = -1
+            elif chunk:
                 control_buf += chunk
                 while b"\n" in control_buf:
                     line, control_buf = control_buf.split(b"\n", 1)

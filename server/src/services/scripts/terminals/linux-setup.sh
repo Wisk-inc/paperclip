@@ -23,7 +23,8 @@ on_phone() { [ -n "${PREFIX:-}" ] && case "$PREFIX" in *com.termux*) return 0;; 
 
 # Run a command inside the Debian layer. A login shell there does not always
 # read ~/.bashrc, so the folders the installers put tools in are named here.
-indeb() { proot-distro login "$DISTRO" -- bash -lc "export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\" DEBIAN_FRONTEND=noninteractive; $1"; }
+# pipefail: a download that fails in `curl … | bash` must not pass as success.
+indeb() { proot-distro login "$DISTRO" -- bash -lc "set -o pipefail; export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\" DEBIAN_FRONTEND=noninteractive; $1"; }
 
 ensure_wake_lock() { command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true; }
 
