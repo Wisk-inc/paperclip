@@ -24,6 +24,7 @@ import { startServiceWorkerUpdates } from "./lib/service-worker-updates";
 import { installInputLimitHaptics } from "./lib/haptics";
 import "@mdxeditor/editor/style.css";
 import "./index.css";
+import { queryNetworkMode } from "./lib/network-mode";
 
 initPluginBridge(React, ReactDOM);
 
@@ -48,9 +49,12 @@ if (!isStudioGuest) {
   });
 }
 
+const networkMode = queryNetworkMode(window.location.hostname);
 const queryClient = new QueryClient({
   defaultOptions: {
+    mutations: { networkMode },
     queries: {
+      networkMode,
       staleTime: 30_000,
       // Explicit so cross-tab-published cache entries for resources this tab
       // isn't observing get collected promptly rather than lingering. Single

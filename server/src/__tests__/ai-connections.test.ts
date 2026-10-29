@@ -736,6 +736,28 @@ describe("managed AI connections", () => {
     }
   });
 
+  it("moves an agent with an AI connection onto the free models, which need none", async () => {
+    const { agentRoutes } = await import("../routes/agents.js");
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => { req.actor = { type: "board", source: "local_implicit", userId: "alice", companyIds: [companyId] }; next(); });
+    app.use("/api", agentRoutes(db));
+    app.use((error: { status?: number; message: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => { res.status(error.status ?? 500).json({ error: error.message }); });
+    const aiConnection = { provider: "anthropic", method: "api_key", mode: "responsible_user" } as const;
+    for (const body of [
+      { adapterType: "free_models", adapterConfig: { model: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+      { adapterType: "free_models", adapterConfig: { model: "nvidia/nemotron-3-ultra-550b-a55b:free" }, runtimeConfig: { heartbeat: { enabled: false } } },
+    ]) {
+      const id = randomUUID();
+      await db.insert(agents).values({ id, companyId, name: "Switches to free", adapterType: "claude_local", adapterConfig: { model: "claude-opus-5-5" }, runtimeConfig: { aiConnection } });
+      const moved = await request(app).patch(`/api/agents/${id}`).send(body);
+      expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+      expect(moved.body.adapterType).toBe("free_models");
+      const [row] = await db.select().from(agents).where(eq(agents.id, id));
+      expect(row.runtimeConfig.aiConnection).toBeUndefined();
+    }
+  });
+
   it("creates and hires agents with an authorized restricted shared connection", async () => {
     const { agentRoutes } = await import("../routes/agents.js");
     await db.update(companies).set({ requireBoardApprovalForNewAgents: false }).where(eq(companies.id, companyId));
