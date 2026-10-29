@@ -54,6 +54,44 @@ export function modelLabel(model: string): string {
 /** The tool exchanges rewritten as plain text (kept here for the engine's callers and tests). */
 export { toolHistoryAsText };
 
+const DROPPED_MESSAGE = /^(?:fetch failed|terminated)$|socket hang up|other side closed|ECONNRESET/i;
+const DROPPED_CODE = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/;
+
+/** A connection that dropped or never opened (common on a phone), as the busy refusal it is retried like; null for anything else. */
+function droppedConnection(error: unknown): PuterHttpError | null {
+  for (let cause: unknown = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth += 1) {
+    const code = (cause as { code?: unknown }).code;
+    if (DROPPED_MESSAGE.test(cause.message) || (typeof code === "string" && DROPPED_CODE.test(code))) {
+      return new PuterHttpError(503, JSON.stringify({ error: "The connection to the free model service dropped." }), { kind: "busy", retryAfterMs: null });
+    }
+  }
+  return null;
+}
+
+/**
+ * A refusal of the request as sent (a 4xx other than a rate limit or a timeout:
+ * the model takes no tools, or the history's tool turns were rejected), which
+ * a reshaped history or no tools may pass. A busy line, a server error or a
+ * dropped connection is a wait instead, and keeps the request as it is.
+ */
+function refusedTheRequest(error: PuterHttpError): boolean {
+  return error.kind === "no_tools" || (error.status >= 400 && error.status < 500 && error.status !== 429 && error.status !== 408);
+}
+
+/** Waits `ms`, ending early when the run is cancelled. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+    if (signal?.aborted) done();
+  });
+}
+
 function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -68,7 +106,7 @@ function boolToggle(value: unknown, fallback: boolean): boolean {
 function bondedImageModel(config: Record<string, unknown>): PuterImageModelId | null {
   const raw = pairedFreeImageModel(config);
   if (!raw) return null;
-  if (raw in PUTER_IMAGE_MODELS) return PUTER_IMAGE_MODELS[raw as keyof typeof PUTER_IMAGE_MODELS];
+  if (Object.hasOwn(PUTER_IMAGE_MODELS, raw)) return PUTER_IMAGE_MODELS[raw as keyof typeof PUTER_IMAGE_MODELS];
   return isPuterImageModel(raw) ? raw : null;
 }
 
@@ -199,7 +237,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       await onLog("stdout", logLine({ type: "acpx.status", message: `Attaching ${name}` }));
       const uploaded = await uploadFile(api, issue.companyId, issueId, name, bytes, mimeType);
       const saved: SavedDocument = { ...uploaded };
-      if (direct) {
+      // A copy in the working folder only when the agent may use files; the reply carries it either way.
+      if (direct && toggles.filesAndCommands) {
         try {
           await fs.mkdir(path.join(direct.cwd, "documents"), { recursive: true });
           await fs.writeFile(path.join(direct.cwd, "documents", name), bytes);
@@ -390,8 +429,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
   let lastAnswer = "";
   let lastReasoning = "";
   let stopReason = "end_turn";
-  // Recovery, always on this model: the tool history as text, then no tools,
-  // then a few waits for a busy provider. Each step is tried once per run.
+  // Recovery, always on this model: a refused request gets the tool history as
+  // text, then no tools (each once per run); a busy provider, a server error or
+  // a dropped connection gets a few waits with the request unchanged.
   let textHistory = false;
   let retries = 0;
   let triedPlain = false;
@@ -426,22 +466,24 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       for (const piece of splitter.flush()) await emit(piece);
       // A reply that opened <thinking> and never closed it holds the answer as well: keep it, as splitThinking does.
       if (!text.trim() && calls.length === 0 && splitter.unclosed) text = tagged;
-    } catch (error) {
+    } catch (caught) {
       if (ctx.signal?.aborted) break;
+      const dropped = caught instanceof PuterHttpError ? null : droppedConnection(caught);
+      const error = dropped ?? caught;
       if (!(error instanceof PuterHttpError)) throw error;
       const status = `${error.status}${error.code ? ` ${error.code}` : ""}`;
       // A daily limit, a closed or withdrawn model: no retry in this reply fixes it, so say why now.
       if (isLastingPuterError(error)) throw describePuterError(error, label, retries);
       // The provider refused the history with tool turns in it: say the same things as text.
-      // (A rate limit is not a refusal of the history: it keeps its native shape.)
-      if (!textHistory && error.status !== 429 && messages.some((message) => message.role === "tool")) {
+      // (A busy line, a server error or a dropped connection is no refusal: it keeps its native shape.)
+      if (!textHistory && refusedTheRequest(error) && messages.some((message) => message.role === "tool")) {
         textHistory = true;
         await onLog("stdout", logLine({ type: "acpx.status", message: `${label} refused the tool history (${status}); sending it as text and trying again.` }));
         turn -= 1;
         continue;
       }
-      // A rate limit is a wait, not a reason to take the tools away.
-      if (useTools && error.status !== 429) {
+      // Only a refusal of the request takes the tools away; anything busy is a wait.
+      if (useTools && refusedTheRequest(error)) {
         useTools = false;
         await onLog("stdout", logLine({ type: "acpx.status", message: `${label} did not take the tools (${status}); answering in text.` }));
         turn -= 1;
@@ -449,8 +491,11 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       }
       if (retries < MAX_TRANSIENT_RETRIES && isTransientPuterError(error)) {
         retries += 1;
-        await onLog("stdout", logLine({ type: "acpx.status", message: `${label} is busy (${status}); retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).` }));
-        await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MS * retries));
+        const message = dropped
+          ? `The connection to ${label} dropped; retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).`
+          : `${label} is busy (${status}); retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).`;
+        await onLog("stdout", logLine({ type: "acpx.status", message }));
+        await pause(RETRY_BASE_MS * retries, ctx.signal);
         turn -= 1;
         continue;
       }
@@ -467,7 +512,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         } catch {
           // Reported below, with the streaming refusal.
         }
+        if (ctx.signal?.aborted) break;
       }
+      if (dropped) throw new Error(`The connection to ${label} kept dropping, so no reply came back. Automa stayed on this model and retried ${retries} time${retries === 1 ? "" : "s"}. Check the connection and send the message again.`);
       throw describePuterError(error, label, retries);
     }
 

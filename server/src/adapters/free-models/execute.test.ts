@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext } from "../types.js";
 import { resetFreeModelHealth } from "@paperclipai/shared/puter-ai";
@@ -165,6 +168,8 @@ describe("free models engine", () => {
     const calls: Call[] = [];
     let n = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      // Like a real fetch, a cancelled run's requests fail at once.
+      if (init.signal?.aborted) throw init.signal.reason;
       const url = String(input);
       const method = init.method ?? "GET";
       calls.push({ url, method, headers: {}, body: init.body });
@@ -173,6 +178,7 @@ describe("free models engine", () => {
       if (url === `${API}/api/issues/issue-1`) return json({ companyId: "company-1", title: "Chat", conversationAgentId: "agent-1" });
       if (url.startsWith(`${API}/api/issues/issue-1/comments`) && method === "GET") return json(options.comments);
       if (url === `${API}/api/issues/issue-1/attachments`) return json(options.attachments ?? []);
+      if (url === `${API}/api/companies/company-1/issues/issue-1/attachments` && method === "POST") return json({ id: "att-9", contentPath: "/api/attachments/att-9/content" });
       if (url.startsWith(`${API}/api/attachments/`)) return new Response(Buffer.from(JPEG, "base64"), { status: 200, headers: { "content-type": "image/jpeg" } });
       if (url === `${API}/api/companies/company-1/agents`) return json(options.agents ?? []);
       if (url === `${API}/api/agents/me`) return json({ id: "agent-1", name: "Atlas" });
@@ -514,6 +520,109 @@ describe("free models engine", () => {
     });
     await execute(context({ model: "moan/moan-1:free", ...NO_TOOLS }));
     expect(net.calls.some((c) => c.url.startsWith(`${API}/api/free-models/moan/context?q=`))).toBe(true);
+  });
+
+  const answer = (text: string) => () => ndjson([{ type: "text", text }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]);
+  const whoAmI = () => ndjson([{ type: "tool_use", id: `t${Math.random()}`, name: "Automa", input: { method: "GET", path: "/api/agents/me" } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]);
+  const hi = [{ id: "c1", authorType: "user", authorAgentId: null, body: "Who am I talking to?" }];
+  const WITH_AUTOMA = { freeFiles: false, freeWeb: false, freeConnections: false, imageModel: "none" };
+
+  it("retries a dropped connection like a busy provider, with the tools and history as they were", async () => {
+    const reset = () => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }); };
+    // A stream that delivers a piece and then loses its socket.
+    const cutOff = () => {
+      let started = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (started) return controller.error(new TypeError("terminated", { cause: new Error("other side closed") }));
+          started = true;
+          controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "text", text: "You are" })}\n`));
+        },
+      }), { status: 200, headers: { "content-type": "application/x-ndjson" } });
+    };
+    const net = stubThread({ comments: hi, turns: [whoAmI, reset, cutOff, answer("You are talking to Atlas.")] });
+    await execute(context({ model: NEMOTRON, ...WITH_AUTOMA }));
+    const sent = net.sent();
+    expect(sent).toHaveLength(4);
+    for (const args of sent.slice(1)) {
+      expect(args.tools?.length).toBeGreaterThan(0);
+      expect(args.messages.some((m) => m.role === "tool")).toBe(true);
+    }
+    expect(net.posted()).toBe("You are talking to Atlas.");
+  });
+
+  it("ends with a readable error when the connection keeps dropping", async () => {
+    const net = stubThread({
+      comments: hi,
+      turns: [() => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo EAI_AGAIN api.puter.com"), { code: "EAI_AGAIN" }) }); }],
+    });
+    const outcome = await execute(context({ model: NEMOTRON, ...NO_TOOLS })).then(() => "", (e: Error) => e.message);
+    // The first try, four retries, then the one try without streaming.
+    expect(net.sent()).toHaveLength(6);
+    expect(outcome).toContain("Nemotron 3 Ultra 550B");
+    expect(outcome).toMatch(/connection/i);
+    expect(outcome).not.toContain("fetch failed");
+  });
+
+  it("stops at once when the run is cancelled while it waits to retry", async () => {
+    const controller = new AbortController();
+    const net = stubThread({ comments: hi, turns: [() => { throw new TypeError("terminated"); }] });
+    const ctx = { ...context({ model: NEMOTRON, ...NO_TOOLS }), signal: controller.signal };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let outcome: string | undefined;
+      void execute(ctx).then(() => { outcome = "done"; }, (e: Error) => { outcome = e.name; });
+      const tick = () => new Promise((resolve) => setImmediate(resolve));
+      const waiting = () => ctx.logs.some((line) => line.includes("retrying in a moment"));
+      for (let i = 0; i < 500 && !waiting() && outcome === undefined; i += 1) await tick();
+      expect(waiting()).toBe(true);
+      controller.abort();
+      // The clock never moves: a wait that ignored the cancel would never end.
+      for (let i = 0; i < 500 && outcome === undefined; i += 1) await tick();
+      expect(outcome).toBe("AbortError");
+      expect(net.sent()).toHaveLength(1);
+      expect(net.calls.some((c) => c.method === "POST" && c.url.endsWith("/comments"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the tools and their history through server errors, which are a wait", async () => {
+    const net = stubThread({
+      comments: hi,
+      turns: [refusal(500, { error: "Internal server error" }), whoAmI, refusal(502, { error: "Bad gateway" }), answer("You are talking to Atlas.")],
+    });
+    await execute(context({ model: NEMOTRON, ...WITH_AUTOMA }));
+    const sent = net.sent();
+    expect(sent).toHaveLength(4);
+    expect(sent.every((args) => (args.tools?.length ?? 0) > 0)).toBe(true);
+    expect(sent[3]!.messages.some((m) => m.role === "tool")).toBe(true);
+    expect(net.posted()).toBe("You are talking to Atlas.");
+  });
+
+  it("keeps a made document out of the working folder when Files & commands is off, and still attaches it", async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "automa-free-docs-"));
+    const makeDoc = () => ndjson([{ type: "tool_use", id: `t${Math.random()}`, name: "CreateDocument", input: { title: "Plan", markdown: "# Plan\n\nShip it on Friday." } }, { type: "usage", usageDetails: { inputTokens: 3, outputTokens: 1 }, stopReason: "tool_use" }]);
+    const config = { model: NEMOTRON, cwd, freeTeammates: true, freeWeb: false, freeConnections: false, imageModel: "none" };
+    try {
+      const off = stubThread({ comments: hi, turns: [makeDoc, answer("Here is the plan.")] });
+      await execute(context({ ...config, freeFiles: false }));
+      expect(off.calls.some((c) => c.method === "POST" && c.url.endsWith("/issues/issue-1/attachments"))).toBe(true);
+      expect(off.posted()).toContain("Plan.docx");
+      await expect(fs.readdir(path.join(cwd, "documents"))).rejects.toThrow();
+      // With files on, the same document is kept in the folder as well.
+      stubThread({ comments: hi, turns: [makeDoc, answer("Here is the plan.")] });
+      await execute(context({ ...config, freeFiles: true }));
+      expect(await fs.readdir(path.join(cwd, "documents"))).toEqual(["Plan.docx"]);
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("offers no GenerateImage when the paired image model is only an object property name", async () => {
+    const net = stubThread({ comments: hi, turns: [answer("Hello.")] });
+    await execute(context({ model: NEMOTRON, ...NO_TOOLS, imageModel: "toString" }));
+    expect(((net.sent()[0]!.tools ?? []) as Array<{ function: { name: string } }>).map((tool) => tool.function.name)).toEqual(OFFICE_TOOL_NAMES);
   });
 
   it("explains a missing agent key instead of answering silently", async () => {
