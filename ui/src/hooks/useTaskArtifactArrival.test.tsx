@@ -3,7 +3,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { IssueAttachment, IssueDocumentSummary, IssueWorkProduct } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useTaskArtifactArrival } from "./useTaskArtifactArrival";
+import { opensPanelOnArrival, useTaskArtifactArrival } from "./useTaskArtifactArrival";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -110,5 +110,14 @@ describe("new task artifacts", () => {
     expect(onArrival).not.toHaveBeenCalled();
     await render({ workProducts: [{ id: "pr-1", type: "pull_request", provider: "github" } as IssueWorkProduct] });
     expect(onArrival).toHaveBeenCalledOnce();
+  });
+});
+
+describe("opensPanelOnArrival", () => {
+  it("leaves a chat on a phone where it is, and opens the panel everywhere else", () => {
+    expect(opensPanelOnArrival({ isMobile: true, isChat: true })).toBe(false);
+    expect(opensPanelOnArrival({ isMobile: true, isChat: false })).toBe(true);
+    expect(opensPanelOnArrival({ isMobile: false, isChat: true })).toBe(true);
+    expect(opensPanelOnArrival({ isMobile: false, isChat: false })).toBe(true);
   });
 });

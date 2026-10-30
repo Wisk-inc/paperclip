@@ -161,7 +161,7 @@ describeEmbeddedPostgres("activity service", () => {
       requireBoardApprovalForNewAgents: false,
     });
     await db.insert(agents).values({ id: agentId, companyId, name: "Runner", role: "general", status: "idle", adapterType: "free_models" });
-    const reason = "This free model has used up today's free requests. It's back in 5 hours: send the message again then, or pick another model in the switcher.";
+    const reason = "This free model has used up today's free requests. It's back in 5 hours. To keep going now, pick another model in the switcher.";
     await db.insert(heartbeatRuns).values({
       id: randomUUID(),
       companyId,

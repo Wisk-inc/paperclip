@@ -9,6 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  appIdPoolStats,
   describePuterError,
   formatSafetyVerdict,
   freeModelHealth,
@@ -373,7 +374,7 @@ export function queStats(who: QueScope = {}): QueStats {
     cachedAnswers += 1;
     cacheHits += entry.hits;
   }
-  return { ...queQueueStats(), cachedAnswers, cacheHits, conversations: ownedConversations(who).length };
+  return { ...queQueueStats(), appIdPool: appIdPoolStats(), cachedAnswers, cacheHits, conversations: ownedConversations(who).length };
 }
 
 /** Forgets every cached answer and conversation (tests). */

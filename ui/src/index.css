@@ -2551,6 +2551,16 @@ a.paperclip-mention-chip[data-mention-kind="agent"]::before {
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 
+/* A site's icon beside a source link sits in the line like a letter. The
+   prose styles give pictures a large margin above and below, which lifted
+   the icon off its text and opened a gap under every line with a link. */
+.paperclip-markdown img.paperclip-site-favicon,
+img.paperclip-site-favicon {
+  margin-block: 0;
+  border-radius: var(--radius-xs);
+  box-shadow: none;
+}
+
 .paperclip-markdown-table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -2573,6 +2583,30 @@ a.paperclip-mention-chip[data-mention-kind="agent"]::before {
   min-width: 8rem;
   max-width: 18rem;
   vertical-align: top;
+}
+
+/* On a phone a column takes at most about half the screen, so the next one
+   shows beside it; the edge with more to scroll fades out. */
+@media (max-width: 640px) {
+  .paperclip-markdown-table-scroll :where(th, td) {
+    min-width: 6rem;
+    max-width: 11rem;
+  }
+}
+
+.paperclip-markdown-table-scroll[data-more-right] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+}
+
+.paperclip-markdown-table-scroll[data-more-left] {
+  -webkit-mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent);
+}
+
+.paperclip-markdown-table-scroll[data-more-left][data-more-right] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
 }
 
 .paperclip-markdown th {

@@ -5495,7 +5495,7 @@ export function recoveryService(
           latestRun,
           notice: {
             body:
-              "Paperclip retried this issue's run after it ended without finishing, but the bounded retry budget " +
+              "Automa retried this issue's run after it ended without finishing, but the bounded retry budget " +
               "is spent and it still has no live execution path. " +
               "Moving it to `blocked` so it is visible for intervention.",
             title: "No live execution path",

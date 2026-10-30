@@ -545,6 +545,8 @@ describe("MarkdownBody", () => {
     expect(html).toContain('src="https://example.com/favicon.ico"');
     expect(html).toMatch(/referrerpolicy="no-referrer"/i);
     expect(html).not.toContain("duckduckgo");
+    // Marked so the prose margins for pictures leave it in the line with its text.
+    expect(html).toMatch(/<img[^>]*class="paperclip-site-favicon /);
   });
 
   it("does not show a favicon on GitHub or internal links", () => {

@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TaskChatThread } from "./TaskChatThread";
+import { TaskChatThread, withPendingRetry } from "./TaskChatThread";
 import type {
   IssueDocument,
   IssueQueuedCommentQueue,
@@ -715,7 +715,7 @@ describe("TaskChatThread runtime transcript selection", () => {
   });
 
   it("says why a run failed when the run recorded a reason", () => {
-    const reason = "This free model has used up today's free requests. It's back in 5 hours: send the message again then, or pick another model in the switcher.";
+    const reason = "This free model has used up today's free requests. It's back in 5 hours. To keep going now, pick another model in the switcher.";
     render(<TaskChatThread comments={[]} onAdd={async () => {}} linkedRuns={[{
       runId: "free-run", runtimeMode: "legacy", status: "failed", errorCode: "adapter_failed", error: reason,
       agentId: "agent-1", agentName: "Runner", adapterType: "free_models",
@@ -724,6 +724,35 @@ describe("TaskChatThread runtime transcript selection", () => {
     expect(container.textContent).toContain("Run failed");
     expect(container.textContent).toContain(reason);
     expect(container.textContent).not.toContain("(adapter_failed)");
+  });
+
+  it("says when Automa tries a failed reply again by itself", () => {
+    const reason = "This free model has used up today's free requests. It's back in about 10 minutes.";
+    const retryAt = "2026-10-28T18:10:00.000Z";
+    render(<TaskChatThread comments={[]} onAdd={async () => {}} onRetryFailedRun={vi.fn()} linkedRuns={[{
+      runId: "free-run", runtimeMode: "legacy", status: "failed", errorCode: "adapter_failed", error: reason,
+      agentId: "agent-1", agentName: "Runner", adapterType: "free_models",
+      createdAt: "2026-10-28T18:00:00.000Z", startedAt: "2026-10-28T18:00:00.000Z", finishedAt: "2026-10-28T18:00:02.000Z",
+    }]} scheduledRetry={{
+      runId: "retry-run", status: "scheduled_retry", agentId: "agent-1", agentName: "Runner", retryOfRunId: "free-run",
+      scheduledRetryAt: retryAt, scheduledRetryAttempt: 1, scheduledRetryReason: "transient_failure",
+    }} />);
+    const time = new Date(retryAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(container.textContent).toContain(reason);
+    expect(container.textContent).toContain("Automa tries again by itself");
+    expect(container.textContent).toContain(time);
+    // The retry is already on its way, so there is nothing to press.
+    expect(container.querySelector('[data-testid="task-chat-run-failed-try-again"]')).toBeNull();
+  });
+
+  it("adds the retry time to a reason only when there is one", () => {
+    expect(withPendingRetry(null, "2026-10-28T18:10:00.000Z")).toBeNull();
+    expect(withPendingRetry("It failed.", null)).toBe("It failed.");
+    expect(withPendingRetry("It failed.", "not a date")).toBe("It failed.");
+    const soon = new Date(Date.now() + 5 * 60_000);
+    expect(withPendingRetry("It failed. ", soon)).toBe(
+      `It failed. Automa tries again by itself at ${soon.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`,
+    );
   });
 
   it("projects the saved Plan inline at its native write_document boundary", () => {

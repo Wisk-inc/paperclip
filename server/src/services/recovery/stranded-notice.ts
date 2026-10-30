@@ -146,7 +146,7 @@ export function buildConfigurationIncompleteRecoveryNoticeSeed(
 export function buildExecutionReviewParticipantRecoveryNoticeSeed(): StrandedRecoveryNoticeSeed {
   return {
     body:
-      "Paperclip retried the pending execution-review participant once, but the review stage still has no " +
+      "Automa retried the pending execution-review participant once, but the review stage still has no " +
       "completed decision or live reviewer run. Moving it to `blocked` so the board can inspect the evidence, repair the " +
       "reviewer runtime, restore the review stage, or record an intentional manual resolution.",
     title: "Review recovery stalled",

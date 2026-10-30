@@ -49,6 +49,7 @@ export interface QueStats {
   /** Free-model requests sent since the server started. */
   started: number;
   peakInFlight: number;
+  appIdPool: { total: number; cooling: number; active: number };
   /** This company's cached answers, and how often they were reused. */
   cachedAnswers: number;
   cacheHits: number;

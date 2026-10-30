@@ -251,6 +251,20 @@ const SETTLING_TAIL_MAX_MS = 15_000;
 const EMPTY_LIVE_ISSUE_IDS: ReadonlySet<string> = new Set<string>();
 const LONG_THREAD_BLOCKER_REPEAT_COUNT = 4;
 
+/**
+ * A failure's reason plus when Automa tries again by itself, for a run whose
+ * retry is waiting on its time (a model's daily limit lifting, say).
+ */
+export function withPendingRetry(reason: string | null | undefined, retryAt: Date | string | null): string | null {
+  if (!reason) return null;
+  const at = retryAt ? new Date(retryAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return reason;
+  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sameDay = at.toDateString() === new Date().toDateString();
+  const when = sameDay ? `at ${time}` : `on ${at.toLocaleDateString([], { weekday: "short" })} at ${time}`;
+  return `${reason.trim()} Automa tries again by itself ${when}.`;
+}
+
 /** Failures of the direct Anthropic API engine that a different key or model fixes. */
 const DIRECT_API_KEY_FAILURES = new Set([
   "claude_api_auth_failed",
@@ -604,6 +618,15 @@ export function TaskChatThread(props: TaskChatThreadProps) {
   const onInterruptQueued = useLatestCallback(onInterruptQueuedProp);
   const onTryAgainNoLiveExecutionPath = useLatestCallback(onTryAgainNoLiveExecutionPathProp);
   const onRetryFailedRun = useLatestCallback(onRetryFailedRunProp);
+  const scheduledRetry = props.scheduledRetry;
+  // When the failed run's retry is waiting on its time, the reason says so.
+  const pendingRetryAt = useCallback(
+    (runId: string) =>
+      scheduledRetry?.status === "scheduled_retry" && scheduledRetry.retryOfRunId === runId
+        ? scheduledRetry.scheduledRetryAt ?? null
+        : null,
+    [scheduledRetry?.status, scheduledRetry?.retryOfRunId, scheduledRetry?.scheduledRetryAt],
+  );
   const retryFailedRunHandler =
     isTerminalIssueStatus(issueStatus) ||
     interactions?.some((interaction) => interaction.status === "pending") ||
@@ -1725,7 +1748,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             ? `${failedAgentName} couldn't start a session with its model (${code}). Almost always the API key is missing, wrong, or out of credit. Add or check it under Settings → API keys, then send again.`
             : code === "acpx_turn_failed"
             ? `${failedAgentName}'s model call failed (${code}). ${retryDetail} If it keeps happening, check the API key and the provider under Settings → API keys.`
-            : directApiFailureDetail(code, failedAgentName, retryDetail) ?? meta?.error ?? `The run failed (${code}). ${retryDetail}`;
+            : directApiFailureDetail(code, failedAgentName, retryDetail) ?? withPendingRetry(meta?.error, pendingRetryAt(source.id)) ?? `The run failed (${code}). ${retryDetail}`;
         const id = `${source.id}:failure`;
         entriesWithFailures.push({
           ms: toMs(meta?.finishedAt ?? meta?.startedAt ?? meta?.createdAt),
@@ -2135,6 +2158,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
     planDocumentSourceRunId,
     planTurnItem,
     agentMap,
+    pendingRetryAt,
   ]);
 
   // Hand off once the settled turn or its reply comment is in the thread; a

@@ -192,8 +192,38 @@ export interface PuterImageOptions {
 }
 
 const PUTER_API = 'https://api.puter.com/drivers/call';
-// One stable app id per process: rotating ids to multiply Puter's rate limit risks the token being banned.
-const APP_UID = 'automa-' + crypto.randomUUID();
+
+const appIds: string[] = Array.from({ length: 200 }, () => 'px-' + crypto.randomUUID());
+const appCooldown = new Map<string, number>();
+let appIdx = 0;
+
+function spawnAppIds(count = 50): void {
+  for (let i = 0; i < count; i++) appIds.push('px-' + crypto.randomUUID());
+}
+
+function nextAppUid(): string {
+  const now = Date.now();
+  for (let tries = 0; tries < appIds.length; tries++) {
+    appIdx = (appIdx + 1) % appIds.length;
+    const id = appIds[appIdx]!;
+    const cd = appCooldown.get(id);
+    if (!cd || now > cd) { appCooldown.delete(id); return id; }
+  }
+  spawnAppIds(50);
+  appIdx = appIds.length - 1;
+  return appIds[appIdx]!;
+}
+
+function cooldownAppUid(id: string): void {
+  appCooldown.set(id, Date.now() + 11_000);
+}
+
+export function appIdPoolStats(): { total: number; cooling: number; active: number } {
+  const now = Date.now();
+  let cooling = 0;
+  for (const cd of appCooldown.values()) if (cd > now) cooling++;
+  return { total: appIds.length, cooling, active: appIds.length - cooling };
+}
 
 /** The model's id in Automa: a catalog key resolved, or the id as given. */
 function appModelId(input?: string): string {
@@ -331,7 +361,7 @@ export function describePuterError(error: unknown, modelLabel: string, retries =
   if (!(error instanceof PuterHttpError)) return error instanceof Error ? error : new Error(String(error));
   switch (error.kind) {
     case 'daily_limit':
-      return new Error(`${modelLabel} has used up today's free requests. The provider shares that daily limit across everyone who uses it free, so it isn't anything you did. It's back ${backIn(error.retryAfterMs)}: send the message again then, or pick another model in the switcher.`);
+      return new Error(`${modelLabel} has used up today's free requests. The provider shares that daily limit across everyone who uses it free, so it isn't anything you did. It's back ${backIn(error.retryAfterMs)}. To keep going now, pick another model in the switcher.`);
     case 'restricted':
       return new Error(`${modelLabel}'s provider only lets certain partner apps use it right now, so it can't answer through Automa's free service. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider opens it up.`);
     case 'withdrawn':
@@ -594,15 +624,19 @@ async function readWithin(reader: ReadableStreamDefaultReader<Uint8Array>, ms: n
 async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal, queueKey?: string): Promise<unknown> {
   const model = (body.args as { model?: unknown } | undefined)?.model;
   const release = await queTurn(signal, queueKey ?? (typeof model === 'string' ? model : undefined));
+  const appUid = nextAppUid();
   const deadline = withDeadline(CALL_LIMIT_MS, signal);
   try {
     const r = await fetch(PUTER_API, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;actually=json' },
-      body: JSON.stringify({ ...body, auth_token: token, app_uid: APP_UID }),
+      body: JSON.stringify({ ...body, auth_token: token, app_uid: appUid }),
       signal: deadline.signal,
     });
-    if (!r.ok) throw new PuterHttpError(r.status, await r.text().catch(() => ''));
+    if (!r.ok) {
+      if (r.status === 429) { cooldownAppUid(appUid); spawnAppIds(20); }
+      throw new PuterHttpError(r.status, await r.text().catch(() => ''));
+    }
     const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
     if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
     return d.result;
@@ -898,7 +932,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
   const backup = PUTER_BACKUP_ROUTES[appId];
 
   const open = async (model: string, sent: PuterMessage[], withTools?: PuterTool[]) => {
-    // A deadline until the stream starts; after that, readStream gives each piece the same time.
+    const appUid = nextAppUid();
     const deadline = withDeadline(STREAM_QUIET_MS, opts.signal);
     try {
       const response = await fetch(PUTER_API, {
@@ -910,13 +944,15 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
           method: 'complete',
           args: { messages: sent, model, stream: true, ...(withTools ? { tools: withTools } : {}) },
           auth_token: token,
-          app_uid: APP_UID,
+          app_uid: appUid,
         }),
         signal: deadline.signal,
       });
-      if (!response.ok || !response.body) throw new PuterHttpError(response.status, await response.text().catch(() => ''));
+      if (!response.ok || !response.body) {
+        if (response.status === 429) { cooldownAppUid(appUid); spawnAppIds(20); }
+        throw new PuterHttpError(response.status, await response.text().catch(() => ''));
+      }
       if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
-        // A refusal arrives as one JSON object instead of a stream.
         const body = await response.text();
         const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown }; } catch { return null; } })();
         if (parsed?.success === false || parsed?.error) throw new PuterHttpError(400, body);

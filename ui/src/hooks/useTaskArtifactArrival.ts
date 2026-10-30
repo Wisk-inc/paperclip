@@ -16,6 +16,15 @@ interface TaskArtifactArrivalOptions {
   onArrival: () => void;
 }
 
+/**
+ * Whether a newly arrived file or picture opens the task panel. Not over a
+ * chat on a phone: the panel fills the screen there, and the reply already
+ * shows the picture or links the file.
+ */
+export function opensPanelOnArrival({ isMobile, isChat }: { isMobile: boolean; isChat: boolean }): boolean {
+  return !(isMobile && isChat);
+}
+
 /** Watch the same durable objects as the Artifacts tab, excluding its initial load. */
 export function useTaskArtifactArrival({
   issueId, attachments, workProducts, documents, onArrival,

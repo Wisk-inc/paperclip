@@ -183,7 +183,7 @@ export function hostOf(href: string | undefined): string | null {
 export function SiteFavicon({ host }: { host: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <Globe aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-(--va-0_125em) text-muted-foreground" />;
+    return <Globe aria-hidden="true" className="paperclip-site-favicon mr-1 inline h-3.5 w-3.5 align-(--va-0_125em) text-muted-foreground" />;
   }
   return (
     <img
@@ -196,7 +196,7 @@ export function SiteFavicon({ host }: { host: string }) {
       width={14}
       height={14}
       onError={() => setFailed(true)}
-      className="mr-1 inline h-3.5 w-3.5 rounded-xs align-(--va-0_125em) object-contain"
+      className="paperclip-site-favicon mr-1 inline h-3.5 w-3.5 rounded-xs align-(--va-0_125em) object-contain"
     />
   );
 }
@@ -592,6 +592,48 @@ function renderLinkBody(
   );
 }
 
+/**
+ * A table wider than the message scrolls sideways. The edge that has more to
+ * scroll fades out, so a phone shows there is another column instead of
+ * looking cut off.
+ */
+export function MarkdownTableScroll({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const update = () => {
+      const hidden = element.scrollWidth - element.clientWidth;
+      const left = hidden > 1 && element.scrollLeft > 1;
+      const right = hidden > 1 && element.scrollLeft < hidden - 1;
+      setMore((previous) => (previous.left === left && previous.right === right ? previous : { left, right }));
+    };
+    update();
+    element.addEventListener("scroll", update, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(element);
+    if (element.firstElementChild) observer?.observe(element.firstElementChild);
+    return () => {
+      element.removeEventListener("scroll", update);
+      observer?.disconnect();
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="paperclip-markdown-table-scroll"
+      role="region"
+      aria-label="Scrollable table"
+      tabIndex={0}
+      data-more-left={more.left ? "" : undefined}
+      data-more-right={more.right ? "" : undefined}
+    >
+      {children}
+    </div>
+  );
+}
+
 function CodeBlock({
   children,
   preProps,
@@ -825,11 +867,11 @@ function MarkdownBodyImpl({
       </blockquote>
     ),
     table: ({ node: _node, style: tableStyle, children: tableChildren, ...tableProps }) => (
-      <div className="paperclip-markdown-table-scroll" role="region" aria-label="Scrollable table" tabIndex={0}>
+      <MarkdownTableScroll>
         <table {...tableProps} style={tableStyle as React.CSSProperties | undefined}>
           {tableChildren}
         </table>
-      </div>
+      </MarkdownTableScroll>
     ),
     td: ({ node: _node, style: tableCellStyle, children: tableCellChildren, ...tableCellProps }) => (
       <td {...tableCellProps} style={mergeTableCellStyle(tableCellStyle as React.CSSProperties | undefined)}>

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { TaskChatMarker } from "./TaskChatMarker";
-import { TaskChatThreadView } from "./TaskChatThreadView";
+import { TaskChatThreadView, latestRetryableMarkerId } from "./TaskChatThreadView";
 
 vi.mock("@/lib/router", () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
@@ -166,5 +166,37 @@ describe("TaskChatMarker", () => {
     flushSync(() => retry.click());
     await Promise.resolve();
     expect(onRetryFailedRun).toHaveBeenCalledWith("run-1");
+  });
+
+  it("puts a long reason under the rule instead of squeezing it beside the label", () => {
+    const detail = "DeepSeek V4.1 Flash has used up today's free requests. It's back in about 5 minutes.";
+    flushSync(() =>
+      root!.render(
+        <ThemeProvider>
+          <TaskChatMarker
+            item={{ id: "run-1:failure", kind: "marker", variant: "interrupted", label: "Run failed", detail }}
+            onTryAgain={vi.fn()}
+          />
+        </ThemeProvider>,
+      ),
+    );
+    const marker = container.querySelector('[data-testid="task-chat-marker"]')!;
+    expect(marker.classList.contains("flex-col")).toBe(true);
+    const reason = container.querySelector('[data-testid="task-chat-marker-detail"]')!;
+    expect(reason.textContent).toBe(detail);
+    // The label row holds only the icon and label; the reason and button sit below it.
+    expect(marker.firstElementChild?.textContent).toBe("Run failed");
+    expect(marker.lastElementChild?.getAttribute("data-testid")).toBe("task-chat-run-failed-try-again");
+  });
+
+  it("offers Try again on the newest failure only until a reply comes after it", () => {
+    const failure = (id: string) => ({ id, kind: "marker" as const, variant: "interrupted" as const, label: "Run failed" });
+    const reply = (id: string) => ({ id, kind: "message" as const, author: "agent" as const, text: "Here you go." });
+    const ask = (id: string) => ({ id, kind: "message" as const, author: "human" as const, text: "Try this." });
+    expect(latestRetryableMarkerId([ask("m1"), failure("f1")])).toBe("f1");
+    expect(latestRetryableMarkerId([ask("m1"), failure("f1"), reply("r1")])).toBeUndefined();
+    expect(latestRetryableMarkerId([failure("f1"), reply("r1"), ask("m2"), failure("f2")])).toBe("f2");
+    expect(latestRetryableMarkerId([failure("f1"), ask("m2")])).toBe("f1");
+    expect(latestRetryableMarkerId([reply("r1")])).toBeUndefined();
   });
 });

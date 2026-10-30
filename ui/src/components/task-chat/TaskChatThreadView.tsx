@@ -267,6 +267,26 @@ function renderItem(
   }
 }
 
+/**
+ * The failure that still offers Try again: the newest one, and only while no
+ * reply came after it. Once the agent answered (a scheduled retry went
+ * through, say), retrying the old run would only send the message twice.
+ */
+export function latestRetryableMarkerId(items: TaskChatItem[]): string | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.kind === "message" && item.author === "agent") return undefined;
+    if (
+      item.kind === "marker" &&
+      item.variant === "interrupted" &&
+      (item.label === "Run failed" || item.label === "Usage limit reached")
+    ) {
+      return item.id;
+    }
+  }
+  return undefined;
+}
+
 function isSystemLikeItem(item: TaskChatItem): boolean {
   return (
     item.kind === "marker" ||
@@ -450,15 +470,7 @@ export function TaskChatThreadView({
   );
   const retryableMarkerId =
     onRetryFailedRun || onTryAgainNoLiveExecutionPath
-      ? [...items]
-          .reverse()
-          .find(
-            (item) =>
-              item.kind === "marker" &&
-              item.variant === "interrupted" &&
-              (item.label === "Run failed" ||
-                item.label === "Usage limit reached"),
-          )?.id
+      ? latestRetryableMarkerId(items)
       : undefined;
   // Streaming tail and header updates must not rebuild settled markdown/tool
   // trees, and a rebuilt list keeps the old object for every unchanged entry.

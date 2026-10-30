@@ -135,6 +135,62 @@ export function TaskChatMarker({
     );
   }
 
+  const rule = (
+    <span
+      className={cn(
+        "h-px flex-1",
+        interrupted
+          ? "border-t border-dashed border-destructive/50"
+          : "bg-border",
+      )}
+    />
+  );
+  const tryAgain = onTryAgain ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      className="pointer-coarse:h-10 pointer-coarse:px-3"
+      onClick={handleTryAgain}
+      disabled={tryAgainPending}
+      data-testid="task-chat-run-failed-try-again"
+    >
+      {tryAgainPending ? "Trying again..." : "Try again"}
+    </Button>
+  ) : null;
+
+  // A reason goes under the rule, full width, so a long one (a model's daily
+  // limit, say) reads as a paragraph instead of a narrow column on a phone.
+  if (item.detail) {
+    return (
+      <div
+        className="tc-enter-marker flex flex-col items-center gap-1.5 py-1 text-xs text-muted-foreground"
+        data-testid="task-chat-marker"
+      >
+        <div className="flex w-full items-center gap-2">
+          {rule}
+          <span
+            className={cn(
+              "flex shrink-0 items-center gap-1.5",
+              interrupted && "text-destructive",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span className="font-medium">{item.label}</span>
+          </span>
+          {rule}
+        </div>
+        <p
+          className="max-w-(--pct-85) text-balance text-center"
+          data-testid="task-chat-marker-detail"
+        >
+          {item.detail}
+        </p>
+        {tryAgain}
+      </div>
+    );
+  }
+
   return (
     <div
       className="tc-enter-marker flex items-center gap-2 py-1 text-xs text-muted-foreground"
@@ -143,14 +199,7 @@ export function TaskChatMarker({
       role={streamlined && !onTryAgain ? "separator" : undefined}
       aria-label={streamlined && !onTryAgain ? item.label : undefined}
     >
-      <span
-        className={cn(
-          "h-px flex-1",
-          interrupted
-            ? "border-t border-dashed border-destructive/50"
-            : "bg-border",
-        )}
-      />
+      {rule}
       <span
         className={cn(
           "flex items-center gap-1.5",
@@ -159,31 +208,9 @@ export function TaskChatMarker({
       >
         <Icon className="h-3.5 w-3.5" />
         <span className="font-medium">{item.label}</span>
-        {item.detail ? (
-          <span className="text-muted-foreground">· {item.detail}</span>
-        ) : null}
-        {onTryAgain ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            className="pointer-coarse:h-10 pointer-coarse:px-3"
-            onClick={handleTryAgain}
-            disabled={tryAgainPending}
-            data-testid="task-chat-run-failed-try-again"
-          >
-            {tryAgainPending ? "Trying again..." : "Try again"}
-          </Button>
-        ) : null}
+        {tryAgain}
       </span>
-      <span
-        className={cn(
-          "h-px flex-1",
-          interrupted
-            ? "border-t border-dashed border-destructive/50"
-            : "bg-border",
-        )}
-      />
+      {rule}
     </div>
   );
 }
