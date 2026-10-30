@@ -36,6 +36,8 @@ export type HealthStatus = {
   bootstrapInviteActive?: boolean;
   features?: {
     companyDeletionEnabled?: boolean;
+    /** False when this server does not let people create accounts (invite only). */
+    signUpEnabled?: boolean;
     /** The server accepts "Continue with Google" from the Automa Android app. */
     firebaseSignIn?: boolean;
   };

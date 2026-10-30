@@ -15,6 +15,10 @@ import { PaperclipLockup } from "../components/PaperclipLockup";
 
 type AuthMode = "sign_in" | "sign_up";
 
+/** The server's password rule (Better Auth's defaults), said here before it refuses one. */
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+
 export function AuthPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -59,6 +63,11 @@ export function AuthPage() {
   const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), retry: false });
   const appAccount = isAutomaApp() ? automaNative.account() : null;
   const googleAvailable = Boolean(health?.features?.firebaseSignIn && appAccount?.enabled);
+  // An invite-only server refuses new accounts: don't offer one it would turn down.
+  const signUpEnabled = health?.features?.signUpEnabled !== false;
+  useEffect(() => {
+    if (!signUpEnabled && mode === "sign_up") setMode("sign_in");
+  }, [signUpEnabled, mode]);
   const google = useMutation({
     mutationFn: async () => {
       const idToken = await automaNative.firebaseIdToken();
@@ -99,10 +108,13 @@ export function AuthPage() {
     },
   });
 
+  // Checked as typed (spaces count), the way the server checks it.
+  const passwordTooShort = mode === "sign_up" && password.length < MIN_PASSWORD_LENGTH;
+  const passwordTooLong = mode === "sign_up" && password.length > MAX_PASSWORD_LENGTH;
   const canSubmit =
     email.trim().length > 0 &&
-    password.trim().length > 0 &&
-    (mode === "sign_in" || (name.trim().length > 0 && password.trim().length >= 8));
+    password.length > 0 &&
+    (mode === "sign_in" || (name.trim().length > 0 && !passwordTooShort && !passwordTooLong));
 
   if (isSessionLoading) {
     return (
@@ -129,8 +141,8 @@ export function AuthPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === "sign_in"
-              ? "Use your email and password to access this instance."
-              : "Create an account for this instance. Email confirmation is not required in v1."}
+              ? "Use your email and password for this Automa server."
+              : "Create an account on this Automa server. No email confirmation is needed."}
           </p>
 
           {googleAvailable ? (
@@ -164,7 +176,14 @@ export function AuthPage() {
               event.preventDefault();
               if (mutation.isPending) return;
               if (!canSubmit) {
-                setError("Please fill in all required fields.");
+                // Say what is actually wrong: a filled-in form with a short password is not "missing fields".
+                setError(
+                  email.trim() && password && (mode === "sign_in" || name.trim())
+                    ? passwordTooLong
+                      ? `Use at most ${MAX_PASSWORD_LENGTH} characters for your password.`
+                      : `Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`
+                    : "Please fill in all required fields.",
+                );
                 return;
               }
               mutation.mutate();
@@ -218,8 +237,13 @@ export function AuthPage() {
                 required
                 aria-required="true"
                 aria-invalid={error ? true : undefined}
-                aria-describedby={error ? errorId : undefined}
+                aria-describedby={[mode === "sign_up" ? "password-rule" : null, error ? errorId : null].filter(Boolean).join(" ") || undefined}
               />
+              {mode === "sign_up" ? (
+                <p id="password-rule" className="mt-1 text-xs text-muted-foreground">
+                  At least {MIN_PASSWORD_LENGTH} characters.
+                </p>
+              ) : null}
             </div>
             {error && (
               <p id={errorId} role="alert" className="text-xs text-destructive">
@@ -240,19 +264,25 @@ export function AuthPage() {
             </Button>
           </form>
 
-          <div className="mt-5 text-sm text-muted-foreground">
-            {mode === "sign_in" ? "Need an account?" : "Already have an account?"}{" "}
-            <button
-              type="button"
-              className="font-medium text-foreground underline underline-offset-2"
-              onClick={() => {
-                setError(null);
-                setMode(mode === "sign_in" ? "sign_up" : "sign_in");
-              }}
-            >
-              {mode === "sign_in" ? "Create one" : "Sign in"}
-            </button>
-          </div>
+          {signUpEnabled ? (
+            <div className="mt-5 text-sm text-muted-foreground">
+              {mode === "sign_in" ? "Need an account?" : "Already have an account?"}{" "}
+              <button
+                type="button"
+                className="font-medium text-foreground underline underline-offset-2"
+                onClick={() => {
+                  setError(null);
+                  setMode(mode === "sign_in" ? "sign_up" : "sign_in");
+                }}
+              >
+                {mode === "sign_in" ? "Create one" : "Sign in"}
+              </button>
+            </div>
+          ) : (
+            <p className="mt-5 text-sm text-muted-foreground" data-testid="auth-invite-only">
+              This server is invite only. Ask its owner for an invite link to get an account.
+            </p>
+          )}
         </div>
       </div>
 

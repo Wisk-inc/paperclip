@@ -127,6 +127,8 @@ export function healthRoutes(
     localSecretRequired?: boolean;
     authReady: boolean;
     companyDeletionEnabled: boolean;
+    /** False when the operator turned off creating accounts (auth.disableSignUp). */
+    signUpEnabled?: boolean;
     serverInfo?: ServerInfoSnapshot;
     databaseBackupHealth?: InspectDatabaseBackupHealthOptions;
     runtimeEnv?: CloudInstanceEnv;
@@ -388,6 +390,13 @@ export function healthRoutes(
         })
       : undefined;
 
+    // What the sign-in page needs before anyone is signed in: whether the app's
+    // "Continue with Google" is accepted and whether accounts can be created.
+    // The page shows both openly, so they ride the signed-out response too.
+    const signInFeatures = {
+      firebaseSignIn: opts.deploymentMode === "authenticated" && resolveFirebaseProjectId() !== null,
+      signUpEnabled: opts.signUpEnabled !== false,
+    };
     if (!exposeFullDetails) {
       const redactedDatabaseBackup = databaseBackup ? redactedDatabaseBackupHealth(databaseBackup) : undefined;
       const redactedWarnings = redactedDatabaseBackup?.warnings.length ? redactedDatabaseBackup.warnings : undefined;
@@ -400,6 +409,7 @@ export function healthRoutes(
         commit,
         bootstrapStatus,
         bootstrapInviteActive,
+        ...(opts.deploymentMode === "authenticated" ? { features: signInFeatures } : {}),
         ...(redactedDatabaseBackup ? { databaseBackup: redactedDatabaseBackup } : {}),
         ...(redactedWarnings ? { warnings: redactedWarnings } : {}),
         ...(devServer ? { devServer } : {}),
@@ -427,8 +437,7 @@ export function healthRoutes(
       bootstrapInviteActive,
       features: {
         companyDeletionEnabled: opts.companyDeletionEnabled,
-        // "Continue with Google" from the Android app is accepted (Firebase project configured).
-        firebaseSignIn: opts.deploymentMode === "authenticated" && resolveFirebaseProjectId() !== null,
+        ...signInFeatures,
       },
       serverInfo,
       startupRecovery,

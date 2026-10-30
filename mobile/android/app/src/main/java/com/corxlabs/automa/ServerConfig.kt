@@ -174,9 +174,20 @@ class ServerConfig(context: Context) {
                 val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() } ?: ""
                 connection.disconnect()
-                if (code !in 200..299) return HealthResult(HealthKind.NOT_AUTOMA, "HTTP $code")
                 val json = runCatching { JSONObject(body) }.getOrNull()
-                    ?: return HealthResult(HealthKind.NOT_AUTOMA, "not JSON")
+                if (code !in 200..299) {
+                    // Automa answers 503 with its own status while its database is
+                    // not ready (Termux still starting PostgreSQL, say): that is
+                    // Automa still starting, not some other server.
+                    val status = json?.optString("status").orEmpty()
+                    val starting = status == "unhealthy" || status == "starting" || json?.optString("error") == "database_unavailable"
+                    return if (starting) {
+                        HealthResult(HealthKind.UNHEALTHY, json?.optString("error")?.takeIf { it.isNotBlank() } ?: status)
+                    } else {
+                        HealthResult(HealthKind.NOT_AUTOMA, "HTTP $code")
+                    }
+                }
+                if (json == null) return HealthResult(HealthKind.NOT_AUTOMA, "not JSON")
                 if (!json.has("status")) return HealthResult(HealthKind.NOT_AUTOMA, "no status")
                 if (json.optString("status") != "ok") return HealthResult(HealthKind.UNHEALTHY, json.optString("status"))
                 HealthResult(HealthKind.OK, null, json.optString("deploymentMode"), json.optString("version"), json.optBoolean("localSecretRequired", false))
@@ -258,6 +269,16 @@ class ServerConfig(context: Context) {
             val uri = Uri.parse(url)
             val host = uri.host ?: ""
             val port = if (uri.port == -1) null else uri.port
+            // Automa answered: it is running and getting ready. Said before the
+            // "nothing answers on this phone" advice, which is wrong once it answers.
+            if (result.kind == HealthKind.UNHEALTHY) {
+                val why = if (result.detail == "database_unreachable") " (its database is not answering yet)" else ""
+                return if (isLoopback(url) || isThisPhone(host)) {
+                    "Automa on this phone is still starting$why. Try again in a moment."
+                } else {
+                    "Automa at $host is still starting$why. Try again in a moment."
+                }
+            }
             if (isThisPhone(host)) {
                 return "$host is this phone (it is what Wireless debugging shows), and Automa is not running on it yet. " +
                     "To use this phone as the server, follow \"Run Automa on this phone\" below. " +
@@ -287,12 +308,19 @@ class ServerConfig(context: Context) {
          * How many organizations the board can see, or null when the request was
          * refused or failed. Zero means a fresh install: the board opens on setup.
          */
-        fun companyCount(serverUrl: String, secret: String?): Int? = runCatching {
+        fun companyCount(serverUrl: String, secret: String?, sessionCookies: String? = null): Int? = runCatching {
             val connection = URL("$serverUrl/api/companies").openConnection() as HttpURLConnection
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             connection.setRequestProperty("Accept", "application/json")
-            if (secret != null) connection.setRequestProperty("Cookie", "paperclip_local_secret=${Uri.encode(secret)}")
+            // The board's own sign-in (cookies the WebView holds), plus the app key for a locked Automa.
+            val cookies = listOfNotNull(
+                sessionCookies?.split(";")?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() && !it.startsWith("paperclip_local_secret=") }
+                    ?.joinToString("; ")?.takeIf { it.isNotEmpty() },
+                secret?.let { "paperclip_local_secret=${Uri.encode(it)}" },
+            ).joinToString("; ")
+            if (cookies.isNotEmpty()) connection.setRequestProperty("Cookie", cookies)
             val code = connection.responseCode
             val body = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else null
             connection.disconnect()

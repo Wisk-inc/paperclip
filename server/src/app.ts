@@ -489,6 +489,8 @@ export async function createApp(
     chatWebhookPublicBaseUrl?: string;
     authReady: boolean;
     companyDeletionEnabled: boolean;
+    /** False when the operator turned off creating accounts (auth.disableSignUp). */
+    signUpEnabled?: boolean;
     announcements?: { enabled: boolean; feedUrl: string };
     instanceId?: string;
     hostVersion?: string;
@@ -669,6 +671,7 @@ export async function createApp(
       localSecretRequired: Boolean(opts.localTrustedSecret),
       authReady: opts.authReady,
       companyDeletionEnabled: opts.companyDeletionEnabled,
+      signUpEnabled: opts.signUpEnabled,
       databaseBackupHealth: opts.databaseBackupHealth,
     }),
   );

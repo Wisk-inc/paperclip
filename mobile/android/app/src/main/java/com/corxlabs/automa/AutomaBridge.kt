@@ -3,6 +3,7 @@ package com.corxlabs.automa
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceResponse
 import org.json.JSONArray
@@ -381,7 +382,14 @@ class AutomaBridge(
             val secret = appKey
                 ?: config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
                 ?: origin?.let(config::secretFor)
-            val companyCount = ServerConfig.companyCount(reachedUrl, secret)
+            // A locked Automa with no key here would show "Connected", then bounce
+            // straight back from the board: say what to do before that.
+            if (health.locked && secret == null) {
+                resolve(callId, error(MainActivity.LOCKED_WITHOUT_KEY))
+                return@execute
+            }
+            val sessionCookies = runCatching { CookieManager.getInstance().getCookie(reachedUrl) }.getOrNull()
+            val companyCount = ServerConfig.companyCount(reachedUrl, secret, sessionCookies)
             // A locked Automa that refuses the key: say so, and keep the key
             // that works. Saving it anyway locked the board out until the
             // next `automa link`, and let another app swap the key unseen.
@@ -399,6 +407,8 @@ class AutomaBridge(
                     .put("version", health.version ?: JSONObject.NULL)
                     .put("locked", health.locked)
                     .put("firstRun", companyCount == 0)
+                    // A server with accounts the board is not signed in to yet: its sign-in page comes next.
+                    .put("signIn", health.deploymentMode == "authenticated" && companyCount == null)
                     .toString(),
             )
             // The page shows its success screen first (see connect.js showConnected).

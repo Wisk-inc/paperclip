@@ -215,6 +215,67 @@ describe("AuthPage", () => {
     });
   });
 
+  it("says the password is too short instead of claiming fields are missing", async () => {
+    const { root } = await mount();
+    const createOne = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Create one");
+    await act(async () => {
+      createOne?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+    // The rule is said up front, next to the field.
+    expect(container.querySelector("#password-rule")?.textContent).toBe("At least 8 characters.");
+
+    const inputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    const fill = (name: string, value: string) => {
+      const input = container.querySelector(`input[name="${name}"]`) as HTMLInputElement;
+      inputValueSetter!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    await act(async () => {
+      fill("name", "Jane");
+      fill("email", "jane@example.com");
+      fill("password", "short");
+    });
+    const form = container.querySelector("form") as HTMLFormElement;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flushReact();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Use at least 8 characters for your password.");
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+
+    // Spaces count, as they do on the server.
+    await act(async () => {
+      fill("password", "pass    ");
+    });
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flushReact();
+    expect(signUpEmailMock).toHaveBeenCalledWith({ name: "Jane", email: "jane@example.com", password: "pass    " });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("offers no new account on a server that is invite only", async () => {
+    const { root, queryClient } = await mount();
+    await act(async () => {
+      queryClient.setQueryData(queryKeys.health, { status: "ok", deploymentMode: "authenticated", features: { signUpEnabled: false } });
+    });
+    await flushReact();
+
+    const createOne = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Create one");
+    expect(createOne).toBeUndefined();
+    expect(container.querySelector('[data-testid="auth-invite-only"]')?.textContent).toContain("invite only");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("invalidates anonymous health metadata after sign-in", async () => {
     const { root, queryClient } = await mount();
     queryClient.setQueryData(queryKeys.health, {

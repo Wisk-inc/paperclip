@@ -49,6 +49,13 @@
     thisPhone.open = true;
     thisPhone.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  // Automa on this phone is locked to the app and the app has no key yet.
+  function openAppKey() {
+    var section = document.getElementById("app-key-section");
+    thisPhone.open = true;
+    section.open = true;
+    section.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   /**
    * Connects once. `appKey` (optional) is the key of a locked Automa on this
@@ -73,13 +80,16 @@
     document.getElementById("connected-title").textContent = onPhone ? "Automa is running on this phone" : "Connected to Automa";
     document.getElementById("connected-detail").textContent = reply.firstRun
       ? "Everything is set up. Next comes a short setup: name your organization and hire your first agent."
-      : onPhone ? "Your agents run right here, in Termux." : "Your agents are reachable at " + host + ".";
+      : reply.signIn
+        ? "This server has its own accounts: sign in next, with your email and password."
+        : onPhone ? "Your agents run right here, in Termux." : "Your agents are reachable at " + host + ".";
     var facts = document.getElementById("connected-facts");
     facts.innerHTML = "";
     [
       onPhone ? "On this phone" : host,
       reply.version ? "Automa " + reply.version : null,
       reply.locked ? "Locked to this app" : null,
+      reply.signIn ? "Sign-in required" : null,
       reply.insecure ? "Plain HTTP" : (reply.url || "").indexOf("https://") === 0 ? "HTTPS" : null,
     ].forEach(function (fact) {
       if (!fact) return;
@@ -89,8 +99,13 @@
     });
     var warning = document.getElementById("connected-warning");
     warning.hidden = !reply.insecure;
-    document.getElementById("connected-next").textContent = reply.firstRun ? "Taking you to setup…" : "Opening your board…";
+    document.getElementById("connected-next").textContent = nextStepText(reply);
     panel.hidden = false;
+  }
+
+  /** Where the app goes after connecting: setup on a fresh install, the sign-in page, or the board. */
+  function nextStepText(reply) {
+    return reply.firstRun ? "Taking you to setup…" : reply.signIn ? "Taking you to sign in…" : "Opening your board…";
   }
 
   function connect(address, appKey) {
@@ -102,13 +117,22 @@
     setPose("thinking");
     connectOnce(value, appKey, function (reply) {
       if (!reply || reply.ok === false) {
+        var message = (reply && reply.error) || "Could not connect.";
+        // Automa on this phone answered but is still starting: wait for it here,
+        // with the progress steps, instead of an error.
+        if (/still starting/i.test(message) && isThisPhone(value) && !appKey) {
+          setBusy(false);
+          connectWaiting(value, false);
+          return;
+        }
         setBusy(false);
         setPose("confused");
         haptic("warning");
-        var message = (reply && reply.error) || "Could not connect.";
         showError(message);
-        // Aimed at this phone (its own address or 127.0.0.1): show how to run Automa here.
+        // Aimed at this phone (its own address or 127.0.0.1): show how to run Automa here,
+        // and where to paste the key when it is locked to the app.
         if (/this phone/i.test(message)) openThisPhone();
+        if (/automa link/i.test(message)) openAppKey();
         return;
       }
       setPose("success");
@@ -263,7 +287,7 @@
     connectOnce(address, null, function (reply) {
       if (waitBox.hidden) return;
       if (reply && reply.ok !== false) {
-        setStep("open", reply.firstRun ? "Connected. Taking you to setup…" : "Connected. Opening your board…");
+        setStep("open", "Connected. " + nextStepText(reply));
         haptic("success");
         setPose("success");
         window.setTimeout(function () {

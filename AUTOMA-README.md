@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.5** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.6** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -82,6 +82,20 @@ supplies the data.
 ---
 
 ## 2. What's new in 1.9.5
+
+**Fixed in 1.9.6: connecting and signing in**
+- While Automa is starting up, the connect screen says it is still starting
+  (it used to say "not an Automa server" or "Nothing answers on this phone"),
+  and for Automa on this phone it waits with its progress steps.
+- Automa on this phone that is locked to the app, when the app has no key yet:
+  the screen says so before anything else and opens **Paste the app key**,
+  instead of saying Connected and then bouncing back.
+- When a server has its own accounts, the success screen says you sign in
+  next.
+- The sign-in page shows **Continue with Google** on servers that accept it
+  (it never appeared before), says passwords need at least 8 characters, and
+  says when a password is too short (it used to say fields were missing).
+  Invite-only servers no longer offer **Create one**.
 
 **Notifications when AI work finishes while you are away**
 - When an agent replies to something you sent, or an App Studio job finishes,
@@ -1011,6 +1025,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.6 | 2026-10-30 | Connect and sign-in fixes: "still starting" instead of "not an Automa server" while Automa starts; a locked phone server without its key says so up front and opens the key box; the success screen says when sign-in is next; Continue with Google shows on the sign-in page where it works; the password rule is stated; invite-only servers don't offer Create one. |
 | 1.9.5 | 2026-10-30 | Notifications when an AI reply or App Studio job finishes while you are away, with a tap that opens that chat, task or project (Android and browser; also server push with Firebase); a live App Studio Stats tab (running clock, each model's status and tokens, latest moves, steps and files); costs say what free work would have cost; the AI sees the page like you do (`view_app`: phone and desktop sizes, console errors, layout trouble); teams of up to 8; the preview reloads itself when files change. |
 | 1.9.4 | 2026-10-30 | App Studio teams you can watch (booting logos with live tokens, a readable team chat, per-model shares, a Stats tab, 30-day per-model usage on the Studio page and Home); web pages built and opened in the preview, with `localStorage` working there; the task waiting notice gets an X, a working Retry now, honest wording and a self-refresh. |
 | 1.9.3 | 2026-10-30 | An auto-growing pool of 200+ app IDs spreads free-model requests so many people asking at once all get answered; tables show fade edges; held-reply Retry placed where it belongs; recovery notices say Automa. |

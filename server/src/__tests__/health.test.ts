@@ -363,6 +363,7 @@ describe("GET /health", () => {
       commit: testServerInfo.git.fullSha,
       bootstrapStatus: "ready",
       bootstrapInviteActive: false,
+      features: { firebaseSignIn: false, signUpEnabled: true },
       databaseBackup: {
         enabled: true,
         status: "warning",
@@ -421,8 +422,46 @@ describe("GET /health", () => {
       commit: testServerInfo.git.fullSha,
       bootstrapStatus: "ready",
       bootstrapInviteActive: false,
+      features: { firebaseSignIn: false, signUpEnabled: true },
     });
     expect(res.body.serverInfo).toBeUndefined();
+  });
+
+  it("tells signed-out visitors whether accounts can be created, for the sign-in page", async () => {
+    const devServerStatus = await import("../dev-server-status.js");
+    vi.spyOn(devServerStatus, "readPersistedDevServerStatus").mockReturnValue(undefined);
+    const { healthRoutes } = await import("../routes/health.js");
+    const db = {
+      execute: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn().mockResolvedValue([{ count: 1 }]),
+        })),
+      })),
+    } as unknown as Db;
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).actor = { type: "none", source: "none" };
+      next();
+    });
+    app.use(
+      "/health",
+      healthRoutes(db, {
+        deploymentMode: "authenticated",
+        deploymentExposure: "public",
+        authReady: true,
+        companyDeletionEnabled: false,
+        signUpEnabled: false,
+        serverInfo: testServerInfo,
+      }),
+    );
+
+    const res = await request(app).get("/health");
+
+    expect(res.body.features).toEqual({ firebaseSignIn: false, signUpEnabled: false });
+    // Only the sign-in flags: nothing else about the server.
+    expect(res.body.serverInfo).toBeUndefined();
+    expect(res.body.version).toBeUndefined();
   });
 
   it("redacts detailed metadata when authenticated mode is reached without auth middleware", async () => {
@@ -460,6 +499,7 @@ describe("GET /health", () => {
       commit: testServerInfo.git.fullSha,
       bootstrapStatus: "ready",
       bootstrapInviteActive: false,
+      features: { firebaseSignIn: false, signUpEnabled: true },
     });
     expect(res.body.serverInfo).toBeUndefined();
   });
