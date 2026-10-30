@@ -10,7 +10,8 @@ task traces back to the organization's goal, governed actions wait for your
 approval, every token is counted against a budget, and a hard stop pauses
 spending before it runs away.
 
-This guide covers every screen and feature. `mobile/README.md` is the
+This guide covers every screen and feature. `AUTOMA-README.md` is the
+one-page overview of everything Automa does, and `mobile/README.md` is the
 operational companion: building, Termux, Firebase, the threat model.
 
 ```
