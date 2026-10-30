@@ -54,6 +54,7 @@ import {
 } from "./files.js";
 import { studioHub } from "./hub.js";
 import { studioRuntime } from "./runner.js";
+import { formatPageReport, pageReportSummary, requestPageReport, staticPageOutline } from "./page-probe.js";
 import { formatTeamNews, formatTeamTalk, TeamBoard, teammateLabel } from "./team-board.js";
 
 /** Tokens one model call used, for Costs. */
@@ -69,12 +70,19 @@ export interface StudioAiUsage {
 }
 
 /** One model call added to a running total, the way the turn's usage counts it (cached input included). */
-function addTokenUsage(total: StudioTokenUsage | undefined, usage: StudioAiUsage): StudioTokenUsage {
+/** A step with the time it was taken, for the Stats tab's latest moves. */
+function stamped(step: StudioAssistantStep): StudioAssistantStep {
+  return step.at ? step : { ...step, at: new Date().toISOString() };
+}
+
+function addTokenUsage(total: StudioTokenUsage | undefined, usage: StudioAiUsage, worthUsd: number | null): StudioTokenUsage {
   const base = total ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  const worth = worthUsd ?? usage.costUsd;
   return {
     inputTokens: base.inputTokens + usage.inputTokens + usage.cachedInputTokens,
     outputTokens: base.outputTokens + usage.outputTokens,
     costUsd: base.costUsd === null || usage.costUsd === null ? null : base.costUsd + usage.costUsd,
+    ...(worth === null && base.equivalentUsd === undefined ? {} : { equivalentUsd: (base.equivalentUsd ?? 0) + (worth ?? 0) }),
   };
 }
 
@@ -91,6 +99,10 @@ export interface StudioAssistantContext {
   onFileChanged: (relativePath: string) => Promise<void>;
   /** Records what each model call used (Costs counts App Studio too). */
   onUsage?: (usage: StudioAiUsage) => Promise<void> | void;
+  /** What a call's tokens cost at paid list prices (a free model's would-have-cost); null when unknown. */
+  worthUsd?: (usage: StudioAiUsage) => number | null;
+  /** The reply is done (saved and sent to everyone); for news to the person's phone. */
+  onFinished?: (turn: StudioAssistantTurn) => void;
   /** Other models the lead can hand tasks to this turn (set per turn, never nested). */
   team?: TeamRuntime;
   /** On a teammate's own turn: its line to the others working on the same job. */
@@ -138,7 +150,7 @@ const MESSAGE_TEAM_TOOL = {
   },
 };
 
-const MAX_TEAM_ASSIGNMENTS = 6;
+const MAX_TEAM_ASSIGNMENTS = 10;
 
 /** A teammate as the lead names it: by model id, a number, or a word of the name. */
 function pickTeammate(members: StudioTeamMember[], who: string): StudioTeamMember | undefined {
@@ -447,7 +459,29 @@ const TOOLS: ToolDef[] = [
     schema: z.object({}).passthrough(),
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "view_app",
+    description:
+      "See the running app the way the person sees it: Automa opens the page in the person's own App Studio at a phone (390x844) or desktop (1280x800) size, runs its scripts, and reports what is on the screen from top to bottom (headings, text, buttons, inputs, images, with their sizes and positions), console errors and files that failed to load, and layout trouble (sideways scrolling, buttons too small to tap, cut-off text, hard-to-read colors). Start the app first. Use it after you build or change a page, and again after fixing what it found.",
+    schema: z.object({ viewport: z.enum(["phone", "desktop"]).optional(), path: z.string().max(500).optional() }),
+    parameters: {
+      type: "object",
+      properties: {
+        viewport: { type: "string", enum: ["phone", "desktop"], description: "The screen to look at it on; phone when left out." },
+        path: { type: "string", description: "The page in the app, e.g. / or /settings; / when left out." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** A page path in the app: starts with one slash, never leaves the app. */
+function appPagePath(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("//")) return "/";
+  const path = raw.startsWith("/") ? raw : `/${raw}`;
+  return path.split("/").includes("..") ? "/" : path;
+}
 
 function clip(text: string, max = MAX_TOOL_OUTPUT) {
   return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters cut off)` : text;
@@ -496,6 +530,8 @@ export function describeActivity(name: string, rawInput: unknown): string {
       return "Starting the app";
     case "stop_app":
       return "Stopping the app";
+    case "view_app":
+      return `Looking at the page on a ${input.viewport === "desktop" ? "desktop" : "phone"}`;
     case "ask_teammate": {
       const who = text(input.teammate, 40);
       return who ? `Asking ${who}` : "Asking a teammate";
@@ -632,7 +668,7 @@ async function runToolOnce(context: StudioAssistantContext, name: string, rawInp
         return {
           ok: true,
           output: `${verb} ${written.path} (${written.size} bytes).${editId ? ` edit_id: ${editId}` : ""}`,
-          step: { tool: name, summary: `${verb} ${written.path}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+          step: { tool: name, summary: `${verb} ${written.path}`, ok: true, detail: null, path: written.path, ...(editId ? { editId } : {}) },
         };
       }
       case "edit_file": {
@@ -652,7 +688,7 @@ async function runToolOnce(context: StudioAssistantContext, name: string, rawInp
         return {
           ok: true,
           output: `Edited ${written.path}${where}.${editId ? ` edit_id: ${editId}` : ""}`,
-          step: { tool: name, summary: `Edited ${written.path}${where}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+          step: { tool: name, summary: `Edited ${written.path}${where}`, ok: true, detail: null, path: written.path, ...(editId ? { editId } : {}) },
         };
       }
       case "delete_path": {
@@ -665,7 +701,7 @@ async function runToolOnce(context: StudioAssistantContext, name: string, rawInp
         return {
           ok: true,
           output: `Deleted ${input.path}.${editId ? ` edit_id: ${editId}` : ""}`,
-          step: { tool: name, summary: `Deleted ${input.path}`, ok: true, detail: null, ...(editId ? { editId } : {}) },
+          step: { tool: name, summary: `Deleted ${input.path}`, ok: true, detail: null, path: String(input.path), ...(editId ? { editId } : {}) },
         };
       }
       case "undo_edit": {
@@ -755,6 +791,25 @@ async function runToolOnce(context: StudioAssistantContext, name: string, rawInp
         await runtime.stop();
         return { ok: true, output: "Stopped.", step: { tool: name, summary: "Stopped the app", ok: true, detail: null } };
       }
+      case "view_app": {
+        const viewport = input.viewport === "desktop" ? "desktop" : "phone";
+        const page = appPagePath(input.path);
+        const state = runtime.state;
+        if (!state.previewReady || !state.port) {
+          return {
+            ok: false,
+            output: `The app's page is not up${state.status === "running" || state.status === "starting" ? " yet: it has not answered on its port" : ": the app is not running"}. Use start_app (a web app listens on 127.0.0.1:$PORT), then view_app again.`,
+            step: { tool: name, summary: "The page is not up yet", ok: false, detail: null },
+          };
+        }
+        const report = await requestPageReport(context.workspaceId, { viewport, path: page });
+        if (report) {
+          const output = formatPageReport({ ...report, path: page }, viewport);
+          return { ok: true, output: clip(output), step: { tool: name, summary: pageReportSummary({ ...report, path: page }, viewport), ok: true, detail: clip(output, 1200) } };
+        }
+        const output = await staticPageOutline(state.port, page, viewport);
+        return { ok: true, output: clip(output), step: { tool: name, summary: `Read ${page} without seeing it (App Studio is closed)`, ok: true, detail: null } };
+      }
     }
     return { ok: false, output: "Unhandled tool", step: { tool: name, summary: name, ok: false, detail: null } };
   } catch (error) {
@@ -772,6 +827,7 @@ function systemPrompt(context: StudioAssistantContext) {
     `The project's run command is: ${context.runCommand || "(a static website served by Automa)"}.`,
     "Web apps get their port in the PORT environment variable and must listen on 127.0.0.1:$PORT; Automa shows them in its preview and can give them a public link.",
     "How to work: look at the files before changing them (search_files finds where things are); use edit_file for small changes and write_file for new or rewritten files; after changing code, run it (start_app for apps and servers, run_command for scripts and tests) and read the output to confirm it works, then fix what fails. If a change made things worse, undo_edit puts the file back.",
+    "Check what the person will see: after you build or change a page, start_app, then view_app (phone first, then desktop) to see it the way they do, with its console errors and layout trouble, and fix what is wrong before you say it is done.",
     "When you need current facts, versions, documentation or an error message explained, use web_search and then web_fetch on the best results; never guess version numbers.",
     "Work until the whole request is done: there is no step or length limit you need to save for. Finish every turn with a short reply to the person.",
     "When the user describes an app in plain words, build all of it: the UI, the logic, and storage (for Node.js, the built-in node:sqlite module needs no install; for Python, sqlite3).",
@@ -1012,11 +1068,16 @@ async function startTurn(
     ...(activity ? { activity } : {}),
   });
   liveTurns.set(context.workspaceId, snapshot);
-  const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, {
-    type: "assistant",
-    turn: done ? copyOfTurn() : snapshot(),
-    done,
-  });
+  let finished = false;
+  const publish = (done: boolean) => {
+    // A late update (a usage count arriving after the reply ended) must not show it running again.
+    if (finished && !done) return;
+    studioHub.broadcast(context.workspaceId, {
+      type: "assistant",
+      turn: done ? copyOfTurn() : snapshot(),
+      done,
+    });
+  };
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
 
   // Every model call in the turn adds up; the turn is recorded once per
@@ -1033,19 +1094,30 @@ async function startTurn(
     total.costUsd = usage.costUsd === null || total.costUsd === null ? null : total.costUsd + usage.costUsd;
     usageTotals.set(key, total);
   };
+  const worthOf = (usage: StudioAiUsage): number | null => {
+    try {
+      return context.worthUsd?.(usage) ?? null;
+    } catch {
+      return null;
+    }
+  };
   // The lead's own share, live; each teammate's share is kept on its agent.
   const onLeadUsage = (usage: StudioAiUsage) => {
-    turn.leadUsage = addTokenUsage(turn.leadUsage, usage);
+    turn.leadUsage = addTokenUsage(turn.leadUsage, usage, worthOf(usage));
+    // The Stats tab counts as it goes, not only when the reply is done.
+    publish(false);
     return onUsage(usage);
   };
 
   const finish = async () => {
     const totals = [...usageTotals.values()].filter((total) => total.inputTokens || total.cachedInputTokens || total.outputTokens);
     if (totals.length) {
+      const worths = totals.map((total) => worthOf(total) ?? total.costUsd);
       turn.usage = {
         inputTokens: totals.reduce((sum, total) => sum + total.inputTokens + total.cachedInputTokens, 0),
         outputTokens: totals.reduce((sum, total) => sum + total.outputTokens, 0),
         costUsd: totals.some((total) => total.costUsd === null) ? null : totals.reduce((sum, total) => sum + (total.costUsd ?? 0), 0),
+        ...(worths.every((worth) => worth === null) ? {} : { equivalentUsd: worths.reduce<number>((sum, worth) => sum + (worth ?? 0), 0) }),
       };
       for (const total of totals) {
         try {
@@ -1068,13 +1140,19 @@ async function startTurn(
     }
     running.delete(context.workspaceId);
     liveTurns.delete(context.workspaceId);
+    finished = true;
     publish(true);
     for (const other of remarked) if (other !== turn) studioHub.broadcast(context.workspaceId, { type: "assistant", turn: other, done: true });
+    try {
+      context.onFinished?.(copyOfTurn());
+    } catch (error) {
+      logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant finish hook failed");
+    }
   };
 
   const onStep = (step: StudioAssistantStep) => {
     activity = "";
-    turn.steps.push(step);
+    turn.steps.push(stamped(step));
     publish(false);
   };
   // Said before a tool runs, so a long install shows what it is waiting on.
@@ -1110,7 +1188,7 @@ async function startTurn(
     const thought = text.trim();
     if (!thought) return;
     const firstLine = thought.split("\n").find((line) => line.trim())?.replace(/^[#*\s]+/, "").slice(0, 140) ?? "Thought";
-    turn.steps.push({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000) });
+    turn.steps.push(stamped({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000) }));
     publish(false);
   };
   const onText = (text: string) => {
@@ -1118,7 +1196,7 @@ async function startTurn(
     if (!text.trim()) return;
     turn.text = turn.text ? `${turn.text}\n\n${text.trim()}` : text.trim();
     // Kept in order with the tool steps, so the chat reads as it happened.
-    turn.steps.push({ tool: "say", summary: text.trim(), ok: true, detail: null });
+    turn.steps.push(stamped({ tool: "say", summary: text.trim(), ok: true, detail: null }));
     publish(false);
   };
 
@@ -1207,7 +1285,7 @@ async function startTurn(
           onText: (text: string) => {
             if (!text.trim()) return;
             texts.push(text);
-            turn.steps.push({ tool: "say", summary: text.trim(), ok: true, detail: null, agent: agent.id });
+            turn.steps.push(stamped({ tool: "say", summary: text.trim(), ok: true, detail: null, agent: agent.id }));
             publish(false);
           },
           onDelta: () => undefined,
@@ -1216,11 +1294,11 @@ async function startTurn(
             const thought = text.trim();
             if (!thought) return;
             const firstLine = thought.split("\n").find((line) => line.trim())?.replace(/^[#*\s]+/, "").slice(0, 140) ?? "Thought";
-            turn.steps.push({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000), agent: agent.id });
+            turn.steps.push(stamped({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000), agent: agent.id }));
             publish(false);
           },
           onUsage: (usage: StudioAiUsage) => {
-            agent.usage = addTokenUsage(agent.usage, usage);
+            agent.usage = addTokenUsage(agent.usage, usage, worthOf(usage));
             publish(false);
             return onUsage(usage);
           },

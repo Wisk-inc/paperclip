@@ -21,6 +21,8 @@ interface HubClient {
   collaboratorId: string | null;
   /** Files whose live typing was too large to share; told once each. */
   refusedDrafts: Set<string>;
+  /** The page is in front of the person (it says when it is hidden). */
+  visible: boolean;
 }
 
 interface Draft {
@@ -82,6 +84,26 @@ class StudioHub {
     }
   }
 
+  /** Sends to the owner's open App Studio pages only (never guests); returns how many got it. */
+  sendToOwners(workspaceId: string, event: StudioServerEvent): number {
+    const payload = JSON.stringify(event);
+    let sent = 0;
+    for (const client of this.rooms.get(workspaceId) ?? []) {
+      if (client.participant.role !== "owner" || client.socket.readyState !== OPEN) continue;
+      client.socket.send(payload);
+      sent += 1;
+    }
+    return sent;
+  }
+
+  /** True while the owner has this project on screen somewhere: then a finished reply needs no phone notification. */
+  ownerWatching(workspaceId: string): boolean {
+    for (const client of this.rooms.get(workspaceId) ?? []) {
+      if (client.participant.role === "owner" && client.visible && client.socket.readyState === OPEN) return true;
+    }
+    return false;
+  }
+
   private send(client: HubClient, event: StudioServerEvent) {
     if (client.socket.readyState === OPEN) client.socket.send(JSON.stringify(event));
   }
@@ -94,6 +116,7 @@ class StudioHub {
       participant: { ...input.participant, online: true, activePath: null },
       collaboratorId: input.collaboratorId ?? null,
       refusedDrafts: new Set(),
+      visible: true,
     };
     let room = this.rooms.get(input.workspaceId);
     if (!room) {
@@ -147,6 +170,8 @@ class StudioHub {
       client.refusedDrafts.delete(shortPath(event.path));
       this.drafts.get(workspaceId)?.delete(`${participant.id}:${event.path}`);
       this.broadcast(workspaceId, { type: "draft:clear", path: event.path, byId: participant.id }, participant.id);
+    } else if (event.type === "visibility" && typeof event.visible === "boolean") {
+      client.visible = event.visible;
     } else if (event.type === "focus") {
       participant.activePath = typeof event.path === "string" ? event.path : null;
       for (const other of this.rooms.get(workspaceId) ?? []) {

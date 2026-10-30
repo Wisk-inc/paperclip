@@ -316,6 +316,34 @@ export interface StudioAiKeyStatus {
   source: "studio" | "automa" | null;
 }
 
+/** The screen an agent looks at its page on, and the size App Studio renders it at. */
+export const STUDIO_PROBE_VIEWPORTS = {
+  phone: { width: 390, height: 844 },
+  desktop: { width: 1280, height: 800 },
+} as const;
+export type StudioProbeViewport = keyof typeof STUDIO_PROBE_VIEWPORTS;
+
+/** How a previewed page looked on the person's device, as the page itself reported it. */
+export const studioPageReportSchema = z.object({
+  title: z.string().max(300),
+  path: z.string().max(500),
+  viewport: z.object({ width: z.number().int().min(0).max(10_000), height: z.number().int().min(0).max(10_000) }),
+  /** The whole page's size; wider than the viewport means sideways scrolling. */
+  page: z.object({ width: z.number().int().min(0).max(1_000_000), height: z.number().int().min(0).max(1_000_000) }),
+  /** What is on screen, top to bottom, one line per element. */
+  outline: z.array(z.string().max(300)).max(200),
+  /** Console errors and warnings, uncaught errors, files that did not load. */
+  problems: z.array(z.string().max(500)).max(40),
+  /** Layout trouble: sideways scrolling, small tap targets, cut-off text, hard-to-read text. */
+  warnings: z.array(z.string().max(300)).max(40),
+});
+export type StudioPageReport = z.infer<typeof studioPageReportSchema>;
+
+export const studioPageReportBodySchema = z.object({
+  requestId: z.string().min(1).max(100),
+  report: studioPageReportSchema,
+});
+
 /** What one provider and model did for App Studio over a period (assistant replies and code suggestions). */
 export interface StudioModelUsage {
   provider: string;
@@ -326,6 +354,8 @@ export interface StudioModelUsage {
   inputTokens: number;
   outputTokens: number;
   costCents: number;
+  /** What it would have cost at paid list prices (the free models' would-have-cost; the cost for paid models). */
+  equivalentCents: number;
 }
 
 export interface StudioUsageSummary {
@@ -352,6 +382,10 @@ export interface StudioAssistantStep {
   detail: string | null;
   /** The teammate that took this step (its agent id on the turn); absent for the lead. */
   agent?: string;
+  /** When it was taken (ISO time); absent on replies saved before 1.9.5. */
+  at?: string;
+  /** The file it created, changed or deleted. */
+  path?: string;
   /** A file change that can be undone with the edits route. */
   editId?: string;
   /** Set once that change was undone. */
@@ -363,6 +397,8 @@ export interface StudioTokenUsage {
   inputTokens: number;
   outputTokens: number;
   costUsd: number | null;
+  /** What the same tokens cost at paid list prices: the free models' would-have-cost, the paid models' cost. */
+  equivalentUsd?: number;
 }
 
 /** The lead's id in a team chat. */
@@ -454,6 +490,8 @@ export type StudioServerEvent =
   | { type: "assistant:cleared" }
   | { type: "share"; shareEnabled: boolean }
   | { type: "checkpoint:restored"; checkpoint: StudioCheckpoint }
+  /** An agent asked to see the page: the owner's App Studio renders it out of sight and reports back. */
+  | { type: "preview:probe"; requestId: string; viewport: StudioProbeViewport; path: string }
   | { type: "kicked"; reason: string };
 
 /** Events a Studio client sends. */
@@ -461,6 +499,8 @@ export type StudioClientEvent =
   | { type: "draft"; path: string; text: string }
   | { type: "draft:clear"; path: string }
   | { type: "focus"; path: string | null }
+  /** Whether this App Studio page is in front of the person (news about a finished reply goes to their phone otherwise). */
+  | { type: "visibility"; visible: boolean }
   | { type: "ping" };
 
 const relativePath = z
@@ -560,7 +600,7 @@ export const studioTeammateSchema = z.object({
   model: z.string().trim().min(1).max(200),
 });
 export type StudioTeammate = z.infer<typeof studioTeammateSchema>;
-export const STUDIO_MAX_TEAMMATES = 4;
+export const STUDIO_MAX_TEAMMATES = 8;
 
 export const studioAssistantMessageSchema = z
   .object({

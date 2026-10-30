@@ -55,19 +55,21 @@ describe("StudioUsageCard", () => {
     usageMock.mockResolvedValue({
       since: "2026-10-01T00:00:00.000Z",
       models: [
-        { provider: "free", model: "nvidia/nemotron-3-ultra-550b-a55b:free", calls: 12, inputTokens: 40_000, outputTokens: 4_000, costCents: 0 },
-        { provider: "anthropic", model: "claude-opus-5-5", calls: 2, inputTokens: 5_000, outputTokens: 1_000, costCents: 37 },
+        { provider: "free", model: "nvidia/nemotron-3-ultra-550b-a55b:free", calls: 12, inputTokens: 40_000, outputTokens: 4_000, costCents: 0, equivalentCents: 12 },
+        { provider: "anthropic", model: "claude-opus-5-5", calls: 2, inputTokens: 5_000, outputTokens: 1_000, costCents: 37, equivalentCents: 37 },
       ],
     });
     await draw({ linkToStudio: true });
 
     const card = container.querySelector('[data-testid="studio-usage-card"]')!;
     expect(card.textContent).toContain("50k");
-    expect(card.textContent).toContain("2 models · 44k on the free models · $0.37 spent");
+    expect(card.textContent).toContain("2 models · 44k on the free models · $0.37 spent · worth $0.49 at paid prices");
     const rows = [...card.querySelectorAll('[data-testid="studio-usage-model"]')];
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toContain("40k in · 4.0k out · Free");
+    // The free model costs nothing; this is what the paid version would have charged.
+    expect(rows[0]!.textContent).toContain("40k in · 4.0k out · Free · worth $0.12");
     expect(rows[1]!.textContent).toContain("5.0k in · 1.0k out · $0.37");
+    expect(rows[1]!.textContent).not.toContain("worth");
     expect(rows[0]!.querySelector('[data-slot="model-logo"]')).not.toBeNull();
     expect(card.querySelector('a[href="/studio"]')).not.toBeNull();
   });

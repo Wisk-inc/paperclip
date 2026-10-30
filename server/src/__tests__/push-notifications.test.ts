@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { createFcmPushSender, loadFirebaseServiceAccount } from "../services/push-notifications.js";
-import { pushMessageForActivity } from "../services/push-notifier.js";
+import { createFcmPushSender, fcmMessageFor, loadFirebaseServiceAccount } from "../services/push-notifications.js";
+import { isStaleRunOutcome, pushMessageForActivity, pushMessageForRunOutcome, pushMessageForStudioReply } from "../services/push-notifier.js";
 
 const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const account = {
@@ -86,5 +86,53 @@ describe("pushMessageForActivity", () => {
       message: { title: "Approval needed", body: "Hire agent from Ada is waiting on you.", path: "/approvals" },
     });
     expect(pushMessageForActivity({ action: "issue.updated" }, null)).toBeNull();
+  });
+});
+
+describe("finished work", () => {
+  it("words an agent's reply to a person, its failures, and nothing for stopped runs", () => {
+    expect(pushMessageForRunOutcome({ runId: "r1", issueId: "i1", status: "succeeded", finalText: "## Done\n\nThe **page** is live: [open](http://x)." }, "Ada")).toEqual({
+      title: "Ada replied",
+      body: "Done The page is live: open.",
+      path: "/issues/i1",
+      tag: "issue:i1",
+      awayOnly: true,
+    });
+    expect(pushMessageForRunOutcome({ runId: "r2", issueId: "i1", status: "succeeded" }, null)?.title).toBe("Your agent finished");
+    expect(pushMessageForRunOutcome({ runId: "r3", issueId: "i1", status: "failed", error: "Out of credits" }, "Ada")).toMatchObject({ title: "Ada couldn't finish", body: "Out of credits" });
+    expect(pushMessageForRunOutcome({ runId: "r4", issueId: "i1", status: "cancelled" }, "Ada")).toBeNull();
+    expect(pushMessageForRunOutcome({ runId: "r5", status: "succeeded" }, "Ada")).toBeNull();
+  });
+
+  it("leaves out outcomes that finished long ago (sent again after a restart)", () => {
+    const now = Date.parse("2026-10-30T12:00:00.000Z");
+    expect(isStaleRunOutcome({ finishedAt: "2026-10-30T11:40:00.000Z" }, now)).toBe(true);
+    expect(isStaleRunOutcome({ finishedAt: "2026-10-30T11:58:00.000Z" }, now)).toBe(false);
+    expect(isStaleRunOutcome({}, now)).toBe(false);
+  });
+
+  it("words App Studio replies with the project", () => {
+    expect(pushMessageForStudioReply({ workspaceId: "w1", projectName: "Todo", text: "Built the page.", error: null })).toEqual({
+      title: "App Studio · Todo",
+      body: "Built the page.",
+      path: "/studio/w1",
+      tag: "studio:w1",
+      awayOnly: true,
+    });
+  });
+
+  it("sends away-only news as data, so the app can hold it while Automa is on screen", () => {
+    expect(fcmMessageFor("t1", { title: "Ada replied", body: "Hi", path: "/issues/i1", tag: "issue:i1", awayOnly: true })).toEqual({
+      token: "t1",
+      data: { path: "/issues/i1", tag: "issue:i1", title: "Ada replied", body: "Hi", away_only: "1" },
+      android: { priority: "HIGH" },
+    });
+    // Everything else stays a notification the system shows by itself.
+    expect(fcmMessageFor("t1", { title: "Approval needed", body: "Waiting", path: "/approvals" })).toEqual({
+      token: "t1",
+      notification: { title: "Approval needed", body: "Waiting" },
+      data: { path: "/approvals" },
+      android: { priority: "HIGH", notification: { channel_id: "automa_updates" } },
+    });
   });
 });

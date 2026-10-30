@@ -13,6 +13,7 @@ import type {
   StudioLanguage,
   StudioLanguageCategory,
   StudioMessage,
+  StudioPageReport,
   StudioParticipant,
   StudioRunState,
   StudioToolchainStatus,
@@ -162,6 +163,9 @@ export const studioApi = {
   ) =>
     api.post<{ turn: StudioAssistantTurn }>(`${ws(id)}/assistant`, input),
   stopAssistant: (id: string) => api.post<{ ok: true }>(`${ws(id)}/assistant/stop`, {}),
+  /** How the page rendered here, for the agent that asked to see it (view_app). */
+  previewReport: (id: string, requestId: string, report: StudioPageReport) =>
+    api.post<{ ok: true; delivered: boolean }>(`${ws(id)}/preview-report`, { requestId, report }),
   /** Reverses one file change the assistant made. */
   undoEdit: (id: string, editId: string) =>
     api.post<{ path: string; undoId: string }>(`${ws(id)}/edits/${encodeURIComponent(editId)}/undo`, {}),

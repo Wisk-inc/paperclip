@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioAssistantTurn } from "@paperclipai/shared";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { StudioTeamDashboard } from "./StudioTeamDashboard";
@@ -64,5 +64,77 @@ describe("StudioTeamDashboard", () => {
     const chat = container.querySelector('[data-testid="studio-dashboard-chat"]')!;
     expect(chat.textContent).toContain("The API is at /api/todos");
     expect(chat.textContent).toContain("everyone");
+  });
+
+  it("follows the reply live: a running clock, each model's work, and counts that move with every step", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date(Date.parse(at) + 65_000));
+      const live = (steps: StudioAssistantTurn["steps"], mateUsage: { inputTokens: number; outputTokens: number }): StudioAssistantTurn[] => [
+        { id: "u1", role: "user", text: "Build a todo page", steps: [], provider: null, model: null, error: null, createdAt: at },
+        {
+          id: "a2",
+          role: "assistant",
+          text: "",
+          steps,
+          activity: "Running npm install",
+          provider: "free",
+          model: LEAD,
+          error: null,
+          createdAt: at,
+          leadUsage: { inputTokens: 1200, outputTokens: 300, costUsd: 0, equivalentUsd: 0.21 },
+          agents: [
+            { id: "m1", name: "Gemma", provider: "free", model: MATE, role: "frontend", task: "Write index.html", status: "working", activity: "Writing index.html", steps: 1, usage: { ...mateUsage, costUsd: 0, equivalentUsd: 0.04 }, startedAt: at },
+          ],
+        },
+      ];
+      const first = live(
+        [{ tool: "write_file", summary: "Gemma · Created index.html", ok: true, detail: null, agent: "m1", path: "index.html", at: new Date(Date.parse(at) + 53_000).toISOString() }],
+        { inputTokens: 800, outputTokens: 200 },
+      );
+      await act(async () => root.render(<ThemeProvider><StudioTeamDashboard turns={first} running /></ThemeProvider>));
+
+      const panel = container.querySelector('[data-testid="studio-stats-live"]')!;
+      expect(panel.textContent).toContain("Working now");
+      expect(container.querySelector('[data-testid="studio-stats-elapsed"]')!.textContent).toBe("1:05");
+      expect(container.querySelector('[data-testid="studio-stats-doing"]')!.textContent).toBe("Running npm install…");
+      expect(container.querySelector('[data-testid="studio-stats-live-counts"]')!.textContent).toBe("1 step · 1 file changed · 2.5k tokens");
+      const workers = [...container.querySelectorAll('[data-testid="studio-stats-worker"]')];
+      expect(workers).toHaveLength(2);
+      expect(workers[1]!.textContent).toContain("Gemma");
+      expect(workers[1]!.textContent).toContain("Working");
+      expect(workers[1]!.textContent).toContain("Writing index.html…");
+      expect(workers[1]!.textContent).toContain("Free · worth $0.04");
+      // What the free work would have cost at paid prices, counted as it goes.
+      expect(container.querySelector('[data-testid="studio-stat-would-cost"]')!.textContent).toBe("$0.25");
+      expect(container.querySelector('[data-testid="studio-stat-files"]')!.textContent).toBe("1");
+      expect(container.querySelector('[data-testid="studio-stats-moves"]')!.textContent).toContain("12s ago");
+
+      // The clock keeps going on its own.
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(container.querySelector('[data-testid="studio-stats-elapsed"]')!.textContent).toBe("1:06");
+
+      // The next step and the next token count show up straight away.
+      const next = live(
+        [
+          ...first[1]!.steps,
+          { tool: "edit_file", summary: "Edited app.js", ok: true, detail: null, path: "app.js", at: new Date(Date.parse(at) + 66_000).toISOString() },
+        ],
+        { inputTokens: 1800, outputTokens: 400 },
+      );
+      await act(async () => root.render(<ThemeProvider><StudioTeamDashboard turns={next} running /></ThemeProvider>));
+      expect(container.querySelector('[data-testid="studio-stats-live-counts"]')!.textContent).toBe("2 steps · 2 files changed · 3.7k tokens");
+      expect(container.querySelector('[data-testid="studio-stat-steps"]')!.textContent).toBe("2");
+      expect(container.querySelector('[data-testid="studio-stats-moves"] li')!.textContent).toContain("Edited app.js");
+
+      // Done: the live panel goes, the totals stay.
+      await act(async () => root.render(<ThemeProvider><StudioTeamDashboard turns={next} running={false} /></ThemeProvider>));
+      expect(container.querySelector('[data-testid="studio-stats-live"]')).toBeNull();
+      expect(container.querySelector('[data-testid="studio-stat-files"]')!.textContent).toBe("2");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -25,6 +25,7 @@ import type {
   StudioChangeRequest,
   StudioConsoleLine,
   StudioMessage,
+  StudioPageReport,
   StudioParticipant,
   StudioRunState,
   StudioServerEvent,
@@ -38,6 +39,8 @@ import { useStudioSocket } from "../hooks/useStudioSocket";
 import { useNarrowScreen } from "../hooks/useNarrowScreen";
 import { useUndoableAction } from "../hooks/useUndoableAction";
 import { haptic } from "../lib/haptics";
+import { notifyWhenAway, studioReplyNotice } from "../lib/background-notify";
+import { usePageVisibility } from "../lib/page-visibility";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
@@ -57,6 +60,7 @@ import { createStudioConsoleStore, useLatestConsoleLine, type StudioConsoleStore
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StudioConsole } from "../components/studio/StudioConsole";
 import { StudioPreview } from "../components/studio/StudioPreview";
+import { StudioPageProbe, type StudioProbeRequest } from "../components/studio/StudioPageProbe";
 import { StudioAssistant } from "../components/studio/StudioAssistant";
 import { StudioTeamPanel } from "../components/studio/StudioTeamPanel";
 import { StudioTeamDashboard } from "../components/studio/StudioTeamDashboard";
@@ -211,6 +215,42 @@ export function StudioWorkspace() {
     enabled: !!workspaceId,
   });
   const workspace = detail.data?.workspace ?? null;
+  // Read by the socket handler when a reply finishes out of sight.
+  const runningTurnsRef = useRef(new Set<string>());
+  const workspaceNameRef = useRef<string | null>(null);
+  workspaceNameRef.current = workspace?.name ?? null;
+  const pagePathRef = useRef("");
+  pagePathRef.current = `${location.pathname}${location.search}`;
+
+  // The preview reloads by itself a moment after files change (an agent's
+  // write, a save), so it never shows a stale page.
+  const [previewReload, setPreviewReload] = useState(0);
+  const previewReloadTimer = useRef<number | null>(null);
+  const schedulePreviewReload = useCallback(() => {
+    if (previewReloadTimer.current !== null) window.clearTimeout(previewReloadTimer.current);
+    previewReloadTimer.current = window.setTimeout(() => {
+      previewReloadTimer.current = null;
+      setPreviewReload((count) => count + 1);
+    }, 1200);
+  }, []);
+  useEffect(
+    () => () => {
+      if (previewReloadTimer.current !== null) window.clearTimeout(previewReloadTimer.current);
+    },
+    [],
+  );
+
+  // An agent asked to see the page (view_app): it opens out of sight at the
+  // size the agent asked for, and its report goes back to the agent.
+  const [probes, setProbes] = useState<StudioProbeRequest[]>([]);
+  const dropProbe = useCallback((requestId: string) => setProbes((current) => current.filter((probe) => probe.requestId !== requestId)), []);
+  const finishProbe = useCallback(
+    (request: StudioProbeRequest, report: StudioPageReport | null) => {
+      dropProbe(request.requestId);
+      if (report) void studioApi.previewReport(workspaceId, request.requestId, report).catch(() => undefined);
+    },
+    [dropProbe, workspaceId],
+  );
   const catalog = useQuery({
     queryKey: queryKeys.studio.catalog(companyId),
     queryFn: () => studioApi.catalog(companyId),
@@ -293,8 +333,19 @@ export function StudioWorkspace() {
           break;
         case "tree:changed":
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
+          schedulePreviewReload();
+          break;
+        case "preview:probe":
+          setProbes((current) =>
+            current.some((probe) => probe.requestId === event.requestId)
+              ? current
+              : [...current, { requestId: event.requestId, viewport: event.viewport, path: event.path }].slice(-4),
+          );
+          // The agent stops waiting after 20 seconds; so does this page.
+          window.setTimeout(() => dropProbe(event.requestId), 20_000);
           break;
         case "file:saved": {
+          schedulePreviewReload();
           const current = fileRef.current;
           if (!current || current.path !== event.path) break;
           if (event.version === "deleted") {
@@ -362,7 +413,23 @@ export function StudioWorkspace() {
           break;
         case "assistant":
           setTurns((current) => upsertTurn(current, event.turn));
-          if (event.turn.role === "assistant") setAssistantRunning(!event.done);
+          if (event.turn.role === "assistant") {
+            setAssistantRunning(!event.done);
+            // A reply seen working that finishes while the person is away: tell them.
+            if (!event.done) runningTurnsRef.current.add(event.turn.id);
+            else if (runningTurnsRef.current.delete(event.turn.id)) {
+              notifyWhenAway(
+                studioReplyNotice({
+                  workspaceId,
+                  turnId: event.turn.id,
+                  projectName: workspaceNameRef.current,
+                  text: event.turn.text,
+                  error: event.turn.error,
+                  path: pagePathRef.current,
+                }),
+              );
+            }
+          }
           break;
         case "share":
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) });
@@ -384,11 +451,16 @@ export function StudioWorkspace() {
           break;
       }
     },
-    [pushToast, queryClient, workspaceId],
+    [pushToast, queryClient, workspaceId, schedulePreviewReload, dropProbe],
   );
   const socketUrl = useMemo(() => (workspaceId ? studioSocketUrl({ workspaceId }) : null), [workspaceId]);
   const { status: socketStatus, send } = useStudioSocket(socketUrl, handleEvent);
   useEffect(() => setSocketLive(socketStatus === "open"), [socketStatus]);
+  // The server sends a finished reply to the person's phone only while no App Studio of theirs is on screen.
+  const { visible: pageVisible } = usePageVisibility();
+  useEffect(() => {
+    if (socketStatus === "open") send({ type: "visibility", visible: pageVisible });
+  }, [socketStatus, pageVisible, send]);
   // Whatever happened while the socket was down (a reply finishing, console
   // output, a cleared chat) is read again as soon as it reconnects.
   const wasOpenRef = useRef(false);
@@ -883,6 +955,7 @@ export function StudioWorkspace() {
   const previewPane = (
     <StudioPreview
       run={run}
+      reloadSignal={previewReload}
       consoleApp={consoleApp}
       consoleStore={consoleStore}
       onRun={() => void runApp()}
@@ -1067,7 +1140,7 @@ export function StudioWorkspace() {
     />
   );
 
-  const dashboardPane = <StudioTeamDashboard turns={turns} />;
+  const dashboardPane = <StudioTeamDashboard turns={turns} running={assistantRunning} />;
 
   const sidePanes: Record<SideTab, React.ReactNode> = { console: consolePane, preview: previewPane, ai: aiPane, dashboard: dashboardPane, team: teamPane };
   const tabs: Array<{ id: Pane; label: string; icon: typeof CodeXml; badge?: number | boolean }> = [
@@ -1076,7 +1149,7 @@ export function StudioWorkspace() {
     { id: "console", label: "Console", icon: SquareTerminal, badge: running },
     { id: "preview", label: "Preview", icon: Globe, badge: Boolean(run?.previewReady) },
     { id: "ai", label: "AI", icon: Sparkles, badge: assistantRunning },
-    { id: "dashboard", label: "Stats", icon: Activity, badge: turns.some((t) => t.usage) },
+    { id: "dashboard", label: "Stats", icon: Activity, badge: assistantRunning || turns.some((t) => t.usage) },
     { id: "team", label: "Team", icon: Users, badge: openChanges || (participants.length > 1 ? participants.length - 1 : 0) },
   ];
 
@@ -1092,6 +1165,9 @@ export function StudioWorkspace() {
       )}
       data-testid="studio-workspace"
     >
+      {probes[0] && run?.previewReady && run.previewPath ? (
+        <StudioPageProbe key={probes[0].requestId} previewPath={run.previewPath} request={probes[0]} onDone={(report) => finishProbe(probes[0]!, report)} />
+      ) : null}
       {/* Header: the app and its Run button. */}
       <div className="flex items-center gap-2 border-b border-border bg-linear-to-r from-primary/10 to-transparent px-2 py-1.5">
         <Button variant="ghost" size="icon-sm" aria-label="All apps" asChild>

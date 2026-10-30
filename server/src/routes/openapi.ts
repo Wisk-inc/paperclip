@@ -7952,6 +7952,7 @@ registerCurrentRoute({ method: "get", path: "/api/studio/workspaces/{id}/assista
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/edits/{editId}/undo", tags: ["studio"], summary: "Undo one file change the assistant made (refused when the file changed again afterwards)", responses: { 200: r.ok(), 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Ask the coding assistant (runs in the background; saves a checkpoint first)", body: studioAssistantMessageSchema, responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 404: r.notFound, 409: r.conflict } });
 registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/assistant/stop", tags: ["studio"], summary: "Stop the assistant's current turn" });
+registerCurrentRoute({ method: "post", path: "/api/studio/workspaces/{id}/preview-report", tags: ["studio"], summary: "Report how the previewed page rendered, for an agent that asked to see it (view_app)" });
 registerCurrentRoute({ method: "delete", path: "/api/studio/workspaces/{id}/assistant", tags: ["studio"], summary: "Clear the assistant conversation" });
 
 registerCurrentRoute({ method: "post", path: "/api/studio-guest/join", tags: ["studio"], summary: "Join an app with a share code (returns a collaborator token)", body: joinStudioSchema });

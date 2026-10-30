@@ -75,6 +75,11 @@ import java.util.concurrent.Executors
 class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_OPEN_PATH = "com.corxlabs.automa.OPEN_PATH"
+
+        /** True while the board is in front of the person; news about finished work waits until they leave. */
+        @Volatile
+        var onScreen = false
+            private set
         const val ACTION_CHANGE_SERVER = "com.corxlabs.automa.CHANGE_SERVER"
         /**
          * A server address on this phone's loopback, from the ADB helper
@@ -408,10 +413,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        onScreen = true
         webView.onResume()
     }
 
     override fun onPause() {
+        onScreen = false
         webView.onPause()
         CookieManager.getInstance().flush()
         super.onPause()

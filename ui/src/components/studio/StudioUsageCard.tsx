@@ -7,12 +7,13 @@ import { Card } from "@/components/ui/card";
 import { ModelLogo } from "@/components/ModelLogo";
 import { modelDisplayName } from "@/lib/model-brand";
 import { cn } from "@/lib/utils";
-import { formatSpend, formatTokens } from "./studio-usage";
+import { formatCostAndWorth, formatTokens, formatUsd } from "./studio-usage";
 
 /**
  * The AI models App Studio used in the last 30 days, each with its maker's
- * logo, its tokens and its cost (Free on the free models): the assistant, its
- * teammates and code suggestions together. Renders nothing before any use.
+ * logo, its tokens, its cost (Free on the free models) and what the same
+ * tokens cost at paid list prices: the assistant, its teammates and code
+ * suggestions together. Renders nothing before any use.
  */
 export function StudioUsageCard({
   companyId,
@@ -37,6 +38,8 @@ export function StudioUsageCard({
 
   const tokens = models.reduce((sum, model) => sum + model.inputTokens + model.outputTokens, 0);
   const cents = models.reduce((sum, model) => sum + model.costCents, 0);
+  // Rows from a server before 1.9.5 have no equivalent: their cost stands in.
+  const worthCents = models.reduce((sum, model) => sum + (model.equivalentCents ?? model.costCents), 0);
   const free = models.filter((model) => model.provider === "free").reduce((sum, model) => sum + model.inputTokens + model.outputTokens, 0);
   const shown = models.slice(0, limit);
 
@@ -55,6 +58,7 @@ export function StudioUsageCard({
             {models.length} {models.length === 1 ? "model" : "models"}
             {free ? ` · ${formatTokens(free)} on the free models` : ""}
             {cents > 0 ? ` · $${(cents / 100).toFixed(2)} spent` : " · $0.00 charged"}
+            {worthCents > cents + 0.5 ? ` · worth ${formatUsd(worthCents / 100)} at paid prices` : ""}
           </div>
         </div>
         <div className="hidden -space-x-1.5 sm:flex" aria-hidden="true">
@@ -65,7 +69,11 @@ export function StudioUsageCard({
       </div>
       <ul className="flex flex-col divide-y divide-border" aria-label="App Studio models">
         {shown.map((model) => {
-          const spend = formatSpend(model.provider, model.costCents / 100);
+          const spend = formatCostAndWorth({
+            free: model.provider === "free",
+            costUsd: model.costCents / 100,
+            equivalentUsd: (model.equivalentCents ?? model.costCents) / 100,
+          });
           const share = tokens ? Math.max(2, Math.round(((model.inputTokens + model.outputTokens) / tokens) * 100)) : 0;
           return (
             <li key={`${model.provider}:${model.model}`} className="flex items-center gap-3 px-4 py-2.5" data-testid="studio-usage-model">

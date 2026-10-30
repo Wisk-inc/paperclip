@@ -102,3 +102,22 @@ self.addEventListener("fetch", (event) => {
       })
   );
 });
+
+// A notification the board showed for AI work that finished while it was out
+// of sight: bring a board tab forward on the screen it names, or open one.
+self.addEventListener("notificationclick", (event) => {
+  const data = event.notification.data || {};
+  const path = typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//") ? data.path : "/";
+  event.notification.close();
+  event.waitUntil((async () => {
+    const tabs = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const tab = tabs.find((client) => new URL(client.url).origin === self.location.origin);
+    if (tab) {
+      // The page moves itself, so it keeps its state instead of reloading.
+      tab.postMessage({ type: "automa:open-path", path });
+      await tab.focus();
+      return;
+    }
+    await self.clients.openWindow(new URL(path, self.location.origin).href);
+  })());
+});

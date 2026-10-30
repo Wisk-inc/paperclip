@@ -72,6 +72,8 @@ async function turn(
     teamProvider?: "openai" | "custom";
     /** Records what each provider and model used, as Costs does. */
     onUsage?: (usage: StudioAiUsage) => void;
+    /** Prices a call at paid list prices, as the route does for free models. */
+    worthUsd?: (usage: StudioAiUsage) => number | null;
     /** Carries on in this project instead of a new one. */
     workspaceId?: string;
     provider?: "openai" | "custom";
@@ -101,6 +103,7 @@ async function turn(
       startApp: async () => {},
       onFileChanged: async () => {},
       ...(options.onUsage ? { onUsage: options.onUsage } : {}),
+      ...(options.worthUsd ? { worthUsd: options.worthUsd } : {}),
     },
     message: options.message ?? "Build it",
     provider: options.provider ?? "openai",
@@ -419,6 +422,98 @@ describe("Studio assistant loop", () => {
     const teamResult = String(leadFollowUp.messages.find((message) => message.role === "tool")?.content);
     expect(teamResult).toContain("What the teammates told each other");
     expect(teamResult).toContain("The API is at /api/todos");
+  });
+
+  it("adds up what the work would have cost at paid prices, for the lead, each teammate and the reply", async () => {
+    const { reply } = await turn({
+      lead: [
+        { call: { name: "run_team", args: { assignments: [{ teammate: "mate-a", role: "frontend", task: "Write index.html" }] } } },
+        { content: "Done." },
+      ],
+      "mate-a": [{ content: "index.html is written." }],
+    }, { team: ["mate-a"], worthUsd: (usage) => (usage.model === "lead" ? 0.25 : 0.1) });
+    // Two lead calls and one teammate call.
+    expect(reply.leadUsage?.equivalentUsd).toBeCloseTo(0.5);
+    expect(reply.agents?.[0]?.usage?.equivalentUsd).toBeCloseTo(0.1);
+    expect(reply.usage?.equivalentUsd).toBeCloseTo(0.35);
+    // Every step says when it was taken, for the Stats tab's latest moves.
+    expect(reply.steps.every((step) => typeof step.at === "string" && !Number.isNaN(Date.parse(step.at)))).toBe(true);
+  });
+
+  it("looks at the page the way the person sees it, once the app is up", async () => {
+    const { studioRuntime } = await import("../services/studio/runner.js");
+    const { studioHub } = await import("../services/studio/hub.js");
+    const { deliverPageReport } = await import("../services/studio/page-probe.js");
+    const page = http.createServer((_req, res) => {
+      res.setHeader("content-type", "text/html");
+      res.end("<!doctype html><html><head><title>Todos</title></head><body><h1>My list</h1></body></html>");
+    });
+    await new Promise<void>((resolve) => page.listen(0, "127.0.0.1", resolve));
+    const port = (page.address() as AddressInfo).port;
+    const listeners = new Map<string, Array<() => void>>();
+    // The owner's App Studio: renders the page it is asked about and reports back.
+    const owner = {
+      readyState: 1,
+      send: (data: string) => {
+        const event = JSON.parse(data) as { type: string; requestId?: string; viewport?: string };
+        if (event.type !== "preview:probe") return;
+        setTimeout(() => deliverPageReport(ownerWorkspace, event.requestId!, {
+          title: "Todos",
+          path: "/ignored",
+          viewport: { width: 1280, height: 800 },
+          page: { width: 1280, height: 800 },
+          outline: ['h1 "My list" 400x38 at (16,24)'],
+          problems: ["console.error: list is not defined"],
+          warnings: [],
+        }), 5);
+      },
+      close: () => undefined,
+      on: (event: string, listener: () => void) => void listeners.set(event, [...(listeners.get(event) ?? []), listener]),
+    };
+    let ownerWorkspace = "";
+    try {
+      // Not running yet: it says to start the app first.
+      const notUp = await turn({ lead: [{ call: { name: "view_app", args: {} } }, { content: "Starting it next." }] });
+      expect(notUp.reply.steps[0]).toMatchObject({ tool: "view_app", summary: "The page is not up yet", ok: false });
+      expect(String(requests.at(-1)!.messages.find((message) => message.role === "tool")?.content)).toContain("start_app");
+
+      // Rendered in the owner's App Studio, at the size asked for.
+      const seen = await turn(
+        { lead: [{ call: { name: "view_app", args: { viewport: "desktop", path: "/" } } }, { content: "Fixed the error." }] },
+        {
+          setup: async (workspaceId) => {
+            ownerWorkspace = workspaceId;
+            const runtime = studioRuntime(workspaceId);
+            runtime.state = { ...runtime.state, status: "running", previewReady: true, port };
+            studioHub.join({ workspaceId, socket: owner, participant: { id: "owner", name: "Owner", role: "owner", color: "#7048E8" } });
+          },
+        },
+      );
+      expect(seen.reply.steps[0]).toMatchObject({ tool: "view_app", summary: "Looked at / on a desktop: 1 thing to fix" });
+      const told = String(requests.at(-1)!.messages.find((message) => message.role === "tool")?.content);
+      expect(told).toContain("desktop screen (1280×800)");
+      expect(told).toContain('- h1 "My list" 400x38 at (16,24)');
+      expect(told).toContain("- console.error: list is not defined");
+      listeners.get("close")?.forEach((listener) => listener());
+
+      // Nobody has App Studio open: the page's HTML, without its scripts.
+      const unseen = await turn(
+        { lead: [{ call: { name: "view_app", args: { path: "https://elsewhere.example/" } } }, { content: "Read it." }] },
+        {
+          setup: async (workspaceId) => {
+            const runtime = studioRuntime(workspaceId);
+            runtime.state = { ...runtime.state, status: "running", previewReady: true, port };
+          },
+        },
+      );
+      // Another site's address stays inside the app.
+      expect(unseen.reply.steps[0]?.summary).toBe("Read / without seeing it (App Studio is closed)");
+      const html = String(requests.at(-1)!.messages.find((message) => message.role === "tool")?.content);
+      expect(html).toContain("Nobody has this project open in App Studio");
+      expect(html).toContain("My list");
+    } finally {
+      page.close();
+    }
   });
 
   it("records a team's spend under each provider and model that did the work", async () => {

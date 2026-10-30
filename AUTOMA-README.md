@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.4** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.5** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.4](#2-whats-new-in-194)
+2. [What's new in 1.9.5](#2-whats-new-in-195)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,55 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.4
+## 2. What's new in 1.9.5
+
+**Notifications when AI work finishes while you are away**
+- When an agent replies to something you sent, or an App Studio job finishes,
+  while you are outside the app, you get a notification with the first lines
+  of the reply. **Tap it to jump straight to that chat, task or App Studio
+  project.**
+- On the phone they are Android notifications. In a browser they are system
+  notifications (Automa asks once, the first time you send something to an AI),
+  and clicking one brings the board forward on that screen.
+- Only replies to what you asked (or the task you had open) notify you, never
+  the agents' routine background work. A newer reply on the same chat replaces
+  the older notification instead of piling up.
+- When your server has a Firebase service account set up, it also sends the
+  same notification as a push, so it still arrives after Android has put the
+  app to sleep. The phone shows one notification, not two, and none while you
+  are looking at Automa.
+
+**App Studio's Stats tab is live**
+- While the AI works, a **Working now** panel shows a running clock, what it is
+  doing this second, steps and files changed, and every model at work with its
+  status (Working, Done, Failed), what it is doing and its tokens as they count.
+- **Latest moves:** the newest steps across the team, each with who took it and
+  how long ago.
+- Six totals for the chat: Models, Tokens, Cost, **Would cost**, Steps and Files.
+
+**Costs show what free work would have cost**
+- Free-model work is priced at the paid versions' list prices: each reply says
+  "Free · worth $0.42", each model's line on the Stats tab and on the 30-day
+  App Studio card says what it would have cost, and the card adds it all up.
+- A team that mixed free and paid models shows both, for example
+  "$0.12 · worth $0.40".
+
+**The AI sees the page the way you do (`view_app`)**
+- After building or changing a page, the AI opens it in your App Studio at a
+  phone (390×844) or desktop (1280×800) size, out of sight, with its scripts
+  running, and reads what is on the screen top to bottom: headings, text,
+  buttons, inputs and images with their sizes and positions.
+- It also gets the page's console errors, files that failed to load, and layout
+  trouble: sideways scrolling, buttons too small to tap, cut-off text and
+  hard-to-read colors. It fixes them and looks again.
+- When App Studio is closed, it reads the page's HTML instead.
+
+**Bigger teams and a live preview**
+- Up to **8 teammates** (was 4) and **10 assignments** at once (was 6).
+- The preview **reloads by itself** a moment after files change, so it always
+  shows the latest page. The ⚡ button beside reload turns that off and on.
+
+### Also new in 1.9.4
 
 **App Studio teams you can watch**
 - Every model on a job shows as its maker's logo. The logos "boot up" one by
@@ -212,6 +260,14 @@ Room, Tasks, Projects, Routines, Artifacts, Files, App Studio, Terminals, App
 Inspector, Cases, Pipelines, Goals, Workspaces, Agents, Skills, Connectors,
 Audit, Org, Timeline, Costs, Activity, Settings. Chats and Inbox are on the tab
 bar and the bell.
+
+**Notifications**
+- When an AI reply or an App Studio job finishes while you are outside the app,
+  a notification says so; tap it to open that chat, task or project.
+- Automa asks for permission once, the first time you send something to an AI.
+  Turn them off in Android's app settings (or your browser's site settings).
+- You are notified about replies to what you sent and the task you had open,
+  not the agents' routine background work.
 
 **How it feels**
 - Destructive actions come with **Undo** instead of "are you sure?" dialogs.
@@ -612,6 +668,14 @@ Team**. On a wider screen the files, editor and a side panel sit together.
 - **Web pages:** ask for something to look at and it builds a web page and opens
   it in the preview (in a console project it serves the page itself). **Open
   the page** on the reply jumps to the Preview.
+- **Sees the page like you do (`view_app`):** it opens the running page in your
+  App Studio at a phone or desktop size, out of sight, and reads what is on the
+  screen (text, buttons, inputs, images, sizes and positions), the console
+  errors and failed loads, and layout trouble (sideways scrolling, small tap
+  targets, cut-off text, hard-to-read colors), then fixes what it found and
+  looks again. With App Studio closed it reads the page's HTML.
+- **Live preview:** the preview reloads by itself a moment after files change;
+  the ⚡ button beside reload turns that off.
 - **Live progress:** what it is doing right now, steps done and time elapsed,
   its thinking (tap to read), each step, and a token and cost line.
 
@@ -628,10 +692,13 @@ models) and the lead model can hand them work.
 - **Logos that boot up:** every model on the job, with a working, done or failed
   ring and its live token count. The **Work** tab has each teammate's card
   (role, status, steps, tokens, task, its own steps and report).
-- **Stats tab:** tokens per model for the whole chat, and everything each team
-  said.
-- Each teammate knows what you asked and who else is working. Up to six
-  assignments per run, and teammates never nest.
+- **Stats tab, live:** while the AI works, a running clock, what it is doing,
+  steps and files changed so far, and every model at work with its status and
+  live tokens; then the totals (models, tokens, cost, what it would have cost,
+  steps, files), tokens per model, the latest moves with how long ago, and
+  everything each team said.
+- Each teammate knows what you asked and who else is working. Up to eight
+  teammates and ten assignments per run, and teammates never nest.
 
 ### Undo and safety
 - **Undo any change** the assistant made, step by step, with **Undo** beside the
@@ -655,7 +722,9 @@ models) and the lead model can hand them work.
 ### Costs
 App Studio has its own row on the Costs page, stops at the organization's
 budget like agents do, and shows its 30-day per-model usage on the Studio page
-and Home.
+and Home. Free models cost nothing; each reply, the Stats tab and the 30-day
+card also say what the same tokens would have cost on the paid versions
+("Free · worth $0.42").
 
 ---
 
@@ -712,6 +781,8 @@ your Downloads. For apps you made or are allowed to analyze.
   when it is back, and Claude's session and weekly limits when Claude Code is
   signed in.
 - **Free models saved:** the same savings card as Home, with Reset.
+- **What free work would have cost:** App Studio's replies, Stats tab and 30-day
+  card price free-model tokens at the paid versions' list prices.
 
 ---
 
@@ -830,6 +901,15 @@ agent exactly these commands.
 - Free agents' web tools never reach private or local network addresses.
 - App Studio previews run in a sandbox with no access to Automa or your
   sign-in; App Studio never writes outside the project folder.
+- When the AI looks at a page (`view_app`), only your own App Studio renders it
+  (never a guest's), the page answers only the App Studio around it, and the
+  preview link's secret is left out of every address it reports.
+
+**Notifications**
+- A notification shows the first lines of an AI reply, so they can appear on
+  the lock screen; Android's lock-screen setting decides.
+- Without a Firebase service account on your server, notifications come from
+  the app itself and nothing leaves your server for them.
 - Governed actions wait for your approval, and budgets stop spending.
 
 **Privacy:** your organizations, tasks, chats and files live on your own Automa
@@ -931,6 +1011,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.5 | 2026-10-30 | Notifications when an AI reply or App Studio job finishes while you are away, with a tap that opens that chat, task or project (Android and browser; also server push with Firebase); a live App Studio Stats tab (running clock, each model's status and tokens, latest moves, steps and files); costs say what free work would have cost; the AI sees the page like you do (`view_app`: phone and desktop sizes, console errors, layout trouble); teams of up to 8; the preview reloads itself when files change. |
 | 1.9.4 | 2026-10-30 | App Studio teams you can watch (booting logos with live tokens, a readable team chat, per-model shares, a Stats tab, 30-day per-model usage on the Studio page and Home); web pages built and opened in the preview, with `localStorage` working there; the task waiting notice gets an X, a working Retry now, honest wording and a self-refresh. |
 | 1.9.3 | 2026-10-30 | An auto-growing pool of 200+ app IDs spreads free-model requests so many people asking at once all get answered; tables show fade edges; held-reply Retry placed where it belongs; recovery notices say Automa. |
 | 1.9.2 | 2026-10-29 | Safe server updates on the phone: built next to the running server, switched over only when complete, and a failed update changes nothing. |

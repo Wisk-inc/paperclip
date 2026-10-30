@@ -1,7 +1,8 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 import { costEvents, type Db } from "@paperclipai/db";
-import type { StudioUsageSummary } from "@paperclipai/shared";
+import { resolveFreeModel, type StudioUsageSummary } from "@paperclipai/shared";
 import { costService } from "../costs.js";
+import { equivalentTokenCostUsd } from "../free-models.js";
 import type { BudgetServiceHooks } from "../budgets.js";
 import { logger } from "../../middleware/logger.js";
 import type { StudioAiUsage } from "./assistant.js";
@@ -44,16 +45,21 @@ export async function studioModelUsage(db: Db, companyId: string, since: Date): 
     .from(costEvents)
     .where(and(eq(costEvents.companyId, companyId), eq(costEvents.source, "studio"), gte(costEvents.occurredAt, since)))
     .groupBy(costEvents.provider, costEvents.model);
-  const models = rows
-    .map((row) => ({
-      provider: row.provider,
-      model: row.model,
-      calls: Number(row.calls),
-      inputTokens: Number(row.inputTokens),
-      outputTokens: Number(row.outputTokens),
-      costCents: Number(row.costCents),
-    }))
-    .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
+  const models = (
+    await Promise.all(
+      rows.map(async (row) => {
+        const inputTokens = Number(row.inputTokens);
+        const outputTokens = Number(row.outputTokens);
+        const costCents = Number(row.costCents);
+        // Free models cost nothing; this is what the same tokens cost on the paid version.
+        const equivalentCents =
+          row.provider === "free" && inputTokens + outputTokens > 0
+            ? (await equivalentTokenCostUsd(resolveFreeModel(row.model).puterModel, { inputTokens, outputTokens })) * 100
+            : costCents;
+        return { provider: row.provider, model: row.model, calls: Number(row.calls), inputTokens, outputTokens, costCents, equivalentCents };
+      }),
+    )
+  ).sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
   return { since: since.toISOString(), models };
 }
 

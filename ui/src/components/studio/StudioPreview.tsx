@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, Globe, LoaderCircle, Play, RefreshCw, Rocket, SquareTerminal, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, ExternalLink, Globe, LoaderCircle, Play, RefreshCw, Rocket, SquareTerminal, X, Zap, ZapOff } from "lucide-react";
 import type { StudioRunState } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
+import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Mascot } from "../mascot/Mascot";
@@ -10,6 +11,8 @@ import { useLatestConsoleLine, type StudioConsoleStore } from "./console-store";
 
 interface StudioPreviewProps {
   run: StudioRunState | null;
+  /** Goes up when files change; the page reloads itself unless the person turned that off. */
+  reloadSignal?: number;
   /** Prints to the console rather than serving pages. */
   consoleApp: boolean;
   /** Absent for collaborators, who can't start the app. */
@@ -65,8 +68,35 @@ function StartingProgress({ run, consoleStore }: { run: StudioRunState | null; c
   );
 }
 
-export function StudioPreview({ run, consoleApp, onRun, onShowConsole, consoleStore, publicLink }: StudioPreviewProps) {
+const AUTO_RELOAD_KEY = "automa.studio.previewAutoReload";
+
+function readAutoReload(): boolean {
+  try {
+    return localStorage.getItem(AUTO_RELOAD_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShowConsole, consoleStore, publicLink }: StudioPreviewProps) {
   const [frameKey, setFrameKey] = useState(0);
+  const [autoReload, setAutoReload] = useState(readAutoReload);
+  const toggleAutoReload = () =>
+    setAutoReload((on) => {
+      try {
+        localStorage.setItem(AUTO_RELOAD_KEY, on ? "off" : "on");
+      } catch {
+        // Storage blocked: the choice lasts until the page closes.
+      }
+      return !on;
+    });
+  // An agent's change (or a save) shows up without tapping reload.
+  const seenSignal = useRef(reloadSignal);
+  useEffect(() => {
+    if (reloadSignal === seenSignal.current) return;
+    seenSignal.current = reloadSignal;
+    if (autoReload) setFrameKey((key) => key + 1);
+  }, [reloadSignal, autoReload]);
   const [copied, setCopied] = useState(false);
   const [working, setWorking] = useState<"open" | "close" | "install" | null>(null);
   const running = run?.status === "running" || run?.status === "starting";
@@ -101,6 +131,18 @@ export function StudioPreview({ run, consoleApp, onRun, onShowConsole, consoleSt
         </span>
         {previewUrl ? (
           <>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-pressed={autoReload}
+              aria-label={autoReload ? "Reloads when files change; tap to stop" : "Reload when files change"}
+              title={autoReload ? "Reloads by itself when files change" : "Reload by itself when files change"}
+              onClick={toggleAutoReload}
+              data-testid="studio-preview-auto-reload"
+              className={cn(autoReload && "text-primary")}
+            >
+              {autoReload ? <Zap /> : <ZapOff />}
+            </Button>
             <Button variant="ghost" size="icon-sm" aria-label="Reload preview" onClick={() => setFrameKey((key) => key + 1)}>
               <RefreshCw />
             </Button>

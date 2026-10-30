@@ -221,6 +221,32 @@ class AutomaBridge(
         if (onAppPage(key)) activity.runOnUiThread { activity.showConnect(null) }
     }
 
+    // ─── Notifications (Automa server pages) ────────────────────────────────
+
+    /**
+     * A notification for work that finished while the app was out of sight
+     * (an AI reply, a team job). Tapping it opens [path] in the board. Works
+     * without Firebase: the page posts it from its own live connection.
+     */
+    @JavascriptInterface
+    fun notify(key: String?, title: String?, body: String?, path: String?, tag: String?) {
+        if (!onServerPage(key)) return
+        val heading = title?.trim()?.take(120)?.takeIf { it.isNotEmpty() } ?: return
+        val target = path?.trim()?.take(500)?.takeIf { MainActivity.isBoardPath(it) }
+        val group = tag?.trim()?.take(200)?.takeIf { it.isNotEmpty() }
+        Push.show(activity, heading, body?.trim()?.take(500)?.takeIf { it.isNotEmpty() }, target, group)
+    }
+
+    /** True when a notification would show: permission granted and notifications on for Automa. */
+    @JavascriptInterface
+    fun canNotify(key: String?): Boolean = onServerPage(key) && Push.canNotify(activity)
+
+    /** Android 13+: asks for the notification permission (Android shows it at most twice, then the setting decides). */
+    @JavascriptInterface
+    fun requestNotifications(key: String?) {
+        if (onServerPage(key)) activity.runOnUiThread { activity.requestNotificationPermission() }
+    }
+
     // ─── Account and push (connect screen and Automa server pages) ─────────
 
     @JavascriptInterface

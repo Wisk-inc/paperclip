@@ -19,7 +19,7 @@ import {
   type StudioTeammate,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
-import { formatSpend, formatTokens, modelTotals, turnWorkers, type TurnWorker } from "./studio-usage";
+import { formatCostAndWorth, formatElapsed, formatTokens, modelTotals, turnWorkers, type TurnWorker } from "./studio-usage";
 import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
@@ -33,6 +33,7 @@ import { StudioModelSheet } from "./StudioModelSheet";
 import { StudioThinkingControl, effectiveStudioThinking } from "./StudioThinkingControl";
 import { modelDisplayName } from "@/lib/model-brand";
 import { haptic } from "@/lib/haptics";
+import { askForNotificationsOnce } from "@/lib/background-notify";
 import { cn } from "@/lib/utils";
 import { Mascot } from "../mascot/Mascot";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -64,6 +65,7 @@ const TOOL_LABEL: Record<string, string> = {
   read_console: "Read the console",
   start_app: "Started the app",
   stop_app: "Stopped the app",
+  view_app: "Looked at the page",
 };
 
 interface StudioAssistantProps {
@@ -465,11 +467,6 @@ function LiveThinking({ text }: { text: string }) {
 }
 
 /** Seconds as "42s" or "3:05". */
-function formatElapsed(seconds: number) {
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
 /**
  * While the assistant works: what it is doing this moment, how many steps it
  * has taken, how long it has been, and a bar that keeps moving, so a long
@@ -518,8 +515,9 @@ function AssistantProgress({ turns, model }: { turns: StudioAssistantTurn[]; mod
 function UsageLine({ turn }: { turn: StudioAssistantTurn }) {
   const usage = turn.usage;
   if (!usage) return null;
-  const cost = formatSpend(turn.provider, usage.costUsd);
-  const workers = turnWorkers(turn).filter((worker) => worker.usage && worker.usage.inputTokens + worker.usage.outputTokens > 0);
+  const everyone = turnWorkers(turn);
+  const cost = formatCostAndWorth({ free: everyone.every((worker) => worker.provider === "free"), costUsd: usage.costUsd, equivalentUsd: usage.equivalentUsd });
+  const workers = everyone.filter((worker) => worker.usage && worker.usage.inputTokens + worker.usage.outputTokens > 0);
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <span className="text-xs text-muted-foreground tabular-nums" data-testid="studio-turn-usage">
@@ -548,6 +546,8 @@ function SessionUsageSummary({ turns }: { turns: StudioAssistantTurn[] }) {
   const allFree = models.every((model) => model.provider === "free");
   const knownCost = models.every((model) => model.provider === "free" || model.costUsd !== null);
   const cost = models.reduce((sum, model) => sum + (model.provider === "free" ? 0 : (model.costUsd ?? 0)), 0);
+  const worth = models.reduce((sum, model) => sum + model.equivalentUsd, 0);
+  const spend = formatCostAndWorth({ free: allFree, costUsd: knownCost ? cost : null, equivalentUsd: worth });
   return (
     <li className="flex items-center gap-2 rounded-lg border border-border bg-muted px-2.5 py-1.5" data-testid="studio-session-usage">
       <span className="flex -space-x-1" aria-hidden="true">
@@ -556,7 +556,7 @@ function SessionUsageSummary({ turns }: { turns: StudioAssistantTurn[] }) {
         ))}
       </span>
       <span className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
-        This chat: {formatTokens(tokens)} tokens{allFree ? " · Free" : knownCost ? ` · ${formatSpend(null, cost)}` : ""}
+        This chat: {formatTokens(tokens)} tokens{spend ? ` · ${spend}` : ""}
       </span>
       {models.length > 1 ? (
         <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-(length:--text-micro) font-medium text-primary">{models.length} models</span>
@@ -712,6 +712,8 @@ export function StudioAssistant({
       setError("Pick a model first: tap the model at the top.");
       return;
     }
+    // Asked once, on the first job: a long one can finish after the person leaves.
+    askForNotificationsOnce();
     setSending(true);
     setError(null);
     try {

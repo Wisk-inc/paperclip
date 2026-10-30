@@ -71,6 +71,21 @@ export async function equivalentTokenCostUsd(model: string, usage: PuterUsage): 
   return usage.inputTokens * price.input + usage.outputTokens * price.output;
 }
 
+/** Starts loading the paid list prices, so the live pricer below has them by the first reply. */
+export function warmPaidPrices(): void {
+  void paidPrices();
+}
+
+/**
+ * The same as equivalentTokenCostUsd, from the prices already loaded (a
+ * typical small-model rate until the catalog answers), for live counters.
+ */
+export function equivalentTokenCostUsdNow(model: string, usage: PuterUsage): number {
+  if (!priceCache || priceCache.until <= Date.now()) void paidPrices();
+  const price = priceCache?.prices.get(model.replace(/:free$/, "")) ?? FALLBACK_PRICE;
+  return usage.inputTokens * price.input + usage.outputTokens * price.output;
+}
+
 export function equivalentImageCostUsd(images: number): number {
   return images * IMAGE_REFERENCE_USD;
 }

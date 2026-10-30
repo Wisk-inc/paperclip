@@ -172,6 +172,7 @@ import {
 import { useProjectOrder } from "../hooks/useProjectOrder";
 import { useRetryNowMutation } from "../hooks/useRetryNowMutation";
 import { useWaitNoticeDismissed } from "../lib/wait-notice-dismissal";
+import { askForNotificationsOnce, showingIssue, watchIssueReplies } from "../lib/background-notify";
 import { recordRecentTask } from "../lib/recent-tasks";
 import {
   relativeTime,
@@ -4549,6 +4550,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     }
   }, [issueCacheRefs, queryClient]);
   const waitNoticeDismissed = useWaitNoticeDismissed(issue?.id);
+  // The task on screen is the one the person waits on: if they leave the app
+  // before its reply lands, a notification brings them back here.
+  const watchPath = `${location.pathname}${location.search}`;
+  useEffect(() => (issue?.id ? showingIssue(issue.id, watchPath) : undefined), [issue?.id, watchPath]);
 
   const approvalDecision = useMutation({
     mutationFn: async ({
@@ -6355,6 +6360,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       attachmentIds?: string[],
       clientRequestId?: string,
     ) => {
+      // Asked once, on the first message: browsers want it from a click.
+      askForNotificationsOnce();
       if (reassignment) {
         await addCommentAndReassign.mutateAsync({
           body,
@@ -6363,11 +6370,17 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           attachmentIds,
           clientRequestId,
         });
+      } else {
+        const comment = await addComment.mutateAsync({ body, reopen, attachmentIds, clientRequestId });
+        // A new chat's task exists only once its first message is in.
+        const writtenTo = issue?.id ?? comment?.issueId;
+        if (writtenTo) watchIssueReplies(writtenTo, watchPath);
         return;
       }
-      await addComment.mutateAsync({ body, reopen, attachmentIds, clientRequestId });
+      // The reply to this message is news even after the person leaves the task.
+      if (issue?.id) watchIssueReplies(issue.id, watchPath);
     },
-    [addComment, addCommentAndReassign],
+    [addComment, addCommentAndReassign, issue?.id, watchPath],
   );
   const handleCommentImageUpload = useCallback(
     async (file: File) => {

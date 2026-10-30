@@ -91,6 +91,12 @@ interface AutomaNativeRaw {
   openConnectScreen?(key: string): void;
   /** Resolves `{ ok, apps }`: the phone's launchable apps (App Inspector). */
   listInstalledApps?(key: string, callId: string): void;
+  /** Shows an Android notification; tapping it opens `path` in the board. A newer one with the same `tag` replaces it. */
+  notify?(key: string, title: string, body: string, path: string, tag: string): void;
+  /** Whether a notification would show (permission granted, notifications on). */
+  canNotify?(key: string): boolean;
+  /** Android 13+: asks for the notification permission. */
+  requestNotifications?(key: string): void;
 }
 
 export interface AutomaAppAccount {
@@ -208,6 +214,21 @@ export const automaNative = {
   },
   setDarkTheme(dark: boolean) {
     rawBridge()?.setDarkTheme?.(pageKey(), dark);
+  },
+  /** Posts an Android notification that opens `path`; false when this app build has no notifications. */
+  notify(input: { title: string; body?: string; path: string; tag?: string }): boolean {
+    const raw = rawBridge();
+    if (!raw?.notify) return false;
+    raw.notify(pageKey(), input.title, input.body ?? "", input.path, input.tag ?? input.path);
+    return true;
+  },
+  /** Null when this app build cannot tell (older than notifications from the page). */
+  canNotify(): boolean | null {
+    const raw = rawBridge();
+    return raw?.canNotify ? raw.canNotify(pageKey()) : null;
+  },
+  requestNotifications() {
+    rawBridge()?.requestNotifications?.(pageKey());
   },
   /** The app's Google account (Firebase), when this build has Firebase set up. */
   account(): { enabled: boolean; user: AutomaAppAccount | null } | null {

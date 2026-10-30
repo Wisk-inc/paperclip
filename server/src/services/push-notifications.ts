@@ -17,6 +17,13 @@ export type PushMessage = {
   body: string;
   /** Board path the app opens when the notification is tapped, e.g. "/device-files". */
   path?: string;
+  /** One notification per tag on the phone: a newer one replaces it (e.g. "issue:<id>"). */
+  tag?: string;
+  /**
+   * News about finished work: sent as data so the app shows it only while
+   * Automa is out of sight (the person watching the reply needs no alert).
+   */
+  awayOnly?: boolean;
 };
 
 export type PushSendResult = { sent: number; invalidTokens: string[] };
@@ -32,6 +39,30 @@ const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 /** Must match the notification channel the Android app creates. */
 const ANDROID_CHANNEL_ID = "automa_updates";
+
+/** The FCM HTTP v1 message for one phone. */
+export function fcmMessageFor(token: string, message: PushMessage) {
+  const data: Record<string, string> = {};
+  if (message.path) data.path = message.path;
+  if (message.tag) data.tag = message.tag;
+  if (message.awayOnly) {
+    // Data only: Android hands it to the app, which decides whether to show it.
+    return {
+      token,
+      data: { ...data, title: message.title, body: message.body, away_only: "1" },
+      android: { priority: "HIGH" },
+    };
+  }
+  return {
+    token,
+    notification: { title: message.title, body: message.body },
+    data,
+    android: {
+      priority: "HIGH",
+      notification: { channel_id: ANDROID_CHANNEL_ID, ...(message.tag ? { tag: message.tag } : {}) },
+    },
+  };
+}
 
 export function loadFirebaseServiceAccount(
   env: NodeJS.ProcessEnv = process.env,
@@ -111,17 +142,7 @@ export function createFcmPushSender(options: {
           const res = await fetchImpl(url, {
             method: "POST",
             headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
-            body: JSON.stringify({
-              message: {
-                token,
-                notification: { title: message.title, body: message.body },
-                data: message.path ? { path: message.path } : {},
-                android: {
-                  priority: "HIGH",
-                  notification: { channel_id: ANDROID_CHANNEL_ID },
-                },
-              },
-            }),
+            body: JSON.stringify({ message: fcmMessageFor(token, message) }),
           });
           if (res.ok) {
             sent += 1;

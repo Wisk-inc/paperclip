@@ -24,12 +24,14 @@ import {
   resolveStudioChangeRequestSchema,
   saveStudioAiKeySchema,
   studioAssistantMessageSchema,
+  studioPageReportBodySchema,
   studioConsoleInputSchema,
   studioLanguage,
   studioRunSchema,
   updateStudioWorkspaceSchema,
   writeStudioFileSchema,
   STUDIO_AI_PROVIDERS,
+  resolveFreeModel,
   type StudioAiProvider,
   type StudioChangeFile,
   type StudioMessageAttachment,
@@ -58,6 +60,10 @@ import { disposeStudioRuntime, existingStudioRuntime, stopAllStudioRuntimes, stu
 import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, installExecCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
 import { STUDIO_OWNER_COLOR, studioHub } from "../services/studio/hub.js";
+import { pushStudioReply } from "../services/push-notifier.js";
+import { PREVIEW_PROBE_SCRIPT } from "../services/studio/page-probe-script.js";
+import { deliverPageReport } from "../services/studio/page-probe.js";
+import { equivalentTokenCostUsdNow, warmPaidPrices } from "../services/free-models.js";
 import { StudioGateway } from "../services/studio/gateway.js";
 import { AttemptLimiter, joinLimiterKey } from "../services/studio/join-limiter.js";
 import { createCheckpoint, deleteCheckpoint, listCheckpoints, restoreCheckpoint, streamProjectZip } from "../services/studio/checkpoints.js";
@@ -932,6 +938,8 @@ export function studioRoutes(db: Db) {
     },
     team: Parameters<typeof runAssistantTurn>[0]["team"] = [],
   ) {
+    // Free work is priced at the paid models' list prices; load them before the first reply counts.
+    if (body.provider === "free" || team.some((member) => member.provider === "free")) warmPaidPrices();
     return runAssistantTurn({
       checkpointId,
       team,
@@ -944,6 +952,12 @@ export function studioRoutes(db: Db) {
         startApp: () => startApp(workspace),
         onFileChanged: (relative) => broadcastFile(workspace, relative, "assistant"),
         onUsage: (usage) => studioUsage.recordReply(workspace.companyId, usage),
+        worthUsd: studioWorthUsd,
+        // News for the person's phone, unless they are watching App Studio.
+        onFinished: (turn) => {
+          if (studioHub.ownerWatching(workspace.id)) return;
+          void pushStudioReply(db, { companyId: workspace.companyId, workspaceId: workspace.id, projectName: workspace.name, text: turn.text, error: turn.error });
+        },
       },
       message: body.message ?? "",
       provider: body.provider,
@@ -953,6 +967,15 @@ export function studioRoutes(db: Db) {
       credentials,
     });
   }
+
+  // The owner's App Studio rendered the page an agent asked to see (view_app)
+  // and reports it. Nothing is stored: it goes to the waiting agent, or
+  // nowhere when it came too late, so there is nothing to log.
+  router.post("/studio/workspaces/:id/preview-report", validate(studioPageReportBodySchema), async (req, res) => {
+    const workspace = await workspaceFor(req);
+    const delivered = deliverPageReport(workspace.id, req.body.requestId, req.body.report);
+    res.json({ ok: true, delivered });
+  });
 
   router.post("/studio/workspaces/:id/assistant/stop", async (req, res) => {
     const workspace = await workspaceFor(req);
@@ -971,6 +994,15 @@ export function studioRoutes(db: Db) {
   });
 
   return router;
+}
+
+/** What a Studio model call would cost at paid list prices: the free models priced as their paid versions. */
+export function studioWorthUsd(usage: { provider: string; model: string; inputTokens: number; cachedInputTokens: number; outputTokens: number; costUsd: number | null }): number | null {
+  if (usage.provider !== "free") return usage.costUsd;
+  return equivalentTokenCostUsdNow(resolveFreeModel(usage.model).puterModel, {
+    inputTokens: usage.inputTokens + usage.cachedInputTokens,
+    outputTokens: usage.outputTokens,
+  });
 }
 
 /**
@@ -1222,7 +1254,7 @@ export function studioPublicRoutes(db: Db) {
           // Root-relative links ("/style.css") point back into the preview.
           html = html.replace(/(\s(?:src|href|action)=["'])\/(?!\/)/gi, `$1${prefix}`);
           res.writeHead(upstreamRes.statusCode ?? 200, outHeaders);
-          res.end(injectIntoPreviewHtml(html, `${/<base\s/i.test(html) ? "" : `<base href="${prefix}">`}${PREVIEW_STORAGE_SHIM}`));
+          res.end(injectIntoPreviewHtml(html, `${/<base\s/i.test(html) ? "" : `<base href="${prefix}">`}${PREVIEW_STORAGE_SHIM}${PREVIEW_PROBE_SCRIPT}`));
         });
       },
     );

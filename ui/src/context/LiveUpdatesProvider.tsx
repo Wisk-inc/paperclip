@@ -1,4 +1,5 @@
 import { getPageVisibility, usePageVisibility } from "../lib/page-visibility";
+import { hasWatchedIssues, noteRunOutcomeSeen, startAwayReplyWatch } from "../lib/background-notify";
 import {
   createContext,
   useCallback,
@@ -1806,6 +1807,8 @@ function handleLiveEvent(
     }
     invalidateVisibleIssueRunQueries(queryClient, pathname, payload);
     if (event.type === "heartbeat.run.status") {
+      // Seen on screen: a later repeat of this outcome is not news once the person leaves.
+      noteRunOutcomeSeen(payload);
       const toast = buildRunStatusToast(payload, nameOf);
       if (toast && !suppressRunToast) {
         gatedPushToast(gate, pushToast, "run-status", toast);
@@ -2183,6 +2186,14 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     canConnectSocket,
     socketAuthKey,
   ]);
+
+  // Away from the page the connection above is closed. While the person waits
+  // on a reply (a task or chat they wrote to, or had open), a quiet one stays
+  // to notify them when it lands; it reads run outcomes and refetches nothing.
+  useEffect(() => {
+    if (visible || !canConnectSocket || !liveCompanyId || !hasWatchedIssues()) return;
+    return startAwayReplyWatch(liveCompanyId, (agentId) => resolveAgentName(queryClient, liveCompanyId, agentId));
+  }, [visible, canConnectSocket, liveCompanyId, queryClient]);
 
   return (
     <LiveEventSubscriptionContext.Provider value={subscriptionValue}>
