@@ -170,6 +170,8 @@ import {
   upsertInterruptedRun,
 } from "../lib/optimistic-issue-runs";
 import { useProjectOrder } from "../hooks/useProjectOrder";
+import { useRetryNowMutation } from "../hooks/useRetryNowMutation";
+import { useWaitNoticeDismissed } from "../lib/wait-notice-dismissal";
 import { recordRecentTask } from "../lib/recent-tasks";
 import {
   relativeTime,
@@ -4531,6 +4533,22 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       });
     },
   });
+  // A task held by a scheduled retry moves up through the retry route; the
+  // monitor check refuses a task that has no monitor.
+  const retryScheduledRunNow = useRetryNowMutation(issue?.id ?? issueId);
+  const runScheduledRetryNow = () =>
+    retryScheduledRunNow.mutate(undefined, {
+      onSuccess: () => {
+        invalidateIssueDetail();
+        invalidateIssueRunState();
+      },
+    });
+  const refreshWaitingIssue = useCallback(() => {
+    for (const ref of issueCacheRefs) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(ref) });
+    }
+  }, [issueCacheRefs, queryClient]);
+  const waitNoticeDismissed = useWaitNoticeDismissed(issue?.id);
 
   const approvalDecision = useMutation({
     mutationFn: async ({
@@ -7416,6 +7434,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         issue={issue}
         onCheckNow={() => checkIssueMonitorNow.mutate()}
         checkingNow={checkIssueMonitorNow.isPending}
+        onRetryNow={runScheduledRetryNow}
+        retryingNow={retryScheduledRunNow.isPending}
+        onDue={refreshWaitingIssue}
       />
 
       {taskChatShellEnabled ? null : (
@@ -7958,11 +7979,13 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   onRefreshLatestComments={refetchLatestComments}
                   composerRef={commentComposerRef}
                   composerAccessory={
-                    hasVisibleMonitorSurface(issue) ? (
+                    hasVisibleMonitorSurface(issue) && !waitNoticeDismissed ? (
                       <IssueMonitorComposerStrip
                         issue={issue}
                         onCheckNow={() => checkIssueMonitorNow.mutate()}
                         checkingNow={checkIssueMonitorNow.isPending}
+                        onRetryNow={runScheduledRetryNow}
+                        retryingNow={retryScheduledRunNow.isPending}
                       />
                     ) : null
                   }

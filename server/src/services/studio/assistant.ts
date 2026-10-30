@@ -12,12 +12,14 @@ import {
   STUDIO_AI_PROVIDER_INFO,
   studioLanguage,
   studioThinkingLevels,
+  STUDIO_TEAM_LEAD_ID,
   type StudioAiProvider,
   type StudioAssistantAttachmentInput,
   type StudioAssistantStep,
   type StudioAssistantTurn,
   type StudioTeamAgent,
   type StudioThinkingLevel,
+  type StudioTokenUsage,
 } from "@paperclipai/shared";
 import { AUTOMA_ABOUT_FOR_AGENTS, claudeBilledSpend, estimateApiCostUsd, type ClaudeApiUsage } from "@paperclipai/shared";
 import {
@@ -52,6 +54,7 @@ import {
 } from "./files.js";
 import { studioHub } from "./hub.js";
 import { studioRuntime } from "./runner.js";
+import { formatTeamNews, formatTeamTalk, TeamBoard, teammateLabel } from "./team-board.js";
 
 /** Tokens one model call used, for Costs. */
 export interface StudioAiUsage {
@@ -63,6 +66,16 @@ export interface StudioAiUsage {
   outputTokens: number;
   /** Provider-reported or list-price cost; null when unknown. */
   costUsd: number | null;
+}
+
+/** One model call added to a running total, the way the turn's usage counts it (cached input included). */
+function addTokenUsage(total: StudioTokenUsage | undefined, usage: StudioAiUsage): StudioTokenUsage {
+  const base = total ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  return {
+    inputTokens: base.inputTokens + usage.inputTokens + usage.cachedInputTokens,
+    outputTokens: base.outputTokens + usage.outputTokens,
+    costUsd: base.costUsd === null || usage.costUsd === null ? null : base.costUsd + usage.costUsd,
+  };
 }
 
 /** What the assistant needs about the project it works in. */
@@ -80,8 +93,17 @@ export interface StudioAssistantContext {
   onUsage?: (usage: StudioAiUsage) => Promise<void> | void;
   /** Other models the lead can hand tasks to this turn (set per turn, never nested). */
   team?: TeamRuntime;
+  /** On a teammate's own turn: its line to the others working on the same job. */
+  teamChannel?: TeamChannel;
   /** Who is acting, for the edit log ("assistant" for the lead, a teammate's name). */
   actor?: string;
+}
+
+interface TeamChannel {
+  /** Posts to a teammate (by name or role), the lead, or everyone, and says where it went. */
+  post: (to: string | undefined, message: string) => { output: string; summary: string };
+  /** The lines for this teammate since its last tool call, ready to append to a tool result; null when none. */
+  news: () => string | null;
 }
 
 /** A model that works for the lead: its provider, name, and the key that pays for it. */
@@ -95,7 +117,26 @@ interface TeamRuntime {
   members: StudioTeamMember[];
   /** Runs one task on a teammate (in a role, when given) and returns its written report. */
   delegate: (member: StudioTeamMember, task: string, signal: AbortSignal, options?: { role?: string | null }) => Promise<string>;
+  /** Lines in the team chat so far, to find what was said during a job. */
+  chatLength: () => number;
+  /** What the teammates told each other since a point in the chat, for the lead; null when nothing. */
+  talkSince: (index: number) => string | null;
 }
+
+const MESSAGE_TEAM_TOOL = {
+  name: "message_team",
+  description: "Send a short message to the other teammates working on this job right now, to one of them, or to the lead: agree on file names, APIs, routes, ports and data shapes, say what you finished, or ask a teammate for something. Their messages to you arrive with your tool results. The person reads the team chat too.",
+  schema: z.object({ to: z.string().max(80).optional(), message: z.string().min(1).max(4000) }),
+  parameters: {
+    type: "object",
+    properties: {
+      to: { type: "string", description: "A teammate's name or role, \"lead\", or leave it out for everyone" },
+      message: { type: "string", description: "What to tell them" },
+    },
+    required: ["message"],
+    additionalProperties: false,
+  },
+};
 
 const MAX_TEAM_ASSIGNMENTS = 6;
 
@@ -164,8 +205,9 @@ function runTeamTool(members: StudioTeamMember[]) {
   };
 }
 
-/** The tools this turn offers: the project tools, plus the team tools when the lead has a team. */
+/** The tools this turn offers: the project tools, plus the team tools for a lead with a team, or the team chat for a teammate. */
 function toolsFor(context: StudioAssistantContext) {
+  if (context.teamChannel) return [...TOOLS, MESSAGE_TEAM_TOOL];
   return context.team?.members.length ? [...TOOLS, askTeammateTool(context.team.members), runTeamTool(context.team.members)] : TOOLS;
 }
 
@@ -462,6 +504,10 @@ export function describeActivity(name: string, rawInput: unknown): string {
       const count = Array.isArray(input.assignments) ? input.assignments.length : 0;
       return count ? `Running a team of ${count}` : "Running the team";
     }
+    case "message_team": {
+      const who = text(input.to, 40);
+      return who ? `Messaging ${who}` : "Messaging the team";
+    }
     case "undo_edit":
       return target ? `Undoing the change to ${target}` : "Undoing a change";
     case "search_files": {
@@ -487,7 +533,14 @@ interface ToolOutcome {
   step: StudioAssistantStep;
 }
 
+/** Runs a tool; a teammate also gets what the others told it since its last call. */
 async function runTool(context: StudioAssistantContext, name: string, rawInput: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
+  const outcome = await runToolOnce(context, name, rawInput, signal);
+  const news = context.teamChannel?.news() ?? null;
+  return news ? { ...outcome, output: `${outcome.output}\n\n${news}` } : outcome;
+}
+
+async function runToolOnce(context: StudioAssistantContext, name: string, rawInput: unknown, signal?: AbortSignal): Promise<ToolOutcome> {
   const def = toolsFor(context).find((tool) => tool.name === name);
   if (!def) return { ok: false, output: `Unknown tool ${name}`, step: { tool: name, summary: name, ok: false, detail: "Unknown tool" } };
   const parsed = def.schema.safeParse(rawInput ?? {});
@@ -497,6 +550,12 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
   }
   const input = parsed.data as Record<string, unknown>;
   const actor = context.actor ?? "assistant";
+  if (name === "message_team") {
+    if (!context.teamChannel) return { ok: false, output: "There is no team chat here.", step: { tool: name, summary: "message_team", ok: false, detail: "No team" } };
+    const message = String(input.message);
+    const sent = context.teamChannel.post(typeof input.to === "string" ? input.to : undefined, message);
+    return { ok: true, output: sent.output, step: { tool: name, summary: sent.summary, ok: true, detail: clip(message, 600) } };
+  }
   if (name === "run_team") {
     const members = context.team?.members ?? [];
     if (!context.team || !members.length) {
@@ -504,6 +563,7 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
     }
     const assignments = (input.assignments as Array<{ teammate: string; role: string; task: string }>) ?? [];
     const team = context.team;
+    const chatStart = team.chatLength();
     const results = await Promise.all(assignments.map(async (assignment) => {
       const member = pickTeammate(members, assignment.teammate);
       if (!member) return { assignment, who: assignment.teammate, ok: false, report: `No such teammate "${assignment.teammate}".` };
@@ -516,8 +576,10 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
       }
     }));
     const done = results.filter((result) => result.ok).length;
+    const talk = team.talkSince(chatStart);
     const output = `${results.length} teammate${results.length === 1 ? "" : "s"} finished (${done} done, ${results.length - done} failed). Review their changes, test the whole app, and fix what does not fit together.\n\n`
-      + results.map((result, index) => `## ${index + 1}. ${result.who} — ${result.assignment.role} — ${result.ok ? "done" : "failed"}\n${clip(result.report, 8000)}`).join("\n\n");
+      + results.map((result, index) => `## ${index + 1}. ${result.who} — ${result.assignment.role} — ${result.ok ? "done" : "failed"}\n${clip(result.report, 8000)}`).join("\n\n")
+      + (talk ? `\n\n${clip(talk, 12_000)}` : "");
     return {
       ok: done > 0,
       output,
@@ -538,9 +600,11 @@ async function runTool(context: StudioAssistantContext, name: string, rawInput: 
     }
     const task = String(input.task ?? "");
     const who = modelLabel(member.model);
+    const chatStart = context.team.chatLength();
     try {
       const report = await context.team.delegate(member, task, signal ?? new AbortController().signal);
-      return { ok: true, output: `${who} reports:\n\n${clip(report, 12_000)}`, step: { tool: name, summary: `${who} reported back`, ok: true, detail: clip(report, 4000) } };
+      const talk = context.team.talkSince(chatStart);
+      return { ok: true, output: `${who} reports:\n\n${clip(report, 12_000)}${talk ? `\n\n${clip(talk, 6000)}` : ""}`, step: { tool: name, summary: `${who} reported back`, ok: true, detail: clip(report, 4000) } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, output: `${who} could not finish: ${message}`, step: { tool: name, summary: `${who} could not finish`, ok: false, detail: message } };
@@ -711,6 +775,9 @@ function systemPrompt(context: StudioAssistantContext) {
     "When you need current facts, versions, documentation or an error message explained, use web_search and then web_fetch on the best results; never guess version numbers.",
     "Work until the whole request is done: there is no step or length limit you need to save for. Finish every turn with a short reply to the person.",
     "When the user describes an app in plain words, build all of it: the UI, the logic, and storage (for Node.js, the built-in node:sqlite module needs no install; for Python, sqlite3).",
+    language?.kind === "cli"
+      ? "This project prints to the console. When the person wants something to look at (a page, a chart, a game, a report, a dashboard), make it a web page anyway: write the page (index.html with its CSS and JavaScript) and have the program serve it on 127.0.0.1:$PORT (for Python, http.server; for Node.js, the http module), then start_app. Automa's preview opens it as soon as it answers."
+      : "When the person wants something to look at (a page, a site, a game, a chart, a dashboard, a report), build it as a web page in this project and start_app once it is ready: it opens in Automa's preview, and the person can share it with a public link.",
     "Keep replies short: say what you changed and how to use it. Never print secrets or API keys, and do not touch anything outside the project folder.",
     AUTOMA_ABOUT_FOR_AGENTS,
     ...(context.team?.members.length
@@ -931,10 +998,15 @@ async function startTurn(
   let liveThinking = "";
   let live = "";
   let activity = "";
-  const snapshot = (): StudioAssistantTurn => ({
+  const copyOfTurn = (): StudioAssistantTurn => ({
     ...turn,
     steps: [...turn.steps],
-    ...(turn.agents ? { agents: turn.agents.map((agent) => ({ ...agent })) } : {}),
+    ...(turn.agents ? { agents: turn.agents.map((agent) => ({ ...agent, ...(agent.usage ? { usage: { ...agent.usage } } : {}) })) } : {}),
+    ...(turn.teamChat ? { teamChat: [...turn.teamChat] } : {}),
+    ...(turn.leadUsage ? { leadUsage: { ...turn.leadUsage } } : {}),
+  });
+  const snapshot = (): StudioAssistantTurn => ({
+    ...copyOfTurn(),
     ...(live ? { live: live.trimStart() } : {}),
     ...(liveThinking ? { liveThinking } : {}),
     ...(activity ? { activity } : {}),
@@ -942,7 +1014,7 @@ async function startTurn(
   liveTurns.set(context.workspaceId, snapshot);
   const publish = (done: boolean) => studioHub.broadcast(context.workspaceId, {
     type: "assistant",
-    turn: done ? { ...turn, steps: [...turn.steps], ...(turn.agents ? { agents: turn.agents.map((agent) => ({ ...agent })) } : {}) } : snapshot(),
+    turn: done ? copyOfTurn() : snapshot(),
     done,
   });
   studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
@@ -960,6 +1032,11 @@ async function startTurn(
     total.outputTokens += usage.outputTokens;
     total.costUsd = usage.costUsd === null || total.costUsd === null ? null : total.costUsd + usage.costUsd;
     usageTotals.set(key, total);
+  };
+  // The lead's own share, live; each teammate's share is kept on its agent.
+  const onLeadUsage = (usage: StudioAiUsage) => {
+    turn.leadUsage = addTokenUsage(turn.leadUsage, usage);
+    return onUsage(usage);
   };
 
   const finish = async () => {
@@ -1050,8 +1127,12 @@ async function startTurn(
   // turn (status, what it is doing, its steps) and stays in the transcript.
   if (input.team?.length) {
     const workingCount = () => (turn.agents ?? []).filter((agent) => agent.status === "working").length;
+    turn.teamChat = [];
+    const board = new TeamBoard(turn.teamChat, { name: modelLabel(input.model), model: input.model }, () => turn.agents ?? [], () => publish(false));
     context.team = {
       members: input.team,
+      chatLength: () => board.messages.length,
+      talkSince: (index) => formatTeamTalk(board.talkSince(index)),
       delegate: async (member, task, signal, options) => {
         const who = modelLabel(member.model);
         const role = options?.role?.trim() || null;
@@ -1071,13 +1152,43 @@ async function startTurn(
           finishedAt: null,
         };
         turn.agents = [...(turn.agents ?? []), agent];
-        const label = role ? `${who} (${role.split(/[:,—-]/)[0]!.trim().slice(0, 40)})` : who;
+        const label = teammateLabel(who, role);
+        board.post({ from: STUDIO_TEAM_LEAD_ID, to: agent.id, kind: "task", text: clip(task, 4000) });
+        board.join(agent.id);
         const texts: string[] = [];
-        const mateContext: StudioAssistantContext = { ...context, team: undefined, actor: label };
+        const mateContext: StudioAssistantContext = {
+          ...context,
+          team: undefined,
+          actor: label,
+          teamChannel: {
+            post: (to, message) => {
+              if (board.full) return { output: "The team chat is full for this job: put anything else in your final report.", summary: "Team chat full" };
+              const target = board.resolve(to, agent.id);
+              const sent = board.post({ from: agent.id, to: target.id, kind: "message", text: message });
+              const where = sent.toName ?? "everyone";
+              return {
+                output: `${target.known ? "" : `No teammate is called "${to}", so it went to everyone. `}Sent to ${where}.`,
+                summary: `Told ${where}`,
+              };
+            },
+            news: () => formatTeamNews(board.takeUnread(agent.id), agent.id),
+          },
+        };
         const historyName = `teammate-${agent.id}.json`;
+        const overview = await projectOverview(context);
+        // Everyone the lead put to work in the same run_team is on the turn by now.
+        const crew = (turn.agents ?? []).filter((other) => other.id !== agent.id && other.status === "working").map((other) => teammateLabel(other.name, other.role));
         const common = {
           context: mateContext,
-          prompt: `${role ? `Your role on the team: ${role}\n\n` : ""}${task}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`,
+          prompt: [
+            `The person asked the lead: ${clip(input.message || "(see the attached files)", 2000)}`,
+            role ? `Your role on the team: ${role}` : "",
+            task,
+            crew.length
+              ? `Working on this job at the same time: ${crew.join("; ")}. Use message_team to agree with them on shared file names, APIs, routes and ports, and to say what you finished; what they tell you arrives with your tool results.`
+              : "",
+            `<project_state>\n${overview}\n</project_state>`,
+          ].filter(Boolean).join("\n\n"),
           images: [] as StudioAssistantAttachmentInput[],
           model: member.model,
           credentials: member.credentials,
@@ -1108,7 +1219,11 @@ async function startTurn(
             turn.steps.push({ tool: "think", summary: firstLine, ok: true, detail: clip(thought, 6000), agent: agent.id });
             publish(false);
           },
-          onUsage,
+          onUsage: (usage: StudioAiUsage) => {
+            agent.usage = addTokenUsage(agent.usage, usage);
+            publish(false);
+            return onUsage(usage);
+          },
           historyName,
           fresh: true,
           systemExtra: `${TEAMMATE_SYSTEM}${role ? ` Your role: ${role}.` : ""}`,
@@ -1122,10 +1237,12 @@ async function startTurn(
           const report = texts.join("\n\n").trim() || "(No report: the teammate finished without writing one.)";
           agent.status = "done";
           agent.report = clip(report, 6000);
+          board.post({ from: agent.id, to: STUDIO_TEAM_LEAD_ID, kind: "report", text: clip(report, 4000) });
           return report;
         } catch (error) {
           agent.status = "failed";
           agent.error = error instanceof Error ? error.message : String(error);
+          board.post({ from: agent.id, to: STUDIO_TEAM_LEAD_ID, kind: "report", text: `Could not finish: ${agent.error}` });
           throw error;
         } finally {
           agent.activity = null;
@@ -1145,7 +1262,7 @@ async function startTurn(
       const attachedText = texts.map((item) => `\n\nAttached file "${item.name}":\n\`\`\`\n${item.data}\n\`\`\``).join("");
       const message = input.message || (images.length ? "Look at the attached image." : "See the attached files.");
       const prompt = `${message}${attachedText}\n\n<project_state>\n${await projectOverview(context)}\n</project_state>`;
-      const common = { ...input, context, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onDelta, onThinkingDelta, onThought, onUsage, transcript: earlier };
+      const common = { ...input, context, prompt, images, signal: controller.signal, onStep, onToolStart, onText, onDelta, onThinkingDelta, onThought, onUsage: onLeadUsage, transcript: earlier };
       if (input.provider === "anthropic") {
         await runAnthropic(common);
       } else if (input.provider === "free") {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { Issue } from "@paperclipai/shared";
@@ -113,6 +114,33 @@ describe("buildMonitorSurfaceCopy", () => {
     expect(overdue!.tone).toBe("warning");
   });
 
+  it("says a reply waits for a scheduled retry, and wakes the agent only while a monitor waits", () => {
+    const retry = buildMonitorSurfaceCopy(
+      derived({ state: "retrying", source: "scheduled-retry", nextCheckAt: new Date(NOW.getTime() + 14_000).toISOString(), attemptCount: 2 }),
+      NOW,
+    );
+    expect(retry!.retry).toBe(true);
+    expect(retry!.stripTitle).toBe("Resumes in 14s");
+    expect(retry!.replyHint).toBe("Replies wait for this retry; the agent reads them when it resumes.");
+
+    const monitor = buildMonitorSurfaceCopy(
+      derived({ state: "scheduled", nextCheckAt: new Date(NOW.getTime() + 2 * 60 * 60_000).toISOString() }),
+      NOW,
+    );
+    expect(monitor!.retry).toBe(false);
+    expect(monitor!.replyHint).toBe("Sending a reply wakes the agent now — before the scheduled check.");
+
+    // A monitor with a retry also pending: the retry still holds replies.
+    const both = buildMonitorSurfaceCopy(
+      derived({ state: "scheduled", nextCheckAt: new Date(NOW.getTime() + 2 * 60 * 60_000).toISOString() }),
+      NOW,
+      null,
+      { retryPending: true },
+    );
+    expect(both!.retry).toBe(true);
+    expect(both!.replyHint).not.toContain("wakes the agent now");
+  });
+
   it("hides both surfaces when cleared, none, or without a next check", () => {
     expect(buildMonitorSurfaceCopy(derived({ state: "cleared", attemptCount: 2 }), NOW)).toBeNull();
     expect(buildMonitorSurfaceCopy(derived({ state: "none" }), NOW)).toBeNull();
@@ -127,8 +155,96 @@ describe("IssueMonitorBanner / IssueMonitorComposerStrip rendering", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
+  });
+
+  function retryingIssue(id: string, inMs: number, attempt = 2): Issue {
+    return {
+      id,
+      status: "in_progress",
+      scheduledRetry: {
+        status: "scheduled_retry",
+        scheduledRetryAt: new Date(NOW.getTime() + inMs).toISOString(),
+        scheduledRetryAttempt: attempt,
+      },
+    } as Issue;
+  }
+
+  it("offers Retry now, not the monitor check, while a scheduled retry holds the task", () => {
+    const onCheckNow = vi.fn();
+    const onRetryNow = vi.fn();
+    const root = createRoot(container);
+    flushSync(() => root.render(
+      <>
+        <IssueMonitorBanner issue={retryingIssue("issue-1", 14_000)} onCheckNow={onCheckNow} onRetryNow={onRetryNow} />
+        <IssueMonitorComposerStrip issue={retryingIssue("issue-1", 14_000)} onCheckNow={onCheckNow} onRetryNow={onRetryNow} />
+      </>,
+    ));
+
+    expect(container.textContent).toContain("Resumes in 14s");
+    expect(container.textContent).toContain("Attempt 2");
+    expect(container.textContent).toContain("Replies wait for this retry");
+    expect(container.textContent).not.toContain("wakes the agent now");
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons.some((button) => button.textContent?.includes("Check now"))).toBe(false);
+    const retryButtons = buttons.filter((button) => button.textContent?.includes("Retry now"));
+    expect(retryButtons).toHaveLength(2);
+    act(() => retryButtons[1]!.click());
+    expect(onRetryNow).toHaveBeenCalledTimes(1);
+    expect(onCheckNow).not.toHaveBeenCalled();
+    flushSync(() => root.unmount());
+  });
+
+  it("closes the banner and the strip with the X for the rest of the wait, then shows the next one", () => {
+    const root = createRoot(container);
+    const render = (issue: Issue) => act(() => root.render(
+      <>
+        <IssueMonitorBanner issue={issue} />
+        <IssueMonitorComposerStrip issue={issue} />
+      </>,
+    ));
+    const waiting = retryingIssue("issue-2", 30_000);
+    render(waiting);
+    const closeButtons = container.querySelectorAll<HTMLButtonElement>("[data-testid='wait-notice-dismiss']");
+    expect(closeButtons).toHaveLength(2);
+    expect(closeButtons[0]!.getAttribute("aria-label")).toBe("Hide this notice");
+
+    act(() => closeButtons[1]!.click());
+    expect(container.textContent).toBe("");
+
+    // The retry runs, fails, and schedules attempt 3: still closed.
+    render({ ...waiting, scheduledRetry: { ...waiting.scheduledRetry!, status: "running" } });
+    render(retryingIssue("issue-2", 60_000, 3));
+    expect(container.textContent).toBe("");
+
+    // The wait ends; a later wait shows again.
+    render({ ...waiting, scheduledRetry: null });
+    render(retryingIssue("issue-2", 5 * 60_000, 1));
+    expect(container.textContent).toContain("Resumes in 5m");
+    act(() => root.unmount());
+  });
+
+  it("fetches the task again while the wait is due, and stops once the retry starts", () => {
+    const onDue = vi.fn();
+    const due = retryingIssue("issue-3", 0, 1);
+    const root = createRoot(container);
+    act(() => root.render(<IssueMonitorBanner issue={due} onDue={onDue} />));
+    expect(container.textContent).toContain("Agent retry due now");
+    expect(onDue).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(20_000);
+    });
+    expect(onDue).toHaveBeenCalledTimes(2);
+
+    act(() => root.render(<IssueMonitorBanner issue={{ ...due, scheduledRetry: { ...due.scheduledRetry!, status: "running" } }} onDue={onDue} />));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(onDue).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("");
+    act(() => root.unmount());
   });
 
   afterEach(() => {

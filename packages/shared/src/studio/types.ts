@@ -316,6 +316,25 @@ export interface StudioAiKeyStatus {
   source: "studio" | "automa" | null;
 }
 
+/** What one provider and model did for App Studio over a period (assistant replies and code suggestions). */
+export interface StudioModelUsage {
+  provider: string;
+  model: string;
+  /** Recorded calls: one per assistant reply per model, and suggestion batches. */
+  calls: number;
+  /** Input tokens, cached input included. */
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+}
+
+export interface StudioUsageSummary {
+  /** Start of the period (ISO time). */
+  since: string;
+  /** Most tokens first. */
+  models: StudioModelUsage[];
+}
+
 /** A file sent with a message to the assistant; the transcript keeps its name and size only. */
 export interface StudioAssistantAttachment {
   name: string;
@@ -339,6 +358,31 @@ export interface StudioAssistantStep {
   undone?: boolean;
 }
 
+/** Tokens and list-price cost (null when unknown); input includes cached input. */
+export interface StudioTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number | null;
+}
+
+/** The lead's id in a team chat. */
+export const STUDIO_TEAM_LEAD_ID = "lead";
+
+/** A line in the team chat: the lead handing out a task, teammates talking to each other, a report back. */
+export interface StudioTeamMessage {
+  id: string;
+  /** A teammate's agent id on the turn, or `lead`. */
+  from: string;
+  fromName: string;
+  fromModel: string;
+  /** A teammate's agent id, `lead`, or null for everyone. */
+  to: string | null;
+  toName: string | null;
+  kind: "task" | "message" | "report";
+  text: string;
+  createdAt: string;
+}
+
 /** A teammate working for the lead during one turn, shown live and kept in the transcript. */
 export interface StudioTeamAgent {
   id: string;
@@ -356,6 +400,8 @@ export interface StudioTeamAgent {
   /** Its written report, once done. */
   report?: string | null;
   error?: string | null;
+  /** What its own model calls used so far (live while it works). */
+  usage?: StudioTokenUsage;
   startedAt: string;
   finishedAt?: string | null;
 }
@@ -372,10 +418,14 @@ export interface StudioAssistantTurn {
   liveThinking?: string;
   /** The step it is taking right now, e.g. "Running npm install" (live updates only). */
   activity?: string;
-  /** Tokens and list-price cost of this reply, once it is done. */
-  usage?: { inputTokens: number; outputTokens: number; costUsd: number | null };
+  /** Tokens and list-price cost of this reply (the lead and every teammate), once it is done. */
+  usage?: StudioTokenUsage;
+  /** The lead model's own share of `usage`; each teammate's share is on its agent. */
+  leadUsage?: StudioTokenUsage;
   /** Teammates the lead put to work during this reply. */
   agents?: StudioTeamAgent[];
+  /** What the lead and the teammates said to each other during this reply. */
+  teamChat?: StudioTeamMessage[];
   /** On your message: the checkpoint saved just before the assistant started. */
   checkpointId?: string | null;
   /** On your message: the files that went with it. */

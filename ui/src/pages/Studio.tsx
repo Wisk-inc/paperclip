@@ -17,6 +17,8 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { NewStudioAppSheet, type NewStudioAppInput } from "../components/studio/NewStudioAppSheet";
 import { LanguageLogo } from "../components/studio/LanguageLogo";
 import { GitHubMark } from "../components/studio/GitHubMark";
+import { StudioUsageCard } from "../components/studio/StudioUsageCard";
+import { formatTokens } from "../components/studio/studio-usage";
 import { useUndoableAction } from "../hooks/useUndoableAction";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -83,6 +85,13 @@ export function Studio() {
     enabled: !!selectedCompanyId,
     refetchInterval: 15_000,
   });
+  const usage = useQuery({
+    queryKey: queryKeys.studio.usage(companyId),
+    queryFn: () => studioApi.usage(companyId),
+    enabled: !!selectedCompanyId,
+    staleTime: 60_000,
+  });
+  const aiTokens = (usage.data?.models ?? []).reduce((sum, model) => sum + model.inputTokens + model.outputTokens, 0);
 
   const create = useMutation({
     mutationFn: (input: NewStudioAppInput) => studioApi.create(companyId, input),
@@ -152,11 +161,12 @@ export function Studio() {
             </p>
           </div>
         </div>
-        <dl className="mt-4 grid grid-cols-3 gap-2">
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             { label: "Apps", value: workspaces.length, icon: SquareTerminal },
             { label: "Running", value: running, icon: Rocket },
             { label: "Shared", value: shared, icon: Share2 },
+            { label: "AI tokens (30d)", value: formatTokens(aiTokens), icon: Sparkles },
           ].map((stat) => (
             <div key={stat.label} className="rounded-xl border border-border/60 bg-background/70 p-3 backdrop-blur">
               <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -175,6 +185,8 @@ export function Studio() {
           </Button>
         </div>
       </section>
+
+      <StudioUsageCard companyId={companyId} />
 
       {/* Quick starts */}
       {quickStarts.length ? (

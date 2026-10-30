@@ -456,6 +456,7 @@ export const queryKeys = {
     catalog: (companyId: string) => ["studio", companyId, "catalog"] as const,
     list: (companyId: string) => ["studio", companyId, "list"] as const,
     aiKeys: (companyId: string) => ["studio", companyId, "ai-keys"] as const,
+    usage: (companyId: string) => ["studio", companyId, "usage"] as const,
     detail: (workspaceId: string) => ["studio", "workspace", workspaceId] as const,
     tree: (workspaceId: string) => ["studio", "workspace", workspaceId, "tree"] as const,
     messages: (workspaceId: string) => ["studio", "workspace", workspaceId, "messages"] as const,

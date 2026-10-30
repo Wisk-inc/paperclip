@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowLeft,
   CircleStop,
   CodeXml,
@@ -58,11 +59,12 @@ import { StudioConsole } from "../components/studio/StudioConsole";
 import { StudioPreview } from "../components/studio/StudioPreview";
 import { StudioAssistant } from "../components/studio/StudioAssistant";
 import { StudioTeamPanel } from "../components/studio/StudioTeamPanel";
+import { StudioTeamDashboard } from "../components/studio/StudioTeamDashboard";
 import { LanguageLogo } from "../components/studio/LanguageLogo";
 
-type Pane = "files" | "code" | "console" | "preview" | "ai" | "team";
+type Pane = "files" | "code" | "console" | "preview" | "ai" | "team" | "dashboard";
 type SideTab = Exclude<Pane, "files" | "code">;
-const PHONE_PANES: Pane[] = ["files", "code", "console", "preview", "ai", "team"];
+const PHONE_PANES: Pane[] = ["files", "code", "console", "preview", "ai", "dashboard", "team"];
 
 interface OpenFile {
   path: string;
@@ -928,6 +930,12 @@ export function StudioWorkspace() {
       running={assistantRunning}
       keys={keys}
       companyId={companyId}
+      previewReady={Boolean(run?.previewReady)}
+      onShowPreview={() => {
+        haptic("tick");
+        if (narrow) setPane("preview");
+        else setSideTab("preview");
+      }}
       storageKey={`automa.studio.ai.${companyId}`}
       initialPrompt={initialPrompt}
       onInitialPromptUsed={() => setInitialPrompt(null)}
@@ -1059,13 +1067,16 @@ export function StudioWorkspace() {
     />
   );
 
-  const sidePanes: Record<SideTab, React.ReactNode> = { console: consolePane, preview: previewPane, ai: aiPane, team: teamPane };
+  const dashboardPane = <StudioTeamDashboard turns={turns} />;
+
+  const sidePanes: Record<SideTab, React.ReactNode> = { console: consolePane, preview: previewPane, ai: aiPane, dashboard: dashboardPane, team: teamPane };
   const tabs: Array<{ id: Pane; label: string; icon: typeof CodeXml; badge?: number | boolean }> = [
     { id: "files", label: "Files", icon: FolderTree },
     { id: "code", label: "Code", icon: CodeXml },
     { id: "console", label: "Console", icon: SquareTerminal, badge: running },
     { id: "preview", label: "Preview", icon: Globe, badge: Boolean(run?.previewReady) },
     { id: "ai", label: "AI", icon: Sparkles, badge: assistantRunning },
+    { id: "dashboard", label: "Stats", icon: Activity, badge: turns.some((t) => t.usage) },
     { id: "team", label: "Team", icon: Users, badge: openChanges || (participants.length > 1 ? participants.length - 1 : 0) },
   ];
 

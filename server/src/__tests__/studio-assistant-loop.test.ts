@@ -360,6 +360,67 @@ describe("Studio assistant loop", () => {
     expect(reply.text).toBe("The team built the API and the page; both are in place.");
   });
 
+  it("keeps each teammate's tokens, the lead's own share, and what the team said to each other", async () => {
+    const { reply } = await turn({
+      lead: [
+        {
+          call: {
+            name: "run_team",
+            args: {
+              assignments: [
+                { teammate: "mate-api", role: "backend: the API in api.py", task: "Write api.py" },
+                { teammate: "mate-ui", role: "frontend: the page in index.html", task: "Write index.html" },
+              ],
+            },
+          },
+        },
+        { content: "Both parts are in." },
+      ],
+      "mate-api": [
+        { call: { name: "message_team", args: { to: "frontend", message: "The API is at /api/todos" } } },
+        { content: "api.py is written." },
+      ],
+      "mate-ui": [
+        { call: { name: "write_file", args: { path: "index.html", content: "<h1>Hi</h1>\n" } } },
+        { content: "index.html is written." },
+      ],
+    }, { team: ["mate-api", "mate-ui"], message: "Build a to-do app" });
+
+    // Two calls each, at 10 input and 2 output tokens a call.
+    expect(reply.leadUsage).toMatchObject({ inputTokens: 20, outputTokens: 4 });
+    expect(reply.agents?.map((agent) => [agent.model, agent.usage?.inputTokens, agent.usage?.outputTokens])).toEqual([
+      ["mate-api", 20, 4],
+      ["mate-ui", 20, 4],
+    ]);
+    expect(reply.usage).toMatchObject({ inputTokens: 60, outputTokens: 12 });
+
+    const api = reply.agents!.find((agent) => agent.model === "mate-api")!;
+    const ui = reply.agents!.find((agent) => agent.model === "mate-ui")!;
+    const chat = reply.teamChat ?? [];
+    expect(chat.filter((message) => message.kind === "task").map((message) => [message.from, message.to, message.text])).toEqual([
+      ["lead", api.id, "Write api.py"],
+      ["lead", ui.id, "Write index.html"],
+    ]);
+    expect(chat.find((message) => message.kind === "message")).toMatchObject({ from: api.id, to: ui.id, text: "The API is at /api/todos" });
+    expect(chat.filter((message) => message.kind === "report").map((message) => message.from).sort()).toEqual([api.id, ui.id].sort());
+    expect(reply.steps.find((step) => step.tool === "message_team")?.summary).toContain(" · Told ");
+
+    // Teammates know the person's request and who else is on the job, and they alone get the team chat tool.
+    type WithTools = ChatRequest & { tools?: Array<{ function: { name: string } }> };
+    const firstApiCall = requests.find((request) => request.model === "mate-api") as WithTools;
+    expect(JSON.stringify(firstApiCall.messages)).toContain("The person asked the lead: Build a to-do app");
+    expect(JSON.stringify(firstApiCall.messages)).toContain("Working on this job at the same time");
+    expect(firstApiCall.tools?.some((tool) => tool.function.name === "message_team")).toBe(true);
+    const leadCall = requests.find((request) => request.model === "lead") as WithTools;
+    expect(leadCall.tools?.some((tool) => tool.function.name === "message_team")).toBe(false);
+
+    // The lead hears what they told each other along with the reports.
+    const leadFollowUp = requests.filter((request) => request.model === "lead").at(-1)!;
+    const teamResult = String(leadFollowUp.messages.find((message) => message.role === "tool")?.content);
+    expect(teamResult).toContain("What the teammates told each other");
+    expect(teamResult).toContain("The API is at /api/todos");
+  });
+
   it("records a team's spend under each provider and model that did the work", async () => {
     const recorded: StudioAiUsage[] = [];
     await turn({

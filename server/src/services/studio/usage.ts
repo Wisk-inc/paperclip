@@ -1,4 +1,6 @@
-import type { Db } from "@paperclipai/db";
+import { and, eq, gte, sql } from "drizzle-orm";
+import { costEvents, type Db } from "@paperclipai/db";
+import type { StudioUsageSummary } from "@paperclipai/shared";
 import { costService } from "../costs.js";
 import type { BudgetServiceHooks } from "../budgets.js";
 import { logger } from "../../middleware/logger.js";
@@ -26,6 +28,33 @@ const shutdownFlushes = new Set<() => Promise<void>>();
 
 export async function flushStudioUsageForShutdown() {
   await Promise.all([...shutdownFlushes].map((flush) => flush()));
+}
+
+/** What each provider and model did for App Studio since a time, most tokens first. */
+export async function studioModelUsage(db: Db, companyId: string, since: Date): Promise<StudioUsageSummary> {
+  const rows = await db
+    .select({
+      provider: costEvents.provider,
+      model: costEvents.model,
+      calls: sql<number>`count(*)::int`,
+      inputTokens: sql<number>`coalesce(sum(${costEvents.inputTokens} + ${costEvents.cachedInputTokens}), 0)::float8`,
+      outputTokens: sql<number>`coalesce(sum(${costEvents.outputTokens}), 0)::float8`,
+      costCents: sql<number>`coalesce(sum(${costEvents.costCents}), 0)::float8`,
+    })
+    .from(costEvents)
+    .where(and(eq(costEvents.companyId, companyId), eq(costEvents.source, "studio"), gte(costEvents.occurredAt, since)))
+    .groupBy(costEvents.provider, costEvents.model);
+  const models = rows
+    .map((row) => ({
+      provider: row.provider,
+      model: row.model,
+      calls: Number(row.calls),
+      inputTokens: Number(row.inputTokens),
+      outputTokens: Number(row.outputTokens),
+      costCents: Number(row.costCents),
+    }))
+    .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
+  return { since: since.toISOString(), models };
 }
 
 export function studioUsageRecorder(db: Db, budgetHooks: BudgetServiceHooks = {}) {

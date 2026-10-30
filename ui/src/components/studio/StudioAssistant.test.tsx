@@ -3,8 +3,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STUDIO_AI_PROVIDER_INFO, type StudioAiKeyStatus } from "@paperclipai/shared";
+import { STUDIO_AI_PROVIDER_INFO, type StudioAiKeyStatus, type StudioAssistantTurn } from "@paperclipai/shared";
 import { ToastProvider } from "@/context/ToastContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import { StudioAssistant } from "./StudioAssistant";
 
 vi.mock("@/lib/router", () => ({
@@ -45,20 +46,22 @@ describe("StudioAssistant", () => {
     act(async () =>
       root.render(
         <QueryClientProvider client={client}>
-          <ToastProvider>
-            <StudioAssistant
-              turns={[]}
-              running={false}
-              keys={FREE_ONLY}
-              onSaveKey={vi.fn(async () => undefined)}
-              onRemoveKey={vi.fn(async () => undefined)}
-              onSend={vi.fn(async () => undefined)}
-              onStop={vi.fn(async () => undefined)}
-              onClear={vi.fn(async () => undefined)}
-              storageKey={STORAGE_KEY}
-              {...props}
-            />
-          </ToastProvider>
+          <ThemeProvider>
+            <ToastProvider>
+              <StudioAssistant
+                turns={[]}
+                running={false}
+                keys={FREE_ONLY}
+                onSaveKey={vi.fn(async () => undefined)}
+                onRemoveKey={vi.fn(async () => undefined)}
+                onSend={vi.fn(async () => undefined)}
+                onStop={vi.fn(async () => undefined)}
+                onClear={vi.fn(async () => undefined)}
+                storageKey={STORAGE_KEY}
+                {...props}
+              />
+            </ToastProvider>
+          </ThemeProvider>
         </QueryClientProvider>,
       ),
     );
@@ -124,5 +127,85 @@ describe("StudioAssistant", () => {
     await act(async () => button("Send")!.click());
     expect(onSend).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Pick a model first");
+  });
+
+  const at = "2026-10-30T00:00:00.000Z";
+  const BACKEND = "google/gemma-4-31b-it:free";
+  const FRONTEND = "qwen/qwen3.8-27b:free";
+  function teamReply(): StudioAssistantTurn[] {
+    return [
+      { id: "u1", role: "user", text: "Build a to-do app", steps: [], provider: "free", model: FREE_MODEL, error: null, createdAt: at },
+      {
+        id: "a1",
+        role: "assistant",
+        text: "Your to-do app is ready.",
+        provider: "free",
+        model: FREE_MODEL,
+        error: null,
+        createdAt: at,
+        steps: [
+          { tool: "run_team", summary: "Team of 2 finished: 2 done", ok: true, detail: null },
+          { tool: "start_app", summary: "Started the app", ok: true, detail: null },
+          { tool: "say", summary: "Your to-do app is ready.", ok: true, detail: null },
+        ],
+        usage: { inputTokens: 3200, outputTokens: 800, costUsd: 0 },
+        leadUsage: { inputTokens: 1000, outputTokens: 200, costUsd: 0 },
+        agents: [
+          { id: "m1", name: "Gemma", provider: "free", model: BACKEND, role: "backend: the API", task: "Write api.py", status: "done", steps: 2, report: "api.py is written.", usage: { inputTokens: 1500, outputTokens: 500, costUsd: 0 }, startedAt: at, finishedAt: at },
+          { id: "m2", name: "Qwen", provider: "free", model: FRONTEND, role: "frontend: the page", task: "Write index.html", status: "done", steps: 1, report: "index.html is written.", usage: { inputTokens: 700, outputTokens: 100, costUsd: 0 }, startedAt: at, finishedAt: at },
+        ],
+        teamChat: [
+          { id: "c1", from: "lead", fromName: "Nemotron (lead)", fromModel: FREE_MODEL, to: "m1", toName: "Gemma (backend)", kind: "task", text: "Write api.py", createdAt: at },
+          { id: "c2", from: "m1", fromName: "Gemma (backend)", fromModel: BACKEND, to: "m2", toName: "Qwen (frontend)", kind: "message", text: "The API is at /api/todos", createdAt: at },
+          { id: "c3", from: "m2", fromName: "Qwen (frontend)", fromModel: FRONTEND, to: "lead", toName: "Nemotron (lead)", kind: "report", text: "index.html is written.", createdAt: at },
+        ],
+      },
+    ];
+  }
+
+  it("shows every model on the team with its logo and tokens, and what they told each other", async () => {
+    await draw({ turns: teamReply() });
+
+    const roster = container.querySelector('[data-testid="studio-team-roster"]')!;
+    expect(roster.querySelectorAll("li")).toHaveLength(3);
+    expect(roster.querySelectorAll('[data-slot="model-logo"]')).toHaveLength(3);
+    expect(roster.textContent).toContain("Lead · 1.2k");
+    expect(roster.textContent).toContain("backend · 2.0k");
+    expect(roster.textContent).toContain("frontend · 800");
+
+    const chat = container.querySelector('[data-testid="studio-team-chat"]')!;
+    expect(chat.querySelectorAll(":scope > li")).toHaveLength(3);
+    expect(chat.textContent).toContain("Gemma (backend)→Qwen (frontend)");
+    expect(chat.textContent).toContain("The API is at /api/todos");
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="studio-team-view-work"]')!.click());
+    const cards = container.querySelectorAll('[data-testid="studio-team-agent"]');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.textContent).toContain("2.0k tokens");
+
+    expect(container.querySelector('[data-testid="studio-turn-usage"]')!.textContent).toBe("3.2k in · 800 out · Free");
+    expect(container.querySelector('[data-testid="studio-turn-usage-by-model"]')!.querySelectorAll("li")).toHaveLength(3);
+    expect(container.querySelector('[data-testid="studio-session-usage"]')!.textContent).toContain("This chat: 4.0k tokens · Free");
+  });
+
+  it("folds a long team message until it is opened", async () => {
+    const [user, reply] = teamReply();
+    const long = `${"The API returns the list as JSON. ".repeat(12)}Done.`;
+    await draw({ turns: [user!, { ...reply!, teamChat: [...reply!.teamChat!, { ...reply!.teamChat![1]!, id: "c4", text: long }] }] });
+    const folded = () => container.querySelectorAll('[data-testid="studio-team-chat"] [data-collapsed="true"]').length;
+    expect(folded()).toBe(1);
+    await act(async () => button("Show all")!.click());
+    expect(folded()).toBe(0);
+    expect(button("Show less")).toBeDefined();
+  });
+
+  it("opens the page from the reply that started the app, once the preview answers", async () => {
+    const onShowPreview = vi.fn();
+    await draw({ turns: teamReply(), previewReady: false, onShowPreview });
+    expect(container.querySelector('[data-testid="studio-open-page"]')).toBeNull();
+
+    await draw({ turns: teamReply(), previewReady: true, onShowPreview });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="studio-open-page"]')!.click());
+    expect(onShowPreview).toHaveBeenCalledTimes(1);
   });
 });

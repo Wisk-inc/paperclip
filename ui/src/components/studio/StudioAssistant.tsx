@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Brain, Check, ChevronRight, CircleAlert, CircleStop, ImagePlus, KeyRound, LoaderCircle, Paperclip, Send, Sparkles, Trash2, Undo2, Users, X } from "lucide-react";
+import { Brain, Check, ChevronRight, CircleAlert, CircleStop, Globe, ImagePlus, KeyRound, LoaderCircle, MessageSquare, Paperclip, Send, Sparkles, Trash2, Undo2, Users, X } from "lucide-react";
 import {
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
@@ -15,9 +15,11 @@ import {
   type StudioAssistantStep,
   type StudioAssistantTurn,
   type StudioTeamAgent,
+  type StudioTeamMessage,
   type StudioTeammate,
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
+import { formatSpend, formatTokens, modelTotals, turnWorkers, type TurnWorker } from "./studio-usage";
 import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
@@ -48,6 +50,7 @@ const SUGGESTIONS = [
 const TOOL_LABEL: Record<string, string> = {
   ask_teammate: "Asked a teammate",
   run_team: "Ran the team",
+  message_team: "Messaged the team",
   undo_edit: "Undid a change",
   search_files: "Searched the files",
   web_search: "Searched the web",
@@ -90,6 +93,9 @@ interface StudioAssistantProps {
   onInitialPromptUsed?: () => void;
   /** For the OpenRouter catalog in the model sheet. */
   companyId?: string;
+  /** The app answers in the preview: a reply that started it offers to open the page. */
+  previewReady?: boolean;
+  onShowPreview?: () => void;
 }
 
 interface AiChoice {
@@ -263,12 +269,13 @@ function TeamAgentCard({ agent, steps, onUndoEdit, disabled }: { agent: StudioTe
         <ModelLogo modelId={agent.model} size="xs" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-medium text-foreground">{agent.name}{agent.role ? <span className="font-normal text-muted-foreground"> · {agent.role}</span> : null}</span>
-          <span className="block truncate text-(length:--text-micro) text-muted-foreground">
+          <span className="block truncate text-(length:--text-micro) text-muted-foreground tabular-nums">
             {agent.status === "working"
               ? `${agent.activity ? `${agent.activity}…` : "Working…"} · ${agent.steps} step${agent.steps === 1 ? "" : "s"}`
               : agent.status === "done"
                 ? `Done · ${agent.steps} step${agent.steps === 1 ? "" : "s"}`
                 : `Could not finish${agent.error ? `: ${agent.error}` : ""}`}
+            {agent.usage ? ` · ${formatTokens(agent.usage.inputTokens + agent.usage.outputTokens)} tokens` : ""}
           </span>
         </span>
         {agent.status === "working" ? (
@@ -304,22 +311,140 @@ function TeamAgentCard({ agent, steps, onUndoEdit, disabled }: { agent: StudioTe
   );
 }
 
-/** The teammates the lead put to work in this reply. */
-function TeamAgents({ turn, onUndoEdit, disabled }: { turn: StudioAssistantTurn; onUndoEdit?: (editId: string) => Promise<void>; disabled?: boolean }) {
+/** Every model on this reply, as logos that boot up when they join: the lead first, then each teammate. */
+function TeamRoster({ workers }: { workers: TurnWorker[] }) {
+  return (
+    <ul className="flex flex-wrap gap-3" aria-label="Models on this job" data-testid="studio-team-roster">
+      {workers.map((worker, index) => {
+        const tokens = worker.usage ? worker.usage.inputTokens + worker.usage.outputTokens : 0;
+        const statusLabel = worker.status === "working" ? "working" : worker.status === "done" ? "done" : "could not finish";
+        return (
+          <li
+            key={worker.id}
+            className="studio-boot-in flex w-20 flex-col items-center gap-0.5 text-center"
+            style={{ animationDelay: `${index * 90}ms` }}
+            title={`${worker.name}${worker.role ? ` · ${worker.role}` : ""}: ${statusLabel}`}
+            data-status={worker.status}
+          >
+            <span
+              className={cn(
+                "relative rounded-lg p-0.5 ring-2",
+                worker.status === "working" ? "ring-(--status-agent-running)" : worker.status === "failed" ? "ring-destructive" : "ring-border",
+              )}
+            >
+              <ModelLogo modelId={worker.model} size="md" />
+              <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full border border-border bg-background">
+                {worker.status === "working" ? (
+                  <LoaderCircle className="size-3 animate-spin text-(--status-agent-running)" aria-hidden="true" />
+                ) : worker.status === "done" ? (
+                  <Check className="size-3 text-muted-foreground" aria-hidden="true" />
+                ) : (
+                  <CircleAlert className="size-3 text-destructive" aria-hidden="true" />
+                )}
+              </span>
+            </span>
+            <span className="w-full truncate text-(length:--text-micro) font-medium text-foreground">{worker.name}</span>
+            <span className="w-full truncate text-(length:--text-micro) text-muted-foreground tabular-nums">
+              {worker.lead ? "Lead" : (worker.role?.split(/[:,—-]/)[0]?.trim() || "Teammate")}
+              {tokens ? ` · ${formatTokens(tokens)}` : ""}
+            </span>
+            <span className="sr-only">{statusLabel}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** One line of the team chat; long tasks and reports open on a tap. */
+function TeamChatLine({ message }: { message: StudioTeamMessage }) {
+  const long = message.text.length > 280;
+  const [open, setOpen] = useState(false);
+  const verb = message.kind === "task" ? "to" : message.kind === "report" ? "reported to" : "→";
+  return (
+    <li className="flex min-w-0 gap-2" data-kind={message.kind}>
+      <ModelLogo modelId={message.fromModel} size="sm" className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-1 text-xs">
+          <span className="font-medium text-foreground">{message.fromName}</span>
+          <span className="text-muted-foreground">{verb}</span>
+          <span className="font-medium text-foreground">{message.toName ?? "everyone"}</span>
+          {message.kind !== "message" ? (
+            <span className="rounded-full bg-muted px-1.5 text-(length:--text-micro) text-muted-foreground">{message.kind === "task" ? "Task" : "Report"}</span>
+          ) : null}
+        </div>
+        <div
+          className={cn(
+            "mt-0.5 min-w-0 rounded-lg px-2.5 py-1.5 text-sm break-words",
+            message.kind === "task" ? "bg-primary/10" : message.kind === "report" ? "border border-border bg-background" : "bg-muted",
+            // A height cap, not line-clamp: the Markdown renders blocks, which line-clamp does not cut.
+            long && !open && "max-h-28 overflow-hidden",
+          )}
+          data-collapsed={long && !open ? "true" : undefined}
+        >
+          <MarkdownBody softBreaks>{message.text}</MarkdownBody>
+        </div>
+        {long ? (
+          <button type="button" onClick={() => setOpen((value) => !value)} className="mt-0.5 text-xs text-muted-foreground hover:text-foreground">
+            {open ? "Show less" : "Show all"}
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/** The teammates the lead put to work in this reply: who is on it, what they said to each other, and each one's work. */
+function TeamAgents({ turn, live, onUndoEdit, disabled }: { turn: StudioAssistantTurn; live: boolean; onUndoEdit?: (editId: string) => Promise<void>; disabled?: boolean }) {
+  const [view, setView] = useState<"chat" | "work">("chat");
   const agents = turn.agents ?? [];
   if (!agents.length) return null;
   const working = agents.filter((agent) => agent.status === "working").length;
+  const chat = turn.teamChat ?? [];
+  const talk = chat.filter((message) => message.kind === "message").length;
+  const showChat = view === "chat" && chat.length > 0;
   return (
-    <div className="flex min-w-0 flex-col gap-1.5" data-testid="studio-team-agents">
+    <div className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-card p-2.5" data-testid="studio-team-agents">
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="size-3.5" aria-hidden="true" />
         {working ? `${working} of ${agents.length} teammates working` : `Team of ${agents.length}`}
+        {talk ? ` · ${talk} message${talk === 1 ? "" : "s"} between them` : ""}
       </span>
-      <ul className="flex flex-col gap-1.5">
-        {agents.map((agent) => (
-          <TeamAgentCard key={agent.id} agent={agent} steps={turn.steps.filter((step) => step.agent === agent.id)} onUndoEdit={onUndoEdit} disabled={disabled} />
-        ))}
-      </ul>
+      <TeamRoster workers={turnWorkers(turn, { leadWorking: live })} />
+      {chat.length ? (
+        <div className="flex gap-1 rounded-lg bg-muted p-0.5" role="tablist" aria-label="Team view">
+          {(["chat", "work"] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={view === id}
+              onClick={() => setView(id)}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1 text-xs",
+                view === id ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              data-testid={`studio-team-view-${id}`}
+            >
+              {id === "chat" ? <MessageSquare className="size-3.5" aria-hidden="true" /> : <Users className="size-3.5" aria-hidden="true" />}
+              {id === "chat" ? `Team chat (${chat.length})` : `Work (${agents.length})`}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {showChat ? (
+        <ol className="flex flex-col gap-2.5" data-testid="studio-team-chat" aria-live={live ? "polite" : undefined}>
+          {chat.map((message) => (
+            <TeamChatLine key={message.id} message={message} />
+          ))}
+        </ol>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {agents.map((agent) => (
+            <TeamAgentCard key={agent.id} agent={agent} steps={turn.steps.filter((step) => step.agent === agent.id)} onUndoEdit={onUndoEdit} disabled={disabled} />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -389,19 +514,54 @@ function AssistantProgress({ turns, model }: { turns: StudioAssistantTurn[]; mod
   );
 }
 
-function formatTokens(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
-  return String(value);
+/** Tokens and cost of one reply, the way they count in Costs, and each model's share when a team worked on it. */
+function UsageLine({ turn }: { turn: StudioAssistantTurn }) {
+  const usage = turn.usage;
+  if (!usage) return null;
+  const cost = formatSpend(turn.provider, usage.costUsd);
+  const workers = turnWorkers(turn).filter((worker) => worker.usage && worker.usage.inputTokens + worker.usage.outputTokens > 0);
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="text-xs text-muted-foreground tabular-nums" data-testid="studio-turn-usage">
+        {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out{cost ? ` · ${cost}` : ""}
+      </span>
+      {workers.length > 1 ? (
+        <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Tokens per model" data-testid="studio-turn-usage-by-model">
+          {workers.map((worker) => (
+            <li key={worker.id} className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+              <ModelLogo modelId={worker.model} size="xs" tile={false} />
+              <span className="max-w-28 truncate">{worker.lead ? `${worker.name} (lead)` : worker.name}</span>
+              <span>{formatTokens(worker.usage!.inputTokens + worker.usage!.outputTokens)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }
 
-/** Tokens and cost of one reply, the way they count in Costs. */
-function UsageLine({ usage }: { usage: NonNullable<StudioAssistantTurn["usage"]> }) {
-  const cost = usage.costUsd === null ? null : usage.costUsd < 0.01 ? "under 1¢" : `$${usage.costUsd.toFixed(2)}`;
+/** Every model in this chat, with the tokens it used across replies (Free on the free models). */
+function SessionUsageSummary({ turns }: { turns: StudioAssistantTurn[] }) {
+  const models = modelTotals(turns).filter((model) => model.inputTokens + model.outputTokens > 0);
+  if (!models.length) return null;
+  const tokens = models.reduce((sum, model) => sum + model.inputTokens + model.outputTokens, 0);
+  const allFree = models.every((model) => model.provider === "free");
+  const knownCost = models.every((model) => model.provider === "free" || model.costUsd !== null);
+  const cost = models.reduce((sum, model) => sum + (model.provider === "free" ? 0 : (model.costUsd ?? 0)), 0);
   return (
-    <span className="text-xs text-muted-foreground tabular-nums" data-testid="studio-turn-usage">
-      {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out{cost ? ` · ${cost}` : ""}
-    </span>
+    <li className="flex items-center gap-2 rounded-lg border border-border bg-muted px-2.5 py-1.5" data-testid="studio-session-usage">
+      <span className="flex -space-x-1" aria-hidden="true">
+        {models.slice(0, 5).map((model) => (
+          <ModelLogo key={`${model.provider}:${model.model}`} modelId={model.model} size="xs" className="ring-1 ring-background" />
+        ))}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
+        This chat: {formatTokens(tokens)} tokens{allFree ? " · Free" : knownCost ? ` · ${formatSpend(null, cost)}` : ""}
+      </span>
+      {models.length > 1 ? (
+        <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-(length:--text-micro) font-medium text-primary">{models.length} models</span>
+      ) : null}
+    </li>
   );
 }
 
@@ -426,8 +586,12 @@ export function StudioAssistant({
   initialPrompt,
   onInitialPromptUsed,
   companyId,
+  previewReady = false,
+  onShowPreview,
 }: StudioAssistantProps) {
   const narrow = useNarrowScreen();
+  // The newest reply in which the lead or a teammate started the app: it offers the page.
+  const pageTurnId = turns.findLast((turn) => turn.role === "assistant" && turn.steps.some((step) => step.tool === "start_app" && step.ok))?.id ?? null;
   const [choice, setChoice] = useState<AiChoice>(() => readChoice(storageKey));
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -778,6 +942,7 @@ export function StudioAssistant({
           </div>
         ) : (
           <ol className="flex flex-col gap-4">
+            <SessionUsageSummary turns={turns} />
             {turns.map((turn) =>
               turn.role === "user" ? (
                 <li key={turn.id} className="ml-8 flex flex-col items-end gap-1 self-end">
@@ -838,7 +1003,7 @@ export function StudioAssistant({
                       </ul>
                     ),
                   )}
-                  <TeamAgents turn={turn} onUndoEdit={onUndoEdit} disabled={running} />
+                  <TeamAgents turn={turn} live={running && turn.id === turns.at(-1)?.id} onUndoEdit={onUndoEdit} disabled={running} />
                   {/* Transcripts from before steps carried the text. */}
                   {turn.text && !turn.steps.some((step) => step.tool === "say") ? (
                     <div className="min-w-0 text-sm break-words">
@@ -852,7 +1017,12 @@ export function StudioAssistant({
                     </div>
                   ) : null}
                   {turn.error ? <p className="text-sm text-destructive">{turn.error}</p> : null}
-                  {turn.usage ? <UsageLine usage={turn.usage} /> : null}
+                  {turn.id === pageTurnId && previewReady && onShowPreview ? (
+                    <Button type="button" variant="secondary" size="sm" className="self-start" onClick={onShowPreview} data-testid="studio-open-page">
+                      <Globe /> Open the page
+                    </Button>
+                  ) : null}
+                  <UsageLine turn={turn} />
                 </li>
               ),
             )}

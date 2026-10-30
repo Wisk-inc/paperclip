@@ -53,7 +53,7 @@ import {
   writeStudioFile,
 } from "../services/studio/files.js";
 import { studioService } from "../services/studio/service.js";
-import { studioUsageRecorder } from "../services/studio/usage.js";
+import { studioModelUsage, studioUsageRecorder } from "../services/studio/usage.js";
 import { disposeStudioRuntime, existingStudioRuntime, stopAllStudioRuntimes, studioRuntime, studioRuntimeByPreviewToken } from "../services/studio/runner.js";
 import { allToolchainStatuses, toolchainStatus, studioHostPlatform, installCommandFor, installExecCommandFor, clearToolchainCache } from "../services/studio/toolchains.js";
 import { cloudflaredPath, installCloudflared, openQuickTunnel } from "../services/studio/tunnel.js";
@@ -826,6 +826,14 @@ export function studioRoutes(db: Db) {
 
   // ── Assistant ────────────────────────────────────────────────────────────
 
+  router.get("/companies/:companyId/studio/usage", async (req, res) => {
+    assertBoard(req);
+    const companyId = String(req.params.companyId);
+    assertCompanyAccess(req, companyId);
+    const days = Math.min(365, Math.max(1, Math.floor(Number(req.query.days)) || 30));
+    res.json(await studioModelUsage(db, companyId, new Date(Date.now() - days * 24 * 60 * 60 * 1000)));
+  });
+
   router.get("/companies/:companyId/studio/ai-keys", async (req, res) => {
     assertBoard(req);
     const companyId = String(req.params.companyId);
@@ -963,6 +971,28 @@ export function studioRoutes(db: Db) {
   });
 
   return router;
+}
+
+/**
+ * The sandboxed preview has no origin, so the browser refuses a page's
+ * localStorage and sessionStorage and a page that saves anything stops with
+ * an error. This stands in for them with in-memory storage while the page is
+ * open; the page's own public link keeps real storage.
+ */
+export const PREVIEW_STORAGE_SHIM = `<script>(function(){function m(){var d=Object.create(null);return{get length(){return Object.keys(d).length},key:function(i){var k=Object.keys(d);return i>=0&&i<k.length?k[i]:null},getItem:function(k){k=String(k);return k in d?d[k]:null},setItem:function(k,v){d[String(k)]=String(v)},removeItem:function(k){delete d[String(k)]},clear:function(){d=Object.create(null)}}}["localStorage","sessionStorage"].forEach(function(n){try{void window[n].length}catch(e){try{Object.defineProperty(window,n,{value:m(),configurable:true,enumerable:true})}catch(_){}}})})();</script>`;
+
+/**
+ * Puts tags at the start of a previewed page's head, before any of its own
+ * scripts run: after `<head>`, else after `<html>`, else after the doctype,
+ * so a page never drops into quirks mode and a `<header>` is never taken for
+ * the head.
+ */
+export function injectIntoPreviewHtml(html: string, tags: string): string {
+  for (const pattern of [/<head(?:\s[^>]*)?>/i, /<html(?:\s[^>]*)?>/i, /^\s*<!doctype[^>]*>/i]) {
+    const match = pattern.exec(html);
+    if (match) return `${html.slice(0, match.index + match[0].length)}${tags}${html.slice(match.index + match[0].length)}`;
+  }
+  return `${tags}${html}`;
 }
 
 /**
@@ -1191,11 +1221,8 @@ export function studioPublicRoutes(db: Db) {
           let html = Buffer.concat(chunks).toString("utf8");
           // Root-relative links ("/style.css") point back into the preview.
           html = html.replace(/(\s(?:src|href|action)=["'])\/(?!\/)/gi, `$1${prefix}`);
-          if (!/<base\s/i.test(html)) {
-            html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (match) => `${match}<base href="${prefix}">`) : `<base href="${prefix}">${html}`;
-          }
           res.writeHead(upstreamRes.statusCode ?? 200, outHeaders);
-          res.end(html);
+          res.end(injectIntoPreviewHtml(html, `${/<base\s/i.test(html) ? "" : `<base href="${prefix}">`}${PREVIEW_STORAGE_SHIM}`));
         });
       },
     );

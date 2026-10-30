@@ -16,6 +16,7 @@ import type {
   StudioParticipant,
   StudioRunState,
   StudioToolchainStatus,
+  StudioUsageSummary,
   StudioWorkspace,
   StudioAssistantAttachmentInput,
   StudioThinkingLevel,
@@ -148,6 +149,8 @@ export const studioApi = {
     api.post<{ changeRequest: StudioChangeRequest }>(`${ws(id)}/changes/${encodeURIComponent(changeId)}/reject`, {}),
 
   aiKeys: (companyId: string) => api.get<{ keys: StudioAiKeyStatus[] }>(`${company(companyId)}/ai-keys`),
+  /** What each model did for App Studio over the last `days` (30 by default). */
+  usage: (companyId: string, days = 30) => api.get<StudioUsageSummary>(`${company(companyId)}/usage?days=${days}`),
   saveAiKey: (companyId: string, input: { provider: StudioAiProvider; apiKey: string; baseUrl?: string | null }) =>
     api.put<{ key: StudioAiKeyStatus }>(`${company(companyId)}/ai-keys`, input),
   deleteAiKey: (companyId: string, provider: StudioAiProvider) =>

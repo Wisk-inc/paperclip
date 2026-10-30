@@ -7901,6 +7901,7 @@ registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-insp
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/info", tags: ["app-inspector"], summary: "Package, versions, SDKs, permissions and components from the manifest" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/app-inspector/projects/{id}/output", tags: ["app-inspector"], summary: "Download the rebuilt APK" });
 registerCurrentRoute({ method: "post", path: "/api/companies/{companyId}/app-inspector/projects/{id}/explain", tags: ["app-inspector"], summary: "Ask Claude to explain a file of a decoded app", body: z.object({ path: z.string(), view: z.enum(["files", "java"]).optional() }) });
+registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/usage", tags: ["studio"], summary: "App Studio's AI use per provider and model over the last days (default 30)" });
 registerCurrentRoute({ method: "get", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "List which AI providers have a saved key (never the keys)" });
 registerCurrentRoute({ method: "put", path: "/api/companies/{companyId}/studio/ai-keys", tags: ["studio"], summary: "Save an AI provider key for the coding assistant", body: saveStudioAiKeySchema });
 registerCurrentRoute({ method: "delete", path: "/api/companies/{companyId}/studio/ai-keys/{provider}", tags: ["studio"], summary: "Remove a saved AI provider key" });

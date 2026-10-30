@@ -981,6 +981,13 @@
   from { opacity: 1; transform: translate(-50%, 0) scale(1); }
   to { opacity: 0; transform: translate(-50%, 8px) scale(0.9); }
 }
+
+/* App Studio: each model's logo boots up as the lead puts it to work. */
+@keyframes studio-boot-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+.studio-boot-in { animation: studio-boot-in var(--motion-duration-slow) var(--motion-ease-standard) both; }
 .tc-scroll-pill-in { animation: tc-pill-in var(--motion-scroll-pill-enter) var(--motion-ease-scroll-pill-in) both; }
 .tc-scroll-pill-out { animation: tc-pill-out var(--motion-scroll-pill-exit) var(--motion-ease-scroll-pill-out) both; }
 
