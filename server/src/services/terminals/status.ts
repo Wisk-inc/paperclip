@@ -1,17 +1,23 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { TERMINAL_TOOLS, terminalCommand, type TerminalToolId } from "./registry.js";
-import { LINUX_DISTRO } from "./linux-layer.js";
+import { LINUX_DISTRO, linuxProbeArgv } from "./linux-layer.js";
 
 const run = promisify(exec);
+const runFile = promisify(execFile);
 
 export interface TerminalPlatformStatus {
   /** "phone" when running in Termux, else "computer". */
   kind: "phone" | "computer";
   /** The Debian layer is installed (phone only; always true off-phone). */
   linuxReady: boolean;
+  /**
+   * Python is there for the relay every terminal runs through. Without it
+   * each one, Shell and Set up included, ended at once ("spawn python3 ENOENT").
+   */
+  relayReady: boolean;
   tools: Array<{ id: TerminalToolId; installed: boolean }>;
 }
 
@@ -49,19 +55,26 @@ async function linuxHas(commands: string[]): Promise<Set<string>> {
     // layer does not always add to PATH; named here so a fresh install shows
     // as installed.
     const probe = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; ` + commands.map((c) => `command -v ${c} >/dev/null 2>&1 && echo ${c}`).join("; ");
-    const { stdout } = await run(
-      `proot-distro login ${LINUX_DISTRO} -- bash -lc ${JSON.stringify(probe)}`,
-      { timeout: 20000 },
-    );
+    // No outer shell: Debian's bash expands $HOME and $PATH (see linuxProbeArgv).
+    const [file, ...args] = linuxProbeArgv(probe);
+    const { stdout } = await runFile(file!, args, { timeout: 20000 });
     return new Set(stdout.split(/\s+/).filter(Boolean));
   } catch {
     return new Set();
   }
 }
 
+/** The python the relay is started with (see sessions.ts pythonBin) is there. */
+async function relayAvailable(): Promise<boolean> {
+  const prefix = process.env.PREFIX;
+  if (prefix && existsSync(path.join(prefix, "bin", "python3"))) return true;
+  return hostHas("python3");
+}
+
 export async function terminalStatus(): Promise<TerminalPlatformStatus> {
   const phone = onPhone();
   const linuxReady = linuxInstalled();
+  const relayReady = await relayAvailable();
   const linuxTools = TERMINAL_TOOLS.filter((tool) => phone && tool.linuxOnPhone);
   const hostTools = TERMINAL_TOOLS.filter((tool) => !(phone && tool.linuxOnPhone));
 
@@ -77,6 +90,7 @@ export async function terminalStatus(): Promise<TerminalPlatformStatus> {
   return {
     kind: phone ? "phone" : "computer",
     linuxReady,
+    relayReady,
     tools: TERMINAL_TOOLS.map((tool) => ({
       id: tool.id,
       installed:

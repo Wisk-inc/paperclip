@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Cpu, KeyRound, SquareTerminal } from "lucide-react";
-import type { Agent } from "@paperclipai/shared";
+import { TERMINAL_TOOLS, type Agent } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { ModelLogo } from "@/components/ModelLogo";
 import { useToastActions } from "@/context/ToastContext";
@@ -27,7 +27,7 @@ const CLAUDE_ENGINES = [
   },
 ] as const;
 
-/** The terminal tool each coding adapter maps to, for "Open a terminal as this agent". */
+/** The terminal tool each coding adapter maps to, for the agent's "Open … with its model" link. */
 const TERMINAL_TOOL_FOR_ADAPTER: Record<string, string> = {
   claude_local: "claude",
   codex_local: "codex",
@@ -45,6 +45,7 @@ export function AgentAiSettings({ agent, onNavigate }: { agent: Agent; onNavigat
   const [modelOpen, setModelOpen] = useState(false);
   const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const model = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
+  const terminalTool = TERMINAL_TOOLS.find((tool) => tool.id === TERMINAL_TOOL_FOR_ADAPTER[agent.adapterType]);
   const engine = agent.adapterConfig?.engine === "api" ? "api" : "auto";
   const hasThinking = thinkingLevelsFor(agent).length > 0;
 
@@ -125,15 +126,18 @@ export function AgentAiSettings({ agent, onNavigate }: { agent: Agent; onNavigat
         </fieldset>
       ) : null}
 
-      {TERMINAL_TOOL_FOR_ADAPTER[agent.adapterType] ? (
+      {terminalTool ? (
         <Link
-          to={`/terminals?tool=${TERMINAL_TOOL_FOR_ADAPTER[agent.adapterType]}&agent=${agent.id}`}
+          to={`/terminals?${new URLSearchParams({ tool: terminalTool.id, agent: agent.id, ...(model ? { model } : {}) }).toString()}`}
           onClick={onNavigate}
           className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm text-foreground hover:bg-accent/60"
           data-testid="agent-open-terminal"
         >
           <SquareTerminal className="size-4 text-muted-foreground" aria-hidden="true" />
-          <span className="flex-1">Open a terminal as {agent.name}</span>
+          {/* The terminal runs the tool with your saved key; from here it takes the agent's model. */}
+          <span className="flex-1">
+            {model ? `Open ${terminalTool.label} with ${agent.name}'s model` : `Open ${terminalTool.label} in a terminal`}
+          </span>
           <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
         </Link>
       ) : null}

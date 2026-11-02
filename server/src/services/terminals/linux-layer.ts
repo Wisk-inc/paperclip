@@ -36,6 +36,17 @@ export function linuxRunArgv(toolArgv: string[], cwd?: string): string[] {
   ];
 }
 
+/**
+ * The argv that runs a short check script inside the Debian layer. Run
+ * directly (execFile), never through an outer shell: there, a double-quoted
+ * script had $HOME and $PATH filled in with Termux's values before Debian
+ * saw them, so tools installed in Debian's ~/.local/bin (Claude Code) or
+ * /usr/bin never showed as installed.
+ */
+export function linuxProbeArgv(script: string): string[] {
+  return ["proot-distro", "login", LINUX_DISTRO, "--", "bash", "-lc", script];
+}
+
 function setupScriptPath(): string {
   // Copied into dist/services/scripts/terminals by the server build.
   return fileURLToPath(new URL("../scripts/terminals/linux-setup.sh", import.meta.url));

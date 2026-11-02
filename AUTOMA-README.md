@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.5](#2-whats-new-in-195)
+2. [What's new in 1.9.6](#2-whats-new-in-196)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,9 +81,82 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.5
+## 2. What's new in 1.9.6
 
-**Fixed in 1.9.6: connecting and signing in**
+1.9.6 is a fixes release: a full check of the app, area by area, with every
+problem found fixed and tested. What changes for you:
+
+**Safer on your phone**
+- The app proves that the Automa on your phone really holds the app key
+  before it sends the key, and never sends it to another program on the phone
+  (another port on 127.0.0.1). Automa refuses to start on another port when
+  3100 is taken, instead of moving somewhere the app would follow.
+- Agents and terminals no longer see the server's database password or its
+  sign-in secret.
+- An invite can't give more than the person who made it has, and Google
+  sign-in no longer joins an existing unverified account with the same email.
+- Deleting an organization takes its owner, and only when deletion is turned
+  on for the server.
+
+**Signing in, out and joining**
+- Sign out sticks (it used to sign straight back in with Google).
+- Invite-only servers let invited people in, including with Google, and an
+  invite page you open while signed in no longer accepts it by itself.
+- Admins can reach the Invites tab.
+
+**Connectors (Notion, GitHub and more)**
+- Signing in to a connector in the Android app works: the provider's page
+  opens inside Automa with a bar naming the site and a **Cancel** button, and
+  comes back to Automa when you are done. (Providers that refuse in-app
+  browsers, such as Google sign-in, still can't be used from the app.)
+- A reconnect that fails or that you cancel says so on the app's page, with
+  GitHub's install link when that is what is missing. Unfinished connectors
+  say **Setup incomplete**, and a custom connector's **Connect** no longer
+  sends you round in a loop.
+
+**Agents, keys and costs**
+- A key or sign-in added while hiring becomes your default, so the agent uses
+  it; if that step fails you see why, and trying again doesn't save the key
+  twice. **Connect another account** in an agent's settings does the same.
+- Hiring a Claude agent on the Anthropic API finishes (its test never passed
+  before). Free-model agents keep the thinking level you picked.
+- An agent's settings offer only the shared accounts it may use.
+- Each key's spend line says it is the provider's spend across all keys, with
+  the reason when there is no balance to show.
+- Agent budgets can be set on **Costs > Budgets** and are enforced (a built-in
+  agent's monthly budget never was). Budget warnings no longer look like
+  stops, and a paused organization says it stays paused and offers
+  **Resume**. "This month" follows the budget's month everywhere.
+
+**Chats**
+- Removing an agent deletes its chats and their files (they used to become
+  tasks everyone could see). Hires waiting for approval aren't offered as
+  chats, renaming an agent keeps its chat links working, and a failed
+  settings check says so instead of "Agent Chat is off".
+
+**App Studio sharing**
+- Stopping sharing (or removing someone, or an expired link) changes the
+  preview link. Guests no longer see your AI chat. Accepting a guest's change
+  never overwrites your newer edits without asking.
+
+**Your phone**
+- One Automa per phone: a second server can't start on another port.
+- Pushes go to the right phone and the right server; a forgotten server's
+  pushes are dropped.
+- Shared files and folders stay tied to the server they belong to, and
+  restore and backups are safer.
+
+**Terminals and App Inspector**
+- Claude Code and Codex show as installed on a phone (they always said Tap to
+  install). A missing Python is explained with the command that fixes it, and
+  the page no longer crashes when it opens.
+- Deleting an App Inspector project while it decompiles stops the whole job.
+  On a computer without jadx, the Java option says so up front.
+
+Not done yet: opening an invite web link straight into the Android app (open
+it in the app by pasting it on the no-access page).
+
+**Fixed earlier in 1.9.6: connecting and signing in**
 - While Automa is starting up, the connect screen says it is still starting
   (it used to say "not an Automa server" or "Nothing answers on this phone"),
   and for Automa on this phone it waits with its progress steps.
@@ -96,6 +169,8 @@ supplies the data.
   (it never appeared before), says passwords need at least 8 characters, and
   says when a password is too short (it used to say fields were missing).
   Invite-only servers no longer offer **Create one**.
+
+### From 1.9.5
 
 **Notifications when AI work finishes while you are away**
 - When an agent replies to something you sent, or an App Studio job finishes,
@@ -1027,7 +1102,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
-| 1.9.6 | 2026-10-30 | Connect and sign-in fixes: "still starting" instead of "not an Automa server" while Automa starts; a locked phone server without its key says so up front and opens the key box; the success screen says when sign-in is next; Continue with Google shows on the sign-in page where it works; the password rule is stated; invite-only servers don't offer Create one. |
+| 1.9.6 | 2026-11-02 | A full check of the app with every problem found fixed: the app proves your phone's Automa holds its key before sending it; agents and terminals no longer see server secrets; invites can't give more than their maker has; sign-out sticks; connectors sign in inside the Android app; keys added while hiring become your default; agent budgets can be set and are enforced; removing an agent deletes its chats; App Studio sharing is safer; one Automa per phone; Terminals show Claude Code and Codex as installed on phones. Plus the connect and sign-in fixes: "still starting" instead of "not an Automa server", a locked phone server without its key says so up front, Continue with Google shows where it works. |
 | 1.9.5 | 2026-10-30 | Notifications when an AI reply or App Studio job finishes while you are away, with a tap that opens that chat, task or project (Android and browser; also server push with Firebase); a live App Studio Stats tab (running clock, each model's status and tokens, latest moves, steps and files); costs say what free work would have cost; the AI sees the page like you do (`view_app`: phone and desktop sizes, console errors, layout trouble); teams of up to 8; the preview reloads itself when files change. |
 | 1.9.4 | 2026-10-30 | App Studio teams you can watch (booting logos with live tokens, a readable team chat, per-model shares, a Stats tab, 30-day per-model usage on the Studio page and Home); web pages built and opened in the preview, with `localStorage` working there; the task waiting notice gets an X, a working Retry now, honest wording and a self-refresh. |
 | 1.9.3 | 2026-10-30 | An auto-growing pool of 200+ app IDs spreads free-model requests so many people asking at once all get answered; tables show fade edges; held-reply Retry placed where it belongs; recovery notices say Automa. |

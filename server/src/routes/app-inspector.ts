@@ -107,7 +107,9 @@ export function appInspectorRoutes(
         apkPath,
         label,
         packageName,
-        splitCount: body.splitCount ?? installed?.splitCount ?? 0,
+        // For an installed app the server's own count (from pm path) is the
+        // true one; a page's guess (0 from the browser path) only fills a gap.
+        splitCount: installed?.splitCount ?? body.splitCount ?? 0,
         options: body.options,
       });
       await logActivity(db, {

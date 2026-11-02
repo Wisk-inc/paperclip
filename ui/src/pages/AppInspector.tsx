@@ -61,6 +61,8 @@ export function AppInspector() {
     enabled: Boolean(companyId),
     retry: retryUnlessServerTooOld,
   });
+  // A computer without jadx can't make the Java view (a phone installs jadx on the first decompile).
+  const javaUnavailable = status.data?.kind === "computer" && status.data.jadxReady === false;
   const nativeAvailable = automaNative.canListInstalledApps();
   const nativeApps = useQuery({
     queryKey: ["inspector", "native-apps"],
@@ -267,6 +269,10 @@ export function AppInspector() {
                 ? "The first decompile installs apktool, jadx and a JDK in Termux (you'll see it in the log). That takes a few minutes, once."
                 : "Decompiling needs apktool (and jadx for Java) installed on this computer."}
             </p>
+          ) : javaUnavailable ? (
+            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground" data-testid="inspector-jadx-missing">
+              Code as Java needs jadx installed on this computer. Until then, decompiling gives the code as smali (in Files).
+            </p>
           ) : null}
 
           {tab === "apps" ? (
@@ -431,6 +437,7 @@ export function AppInspector() {
 
       <AppActionsSheet
         app={sheetApp}
+        javaUnavailable={javaUnavailable}
         busy={decompile.isPending}
         phase={phase}
         onDecompile={(app, options) => decompile.mutate({ app, options })}

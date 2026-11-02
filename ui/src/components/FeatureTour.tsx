@@ -139,12 +139,12 @@ export const TOUR_STOPS: TourStop[] = [
   {
     icon: SquareTerminal, title: "Terminals", pose: "cheering", to: "/terminals",
     what: "Open a real coding terminal on this device — Claude Code, Codex, Gemini CLI, OpenCode — with its full terminal UI, and use it right here.",
-    why: "The whole desktop tool, on your phone. Wire one to an agent so it works with the agent's key.",
+    why: "The whole desktop tool, on your phone, signed in with the key you saved in Automa.",
     steps: [
       "Open Terminals and tap a tool",
       "The first time, Automa installs it (and a small Linux layer on a phone)",
       "Use the key bar for Esc, Tab, Ctrl-C and the arrows",
-      "From an agent's settings, \"Open a terminal as this agent\"",
+      "From an agent's settings, open its tool with the agent's model",
     ],
   },
   {

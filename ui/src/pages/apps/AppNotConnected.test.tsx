@@ -397,6 +397,42 @@ describe("AppNotConnected", () => {
     );
   });
 
+  it("starts a custom connection for a custom connector with nothing to reconnect, instead of looping back to Connectors", async () => {
+    listApplicationsMock.mockResolvedValue({
+      applications: [application({ applicationKey: "custom-mcp", name: "Bla", metadata: null })],
+    });
+    listConnectionsMock.mockResolvedValue({ connections: [] });
+    listGalleryMock.mockResolvedValue({ apps: [] });
+
+    await renderPage();
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Connect")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith("/apps/byo?applicationId=app-1&name=Bla");
+  });
+
+  it("starts a custom connection when the removed one kept no address to reconnect to", async () => {
+    listApplicationsMock.mockResolvedValue({
+      applications: [application({ applicationKey: "custom-mcp", name: "Bla", metadata: null })],
+    });
+    listConnectionsMock.mockResolvedValue({
+      connections: [connection({ name: "Bla", config: {}, transportConfig: {} })],
+    });
+    listGalleryMock.mockResolvedValue({ apps: [] });
+
+    await renderPage();
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Reconnect")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith("/apps/byo?applicationId=app-1&name=Bla");
+  });
+
   it("does not offer a removed personal reconnect to someone other than its fixed owner", async () => {
     listConnectionsMock.mockResolvedValue({
       connections: [connection({ credentialPolicy: "per_user", createdByUserId: "user-2" })],

@@ -423,7 +423,7 @@ export function toolAccessRoutes(
       ?? requestLoopbackBaseUrl(req);
     if (!baseUrl) {
       throw unprocessable(
-        "This Paperclip needs a browser-reachable HTTPS address (or loopback HTTP) before browser sign-in can start.",
+        "This Automa server needs an HTTPS address before sign-in can start. A private one works (a tailnet address, for example), and so does opening Automa at 127.0.0.1 on the device it runs on.",
         { code: "oauth_redirect_origin_unsupported" },
       );
     }

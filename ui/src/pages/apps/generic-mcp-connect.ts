@@ -146,8 +146,8 @@ export function genericConnectGuidance(
     case "oauth_redirect_origin_unsupported":
     case "oauth_redirect_uri_invalid":
       return {
-        title: "This Automa needs a public HTTPS address first",
-        body: "Sign-in sends the operator back to Automa, so this instance has to be reachable over HTTPS. Ask your Automa admin to configure it.",
+        title: "This Automa needs an HTTPS address first",
+        body: "Sign-in sends you back to Automa, so Automa has to be reached over HTTPS. A private address works (a tailnet one, for example), and so does opening Automa at 127.0.0.1 on the device it runs on.",
         focus: "deployment",
       };
     case "runtime_error":

@@ -87,7 +87,15 @@ fi
 # Claude Code and Codex run in on a phone. Both small; the layer itself is set
 # up from the Terminals page the first time it's needed.
 for tool in python proot-distro; do
-  command -v "$tool" >/dev/null 2>&1 || termux_pkg_install "$tool" || echo "Could not install $tool now; Terminals will offer to later." >&2
+  command -v "$tool" >/dev/null 2>&1 || termux_pkg_install "$tool" || {
+    # Every terminal (Set up included) runs through the python relay, so only a
+    # command brings it back; the Linux layer's setup installs proot-distro itself.
+    if [ "$tool" = python ]; then
+      echo "Could not install python now. Terminals need it: run 'pkg install python' later." >&2
+    else
+      echo "Could not install $tool now; Terminals installs it when you set up the Linux layer." >&2
+    fi
+  }
 done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$node_major" -lt 24 ]; then

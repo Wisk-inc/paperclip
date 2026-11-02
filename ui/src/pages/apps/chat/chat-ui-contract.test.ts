@@ -239,7 +239,8 @@ describe("chat connector UI contract", () => {
     expect(setup).toContain("not Microsoft Graph permissions in Entra");
     expect(setup).toContain("does not use Teams single sign-on");
     expect(setup).toContain("webApplicationInfo");
-    expect(setup).toContain('resource: "https://paperclip.ing"');
+    expect(setup).toContain("resource: `api://botid-${teamsClientId}`");
+    expect(setup).not.toContain("paperclip.ing");
     expect(setup).toContain("only associates the RSC");
     expect(setup).toContain("you do not need to register an Entra");
     expect(setup).toContain("receive every message");

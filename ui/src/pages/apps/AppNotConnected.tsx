@@ -334,6 +334,16 @@ function newConnectionHref({
     previousConnection?.transportConfig.remoteUrl,
     previousAddress,
   ].find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value));
+  // The custom-connector reconnect link (byo=1) is accepted only with the
+  // connection it replaces and its address. Without them (say the connector
+  // only ever had an unfinished draft) it was refused and bounced back to the
+  // Connectors list, round and round: start a custom connection instead,
+  // pre-filled with its name and any address there is.
+  if (!sourceSlug && !(previousConnection && storedLink) && previousConnection?.credentialSource !== "vercel_connect") {
+    const custom = new URLSearchParams({ applicationId, name: appName });
+    if (storedLink) custom.set("link", storedLink);
+    return `/apps/byo?${custom.toString()}`;
+  }
   if (storedLink) params.set("link", storedLink);
   const path = previousConnection?.credentialSource === "vercel_connect"
     ? "/apps/vercel-connect"

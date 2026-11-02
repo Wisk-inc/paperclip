@@ -180,9 +180,60 @@ function publicView(project: InspectorProject) {
 
 export { publicView as inspectorProjectView };
 
+/** POSIX process groups: a job's apktool and jadx (java) run under its bash. */
+const GROUP_JOBS = process.platform !== "win32";
+/** How long a stopped job may take before its group is killed outright. */
+const STOP_GRACE_MS = 5_000;
+
+function signalJob(child: ChildProcess, signal: NodeJS.Signals) {
+  try {
+    if (GROUP_JOBS && child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/**
+ * Stops a job with everything it started and waits until it is gone (its
+ * output pipes, shared with apktool and java, close last). Signalling only
+ * the bash wrapper left apktool and jadx running for minutes, writing into a
+ * project's folder after it was deleted.
+ */
+function stopJob(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signalJob(child, "SIGKILL");
+      resolve();
+    }, STOP_GRACE_MS);
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    signalJob(child, "SIGTERM");
+  });
+}
+
+let exitHookInstalled = false;
+/** A job runs in its own group, so it no longer stops with the server's: stop it on exit. */
+function stopJobsOnExit() {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once("exit", () => {
+    for (const set of running.values()) for (const child of set) signalJob(child, "SIGTERM");
+  });
+}
+
 /** Run the helper script; `onDone` gets the exit code and this run's own output. */
 function runScript(project: InspectorProject, args: string[], onDone: (code: number, output: string) => void) {
-  const child = spawn("bash", [scriptPath(), ...args], { cwd: project.dir });
+  stopJobsOnExit();
+  // Its own process group, so stopping it stops apktool and jadx too (see stopJob).
+  const child = spawn("bash", [scriptPath(), ...args], { cwd: project.dir, detached: GROUP_JOBS });
   const set = running.get(project.id) ?? new Set<ChildProcess>();
   set.add(child);
   running.set(project.id, set);
@@ -275,8 +326,13 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
   persist(project);
   const flags = [...(project.options.resources ? [] : ["--no-res"]), ...(project.options.sources ? [] : ["--no-src"])];
   // jadx reads the APK on its own, so it runs alongside apktool instead of
-  // after it: the Java view is ready about as soon as the file tree is.
-  if (project.options.java) startJava(project);
+  // after it: the Java view is ready about as soon as the file tree is. Not
+  // on a phone's first decompile, though: both jobs would install packages at
+  // once and the second found Termux's package lock taken ("java is not
+  // installed"), so there Java waits for the decode and its installs.
+  const javaAfterDecode = project.options.java && phoneToolsMissing();
+  if (project.options.java && !javaAfterDecode) startJava(project);
+  if (javaAfterDecode) project.java = "working";
   runScript(project, ["decode", inputApk(project), decodedDir(project), ...flags], (code) => {
     if (code === 0 && existsSync(decodedDir(project))) {
       project.status = "ready";
@@ -285,8 +341,16 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
       project.status = "failed";
       project.error = "apktool could not decode this APK. See the log.";
     }
+    if (javaAfterDecode) startJava(project);
   });
   return publicView(project);
+}
+
+/** On a phone, a tool the first decompile still has to install (Termux keeps them in $PREFIX/bin). */
+function phoneToolsMissing(): boolean {
+  const prefix = process.env.PREFIX;
+  if (!prefix || !prefix.includes("com.termux")) return false;
+  return !["apktool", "java", "jadx"].every((name) => existsSync(path.join(prefix, "bin", name)));
 }
 
 /** Decompile the code to Java with jadx, after apktool, so it reads like source. */
@@ -477,8 +541,10 @@ export async function deleteInspectorProject(companyId: string, id: string): Pro
   const project = getInspectorProject(companyId, id);
   if (!project) return false;
   projects.delete(id);
-  for (const child of running.get(id) ?? []) child.kill("SIGTERM");
+  const jobs = [...(running.get(id) ?? [])];
   running.delete(id);
+  // Gone first, then removed: a job still running would write the folder back.
+  await Promise.all(jobs.map(stopJob));
   await fs.rm(project.dir, { recursive: true, force: true }).catch((error) =>
     logger.warn({ error: error instanceof Error ? error.message : String(error) }, "inspector project cleanup failed"),
   );

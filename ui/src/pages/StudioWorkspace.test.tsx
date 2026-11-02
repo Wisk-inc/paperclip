@@ -141,8 +141,8 @@ describe("StudioWorkspace", () => {
 
   it("fetches the people list again when a guest joins, so they can be removed straight away", async () => {
     await draw();
-    const owner = { id: "owner", name: "Owner", role: "owner", color: "#7048E8", online: true, activePath: null };
-    const sam = { id: "guest:c-1", name: "Sam", role: "guest", color: "#2F9E44", online: true, activePath: null };
+    const owner = { id: "owner", name: "Owner", role: "owner", color: "var(--chart-1)", online: true, activePath: null };
+    const sam = { id: "guest:c-1", name: "Sam", role: "guest", color: "var(--chart-2)", online: true, activePath: null };
     await act(async () => socketEvents.handler!({ type: "hello", you: owner, participants: [owner] }));
     const before = mockStudioApi.collaborators.mock.calls.length;
     // Someone only moving to another file: no refetch.

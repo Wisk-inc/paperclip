@@ -15,6 +15,23 @@ import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
 import { cn } from "@/lib/utils";
 
+/** The server's own rule for a model name passed to a tool's flag. */
+export const TERMINAL_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
+
+/** A model saved for a tool, while the tool still offers it (a release can drop one). */
+export function offeredModel(tool: Pick<TerminalToolInfo, "models">, saved: string | undefined): string | undefined {
+  return saved && tool.models?.includes(saved) ? saved : undefined;
+}
+
+/**
+ * The model a tool opens with: the one chosen, else nothing (the tool's own
+ * default), except where the picker names its default (the free models):
+ * then that model, so what opens is what the picker said.
+ */
+export function launchModel(tool: Pick<TerminalToolInfo, "id" | "models">, saved: string | undefined): string | undefined {
+  return offeredModel(tool, saved) ?? (tool.id === "freechat" ? tool.models?.[0] : undefined);
+}
+
 function ToolLogo({ tool, className }: { tool: TerminalToolInfo; className?: string }) {
   if (tool.brandDark) {
     return (
@@ -41,6 +58,22 @@ export function Terminals() {
   const { pushToast } = useToastActions();
   const client = useQueryClient();
   const [open, setOpen] = useState<TerminalSessionSummary | null>(null);
+  // The model each tool opens with, remembered per tool on this device. Above
+  // any early return: the page first renders before an organization is chosen.
+  const [models, setModels] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("automa.terminals.models") ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const chooseModel = (toolId: string, model: string) => {
+    setModels((current) => {
+      const next = { ...current, [toolId]: model };
+      try { window.localStorage.setItem("automa.terminals.models", JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Terminals" }]);
@@ -64,6 +97,8 @@ export function Terminals() {
   const running = sessions.data?.sessions ?? [];
   const phone = status.data?.kind === "phone";
   const linuxReady = status.data?.linuxReady ?? true;
+  // Servers before 1.9.6 don't report it: assume the relay is there.
+  const relayReady = status.data?.relayReady ?? true;
 
   const start = useMutation({
     mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string; model?: string }) =>
@@ -79,12 +114,17 @@ export function Terminals() {
     },
   });
 
+  // What is installed changes inside a terminal (Install, Set up now): look again on the way out.
+  const refreshStatus = () => void client.invalidateQueries({ queryKey: ["terminals", "status", companyId] });
   const stop = useMutation({
     mutationFn: (id: string) => terminalsApi.stop(companyId!, id),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["terminals", "sessions", companyId] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["terminals", "sessions", companyId] });
+      refreshStatus();
+    },
   });
 
-  // A deep link from an agent ("Open a terminal as this agent") auto-opens the tool.
+  // A deep link from an agent's settings ("Open Claude Code with Ada's model") auto-opens the tool.
   const [params, setParams] = useSearchParams();
   const autoStarted = useRef(false);
   useEffect(() => {
@@ -93,36 +133,26 @@ export function Terminals() {
     if (!toolParam || !TERMINAL_TOOLS.some((t) => t.id === toolParam)) return;
     autoStarted.current = true;
     const agentParam = params.get("agent") ?? undefined;
+    const modelParam = params.get("model") ?? "";
     const toolId = toolParam as TerminalToolId;
     const isInstalled = toolId === "shell" || installed.get(toolId);
-    start.mutate({ toolId, mode: toolId === "shell" ? "shell" : isInstalled ? "run" : "install", agentId: agentParam });
+    const mode = toolId === "shell" ? "shell" : isInstalled ? "run" : "install";
+    // The agent's own model, so the terminal runs what the agent runs.
+    const model = mode === "run" && TERMINAL_MODEL_PATTERN.test(modelParam) ? modelParam : undefined;
+    start.mutate({ toolId, mode, agentId: agentParam, ...(model ? { model } : {}) });
     const next = new URLSearchParams(params);
     next.delete("tool");
     next.delete("agent");
+    next.delete("model");
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.data]);
 
   if (!companyId) return null;
 
-  // The model each tool opens with, remembered per tool on this device.
-  const [models, setModels] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(window.localStorage.getItem("automa.terminals.models") ?? "{}") as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
-  const chooseModel = (toolId: string, model: string) => {
-    setModels((current) => {
-      const next = { ...current, [toolId]: model };
-      try { window.localStorage.setItem("automa.terminals.models", JSON.stringify(next)); } catch { /* storage unavailable */ }
-      return next;
-    });
-  };
   const openTool = (tool: TerminalToolInfo) => {
     if (tool.id === "shell") return start.mutate({ toolId: "shell", mode: "shell" });
-    const model = models[tool.id];
+    const model = launchModel(tool, models[tool.id]);
     if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run", ...(model ? { model } : {}) });
     return start.mutate({ toolId: tool.id, mode: "install" });
   };
@@ -132,7 +162,7 @@ export function Terminals() {
     return (
       <div className="studio-ide-immersive fixed inset-0 z-40 flex flex-col bg-background pt-(--sz-safe-top) pb-(--sz-safe-bottom)">
         <div className="flex items-center gap-2 border-b border-border bg-linear-to-r from-primary/10 to-transparent px-2 py-1.5">
-          <Button variant="ghost" size="icon-sm" aria-label="Back to terminals" onClick={() => { haptic("tick"); setOpen(null); }}>
+          <Button variant="ghost" size="icon-sm" aria-label="Back to terminals" onClick={() => { haptic("tick"); setOpen(null); refreshStatus(); }}>
             <ArrowLeft />
           </Button>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{open.title}</span>
@@ -179,7 +209,28 @@ export function Terminals() {
         </div>
       ) : (
         <>
-          {phone && !linuxReady ? (
+          {!relayReady ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4" role="alert" data-testid="terminals-relay-missing">
+              <div className="flex items-center gap-2">
+                <Wrench className="size-4 text-muted-foreground" aria-hidden="true" />
+                <h2 className="text-sm font-semibold">Terminals need Python</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {phone ? (
+                  <>Every terminal runs through a small Python program. In Termux, run <code>pkg install python</code>, then check again.</>
+                ) : (
+                  <>Every terminal runs through a small Python program. Install Python 3 on this computer, then check again.</>
+                )}
+              </p>
+              <div>
+                <Button size="sm" variant="outline" onClick={() => void status.refetch()} disabled={status.isFetching}>
+                  {status.isFetching ? <Loader2 className="animate-spin" /> : null} Check again
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {phone && !linuxReady && relayReady ? (
             <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4" data-testid="terminals-setup">
               <div className="flex items-center gap-2">
                 <Wrench className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -220,7 +271,7 @@ export function Terminals() {
                 <button
                   key={tool.id}
                   type="button"
-                  disabled={start.isPending}
+                  disabled={start.isPending || !relayReady}
                   onClick={() => { haptic("tick"); openTool(tool); }}
                   className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent/60 disabled:opacity-60"
                   data-testid="terminal-tool"
@@ -242,7 +293,7 @@ export function Terminals() {
                     {tool.models?.length ? (
                       <select
                         aria-label={`Model for ${tool.label}`}
-                        value={models[tool.id] ?? ""}
+                        value={offeredModel(tool, models[tool.id]) ?? ""}
                         onClick={(event) => event.stopPropagation()}
                         onChange={(event) => { event.stopPropagation(); chooseModel(tool.id, event.target.value); }}
                         className="mt-2 h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs text-foreground"

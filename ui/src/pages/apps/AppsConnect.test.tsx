@@ -3638,7 +3638,8 @@ describe("AppsConnect — guided generic MCP flow (PAP-17087)", () => {
     await flushReact();
     await flushReact();
 
-    expect(container.textContent).toContain("This Automa needs a public HTTPS address first");
+    expect(container.textContent).toContain("This Automa needs an HTTPS address first");
+    expect(container.textContent).toContain("A private address works");
     expect(container.textContent).not.toContain("PAPERCLIP_PUBLIC_URL");
   });
 

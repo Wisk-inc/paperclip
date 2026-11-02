@@ -915,9 +915,11 @@ settings:
           ],
         },
       ],
+      // Only a placeholder for the RSC permissions (no single sign-on): an
+      // App ID URI of the app's own, not another site's address.
       webApplicationInfo: {
         id: teamsClientId,
-        resource: "https://paperclip.ing",
+        resource: `api://botid-${teamsClientId}`,
       },
       authorization: {
         permissions: {
@@ -1229,7 +1231,7 @@ settings:
         <p className="text-sm text-muted-foreground">
           Enter the Application / Client ID above before copying so the block
           contains the real bot identity. This block contains the
-          Paperclip-specific fields to verify in Developer Portal or merge into
+          Automa-specific fields to verify in Developer Portal or merge into
           a complete Teams app manifest. It is not a complete app package;
           Developer Portal supplies the remaining required metadata and packages
           the manifest with your app icons.

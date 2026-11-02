@@ -86,8 +86,11 @@ describe("genericConnectGuidance", () => {
     expect(guidance.body).toContain("Advanced authentication");
   });
 
-  it("points at the deployment when Automa itself has no public HTTPS address", () => {
-    expect(genericConnectGuidance("oauth_redirect_origin_unsupported", null).focus).toBe("deployment");
+  it("points at the deployment when Automa itself has no HTTPS address, and says a private one works", () => {
+    const guidance = genericConnectGuidance("oauth_redirect_origin_unsupported", null);
+    expect(guidance.focus).toBe("deployment");
+    expect(guidance.title).not.toContain("public");
+    expect(guidance.body).toContain("A private address works");
   });
 
   it("does not ask the operator to resolve an internal name conflict", () => {

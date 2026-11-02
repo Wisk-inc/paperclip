@@ -53,6 +53,7 @@ export function AppActionsSheet({
   onExtract,
   onAsk,
   onOpenChange,
+  javaUnavailable = false,
 }: {
   app: PickerApp | null;
   busy: boolean;
@@ -62,8 +63,14 @@ export function AppActionsSheet({
   /** Opens a chat with an agent about this app; null when the organization has no agents yet. */
   onAsk: ((app: PickerApp) => void) | null;
   onOpenChange: (open: boolean) => void;
+  /** jadx isn't on this computer (a phone installs it on the first decompile): Java is off and can't be turned on. */
+  javaUnavailable?: boolean;
 }) {
-  const [options, setOptions] = useState<InspectorDecodeOptions>({ resources: true, sources: true, java: true });
+  const [options, setOptions] = useState<InspectorDecodeOptions>({ resources: true, sources: true, java: !javaUnavailable });
+  // The status can arrive after the sheet first renders.
+  useEffect(() => {
+    if (javaUnavailable) setOptions((current) => (current.java ? { ...current, java: false } : current));
+  }, [javaUnavailable]);
   const [copied, setCopied] = useState(false);
   const id = useId();
   useEffect(() => setCopied(false), [app?.package]);
@@ -99,10 +106,13 @@ export function AppActionsSheet({
                     <li key={row.key} className="flex items-center gap-3 px-3 py-2.5">
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium" id={`${id}-${row.key}`}>{row.title}</span>
-                        <span className="block text-xs text-muted-foreground">{row.hint}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {row.key === "java" && javaUnavailable ? "Needs jadx installed on this computer" : row.hint}
+                        </span>
                       </span>
                       <ToggleSwitch
                         checked={options[row.key]}
+                        disabled={row.key === "java" && javaUnavailable}
                         onCheckedChange={(checked) => setOptions((current) => ({ ...current, [row.key]: checked }))}
                         aria-labelledby={`${id}-${row.key}`}
                         data-testid={`inspector-option-${row.key}`}
