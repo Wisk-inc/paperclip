@@ -1,3 +1,4 @@
+import { withoutServerCredentials } from "@paperclipai/adapter-utils/server-utils";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { accessSync, chmodSync, constants, mkdirSync, readFileSync } from "node:fs";
@@ -395,8 +396,9 @@ export async function executeNativeCodexRunner(input: {
   }), {
     cwd: input.cwd,
     detached: process.platform !== "win32",
+    // The runner runs an AI: never the server's database or board keys.
     env: {
-      ...process.env,
+      ...withoutServerCredentials(process.env),
       ...input.environment,
       PAPERCLIP_RUNNER_BOOTSTRAP_TICKET: prepared.bootstrapTicket,
     },

@@ -25,12 +25,16 @@
     <string name="notification_channel_name">Agent updates</string>
     <string name="notification_channel_description">Approvals, file requests, and other things your agents need from you</string>
     <string name="copied">Copied</string>
+    <string name="share_unreadable">Automa couldn\'t read that file. Share it from another app, or save it to your phone first.</string>
     <string name="offline_title">No connection</string>
     <string name="offline_message">Your phone is offline. Automa reconnects by itself the moment the network is back; nothing on the page is lost.</string>
     <string name="offline_waiting">Waiting for the network…</string>
     <string name="unreachable_title">Can\'t reach Automa</string>
     <string name="unreachable_message">The server did not answer. It may be restarting, or the phone may have switched networks.</string>
     <string name="offline_retry">Try now</string>
+    <string name="offline_other_server">Connect to another server</string>
+    <string name="sign_in_at">Signing in at %1$s</string>
+    <string name="sign_in_cancel">Cancel</string>
     <string name="retrying_now">Checking whether Automa answers…</string>
     <string name="reconnecting_soon">Trying again when the bar fills up.</string>
     <string name="sign_in_unavailable">Google sign-in is not set up in this build</string>

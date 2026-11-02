@@ -68,3 +68,18 @@ describe("Studio", () => {
     }
   });
 });
+
+describe("studioJoinTarget", () => {
+  it("opens an invite link as it is", async () => {
+    const { studioJoinTarget } = await import("./Studio");
+    expect(studioJoinTarget(" https://friend.trycloudflare.com/studio-guest/?code=ABCD2345 ")).toBe("https://friend.trycloudflare.com/studio-guest/?code=ABCD2345");
+  });
+
+  it("looks a code up on this Automa, only when it is as long as the server's codes can be", async () => {
+    const { studioJoinTarget } = await import("./Studio");
+    expect(studioJoinTarget("abcd-2345")).toBe("/studio-guest/?code=ABCD2345");
+    // The server refuses codes under six characters: not sent there to fail.
+    expect(studioJoinTarget("ABCD")).toBeNull();
+    expect(studioJoinTarget("")).toBeNull();
+  });
+});

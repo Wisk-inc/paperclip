@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { authApi } from "@/api/auth";
+import { automaNative, isAutomaApp } from "@/lib/automa-native";
 import { navigateTopLevel } from "@/lib/browserNavigation";
+import { noteSignedOutOnPurpose, releaseThisPhoneBeforeSignOut } from "@/lib/device-sign-out";
 import { queryKeys } from "@/lib/queryKeys";
 import { useCloudInstance } from "./useCloudInstance";
 
@@ -52,6 +54,12 @@ export function useSignOut({ onSignedOut }: UseSignOutOptions = {}) {
         return "cloud" as const;
       }
 
+      // In the Automa app every sign-out leaves the server the same way: Google
+      // first, so the sign-in page can't put the person straight back in with
+      // it, then this phone's notifications, then the session.
+      noteSignedOutOnPurpose();
+      if (isAutomaApp()) automaNative.signOutOfGoogle();
+      await releaseThisPhoneBeforeSignOut();
       await authApi.signOut();
       return "self-hosted" as const;
     },
@@ -108,6 +116,9 @@ export function useSignOut({ onSignedOut }: UseSignOutOptions = {}) {
       // Instance-scoped, so refreshed in place rather than dropped — see
       // INSTANCE_SCOPED_QUERY_ROOTS.
       await queryClient.invalidateQueries({ queryKey: queryKeys.health });
+
+      // The app's signed-out home is its connect screen.
+      if (isAutomaApp()) automaNative.openConnectScreen();
     },
   });
 }

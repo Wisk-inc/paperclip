@@ -1,3 +1,4 @@
+import { withoutServerCredentials } from "@paperclipai/adapter-utils/server-utils";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -2879,7 +2880,8 @@ function buildWorkspaceCommandEnv(input: {
   agent: ExecutionWorkspaceAgentRef;
   created: boolean;
 }) {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  // The project's own commands: never the server's database or board keys.
+  const env: NodeJS.ProcessEnv = withoutServerCredentials(process.env);
   env.PAPERCLIP_WORKSPACE_CWD = input.worktreePath;
   env.PAPERCLIP_WORKSPACE_PATH = input.worktreePath;
   env.PAPERCLIP_WORKSPACE_WORKTREE_PATH = input.worktreePath;

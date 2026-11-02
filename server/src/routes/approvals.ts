@@ -10,6 +10,7 @@ import {
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { logger } from "../middleware/logger.js";
+import { unprocessable } from "../errors.js";
 import {
   approvalService,
   accessService,
@@ -149,6 +150,17 @@ export function approvalRoutes(
           },
         });
       }
+    }
+  }
+
+  /**
+   * A hard budget stop is settled from Costs (raise the budget or keep it
+   * paused), which marks its approval itself. Approving it here would only
+   * close the item while the budget stays put and the agent stays paused.
+   */
+  function refuseBudgetStopDecision(approval: { type: string }) {
+    if (approval.type === "budget_override_required") {
+      throw unprocessable("Settle a budget stop from Costs: raise the budget or keep it paused.");
     }
   }
 
@@ -303,10 +315,12 @@ export function approvalRoutes(
   router.post("/approvals/:id/approve", validate(resolveApprovalSchema), async (req, res) => {
     assertBoard(req);
     const id = req.params.id as string;
-    if (!(await requireApprovalAccess(req, id))) {
+    const existing = await requireApprovalAccess(req, id);
+    if (!existing) {
       res.status(404).json({ error: "Approval not found" });
       return;
     }
+    refuseBudgetStopDecision(existing);
     const decidedByUserId = req.actor.userId ?? "board";
     const { approval, applied } = await svc.approve(id, decidedByUserId, req.body.decisionNote);
 
@@ -419,10 +433,12 @@ export function approvalRoutes(
   router.post("/approvals/:id/reject", validate(resolveApprovalSchema), async (req, res) => {
     assertBoard(req);
     const id = req.params.id as string;
-    if (!(await requireApprovalAccess(req, id))) {
+    const existing = await requireApprovalAccess(req, id);
+    if (!existing) {
       res.status(404).json({ error: "Approval not found" });
       return;
     }
+    refuseBudgetStopDecision(existing);
     const decidedByUserId = req.actor.userId ?? "board";
     const { approval, applied } = await svc.reject(id, decidedByUserId, req.body.decisionNote);
 
@@ -457,10 +473,12 @@ export function approvalRoutes(
     async (req, res) => {
       assertBoard(req);
       const id = req.params.id as string;
-      if (!(await requireApprovalAccess(req, id))) {
+      const existing = await requireApprovalAccess(req, id);
+      if (!existing) {
         res.status(404).json({ error: "Approval not found" });
         return;
       }
+      refuseBudgetStopDecision(existing);
       const decidedByUserId = req.actor.userId ?? "board";
       const approval = await svc.requestRevision(id, decidedByUserId, req.body.decisionNote);
 
@@ -473,6 +491,41 @@ export function approvalRoutes(
         entityId: approval.id,
         details: { type: approval.type },
       });
+
+      // The agent that asked has to hear it was sent back, and what to change;
+      // otherwise its task stays parked waiting on a decision already made.
+      if (approval.requestedByAgentId) {
+        try {
+          const linkedIssueIds = (await issueApprovalsSvc.listIssuesForApproval(approval.id)).map((issue) => issue.id);
+          const primaryIssueId = linkedIssueIds[0] ?? null;
+          await heartbeat.wakeup(approval.requestedByAgentId, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "approval_revision_requested",
+            payload: {
+              approvalId: approval.id,
+              approvalStatus: approval.status,
+              decisionNote: approval.decisionNote ?? null,
+              issueId: primaryIssueId,
+              issueIds: linkedIssueIds,
+            },
+            requestedByActorType: "user",
+            requestedByActorId: req.actor.userId ?? "board",
+            contextSnapshot: {
+              source: "approval.revision_requested",
+              approvalId: approval.id,
+              approvalStatus: approval.status,
+              decisionNote: approval.decisionNote ?? null,
+              issueId: primaryIssueId,
+              issueIds: linkedIssueIds,
+              taskId: primaryIssueId,
+              wakeReason: "approval_revision_requested",
+            },
+          });
+        } catch (err) {
+          logger.warn({ err, approvalId: approval.id }, "Could not wake the agent after a revision request");
+        }
+      }
 
       res.json(redactApprovalPayload(approval));
     },
@@ -517,6 +570,8 @@ export function approvalRoutes(
     const id = req.params.id as string;
     const approval = await getAccessibleResource(req, res, svc.getById(id), "Approval not found");
     if (!approval) return;
+    // The discussion is part of the approval: the same boundary as reading it.
+    if (!(await assertApprovalAccessAllowed(req, res, approval.companyId))) return;
     const comments = await svc.listComments(id);
     res.json(comments);
   });
@@ -525,6 +580,7 @@ export function approvalRoutes(
     const id = req.params.id as string;
     const approval = await getAccessibleResource(req, res, svc.getById(id), "Approval not found");
     if (!approval) return;
+    if (!(await assertApprovalAccessAllowed(req, res, approval.companyId))) return;
     if (!(await assertApprovalMutationAllowedByRunContext(req, res, approval.companyId))) return;
     const actor = getActorInfo(req);
     const comment = await svc.addComment(id, req.body.body, {

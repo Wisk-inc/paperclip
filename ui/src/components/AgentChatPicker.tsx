@@ -67,6 +67,8 @@ function AgentChatPickerResults({ agents, onSelect, loading, error, onRetry }: O
                 key={agent.id}
                 value={agent.id}
                 keywords={[agent.name, agent.title ?? "", agent.role]}
+                // A hire awaiting approval would refuse the first message.
+                disabled={agent.status === "pending_approval"}
                 onSelect={() => onSelect(agent)}
                 className="gap-3 px-3 py-3"
               >

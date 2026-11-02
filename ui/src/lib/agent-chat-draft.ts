@@ -47,3 +47,12 @@ export function agentChatDraft(
     labels: [],
   };
 }
+
+/**
+ * Whether a new chat can start with this agent. The server assigns a chat to
+ * its agent, which it refuses for an agent still awaiting hire approval or
+ * one that was terminated (an existing chat with it still opens).
+ */
+export function canStartAgentChat(agent: Pick<Agent, "status">): boolean {
+  return agent.status !== "pending_approval" && agent.status !== "terminated";
+}

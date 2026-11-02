@@ -9,5 +9,10 @@ export const freeModelsUIAdapter: UIAdapterModule = {
   // chat shows live text, thinking, and tool calls the same way.
   parseStdoutLine: parseAcpxStdoutLine,
   ConfigFields: () => null,
-  buildAdapterConfig: (values) => (values.model ? { model: values.model } : {}),
+  // The thinking level picked when hiring goes where the engine and the chat's
+  // thinking control keep it: "effort".
+  buildAdapterConfig: (values) => ({
+    ...(values.model ? { model: values.model } : {}),
+    ...(values.thinkingEffort ? { effort: values.thinkingEffort } : {}),
+  }),
 };

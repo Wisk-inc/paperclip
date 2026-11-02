@@ -61,6 +61,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useLocation, useNavigate, useParams } from "@/lib/router";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
+import { useOptionalToastActions } from "../context/ToastContext";
 import { ApiError } from "../api/client";
 import { companiesApi } from "../api/companies";
 import { rememberCreatedCompany, useCompanyListQuery } from "../api/companies-query";
@@ -527,6 +528,7 @@ function OnboardingWizardInner({
     setOnboardingRouteDismissed: setRouteDismissed,
   } = useDialog();
   const { companies, setSelectedCompanyId, loading: companiesLoading } = useCompany();
+  const toast = useOptionalToastActions();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -575,6 +577,8 @@ function OnboardingWizardInner({
   // mounted globally, including on /auth, where protected adapter routes are
   // expected to reject signed-out browsers.
   const disabledTypes = useDisabledAdaptersSync({ enabled: effectiveOnboardingOpen });
+  // The server can switch the free models off; then "Skip for now" would only fail.
+  const freeModelsAvailable = !disabledTypes.has(FREE_MODELS_ADAPTER_TYPE);
   const adapterRegistryLoaded = useAdapterRegistryLoaded({ enabled: effectiveOnboardingOpen });
 
   // A fresh run opens on step 1 — "Name your organization". The Build / Grow
@@ -590,6 +594,7 @@ function OnboardingWizardInner({
   // customer mid-flow — and here that would quietly re-open the "create a
   // company" step to a run that already holds one.
   const [entryStep, setEntryStep] = useState<number>((saved?.step as Step) ?? initialStep);
+
   /**
    * A page that opens straight onto the agent step — a cloud-managed
    * workspace arriving from Cloud's naming screen, or a reload — plays the
@@ -761,6 +766,10 @@ function OnboardingWizardInner({
     string | null
   >((saved?.createdCompanyPrefix as string) ?? null);
   const [createdAgentId, setCreatedAgentId] = useState<string | null>((saved?.createdAgentId as string) ?? null);
+  // Once the agent is hired, the steps before Review would only change things
+  // the hire already used (its source, key or name) and the wizard would not
+  // apply them, so Back and the progress bar stop at Review.
+  const navigableFromStep = createdAgentId ? Math.max(entryStep, 5) : entryStep;
   const [createdCompanyGoalId, setCreatedCompanyGoalId] = useState<string | null>(
     (saved?.createdCompanyGoalId as string) ?? null
   );
@@ -791,8 +800,18 @@ function OnboardingWizardInner({
    * its first agent is hired removes it, so an abandoned walk leaves no empty
    * organization behind.
    */
-  const createdByWizardRef = useRef<string | null>(null);
-  const createdCompanyNameRef = useRef<string | null>(null);
+  const restoredByWizard =
+    !existingCompanyId && saved?.createdByWizard === true && typeof saved?.createdCompanyId === "string"
+      ? (saved.createdCompanyId as string)
+      : null;
+  const createdByWizardRef = useRef<string | null>(restoredByWizard);
+  const createdCompanyNameRef = useRef<string | null>(
+    restoredByWizard && typeof saved?.createdCompanyName === "string" ? (saved.createdCompanyName as string) : null,
+  );
+  /** The organization a saved draft handed back when the wizard mounted, until the wizard opens. */
+  const restoredCompanyIdRef = useRef<string | null>(
+    !existingCompanyId && typeof saved?.createdCompanyId === "string" ? (saved.createdCompanyId as string) : null,
+  );
   // Same shape for the hire. Greptile (round-3 PR): with "Test now" gone the
   // Connect handler re-runs a cached failed probe — and two overlapping
   // submissions could then both pass the fresh probe and both hire. `loading`
@@ -823,6 +842,9 @@ function OnboardingWizardInner({
   /** "Skip for now" was pressed: hire on the free models once that switch has landed in state. */
   const [freeHirePending, setFreeHirePending] = useState(false);
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
+  // A key saved as an AI connection before it became the default: a retry
+  // after that step failed finishes it instead of saving the same key again.
+  const savedManagedKeyRef = useRef<{ key: string; companyId: string; provider: string; grantId: string } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
   const managedProvider = aiProviderForAdapter(adapterType);
   function managedBindingForStep(): AiConnectionBinding | undefined {
@@ -969,6 +991,23 @@ function OnboardingWizardInner({
     if (company) setCompanyName(company.name);
   }, [effectiveOnboardingOpen, createdCompanyId, companyName, companies]);
 
+  // Opened afresh (New organization) while still holding the unfinished run a
+  // saved draft handed back at mount: that is a request for a new
+  // organization, not a resume, so start over. (Mounting already open, as on a
+  // reload of /onboarding, is a resume and keeps the draft.)
+  const wasOpenRef = useRef(effectiveOnboardingOpen);
+  useEffect(() => {
+    const openedNow = effectiveOnboardingOpen && !wasOpenRef.current;
+    wasOpenRef.current = effectiveOnboardingOpen;
+    if (!effectiveOnboardingOpen) return;
+    const restored = restoredCompanyIdRef.current;
+    restoredCompanyIdRef.current = null;
+    if (!openedNow || effectiveOnboardingOptions.companyId || !restored || createdCompanyId !== restored) return;
+    discardAbandonedCompany();
+    reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveOnboardingOpen]);
+
   // Persist wizard state to localStorage on every change
   useEffect(() => {
     if (!effectiveOnboardingOpen) return;
@@ -979,6 +1018,9 @@ function OnboardingWizardInner({
       credentialMode, credentialModeChoice,
       createdCompanyId, createdCompanyPrefix, createdAgentId,
       createdCompanyGoalId, createdProjectId, createdIssueRef,
+      // Whether this run made that organization (rename and clean-up rely on it).
+      createdByWizard: Boolean(createdCompanyId) && createdByWizardRef.current === createdCompanyId,
+      createdCompanyName: createdCompanyNameRef.current,
     };
     onboardingDraftStorage.write(JSON.stringify(state));
   }, [
@@ -1099,8 +1141,10 @@ function OnboardingWizardInner({
   useEffect(() => {
     autoConnectStartedRef.current = false;
     hiringAgentRef.current = null;
+    // Whatever step this lands on, an attempt the change just invalidated must
+    // not leave it busy: its own finish skips setLoading(false).
+    setLoading(false);
     if (step === 4) {
-      setLoading(false);
       setAdapterEnvLoading(false);
     }
     return () => { connectAttemptRef.current++; };
@@ -1516,7 +1560,7 @@ function OnboardingWizardInner({
    * below once the switch has landed rather than from this press.
    */
   function skipToFreeModels() {
-    if (loading || connectPhase !== "idle") return;
+    if (loading || connectPhase !== "idle" || !freeModelsAvailable) return;
     skipCredentialRef.current = true;
     setSkippedCredential(true);
     setSourcePicked(false);
@@ -1760,15 +1804,7 @@ function OnboardingWizardInner({
   }
 
   function handleClose() {
-    // Created here and never given an agent: nothing in it is worth keeping.
-    const abandoned = createdByWizardRef.current;
-    if (abandoned && abandoned === createdCompanyId && !createdAgentId) {
-      createdByWizardRef.current = null;
-      void companiesApi
-        .remove(abandoned)
-        .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }))
-        .catch(() => undefined);
-    }
+    discardAbandonedCompany();
     reset();
     closeOnboarding();
     // On the /onboarding route the wizard is also kept open by the route
@@ -1776,6 +1812,27 @@ function OnboardingWizardInner({
     // effectiveOnboardingOpen stays true and the wizard re-renders instead of
     // handing off to the launcher card (PAP-52).
     setRouteDismissed(true);
+  }
+
+  /** Created here and never given an agent: nothing in it is worth keeping. */
+  function discardAbandonedCompany() {
+    const abandoned = createdByWizardRef.current;
+    if (abandoned && abandoned === createdCompanyId && !createdAgentId) {
+      createdByWizardRef.current = null;
+      void companiesApi
+        .remove(abandoned)
+        // A server that won't delete it (deletion switched off, or this person
+        // isn't the owner) can still hide it.
+        .catch(() => companiesApi.archive(abandoned))
+        .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }))
+        .catch((error: unknown) => {
+          toast?.pushToast({
+            title: "The unfinished organization is still there",
+            body: `${error instanceof Error ? error.message : "Automa could not remove it"}. Archive or delete it from Organizations.`,
+            tone: "warn",
+          });
+        });
+    }
   }
 
   /**
@@ -1923,7 +1980,14 @@ function OnboardingWizardInner({
     if (apiKeySecretRef.current?.key === key && apiKeySecretRef.current.companyId === companyId && apiKeySecretRef.current.envKey === envKey) return true;
     try {
       if (managedProvider) {
-        await aiConnectionsApi.create(companyId, { provider: managedProvider, method: "api_key", name: `My ${CONNECT_SOURCE_NAMES[adapterType] ?? managedProvider} API`, ownership: "personal", apiKey: key, agentIds: [], allAgents: true });
+        const earlier = savedManagedKeyRef.current;
+        const grantId =
+          earlier && earlier.key === key && earlier.companyId === companyId && earlier.provider === managedProvider
+            ? earlier.grantId
+            : (await aiConnectionsApi.create(companyId, { provider: managedProvider, method: "api_key", name: `My ${CONNECT_SOURCE_NAMES[adapterType] ?? managedProvider} API`, ownership: "personal", apiKey: key, agentIds: [], allAgents: true })).grantId;
+        savedManagedKeyRef.current = { key, companyId, provider: managedProvider, grantId };
+        // The agent uses the default connection for this provider: the key typed here becomes it.
+        await aiConnectionsApi.setDefault(companyId, grantId);
         apiKeySecretRef.current = { key, companyId, envKey, aiConnection: { provider: managedProvider, method: "api_key", mode: "responsible_user" } };
         return true;
       }
@@ -2645,7 +2709,7 @@ function OnboardingWizardInner({
                     canJumpToOnboardingStep({
                       targetStep: ONBOARDING_WIZARD_STEPS[target - 1]!,
                       currentStep: step,
-                      entryStep,
+                      entryStep: navigableFromStep,
                     })
                   }
                   onJumpToStep={(target) =>
@@ -2664,7 +2728,7 @@ function OnboardingWizardInner({
                     canJumpToOnboardingStep({
                       targetStep: AGENT_ARC_WIZARD_STEPS[target - 1]!,
                       currentStep: step,
-                      entryStep,
+                      entryStep: navigableFromStep,
                     })
                   }
                   onJumpToStep={(target) => setStep(AGENT_ARC_WIZARD_STEPS[target - 1]! as Step)}
@@ -2756,7 +2820,9 @@ function OnboardingWizardInner({
                       <p className="pt-2 text-base leading-relaxed text-muted-foreground">
                         <motion.span key={step} {...titleSwapMotion} className="inline-block">
                           {step === 4
-                            ? "Automa works with your subscription or API keys. No key yet? Skip and start on the free models."
+                            ? freeModelsAvailable
+                              ? "Automa works with your subscription or API keys. No key yet? Skip and start on the free models."
+                              : "Automa works with your subscription or API keys."
                             : skippedCredential
                               ? `${agentName.trim() || "Your first agent"} is ready on the free models. Add a key or sign in under Settings any time for more.`
                               : `${agentName.trim() || "Your first agent"} is ready to work!`}
@@ -2913,7 +2979,7 @@ function OnboardingWizardInner({
                         running — once a sign-in has started, Back is the way
                         out of it. Stays through the hire so the step says what
                         it is doing. */}
-                    {connectPhase === "idle" && (
+                    {connectPhase === "idle" && freeModelsAvailable && (
                       <div className="mt-4">
                         <Button
                           type="button"
@@ -3102,7 +3168,7 @@ function OnboardingWizardInner({
                     ) : hasSavedSubscription || localLogin.status === "ready" ? null : connectStepHasNoSandbox ? (
                       canUseLocalLogin && managedProvider ? (
                         <LocalProviderLoginInstructions adapterType={adapterType} login={{ ...localLogin, retry: () => { autoConnectStartedRef.current = false; setError(null); localLogin.retry(); } }} />
-                      ) : <p className="text-xs text-muted-foreground">This environment does not support browser sign-in. Choose another sign-in environment or connect with an API key.</p>
+                      ) : <p className="text-xs text-muted-foreground">This server can't run that sign-in. Use an API key instead.</p>
                     ) : null}
                   </motion.div>
 
@@ -3296,7 +3362,11 @@ function OnboardingWizardInner({
                     // only means "the previous step" once nothing is running.
                     step === 4 && connectPhase !== "idle"
                       ? unwindConnectStep
-                      : canGoBackFromOnboardingStep({ currentStep: step, entryStep })
+                      : step === 4 && loading
+                        // A hire is on its way ("Skip for now"): leaving now would
+                        // strand it, and the step behind would stay busy.
+                        ? undefined
+                      : canGoBackFromOnboardingStep({ currentStep: step, entryStep: navigableFromStep })
                         ? () => setStep(backStepFrom(step))
                         : undefined
                   }

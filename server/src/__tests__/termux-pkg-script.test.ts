@@ -372,12 +372,12 @@ describe("the automa command's backup and restore", () => {
     });
 
     /** 9.9.9 installed and running (a stand-in process), then a 9.9.10 bundle whose npm fails `failures` times. */
-    async function updateWithFailingDownloads(failures: number) {
+    async function updateWithFailingDownloads(failures: number, version = "9.9.10") {
       await installAutoma();
       await writeFile(path.join(serverDir(), "old-server"), "9.9.9");
       running = spawn("sleep", ["300"], { stdio: "ignore" });
       await writeFile(path.join(root, "home", ".automa", "automa.pid"), `${running.pid}\n`);
-      await writeFile(path.join(root, "bundle", "VERSION"), "9.9.10\n");
+      await writeFile(path.join(root, "bundle", "VERSION"), `${version}\n`);
       await writeFile(path.join(root, "npm-failures"), String(failures));
       await fake("npm", [
         `echo "npm $*" >> "${root}/calls.log"`,
@@ -385,8 +385,11 @@ describe("the automa command's backup and restore", () => {
         `if [ "$left" -gt 0 ]; then echo $((left - 1)) > "${root}/npm-failures"; echo "npm error code ETIMEDOUT" >&2; echo "npm error network read ETIMEDOUT" >&2; exit 1; fi`,
         `while [ $# -gt 0 ]; do [ "$1" = --prefix ] && dir="$2"; shift; done; mkdir -p "$dir/node_modules/paperclipai/dist"; touch "$dir/node_modules/paperclipai/dist/index.js"`,
       ].join("\n"));
+      // What the update itself does is logged after this line.
+      await writeFile(path.join(root, "calls.log"), `${await calls()}=== update\n`);
       return runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", AUTOMA_NPM_RETRY_WAIT: "0" } });
     }
+    const updateCalls = async () => (await calls()).split("=== update\n")[1] ?? "";
 
     const alive = (pid: number | undefined) => {
       try {
@@ -398,8 +401,13 @@ describe("the automa command's backup and restore", () => {
     };
 
     it("leaves the old server installed and running when the download keeps failing", async () => {
+      await fake("termux-wake-lock", `echo "termux-wake-lock" >> "${root}/calls.log"`);
+      await fake("termux-wake-unlock", `echo "termux-wake-unlock" >> "${root}/calls.log"`);
       const result = await updateWithFailingDownloads(3);
       expect(result.code).toBe(1);
+      // Termux has one wake lock: the server still running keeps it.
+      expect(await updateCalls()).toContain("termux-wake-lock");
+      expect(await updateCalls()).not.toContain("termux-wake-unlock");
       expect(result.out).toContain("Nothing was changed: Automa 9.9.9 is still installed");
       expect(result.out).not.toContain("Stopping the running Automa server");
       expect(await npmCalls()).toBe(3);
@@ -410,13 +418,17 @@ describe("the automa command's backup and restore", () => {
     }, 60_000);
 
     it("tries a stalled download again, then stops the old server and switches to the new one", async () => {
-      const result = await updateWithFailingDownloads(1);
+      const result = await updateWithFailingDownloads(1, "9.9.10 (abc1234)");
       expect(result.code, result.out).toBe(0);
+      // The copy made before the update has a name with no spaces or brackets.
+      expect((await readdir(backups())).filter((name) => name.startsWith("automa-before-"))).toEqual([
+        expect.stringMatching(/^automa-before-9\.9\.10-abc1234-\d{8}-\d{6}\.sql\.gz$/),
+      ]);
       expect(result.out).toContain("trying again (2 of 3)");
       expect(result.out).toContain("Stopping the running Automa server");
       expect(await npmCalls()).toBe(2);
       await vi.waitFor(() => expect(alive(running!.pid)).toBe(false));
-      expect((await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim()).toBe("9.9.10");
+      expect((await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim()).toBe("9.9.10 (abc1234)");
       expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.next"]));
       expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.prev"]));
     }, 60_000);
@@ -430,5 +442,36 @@ describe("the automa command's backup and restore", () => {
     expect(result.code).toBe(1);
     expect(result.out).toContain("Automa is still running");
     expect(await calls()).not.toContain("dropdb");
+    // Refused before anything was copied: no new file to be mistaken for the newest backup.
+    expect((await readdir(backups())).filter((name) => name.startsWith("automa-before-restore"))).toEqual([]);
+  }, 60_000);
+
+  it("automa restore never picks a copy saved before a restore by itself", async () => {
+    await installAutoma();
+    await writeBackup("automa-manual-20261001-000000.sql.gz", "-- Paperclip database backup\nBEGIN;\nCREATE TABLE chosen (id uuid);\nCOMMIT;\n", 60);
+    // The database as it was just before an earlier restore: newer, complete, not a backup to choose.
+    await writeBackup("automa-before-restore-20261002-000000.sql.gz", COMPLETE_DUMP, 5);
+    const result = await runFile(automa(), ["restore", "--yes"]);
+    expect(result.code, result.out).toBe(0);
+    expect(await readFile(path.join(root, "restored.sql"), "utf8")).toContain("CREATE TABLE chosen");
+  }, 60_000);
+
+  it("never starts a second Automa beside one started another way", async () => {
+    await installAutoma();
+    await writeFile(path.join(root, "server-up"), "");
+    const started = await runFile(automa(), ["start"]);
+    expect(started.code).toBe(0);
+    expect(started.out).toContain("Automa is already running on http://127.0.0.1:3100 (started another way)");
+    const ran = await runFile(automa(), ["run"]);
+    expect(ran.code).toBe(0);
+    expect(ran.out).toContain("started another way");
+    await expect(readFile(path.join(root, "home", ".automa", "automa.pid"), "utf8")).rejects.toThrow();
+  }, 60_000);
+
+  it("records the server automa onboard starts, so stop and update know about it", async () => {
+    await installAutoma();
+    // The stand-in server exits at once; what matters is that its pid was kept.
+    await runFile(automa(), ["onboard", "--yes"]);
+    expect((await readFile(path.join(root, "home", ".automa", "automa.pid"), "utf8")).trim()).toMatch(/^\d+$/);
   }, 60_000);
 });

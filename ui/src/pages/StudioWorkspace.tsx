@@ -148,6 +148,15 @@ function upsertTurn(turns: StudioAssistantTurn[], turn: StudioAssistantTurn) {
   return next;
 }
 
+/** Who of the room are guests, as one comparable value. */
+function guestKey(participants: StudioParticipant[]): string {
+  return participants
+    .filter((participant) => participant.role === "guest")
+    .map((participant) => participant.id)
+    .sort()
+    .join(",");
+}
+
 /**
  * A Studio project, like a small Replit: files on the left, the editor in
  * the middle, and the console, preview, AI assistant, and team on the right.
@@ -321,16 +330,26 @@ export function StudioWorkspace() {
   }, [initialPrompt]);
 
   // ── Live socket ───────────────────────────────────────────────────────
+  // The guests in the room, as last seen: someone new joining means the
+  // people list (where they can be removed) must be fetched again.
+  const roomGuests = useRef("");
   const handleEvent = useCallback(
     (event: StudioServerEvent) => {
       switch (event.type) {
         case "hello":
           setMe(event.you);
           setParticipants(event.participants);
+          roomGuests.current = guestKey(event.participants);
           break;
-        case "presence":
+        case "presence": {
           setParticipants(event.participants);
+          const guests = guestKey(event.participants);
+          if (guests !== roomGuests.current) {
+            roomGuests.current = guests;
+            void queryClient.invalidateQueries({ queryKey: queryKeys.studio.collaborators(workspaceId) });
+          }
           break;
+        }
         case "tree:changed":
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
           schedulePreviewReload();
@@ -1119,14 +1138,21 @@ export function StudioWorkspace() {
           pushToast({ title: "Couldn't add the file to the project", body: errorText(error), tone: "error" });
         }
       }}
-      onAccept={async (changeId, files) => {
+      onAccept={async (changeId, files, options) => {
         try {
-          await studioApi.acceptChange(workspaceId, changeId, files);
+          await studioApi.acceptChange(workspaceId, changeId, files, options);
           haptic("success");
           await queryClient.invalidateQueries({ queryKey: queryKeys.studio.changes(workspaceId) });
           if (fileRef.current) await reloadFromServer();
+          return "accepted";
         } catch (error) {
+          // Files changed since the collaborator started: the review asks before replacing them.
+          const body = error instanceof ApiError ? (error.body as { details?: { code?: string; paths?: unknown } } | null) : null;
+          if (body?.details?.code === "studio_change_stale" && Array.isArray(body.details.paths)) {
+            return { stalePaths: body.details.paths.map(String) };
+          }
           pushToast({ title: "Couldn't accept the change", body: errorText(error), tone: "error" });
+          return "failed";
         }
       }}
       onReject={async (changeId) => {

@@ -35,9 +35,21 @@ interface StudioTeamPanelProps {
   onSendMessage: (body: string, file: File | null) => Promise<void>;
   fileUrl: (attachmentId: string) => string;
   onAddToProject: (attachmentId: string) => Promise<void>;
-  onAccept: (changeId: string, files?: StudioChangeFile[]) => Promise<void>;
+  /**
+   * Accepts a change, with the owner's edited files if any. Resolves to
+   * "accepted", to the files that changed since the collaborator started
+   * (nothing written; accept again with overwriteNewer to replace them), or
+   * to "failed" (already said why).
+   */
+  onAccept: (
+    changeId: string,
+    files?: StudioChangeFile[],
+    options?: { overwriteNewer?: boolean },
+  ) => Promise<StudioAcceptResult>;
   onReject: (changeId: string) => Promise<void>;
 }
+
+export type StudioAcceptResult = "accepted" | "failed" | { stalePaths: string[] };
 
 type Section = "people" | "chat" | "changes";
 
@@ -48,6 +60,18 @@ const EXPIRY_OPTIONS: Array<{ label: string; hours: number | null }> = [
   { label: "30 days", hours: 24 * 30 },
   { label: "No limit", hours: null },
 ];
+
+/**
+ * The picker option a saved expiry came from: none for no expiry, else the
+ * shortest option that still covers the time left (7 days chosen, 4 left:
+ * 7 days). Shown while sharing is on, so the picker says what is saved.
+ */
+export function expiryOptionFor(expiresAt: string | null, now = Date.now()): number | null {
+  if (!expiresAt) return null;
+  const hoursLeft = (Date.parse(expiresAt) - now) / 3_600_000;
+  const timed = EXPIRY_OPTIONS.flatMap((option) => (option.hours === null ? [] : [option.hours]));
+  return timed.find((hours) => hours >= hoursLeft) ?? timed[timed.length - 1]!;
+}
 
 function expiryText(expiresAt: string | null) {
   if (!expiresAt) return "Works until you stop sharing";
@@ -123,19 +147,34 @@ function ChangeReview({
 }: {
   change: StudioChangeRequest;
   onBack: () => void;
-  onAccept: (files?: StudioChangeFile[]) => Promise<void>;
+  onAccept: (files?: StudioChangeFile[], options?: { overwriteNewer?: boolean }) => Promise<StudioAcceptResult>;
   onReject: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [edited, setEdited] = useState<StudioChangeFile[]>(change.files);
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
+  // Files that changed since the collaborator started from them: accepting replaces those edits.
+  const [stalePaths, setStalePaths] = useState<string[] | null>(null);
   const open = change.status === "open";
+  // The owner's adjustments stay when they switch back to the diff: what
+  // they see there, and what Accept sends, is their version.
+  const adjusted = edited.some((file, index) => file.after !== change.files[index]?.after);
 
-  const run = async (kind: "accept" | "reject") => {
-    setBusy(kind);
+  const accept = async (overwriteNewer: boolean) => {
+    setBusy("accept");
     try {
-      if (kind === "accept") await onAccept(editing ? edited : undefined);
-      else await onReject();
+      const result = await onAccept(adjusted ? edited : undefined, overwriteNewer ? { overwriteNewer: true } : undefined);
+      if (result === "accepted") onBack();
+      else if (result !== "failed") setStalePaths(result.stalePaths);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reject = async () => {
+    setBusy("reject");
+    try {
+      await onReject();
       onBack();
     } finally {
       setBusy(null);
@@ -186,16 +225,30 @@ function ChangeReview({
             )}
           </div>
         ) : (
-          <StudioDiffView files={editing ? edited : change.files} />
+          <StudioDiffView files={edited} />
         )}
       </div>
-      {open ? (
+      {open && stalePaths ? (
+        <div className="flex flex-col gap-2 border-t border-border p-2" role="alert" data-testid="studio-change-stale">
+          <p className="text-sm">
+            {stalePaths.join(", ")} changed after {change.authorName} made this change. Accepting it replaces those newer edits.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="flex-1" disabled={busy !== null} onClick={() => setStalePaths(null)}>
+              Keep reviewing
+            </Button>
+            <Button className="flex-1" disabled={busy !== null} onClick={() => void accept(true)} data-testid="studio-change-overwrite">
+              {busy === "accept" ? <LoaderCircle className="animate-spin" /> : <Check />} Replace anyway
+            </Button>
+          </div>
+        </div>
+      ) : open ? (
         <div className="flex items-center gap-2 border-t border-border p-2">
-          <Button variant="outline" className="flex-1" disabled={busy !== null} onClick={() => void run("reject")} data-testid="studio-change-reject">
+          <Button variant="outline" className="flex-1" disabled={busy !== null} onClick={() => void reject()} data-testid="studio-change-reject">
             {busy === "reject" ? <LoaderCircle className="animate-spin" /> : <X />} Deny
           </Button>
-          <Button className="flex-1" disabled={busy !== null} onClick={() => void run("accept")} data-testid="studio-change-accept">
-            {busy === "accept" ? <LoaderCircle className="animate-spin" /> : <Check />} {editing ? "Accept edited" : "Accept"}
+          <Button className="flex-1" disabled={busy !== null} onClick={() => void accept(false)} data-testid="studio-change-accept">
+            {busy === "accept" ? <LoaderCircle className="animate-spin" /> : <Check />} {adjusted ? "Accept edited" : "Accept"}
           </Button>
         </div>
       ) : null}
@@ -213,6 +266,9 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [expiryHours, setExpiryHours] = useState<number | null>(24);
+  // While sharing is on, the picker shows what is saved (and New code keeps
+  // it); the local choice shows while a change is on its way, or before sharing.
+  const shownExpiry = props.shareEnabled && !sharing ? expiryOptionFor(props.shareExpiresAt) : expiryHours;
   const reviewing = useMemo(() => props.changeRequests.find((change) => change.id === reviewId) ?? null, [props.changeRequests, reviewId]);
   const guests = props.participants.filter((participant) => participant.role === "guest");
 
@@ -221,7 +277,7 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
       <ChangeReview
         change={reviewing}
         onBack={() => setReviewId(null)}
-        onAccept={(files) => props.onAccept(reviewing.id, files)}
+        onAccept={(files, options) => props.onAccept(reviewing.id, files, options)}
         onReject={() => props.onReject(reviewing.id)}
       />
     );
@@ -277,15 +333,18 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                 {props.share?.inviteUrl ? <CopyField label="Invite link" value={props.share.inviteUrl} testId="studio-invite-link" /> : null}
                 {props.share && !props.share.inviteUrl ? (
                   <>
-                    <CopyField label="Invite link (this network)" value={props.share.localInviteUrl} testId="studio-invite-link" />
-                    {props.share.publicError ? <p className="text-xs text-muted-foreground">No public link: {props.share.publicError}</p> : null}
+                    <CopyField label="Invite link (this device only)" value={props.share.localInviteUrl} testId="studio-invite-link" />
+                    <p className="text-xs text-muted-foreground">
+                      This link opens only on the device running Automa. Friends elsewhere need the public link
+                      {props.share.publicError ? `, which couldn't be made: ${props.share.publicError}` : ""}.
+                    </p>
                   </>
                 ) : null}
                 <p className="text-xs text-muted-foreground">
                   People who join see your code as you type, chat with you, and send changes for you to accept. They can't save files or reach the rest of Automa.
                 </p>
                 <ExpiryPicker
-                  value={expiryHours}
+                  value={shownExpiry}
                   disabled={sharing}
                   onChange={(hours) => {
                     setExpiryHours(hours);
@@ -300,7 +359,10 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                     disabled={sharing}
                     onClick={() => {
                       setSharing(true);
-                      void props.onShare({ newCode: true, expiresInHours: expiryHours }).finally(() => setSharing(false));
+                      // A new code keeps the saved expiry, counted from now.
+                      const keep = expiryOptionFor(props.shareExpiresAt);
+                      setExpiryHours(keep);
+                      void props.onShare({ newCode: true, expiresInHours: keep }).finally(() => setSharing(false));
                     }}
                     data-testid="studio-new-code"
                   >

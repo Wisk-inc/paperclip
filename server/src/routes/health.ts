@@ -1,3 +1,4 @@
+import { LOCAL_SECRET_PROOF_HEADER, LOCAL_SECRET_PROOF_NONCE_HEADER } from "../auth/local-secret-proof.js";
 import { supportsLocalAiLogin } from "../services/local-ai-login-policy.js";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
@@ -129,6 +130,11 @@ export function healthRoutes(
     companyDeletionEnabled: boolean;
     /** False when the operator turned off creating accounts (auth.disableSignUp). */
     signUpEnabled?: boolean;
+    /**
+     * Answers the Automa app's challenge (local-secret-proof.ts), so the app
+     * sends its key only to this server. Absent when the server has no key.
+     */
+    answerLocalSecretChallenge?: (nonceHeader: string | undefined) => string | null;
     serverInfo?: ServerInfoSnapshot;
     databaseBackupHealth?: InspectDatabaseBackupHealthOptions;
     runtimeEnv?: CloudInstanceEnv;
@@ -235,6 +241,12 @@ export function healthRoutes(
   });
 
   router.get("/", async (req, res) => {
+    const proof = opts.answerLocalSecretChallenge?.(req.get(LOCAL_SECRET_PROOF_NONCE_HEADER));
+    if (proof) {
+      // Each answer is for one challenge; nothing may keep it.
+      res.setHeader(LOCAL_SECRET_PROOF_HEADER, proof);
+      res.setHeader("Cache-Control", "no-store");
+    }
     const actorType = "actor" in req ? req.actor?.type : null;
     const exposeFullDetails = shouldExposeFullHealthDetails(
       actorType,

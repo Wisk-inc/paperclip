@@ -19,8 +19,9 @@ export function parseDollars(value: string): number | null {
 
 /**
  * The organization's monthly spending limit, where people look for it: next
- * to their keys. At the limit, agents and App Studio's AI stop until it is
- * raised or the month turns over (the company budget's hard stop).
+ * to their keys. At the limit, agents and App Studio's AI stop (the company
+ * budget's hard stop) and stay stopped until someone resumes them: a new
+ * month alone does not, so a paused organization says so and offers Resume.
  */
 export function SpendingLimitCard({ companyId }: { companyId: string }) {
   const client = useQueryClient();
@@ -33,22 +34,29 @@ export function SpendingLimitCard({ companyId }: { companyId: string }) {
     (item) => item.scopeType === "company" && item.scopeId === companyId && item.windowKind === "calendar_month_utc",
   );
   const active = Boolean(policy?.isActive && policy.amount > 0);
+  // Still paused from reaching the limit (a new month does not lift it by itself).
+  const paused = Boolean(active && policy?.paused);
   const [draft, setDraft] = useState("");
   const save = useMutation({
-    mutationFn: (amount: number) =>
+    // Saving the limit again under what is spent (a new month) resumes the organization.
+    mutationFn: (input: { amount: number; resume?: boolean }) =>
       budgetsApi.upsertPolicy(companyId, {
         scopeType: "company",
         scopeId: companyId,
-        amount,
+        amount: input.amount,
         windowKind: "calendar_month_utc",
         hardStopEnabled: true,
       }),
-    onSuccess: async (_policy, amount) => {
+    onSuccess: async (_policy, input) => {
       haptic("success");
       setDraft("");
       pushToast({
-        title: amount > 0 ? `Limit set to ${formatUsd(amount / 100)} a month` : "Spending limit turned off",
-        body: amount > 0 ? "Agents and App Studio stop when it is reached." : undefined,
+        title: input.resume
+          ? "Agents and App Studio can work again"
+          : input.amount > 0
+            ? `Limit set to ${formatUsd(input.amount / 100)} a month`
+            : "Spending limit turned off",
+        body: input.amount > 0 && !input.resume ? "Agents and App Studio stop when it is reached." : undefined,
         tone: "success",
       });
       await Promise.all([
@@ -65,7 +73,7 @@ export function SpendingLimitCard({ companyId }: { companyId: string }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (cents === null || cents <= 0 || save.isPending) return;
-    save.mutate(cents);
+    save.mutate({ amount: cents });
   };
 
   return (
@@ -83,13 +91,27 @@ export function SpendingLimitCard({ companyId }: { companyId: string }) {
             <span className="text-muted-foreground"> of {formatUsd(policy.amount / 100)} this month</span>
           </p>
           <ProgressBar label="Spent this month" value={policy.amount > 0 ? policy.observedAmount / policy.amount : 0} />
-          <p className={policy.status === "hard_stop" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+          <p className={policy.status === "hard_stop" || paused ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
             {policy.status === "hard_stop"
               ? "Limit reached: agents and App Studio's AI are paused. Raise it to keep going."
-              : policy.status === "warning"
-                ? `Almost there: ${formatUsd(policy.remainingAmount / 100)} left this month.`
-                : "Agents and App Studio's AI stop when it is reached, so nothing overspends."}
+              : paused
+                ? "Still paused since the limit was reached: a new month doesn't resume it by itself."
+                : policy.status === "warning"
+                  ? `Almost there: ${formatUsd(policy.remainingAmount / 100)} left this month.`
+                  : "Agents and App Studio's AI stop when it is reached, so nothing overspends."}
           </p>
+          {paused && policy.status !== "hard_stop" ? (
+            <Button
+              type="button"
+              size="sm"
+              className="self-start"
+              disabled={save.isPending}
+              onClick={() => save.mutate({ amount: policy.amount, resume: true })}
+              data-testid="spending-limit-resume"
+            >
+              Resume
+            </Button>
+          ) : null}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -110,7 +132,7 @@ export function SpendingLimitCard({ companyId }: { companyId: string }) {
           {active ? "Change" : "Set limit"}
         </Button>
         {active ? (
-          <Button type="button" variant="ghost" size="sm" disabled={save.isPending} onClick={() => save.mutate(0)}>
+          <Button type="button" variant="ghost" size="sm" disabled={save.isPending} onClick={() => save.mutate({ amount: 0 })}>
             Turn off
           </Button>
         ) : null}

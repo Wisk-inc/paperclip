@@ -97,6 +97,9 @@ describe("board-chat client disconnect", () => {
   }
 
   it("kills the spawned subprocess when the client disconnects mid-stream", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://automa:db-password@127.0.0.1:5432/automa");
+    vi.stubEnv("BETTER_AUTH_SECRET", "session-signing-secret");
+    vi.stubEnv("PAPERCLIP_LOCAL_TRUSTED_SECRET", "app-key");
     mockGetExperimental.mockResolvedValue({ enableConferenceRoomChat: true });
     mockIssueService.list.mockResolvedValue([
       { id: "issue-1", title: "Board Operations", status: "todo" },
@@ -118,6 +121,12 @@ describe("board-chat client disconnect", () => {
 
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
     expect(fakeProc.kill).not.toHaveBeenCalled();
+    // The AI tool gets the board's address, never the server's database or keys.
+    const childEnv = mockSpawn.mock.calls[0]![2].env as Record<string, string | undefined>;
+    expect(childEnv.PAPERCLIP_COMPANY_ID).toBe("company-1");
+    expect(childEnv.DATABASE_URL).toBeUndefined();
+    expect(childEnv.BETTER_AUTH_SECRET).toBeUndefined();
+    expect(childEnv.PAPERCLIP_LOCAL_TRUSTED_SECRET).toBeUndefined();
 
     // Client walks away mid-stream.
     req.abort();
@@ -127,6 +136,7 @@ describe("board-chat client disconnect", () => {
     fakeProc.exitCode = 143;
     fakeProc.emit("close", 143);
     await pending;
+    vi.unstubAllEnvs();
   });
 });
 

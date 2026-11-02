@@ -34,8 +34,10 @@ export function studioJoinTarget(input: string): string | null {
       return null;
     }
   }
+  // A code on its own is looked up on this Automa (the server that made it
+  // must be the one asked): it finds projects shared here, not a friend's.
   const code = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  return code.length >= 4 ? `/studio-guest/?code=${encodeURIComponent(code)}` : null;
+  return code.length >= 6 ? `/studio-guest/?code=${encodeURIComponent(code)}` : null;
 }
 
 /** Languages offered as one-tap starting points, in this order. */
@@ -139,7 +141,7 @@ export function Studio() {
     event.preventDefault();
     const target = studioJoinTarget(join);
     if (!target) {
-      pushToast({ title: "Paste an invite link or a join code", tone: "error" });
+      pushToast({ title: "Paste an invite link, or a join code from this Automa", tone: "error" });
       return;
     }
     if (target.startsWith("/")) window.location.assign(target);
@@ -318,7 +320,9 @@ export function Studio() {
           <Users className="size-4 text-primary" />
           <span className="text-sm font-semibold">Join someone's project</span>
         </div>
-        <p className="text-sm text-muted-foreground">Paste the invite link or join code a friend sent you.</p>
+        <p className="text-sm text-muted-foreground">
+          Paste the invite link a friend sent you. A join code on its own finds projects shared on this Automa.
+        </p>
         <div className="flex gap-2">
           <Input value={join} onChange={(event) => setJoin(event.target.value)} placeholder="Invite link or join code" aria-label="Invite link or join code" className="h-10" />
           <Button type="submit" variant="outline" className="h-10">

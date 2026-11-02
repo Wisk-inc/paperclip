@@ -8,10 +8,21 @@ export function formatUsd(dollars: number) {
 }
 
 /**
- * Under a key: what is left on its account (when the provider says) and what
- * Automa spent through it this month, with a link to top up.
+ * Under a key: what is left on its account (when the provider says), what
+ * Automa spent on its provider this month, with a link to top up, and why
+ * there is no balance when the provider gives none. The spend is the whole
+ * organization's for the provider: App Studio records no key with its costs,
+ * so it is shown as that, not as this key's.
  */
-export function KeyBalance({ companyId, connection }: { companyId: string; connection: AiManagedConnectionSummary }) {
+export function KeyBalance({
+  companyId,
+  connection,
+  providerLabel,
+}: {
+  companyId: string;
+  connection: AiManagedConnectionSummary;
+  providerLabel: string;
+}) {
   const balance = useQuery({
     queryKey: ["ai-connection-balance", companyId, connection.id],
     queryFn: () => aiConnectionsApi.balance(companyId, connection.id),
@@ -34,11 +45,18 @@ export function KeyBalance({ companyId, connection }: { companyId: string; conne
           {formatUsd(data.remainingUsd)} left
         </span>
       ) : null}
-      <span>Automa spent {spent} this month</span>
+      <span>
+        {providerLabel} use this month, all keys: {spent}
+      </span>
       <a href={data.billingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline">
         {data.remainingUsd !== null ? "Add credit" : "Balance"}
         <ExternalLink className="size-3" aria-hidden="true" />
       </a>
+      {data.note ? (
+        <span className="basis-full" data-testid="api-key-balance-note">
+          {data.note}
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import type {
   PatchInstanceExperimentalSettings,
 } from "@paperclipai/shared";
 import { experimentalSettingKey } from "@paperclipai/shared";
+import { accessApi } from "@/api/access";
+import { healthApi } from "@/api/health";
 import { instanceSettingsApi } from "@/api/instanceSettings";
 import { useHiddenSettings } from "@/hooks/useHiddenSettings";
 import { getWorktreeInstanceId, isWorktreeRuntime } from "../lib/worktree-branding";
@@ -176,6 +178,17 @@ export function InstanceExperimentalSettings() {
     },
   });
 
+  // Server-wide switches: only a server admin can change them on a shared server.
+  const healthQuery = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), retry: false });
+  const isAuthenticatedServer = healthQuery.data?.deploymentMode === "authenticated";
+  const boardAccessQuery = useQuery({
+    queryKey: queryKeys.access.currentBoardAccess,
+    queryFn: () => accessApi.getCurrentBoardAccess(),
+    enabled: isAuthenticatedServer,
+    retry: false,
+  });
+  const settingsLocked = isAuthenticatedServer && boardAccessQuery.data?.isInstanceAdmin !== true;
+
   if (experimentalQuery.isLoading) {
     return <div className="text-sm text-muted-foreground">Loading experimental settings...</div>;
   }
@@ -258,6 +271,8 @@ export function InstanceExperimentalSettings() {
         </div>
         <p className="text-sm text-muted-foreground">
           Opt into features that are still being evaluated before they become default behavior.
+          {" "}These apply to every organization on this Automa server.
+          {settingsLocked ? " Only a server admin can change them." : null}
         </p>
       </div>
 
@@ -299,7 +314,7 @@ export function InstanceExperimentalSettings() {
           footnote="Turning this off preserves conversations and lets active runs finish, but prevents new messages."
           checked={experimentalQuery.data?.enableAgentChat ?? false}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableAgentChat: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableAgentChat"
           managed={managedKeys.enableAgentChat}
           ariaLabel="Toggle agent chat experimental setting"
@@ -312,7 +327,7 @@ export function InstanceExperimentalSettings() {
           onCheckedChange={(checked) =>
             toggleMutation.mutate({ enableNativeRunner: checked })
           }
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableNativeRunner"
           managed={managedKeys.enableNativeRunner}
           ariaLabel="Toggle Automa Runner experimental setting"
@@ -323,7 +338,7 @@ export function InstanceExperimentalSettings() {
           description="Allow agents to pin beta releases of the Automa core skill. Disabling this returns every agent to the default live skill without removing saved pins."
           checked={enableBetaSkills}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableBetaSkills: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableBetaSkills"
           managed={managedKeys.enableBetaSkills}
           ariaLabel="Toggle beta skills experimental setting"
@@ -334,7 +349,7 @@ export function InstanceExperimentalSettings() {
           description="Show Automa-managed built-in agent surfaces, including built-in roster badges, the Built-in agents tab, and built-in agent setup controls."
           checked={enableBuiltInAgents}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableBuiltInAgents: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableBuiltInAgents"
           managed={managedKeys.enableBuiltInAgents}
           ariaLabel="Toggle built-in agents experimental setting"
@@ -346,7 +361,7 @@ export function InstanceExperimentalSettings() {
           footnote="Turning Cases off hides the tab and blocks the case API; existing case data is kept."
           checked={enableCases}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableCases: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableCases"
           managed={managedKeys.enableCases}
           ariaLabel="Toggle cases experimental setting"
@@ -358,7 +373,7 @@ export function InstanceExperimentalSettings() {
           footnote="Turning this off hides chat setup, channels, and connected-task controls. Existing chat connections keep running. GitHub and other tool connectors stay available."
           checked={enableChatConnectors}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableChatConnectors: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableChatConnectors"
           managed={managedKeys.enableChatConnectors}
           ariaLabel="Toggle chat connectors experimental setting"
@@ -370,7 +385,7 @@ export function InstanceExperimentalSettings() {
             description="Adds a Conference Room — one chat where you and your whole team work together — plus the live activity feed and the redesigned onboarding. Also restyles task threads as chat bubbles. Turn off anytime to restore the classic UI."
             checked={enableConferenceRoomChat}
             onCheckedChange={(checked) => toggleMutation.mutate({ enableConferenceRoomChat: checked })}
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableConferenceRoomChat"
             managed={managedKeys.enableConferenceRoomChat}
             ariaLabel="Toggle conference room chat experimental setting"
@@ -382,7 +397,7 @@ export function InstanceExperimentalSettings() {
           description="Show the Decisions item in the main sidebar — the attention home that surfaces the tasks awaiting your input — while the surface is still being evaluated."
           checked={enableDecisions}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableDecisions: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableDecisions"
           managed={managedKeys.enableDecisions}
           ariaLabel="Toggle decisions experimental setting"
@@ -393,7 +408,7 @@ export function InstanceExperimentalSettings() {
           description="Show environment management in company settings and allow project and agent environment assignment controls."
           checked={enableEnvironments}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableEnvironments: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableEnvironments"
           managed={managedKeys.enableEnvironments}
           ariaLabel="Toggle environments experimental setting"
@@ -404,7 +419,7 @@ export function InstanceExperimentalSettings() {
           description="Detect external URLs in issues and show resolved status for pull requests, tickets, and other referenced work objects."
           checked={enableExternalObjects}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableExternalObjects: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableExternalObjects"
           managed={managedKeys.enableExternalObjects}
           ariaLabel="Toggle external objects experimental setting"
@@ -415,7 +430,7 @@ export function InstanceExperimentalSettings() {
           description="Show execution workspace controls in project configuration and allow isolated workspace behavior for new and existing task runs."
           checked={enableIsolatedWorkspaces}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableIsolatedWorkspaces: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableIsolatedWorkspaces"
           managed={managedKeys.enableIsolatedWorkspaces}
           ariaLabel="Toggle isolated workspaces experimental setting"
@@ -426,7 +441,7 @@ export function InstanceExperimentalSettings() {
           description="Show task detail controls for browsing and previewing workspace files relative to a task."
           checked={enableExperimentalFileViewer}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableExperimentalFileViewer: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableExperimentalFileViewer"
           managed={managedKeys.enableExperimentalFileViewer}
           ariaLabel="Toggle experimental file viewer setting"
@@ -439,7 +454,7 @@ export function InstanceExperimentalSettings() {
           onCheckedChange={(checked) =>
             toggleMutation.mutate({ enableFirstTaskPlanProposal: checked })
           }
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableFirstTaskPlanProposal"
           managed={managedKeys.enableFirstTaskPlanProposal}
           ariaLabel="Toggle first task plan proposal experimental setting"
@@ -451,7 +466,7 @@ export function InstanceExperimentalSettings() {
           footnote="Turning this off hides setup for these connectors. Existing connections keep running."
           checked={experimentalQuery.data?.enableMemoryConnectors === true}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableMemoryConnectors: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableMemoryConnectors"
           managed={managedKeys.enableMemoryConnectors}
           ariaLabel="Toggle memory connectors experimental setting"
@@ -464,7 +479,7 @@ export function InstanceExperimentalSettings() {
           onCheckedChange={(checked) =>
             toggleMutation.mutate({ enableSimplifiedEnglishInteractions: checked })
           }
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableSimplifiedEnglishInteractions"
           managed={managedKeys.enableSimplifiedEnglishInteractions}
           ariaLabel="Toggle simplified english interactions experimental setting"
@@ -482,7 +497,7 @@ export function InstanceExperimentalSettings() {
                 : { enableStatusCards: false },
             )
           }
-          disabled={toggleMutation.isPending || statusCardsBlockedByManagedSummaries}
+          disabled={settingsLocked || toggleMutation.isPending || statusCardsBlockedByManagedSummaries}
           settingKey="enableStatusCards"
           managed={managedKeys.enableStatusCards}
           ariaLabel="Toggle status cards experimental setting"
@@ -494,7 +509,7 @@ export function InstanceExperimentalSettings() {
           footnote="Turning this off restores the legacy shell and navigation. Task and page data are unchanged."
           checked={enableStreamlinedUi}
           onCheckedChange={(checked) => toggleMutation.mutate({ enableStreamlinedUi: checked })}
-          disabled={toggleMutation.isPending}
+          disabled={settingsLocked || toggleMutation.isPending}
           settingKey="enableStreamlinedUi"
           managed={managedKeys.enableStreamlinedUi}
           ariaLabel="Toggle Streamlined UI experimental setting"
@@ -512,7 +527,7 @@ export function InstanceExperimentalSettings() {
                 : { enableSummaries: false, enableStatusCards: false },
             )
           }
-          disabled={toggleMutation.isPending || summariesRequiredByManagedStatusCards}
+          disabled={settingsLocked || toggleMutation.isPending || summariesRequiredByManagedStatusCards}
           settingKey="enableSummaries"
           managed={managedKeys.enableSummaries}
           ariaLabel="Toggle summaries experimental setting"
@@ -526,7 +541,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableIsolatedWorkspacesByDefault: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableIsolatedWorkspacesByDefault"
             managed={managedKeys.enableIsolatedWorkspacesByDefault}
             ariaLabel="Toggle isolated workspaces by default experimental setting"
@@ -552,7 +567,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ autoRestartDevServerWhenIdle: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="autoRestartDevServerWhenIdle"
             managed={managedKeys.autoRestartDevServerWhenIdle}
             ariaLabel="Toggle guarded dev-server auto-restart"
@@ -565,7 +580,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enablePaperclipDeveloperMode: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enablePaperclipDeveloperMode"
             managed={managedKeys.enablePaperclipDeveloperMode}
             ariaLabel="Toggle Automa developer mode experimental setting"
@@ -578,7 +593,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableManagedSandboxOnly: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableManagedSandboxOnly"
             managed={managedKeys.enableManagedSandboxOnly}
             ariaLabel="Toggle managed environment only experimental setting"
@@ -605,7 +620,7 @@ export function InstanceExperimentalSettings() {
                       if (worktreeRunExecutionManaged) return;
                       toggleMutation.mutate({ enableWorktreeRunExecution: checked });
                     }}
-                    disabled={toggleMutation.isPending || worktreeRunExecutionManaged}
+                    disabled={settingsLocked || toggleMutation.isPending || worktreeRunExecutionManaged}
                     aria-label="Toggle worktree run execution setting"
                   />
                 </div>
@@ -648,7 +663,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableServerInfoDebugView: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableServerInfoDebugView"
             managed={managedKeys.enableServerInfoDebugView}
             ariaLabel="Toggle server info debug view experimental setting"
@@ -659,7 +674,7 @@ export function InstanceExperimentalSettings() {
             description='Add a "Smoke Lab" tab under Apps → Developer and an "Integration smoke" card on the dashboard for exercising every integration path against deterministic local fixtures (fake OAuth provider + loopback MCP servers). Private (non-public) deployments only.'
             checked={enableSmokeLab}
             onCheckedChange={(checked) => toggleMutation.mutate({ enableSmokeLab: checked })}
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableSmokeLab"
             managed={managedKeys.enableSmokeLab}
             ariaLabel="Toggle smoke lab experimental setting"
@@ -672,7 +687,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableIssuePlanDecompositions: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableIssuePlanDecompositions"
             managed={managedKeys.enableIssuePlanDecompositions}
             ariaLabel="Toggle task plan decomposition panel experimental setting"
@@ -697,7 +712,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableClassicTaskInterface: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableClassicTaskInterface"
             managed={managedKeys.enableClassicTaskInterface}
             ariaLabel="Toggle classic task interface experimental setting"
@@ -710,7 +725,7 @@ export function InstanceExperimentalSettings() {
             onCheckedChange={(checked) =>
               toggleMutation.mutate({ enableGoalsSidebarLink: checked })
             }
-            disabled={toggleMutation.isPending}
+            disabled={settingsLocked || toggleMutation.isPending}
             settingKey="enableGoalsSidebarLink"
             managed={managedKeys.enableGoalsSidebarLink}
             ariaLabel="Toggle goals sidebar link experimental setting"

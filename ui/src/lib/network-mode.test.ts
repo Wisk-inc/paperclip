@@ -10,3 +10,11 @@ describe("queryNetworkMode", () => {
     for (const host of ["automa.example.com", "192.168.1.20", "127.0.0.1.example.com", "10.0.2.2"]) expect(queryNetworkMode(host)).toBe("online");
   });
 });
+
+describe("isLoopbackHostname", () => {
+  it("knows a server on this device from one elsewhere", async () => {
+    const { isLoopbackHostname } = await import("./network-mode");
+    for (const host of ["127.0.0.1", "127.9.9.9", "localhost", "[::1]"]) expect(isLoopbackHostname(host)).toBe(true);
+    for (const host of ["automa.example.com", "192.168.1.20", "127.0.0.1.example.com", "localhost.example.com"]) expect(isLoopbackHostname(host)).toBe(false);
+  });
+});

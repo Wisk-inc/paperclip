@@ -4,10 +4,12 @@ import { agentChatsApi } from "@/api/agentChats";
 import { agentsApi } from "@/api/agents";
 import { authApi } from "@/api/auth";
 import { useCompany } from "@/context/CompanyContext";
+import { Button } from "@/components/ui/button";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
 import { recordAgentChatVisit } from "@/lib/recent-agent-chats";
 import { queryKeys } from "@/lib/queryKeys";
-import { useParams } from "@/lib/router";
+import { canStartAgentChat } from "@/lib/agent-chat-draft";
+import { Link, useParams } from "@/lib/router";
 import { agentRouteRef } from "@/lib/utils";
 import { TaskDetailSurface } from "./IssueDetail";
 import type { Issue } from "@paperclipai/shared";
@@ -15,7 +17,7 @@ import type { Issue } from "@paperclipai/shared";
 export function AgentChat() {
   const { agentRef = "" } = useParams<{ agentRef: string }>();
   const { selectedCompanyId } = useCompany();
-  const { enabled, loaded } = useAgentChatEnabled();
+  const { enabled, loaded, failed: chatSettingFailed, errorMessage: chatSettingError, retry: retryChatSetting } = useAgentChatEnabled();
   const client = useQueryClient();
   const agents = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
@@ -66,6 +68,14 @@ export function AgentChat() {
     return (
       <p className="text-sm text-muted-foreground">Loading conversation…</p>
     );
+  if (chatSettingFailed)
+    // A failed request is not the server saying "off".
+    return (
+      <div className="space-y-2 text-sm" data-testid="agent-chat-setting-failed">
+        <p className="text-destructive">Couldn't check whether Agent Chat is on.{chatSettingError ? ` ${chatSettingError}` : ""}</p>
+        <Button variant="outline" size="sm" onClick={retryChatSetting}>Try again</Button>
+      </div>
+    );
   if (!enabled && !chat.data)
     return (
       <p className="text-sm text-muted-foreground">
@@ -84,6 +94,24 @@ export function AgentChat() {
   if (chat.isPending)
     return (
       <p className="text-sm text-muted-foreground">Loading conversation…</p>
+    );
+  // A chat starts only with an agent that can take work. One still waiting
+  // for its hire to be approved, or one that was terminated, would refuse the
+  // first message, so it gets no composer (an existing chat still opens).
+  if (!chat.data && !canStartAgentChat(agent))
+    return (
+      <div className="space-y-1 text-sm" data-testid="agent-chat-unavailable">
+        {agent.status === "pending_approval" ? (
+          <>
+            <p className="font-medium text-foreground">{agent.name} is waiting for its hire to be approved.</p>
+            <p className="text-muted-foreground">
+              You can chat once the hire is approved in <Link to="/approvals" className="font-medium text-primary">Approvals</Link>.
+            </p>
+          </>
+        ) : (
+          <p className="font-medium text-foreground">{agent.name} was terminated, so a new chat can't start.</p>
+        )}
+      </div>
     );
   return (
     <TaskDetailSurface

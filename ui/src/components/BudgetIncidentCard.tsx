@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BudgetIncident } from "@paperclipai/shared";
-import { AlertOctagon, ArrowUpRight, PauseCircle } from "lucide-react";
+import { AlertOctagon, AlertTriangle, ArrowUpRight, PauseCircle } from "lucide-react";
 import { formatCents } from "../lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,66 @@ export function BudgetIncidentCard({
   );
   const parsed = parseDollarInput(draftAmount);
   const stateLabel = incidentStateLabel(incident);
+  // A soft threshold (the warning at 80% or so) pauses nothing: it is told as
+  // a warning, with Raise budget and Dismiss, never as a stop to resume from.
+  const soft = incident.thresholdType === "soft";
+
+  if (soft) {
+    return (
+      <Card className="overflow-hidden border-amber-500/30" data-testid="budget-incident-warning">
+        <CardHeader className="px-5 pt-5 pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-(length:--text-micro) uppercase tracking-(--tracking-caps) text-amber-700 dark:text-amber-200">
+                  {incident.scopeType} budget warning
+                </div>
+                <Badge variant="secondary">{stateLabel}</Badge>
+              </div>
+              <CardTitle className="mt-1 text-base">{incident.scopeName}</CardTitle>
+              <CardDescription className="mt-1">
+                Spending reached {formatCents(incident.amountObserved)} of its {formatCents(incident.amountLimit)} limit. Nothing is
+                paused yet: work stops only when the limit itself is reached.
+              </CardDescription>
+            </div>
+            <div className="rounded-full border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 px-5 pb-5 pt-0">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+            <label className="text-(length:--text-micro) uppercase tracking-(--tracking-caps) text-muted-foreground">
+              New budget (USD)
+            </label>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+              <Input
+                value={draftAmount}
+                onChange={(event) => setDraftAmount(event.target.value)}
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+              <Button
+                className="gap-2"
+                disabled={isMutating || parsed === null || parsed <= incident.amountObserved}
+                onClick={() => {
+                  if (typeof parsed === "number") onRaiseAndResume(parsed);
+                }}
+              >
+                <ArrowUpRight className="h-4 w-4" />
+                {isMutating ? "Applying..." : "Raise budget"}
+              </Button>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" className="text-muted-foreground" disabled={isMutating} onClick={onKeepPaused}>
+              Dismiss warning
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="overflow-hidden border-red-500/20 bg-(image:--gradient-extract-4)">
@@ -70,8 +130,8 @@ export function BudgetIncidentCard({
           <PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             {incident.scopeType === "project"
-              ? "Project execution is paused. New work in this project will not start until you resolve the budget incident."
-              : "This scope is paused. New heartbeats will not start until you resolve the budget incident."}
+              ? "Project execution is paused. New work in this project will not start until its budget is raised."
+              : "This scope is paused. New heartbeats will not start until its budget is raised."}
           </div>
         </div>
 

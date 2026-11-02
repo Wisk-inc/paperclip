@@ -471,8 +471,16 @@ export function IssueProperties({
     enabled: !!companyId && parentOpen && normalizedParentSearch.length > 0,
   });
 
+  const [labelError, setLabelError] = useState<string | null>(null);
   const createLabel = useMutation({
-    mutationFn: (data: { name: string; color: string }) => issuesApi.createLabel(companyId!, data),
+    mutationFn: (data: { name: string; color: string }) => {
+      // A label with that name already exists: use it rather than make a second.
+      const existing = (labels ?? []).find((label) => label.name.trim().toLowerCase() === data.name.trim().toLowerCase());
+      if (existing) return Promise.resolve(existing);
+      return issuesApi.createLabel(companyId!, data);
+    },
+    onMutate: () => setLabelError(null),
+    onError: (error) => setLabelError(error instanceof Error ? error.message : "Could not create the label"),
     onSuccess: async (created) => {
       queryClient.setQueryData<IssueLabel[] | undefined>(
         queryKeys.issues.labels(companyId!),
@@ -482,7 +490,7 @@ export function IssueProperties({
           return [...current, created];
         },
       );
-      onUpdate({ labelIds: [...(issue.labelIds ?? []), created.id] });
+      if (!(issue.labelIds ?? []).includes(created.id)) onUpdate({ labelIds: [...(issue.labelIds ?? []), created.id] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.issues.labels(companyId!) });
       setNewLabelName("");
     },
@@ -1673,9 +1681,18 @@ export function IssueProperties({
             className="flex-1 px-2 py-1.5 text-xs bg-transparent outline-none rounded placeholder:text-muted-foreground/50"
             placeholder="New label"
             value={newLabelName}
-            onChange={(e) => setNewLabelName(e.target.value)}
+            maxLength={48}
+            onChange={(e) => {
+              setNewLabelName(e.target.value);
+              setLabelError(null);
+            }}
           />
         </div>
+        {labelError ? (
+          <p role="alert" className="px-2 text-xs text-destructive">
+            {labelError}
+          </p>
+        ) : null}
         <button
           className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 text-xs rounded border border-border hover:bg-accent/50 disabled:opacity-50"
           disabled={!newLabelName.trim() || createLabel.isPending}

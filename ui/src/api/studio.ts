@@ -144,8 +144,11 @@ export const studioApi = {
     api.post<{ path: string }>(`${ws(id)}/shared/${encodeURIComponent(attachmentId)}/add`, { folder: folder ?? null }),
 
   changes: (id: string) => api.get<{ changeRequests: StudioChangeRequest[] }>(`${ws(id)}/changes`, { cache: "no-store" }),
-  acceptChange: (id: string, changeId: string, files?: StudioChangeFile[]) =>
-    api.post<{ changeRequest: StudioChangeRequest }>(`${ws(id)}/changes/${encodeURIComponent(changeId)}/accept`, files ? { files } : {}),
+  acceptChange: (id: string, changeId: string, files?: StudioChangeFile[], options: { overwriteNewer?: boolean } = {}) =>
+    api.post<{ changeRequest: StudioChangeRequest }>(`${ws(id)}/changes/${encodeURIComponent(changeId)}/accept`, {
+      ...(files ? { files } : {}),
+      ...(options.overwriteNewer ? { overwriteNewer: true } : {}),
+    }),
   rejectChange: (id: string, changeId: string) =>
     api.post<{ changeRequest: StudioChangeRequest }>(`${ws(id)}/changes/${encodeURIComponent(changeId)}/reject`, {}),
 

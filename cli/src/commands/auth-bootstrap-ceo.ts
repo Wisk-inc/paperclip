@@ -92,8 +92,12 @@ export async function bootstrapCeoInvite(opts: {
       .where(eq(instanceUserRoles.role, "instance_admin"))
       .then((rows) => rows.length);
 
-    if (existingAdminCount > 0 && !opts.force) {
-      p.log.info("Instance already has an admin user. Use --force to generate a new bootstrap invite.");
+    // The server only accepts a bootstrap invite while no admin exists, so one
+    // made now could never be used: point to the way in that works instead.
+    if (existingAdminCount > 0) {
+      p.log.info(
+        "This instance already has an admin. Bootstrap invites only work before the first admin exists; ask an admin for an organization invite instead.",
+      );
       return;
     }
 

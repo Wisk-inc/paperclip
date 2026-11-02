@@ -21,6 +21,7 @@ const managedApi = vi.hoisted(() => ({
   cancelLocalLogin: vi.fn(async () => ({})),
   connectLocal: vi.fn(async () => ({ connectionId: "local-connection", grantId: "local-grant" })),
   create: vi.fn(async () => ({ connectionId: "managed-connection", grantId: "managed-grant" })),
+  setDefault: vi.fn(async () => ({})),
 }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: managedApi }));
 vi.mock("../api/auth", async (importOriginal) => {
@@ -48,6 +49,7 @@ const mockCompaniesApi = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
+  archive: vi.fn(),
   // The gate fetches the list itself now, rather than reading the shared
   // cache, so ownership cases are driven from here. `mockCompany.companies`
   // below still feeds the *inner* wizard, which is a different question.
@@ -532,6 +534,53 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       await flushReact();
       expect(mockCompaniesApi.remove).toHaveBeenCalledWith("company-new");
 
+      await act(async () => root.unmount());
+    });
+
+    it("hides the organization it made when the server won't delete it", async () => {
+      // Authenticated servers switch deletion off by default, and only an owner may delete.
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      mockCompaniesApi.remove.mockRejectedValue(new Error("Deleting organizations is turned off on this server."));
+      mockCompaniesApi.archive.mockResolvedValue({ id: "company-new", status: "archived" });
+      const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate();
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      for (let i = 0; i < 4; i++) await flushReact();
+      expect(mockCompaniesApi.remove).toHaveBeenCalledWith("company-new");
+      expect(mockCompaniesApi.archive).toHaveBeenCalledWith("company-new");
+      await act(async () => root.unmount());
+    });
+
+    it("offers no Skip for now when the server switched the free models off", async () => {
+      mockAdapterRegistry.disabled = new Set<string>(["free_models"]);
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate("Ada");
+      expect(document.body.textContent).toContain("Connect a model");
+      expect(document.body.querySelector('[data-testid="onboarding-skip-connect"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("start on the free models");
+      await act(async () => root.unmount());
+    });
+
+    it("stops Back at Review once the agent is hired", async () => {
+      mockCompaniesApi.create.mockResolvedValue({ id: "company-new", issuePrefix: "INI" });
+      mockAgentsApi.hire.mockResolvedValue({ agent: { id: "agent-free" }, approval: null });
+      const { root } = await openStepOne();
+      await clickByText((t) => t.startsWith("Continue"));
+      await nameAgentAndCreate("Ada");
+      const skip = document.body.querySelector('[data-testid="onboarding-skip-connect"]') as HTMLButtonElement;
+      await act(async () => {
+        skip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      for (let i = 0; i < 8; i++) await flushReact();
+      expect(document.body.textContent).toContain("Ada is ready on the free models");
+      // Going back would only change a source the hire already used.
+      const back = [...document.body.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Back");
+      expect(back).toBeUndefined();
       await act(async () => root.unmount());
     });
 
@@ -1037,6 +1086,8 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
 
         expect(managedApi.create).toHaveBeenCalledTimes(1);
         expect(managedApi.create).toHaveBeenCalledWith("company-new", expect.objectContaining({ provider: "anthropic", method: "api_key", ownership: "personal", apiKey: KEY }));
+        // The agent uses the default connection: the key typed here becomes it.
+        expect(managedApi.setDefault).toHaveBeenCalledWith("company-new", "managed-grant");
         const hireBody = (mockAgentsApi.hire.mock.calls.at(-1) as unknown[])[1] as { runtimeConfig: { aiConnection: unknown }; adapterConfig: { env?: Record<string, unknown> } };
         expect(hireBody.runtimeConfig.aiConnection).toEqual({ provider: "anthropic", method: "api_key", mode: "responsible_user" });
         expect(hireBody.adapterConfig.env?.ANTHROPIC_API_KEY).toBeUndefined();
@@ -1066,6 +1117,22 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
 
         expect(mockAgentsApi.hire).not.toHaveBeenCalled();
         expect(document.body.textContent).toContain("Could not store the API key");
+
+        await act(async () => root.unmount());
+      });
+
+      it("blocks the hire when the key cannot become the default, and a retry finishes it with the same key", async () => {
+        managedApi.setDefault.mockRejectedValueOnce(new Error("server went away"));
+        const { root, clickByText } = await connectWithApiKey();
+
+        expect(mockAgentsApi.hire).not.toHaveBeenCalled();
+        expect(document.body.textContent).toContain("server went away");
+
+        await clickByText((t) => isArcPrimary(t));
+        expect(managedApi.create).toHaveBeenCalledTimes(1);
+        expect(managedApi.setDefault).toHaveBeenCalledTimes(2);
+        expect(managedApi.setDefault).toHaveBeenLastCalledWith("company-new", "managed-grant");
+        expect(mockAgentsApi.hire).toHaveBeenCalled();
 
         await act(async () => root.unmount());
       });

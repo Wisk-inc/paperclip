@@ -254,12 +254,21 @@ export function CompanyAccess() {
   }
 
   if (membersQuery.error) {
-    const message =
-      membersQuery.error instanceof ApiError && membersQuery.error.status === 403
-        ? "You do not have permission to manage organization members."
-        : membersQuery.error instanceof Error
-          ? membersQuery.error.message
-          : "Failed to load organization members.";
+    const forbidden = membersQuery.error instanceof ApiError && membersQuery.error.status === 403;
+    // Only owners manage members, but admins may still invite people: give them the invites.
+    if (forbidden && !hideInvitesTab) {
+      return (
+        <div className="space-y-6">
+          <p className="text-sm text-muted-foreground">Only the organization's owner manages members. You can invite people below.</p>
+          <InvitesSection maxRole="admin" />
+        </div>
+      );
+    }
+    const message = forbidden
+      ? "You do not have permission to manage organization members."
+      : membersQuery.error instanceof Error
+        ? membersQuery.error.message
+        : "Failed to load organization members.";
     return <div className="text-sm text-destructive">{message}</div>;
   }
 
@@ -587,7 +596,7 @@ export function CompanyAccess() {
         </TabsContent>
         {!hideInvitesTab && (
           <TabsContent value="invites">
-            <InvitesSection />
+            <InvitesSection maxRole={access?.currentUserRole ?? "operator"} />
           </TabsContent>
         )}
       </Tabs>

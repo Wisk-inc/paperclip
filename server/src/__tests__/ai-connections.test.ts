@@ -185,6 +185,41 @@ describe("managed AI connections", () => {
     const next = await create("carol", "Carol second key");
     expect((await service.select({ ...input, userId: "carol" })).grant.id).toBe(next.grantId);
   });
+  it("revoking a key keeps it as the default, so agents ask to reconnect it rather than switch keys", async () => {
+    await db.insert(companyMemberships).values({ companyId, principalId: "dana", principalType: "user", status: "active", membershipRole: "member" });
+    const saved = await create("dana", "Dana key");
+    await toolAccessService(db).revokeConnectionGrant(saved.connectionId, saved.grantId, { actorType: "user", actorId: "dana" } as never);
+    // Unlike removing it, a revoked key stays the default: a key added later does not take over.
+    await create("dana", "Dana second key");
+    await expect(service.select({ ...input, userId: "dana" })).rejects.toThrow("Reconnect");
+    expect((await db.select().from(aiProviderDefaults).where(eq(aiProviderDefaults.userId, "dana"))).map((row) => row.grantId)).toEqual([saved.grantId]);
+    // Reconnecting brings the same key back as the default.
+    const reconnected = await service.save(companyId, "dana", { ...binding, ownership: "personal", name: "Dana key", apiKey: "fixture", agentIds: [], allAgents: true, connectionId: saved.connectionId }, "fixture-dana-again");
+    expect(reconnected.grantId).toBe(saved.grantId);
+    expect(await service.credential(await service.select({ ...input, userId: "dana" }))).toBe("fixture-dana-again");
+  });
+  it("lists for one agent only the shared accounts it may use, and marks the person's own account it can't use", async () => {
+    const otherAgentId = randomUUID();
+    await db.insert(agents).values({ id: otherAgentId, companyId, name: "Orion", adapterType: "claude_local" });
+    await db.insert(companyMemberships).values({ companyId, principalId: "erin", principalType: "user", status: "active", membershipRole: "member" });
+    const sharedForNova = await service.save(companyId, "erin", { provider: "anthropic", method: "api_key", ownership: "shared", name: "Nova only", apiKey: "fixture", agentIds: [agentId], allAgents: false }, "fixture-nova-only");
+    const personalForNova = await service.save(companyId, "erin", { provider: "anthropic", method: "api_key", ownership: "personal", name: "Erin for Nova", apiKey: "fixture", agentIds: [agentId], allAgents: false }, "fixture-erin-nova");
+
+    const forOther = await service.list(companyId, "erin", otherAgentId);
+    expect(forOther.some((account) => account.id === sharedForNova.connectionId)).toBe(false);
+    expect(forOther.find((account) => account.id === personalForNova.connectionId)?.unavailableReason).toContain("isn't set up for this agent");
+    // The server refuses the same choices for that agent.
+    await expect(service.select({ ...input, agentId: otherAgentId, userId: "erin", binding: { ...binding, mode: "shared", connectionId: sharedForNova.connectionId, grantId: sharedForNova.grantId } })).rejects.toThrow("not permitted");
+    await expect(service.select({ ...input, agentId: otherAgentId, userId: "erin" })).rejects.toThrow("not permitted");
+
+    const forNova = await service.list(companyId, "erin", agentId);
+    expect(forNova.some((account) => account.id === sharedForNova.connectionId)).toBe(true);
+    expect(forNova.find((account) => account.id === personalForNova.connectionId)?.unavailableReason).toBeUndefined();
+    // Without an agent (a hire, which sets the account up for the new agent) everything usable is listed.
+    const unfiltered = await service.list(companyId, "erin");
+    expect(unfiltered.some((account) => account.id === sharedForNova.connectionId)).toBe(true);
+    expect(unfiltered.find((account) => account.id === personalForNova.connectionId)?.unavailableReason).toBeUndefined();
+  });
   it("uses human access for every selection; an agent delegation cannot override Just me", async () => {
     const personal = await service.select({ ...input, userId: "alice" });
     const delegated = { ...binding, mode: "delegated" as const, connectionId: personal.connection.id, grantId: personal.grant.id };

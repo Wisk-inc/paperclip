@@ -439,4 +439,55 @@ describe("approval routes idempotent retries", () => {
     expect(res.body.error).toContain("Status-only recovery runs cannot create or modify approvals");
     expect(mockApprovalService.addComment).not.toHaveBeenCalled();
   });
+
+  it("keeps an approval's discussion behind the same boundary as the approval", async () => {
+    // A task-bridge key or low-trust agent is refused company_scope:read.
+    mockAccessService.decide.mockResolvedValue({ allowed: false, reason: "deny" });
+    mockApprovalService.getById.mockResolvedValue({ id: "approval-1", companyId: "company-1", type: "hire_agent", status: "pending" });
+    const app = await createAgentApp();
+
+    const read = await request(app).get("/api/approvals/approval-1/comments");
+    expect(read.status).toBe(403);
+    expect(mockApprovalService.listComments).not.toHaveBeenCalled();
+
+    const write = await request(app).post("/api/approvals/approval-1/comments").send({ body: "approve this please" });
+    expect(write.status).toBe(403);
+    expect(mockApprovalService.addComment).not.toHaveBeenCalled();
+  });
+
+  it("refuses to approve, reject or send back a budget stop, which is settled from Costs", async () => {
+    mockApprovalService.getById.mockResolvedValue({ id: "approval-b", companyId: "company-1", type: "budget_override_required", status: "pending" });
+    const app = await createApp();
+    for (const path of ["approve", "reject", "request-revision"]) {
+      const res = await request(app).post(`/api/approvals/approval-b/${path}`).send({});
+      expect(res.status).toBe(422);
+      expect(res.body.error).toContain("Settle a budget stop from Costs");
+    }
+    expect(mockApprovalService.approve).not.toHaveBeenCalled();
+    expect(mockApprovalService.reject).not.toHaveBeenCalled();
+    expect(mockApprovalService.requestRevision).not.toHaveBeenCalled();
+  });
+
+  it("wakes the requesting agent with the note when the board sends an approval back", async () => {
+    mockApprovalService.getById.mockResolvedValue({ id: "approval-r", companyId: "company-1", type: "hire_agent", status: "pending", requestedByAgentId: "agent-9" });
+    mockApprovalService.requestRevision.mockResolvedValue({
+      id: "approval-r",
+      companyId: "company-1",
+      type: "hire_agent",
+      status: "revision_requested",
+      requestedByAgentId: "agent-9",
+      decisionNote: "Use a cheaper model",
+      payload: {},
+    });
+    const app = await createApp();
+    const res = await request(app).post("/api/approvals/approval-r/request-revision").send({ decisionNote: "Use a cheaper model" });
+    expect(res.status).toBe(200);
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      "agent-9",
+      expect.objectContaining({
+        reason: "approval_revision_requested",
+        payload: expect.objectContaining({ approvalId: "approval-r", decisionNote: "Use a cheaper model", issueId: "issue-1" }),
+      }),
+    );
+  });
 });

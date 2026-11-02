@@ -236,6 +236,32 @@ async function sendZip(res: Response, root: string, relative: string, fallbackNa
  * Applies proposed file changes to the project. Each `after` replaces the
  * file; a null `after` deletes it.
  */
+/**
+ * The files of a change that moved on since the collaborator started from
+ * them (edited, created or deleted by someone else since): accepting would
+ * replace those newer edits. A file that already holds the proposed version
+ * is not stale.
+ */
+async function staleChangePaths(workspace: WorkspaceRow, files: StudioChangeFile[]): Promise<string[]> {
+  const dirs = studioWorkspaceDirs(workspace.companyId, workspace.id);
+  const stale: string[] = [];
+  for (const file of files) {
+    const current = await readStudioFile(dirs.files, file.path).then(
+      (read) => ({ exists: true, content: read.content }),
+      () => ({ exists: false, content: null as string | null }),
+    );
+    const now = current.exists ? current.content : null;
+    if (current.exists && now === null) {
+      // Too large or binary to compare: counted as changed, so the owner decides.
+      stale.push(file.path);
+      continue;
+    }
+    if (now === file.after) continue;
+    if (now !== file.before) stale.push(file.path);
+  }
+  return stale;
+}
+
 async function applyChangeFiles(workspace: WorkspaceRow, files: StudioChangeFile[]) {
   const dirs = studioWorkspaceDirs(workspace.companyId, workspace.id);
   for (const file of files) {
@@ -271,6 +297,7 @@ export function studioRoutes(db: Db) {
         .then((ids) => {
           for (const id of ids) {
             studioHub.kickGuests(id, "The share code expired.");
+            existingStudioRuntime(id)?.rotatePreviewToken();
             studioHub.broadcast(id, { type: "share", shareEnabled: false });
           }
         })
@@ -526,7 +553,8 @@ export function studioRoutes(db: Db) {
     const result = await undoEdit(workspace.companyId, workspace.id, { id: editId }, `${await ownerName(req.actor.userId)} (undo)`);
     await broadcastFile(workspace, result.undone.path, "undo");
     const turn = await markEditUndone(workspace.companyId, workspace.id, editId);
-    if (turn) studioHub.broadcast(workspace.id, { type: "assistant", turn, done: true });
+    // The assistant is the owner's own conversation: guests never get it.
+    if (turn) studioHub.sendToOwners(workspace.id, { type: "assistant", turn, done: true });
     await log(req, workspace, "studio.edit_undone", { editId, path: result.undone.path });
     res.json({ path: result.undone.path, undoId: result.undo.id });
   });
@@ -741,6 +769,8 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     const updated = await svc.disableShare(workspace.id);
     studioHub.kickGuests(workspace.id, "The owner stopped sharing this project.");
+    // Guests had the running app's preview address: it changes, so it stops working for them.
+    existingStudioRuntime(workspace.id)?.rotatePreviewToken();
     studioHub.broadcast(workspace.id, { type: "share", shareEnabled: false });
     await log(req, workspace, "studio.share_disabled");
     res.json({ workspace: updated });
@@ -755,6 +785,8 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     const removed = await svc.removeCollaborator(workspace.id, String(req.params.collaboratorId));
     studioHub.kickGuests(workspace.id, "The owner removed you from this project.", removed.id);
+    // Kicked first, so only the people still here get the new preview address.
+    existingStudioRuntime(workspace.id)?.rotatePreviewToken();
     await log(req, workspace, "studio.collaborator_removed", { collaborator: removed.displayName });
     res.json({ collaborator: removed });
   });
@@ -807,6 +839,17 @@ export function studioRoutes(db: Db) {
     if (row.status !== "open") throw conflict("This change request was already handled");
     const edited = new Map<string, string | null>((req.body.files ?? []).map((file: { path: string; after: string | null }) => [normalizeStudioPath(file.path), file.after]));
     const files: StudioChangeFile[] = row.files.map((file) => (edited.has(normalizeStudioPath(file.path)) ? { ...file, after: edited.get(normalizeStudioPath(file.path))! } : file));
+    // A file edited since the collaborator started would lose those newer
+    // edits: the owner decides (the request stays open) before anything is written.
+    if (req.body.overwriteNewer !== true) {
+      const stale = await staleChangePaths(workspace, files);
+      if (stale.length > 0) {
+        throw conflict(
+          `${stale.join(", ")} changed after ${row.authorName} made this change. Accepting it replaces those newer edits.`,
+          { code: "studio_change_stale", paths: stale },
+        );
+      }
+    }
     // Taken first, so a reject at the same moment either wins (nothing is written) or is refused.
     const resolved = await svc.resolveChangeRequest(workspace.id, row.id, "accepted", req.actor.userId ?? null, files);
     await createCheckpoint(workspace.companyId, workspace.id, { label: `Before ${row.authorName}'s change`, kind: "change", by: await ownerName(req.actor.userId) }).catch(() => null);
@@ -917,7 +960,7 @@ export function studioRoutes(db: Db) {
         kind: "assistant",
         by: "AI assistant",
       }).catch(() => null);
-      const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body, team);
+      const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body, team, req.actor.userId ?? null);
       await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null, thinking: req.body.thinking ?? null, team: team.map((mate) => `${mate.provider}:${mate.model}`) });
       res.status(202).json({ turn: userTurn });
     } finally {
@@ -937,6 +980,8 @@ export function studioRoutes(db: Db) {
       thinking?: Parameters<typeof runAssistantTurn>[0]["thinking"];
     },
     team: Parameters<typeof runAssistantTurn>[0]["team"] = [],
+    /** Who asked: the finished reply's phone notification is theirs alone. */
+    requestedByUserId: string | null = null,
   ) {
     // Free work is priced at the paid models' list prices; load them before the first reply counts.
     if (body.provider === "free" || team.some((member) => member.provider === "free")) warmPaidPrices();
@@ -956,7 +1001,14 @@ export function studioRoutes(db: Db) {
         // News for the person's phone, unless they are watching App Studio.
         onFinished: (turn) => {
           if (studioHub.ownerWatching(workspace.id)) return;
-          void pushStudioReply(db, { companyId: workspace.companyId, workspaceId: workspace.id, projectName: workspace.name, text: turn.text, error: turn.error });
+          void pushStudioReply(db, {
+            companyId: workspace.companyId,
+            workspaceId: workspace.id,
+            projectName: workspace.name,
+            text: turn.text,
+            error: turn.error,
+            requestedByUserId,
+          });
         },
       },
       message: body.message ?? "",
@@ -988,7 +1040,7 @@ export function studioRoutes(db: Db) {
     const workspace = await workspaceFor(req);
     if (isAssistantRunning(workspace.id) || startingAssistant.has(workspace.id)) throw conflict("Stop the assistant first");
     await clearAssistantConversation(workspace.companyId, workspace.id);
-    studioHub.broadcast(workspace.id, { type: "assistant:cleared" });
+    studioHub.sendToOwners(workspace.id, { type: "assistant:cleared" });
     await log(req, workspace, "studio.assistant_cleared");
     res.json({ ok: true });
   });

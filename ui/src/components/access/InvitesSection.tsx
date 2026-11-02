@@ -45,12 +45,25 @@ function isInviteHistoryRow(value: unknown): value is Awaited<ReturnType<typeof 
   return "id" in value && "state" in value && "createdAt" in value;
 }
 
-/** The Invites tab of the Members page (extracted from the former standalone Invites page). */
-export function InvitesSection() {
+type InviteRole = (typeof inviteRoleOptions)[number]["value"];
+const inviteRoleRank: Record<InviteRole, number> = { viewer: 1, operator: 2, admin: 3, owner: 4 };
+
+/**
+ * The Invites tab of the Members page (extracted from the former standalone Invites page).
+ * `maxRole` is the inviter's own role: the server refuses invites above it, so they aren't offered.
+ */
+export function InvitesSection({ maxRole = "owner" }: { maxRole?: InviteRole | null } = {}) {
   const { selectedCompanyId } = useCompany();
   const { pushToast } = useToast();
   const queryClient = useQueryClient();
-  const [humanRole, setHumanRole] = useState<"owner" | "admin" | "operator" | "viewer">("operator");
+  const [humanRole, setHumanRole] = useState<InviteRole>("operator");
+  const roleOptions = useMemo(
+    () => inviteRoleOptions.filter((option) => inviteRoleRank[option.value] <= inviteRoleRank[maxRole ?? "operator"]),
+    [maxRole],
+  );
+  useEffect(() => {
+    if (!roleOptions.some((option) => option.value === humanRole)) setHumanRole(roleOptions[roleOptions.length - 1]?.value ?? "viewer");
+  }, [roleOptions, humanRole]);
   const [latestInviteUrl, setLatestInviteUrl] = useState<string | null>(null);
   const [latestInviteCopied, setLatestInviteCopied] = useState(false);
   const latestInviteInputRef = useRef<HTMLInputElement | null>(null);
@@ -186,7 +199,7 @@ export function InvitesSection() {
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium">Choose a role</legend>
           <div className="rounded-xl border border-border">
-            {inviteRoleOptions.map((option, index) => {
+            {roleOptions.map((option, index) => {
               const checked = humanRole === option.value;
               return (
                 <label

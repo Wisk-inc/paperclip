@@ -591,12 +591,17 @@ function fileBaseName(filename: string) {
   return filename.replace(/\.[^.]+$/, "");
 }
 
+/** Document keys are at most 64 characters; 60 leaves room for a "-2" suffix. */
+const DOCUMENT_KEY_BASE_MAX = 60;
+
 function slugifyDocumentKey(input: string) {
   const slug = input
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, "")
+    .slice(0, DOCUMENT_KEY_BASE_MAX)
+    .replace(/-+$/g, "");
   return slug || "document";
 }
 
@@ -4552,7 +4557,12 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   const waitNoticeDismissed = useWaitNoticeDismissed(issue?.id);
   // The task on screen is the one the person waits on: if they leave the app
   // before its reply lands, a notification brings them back here.
-  const watchPath = `${location.pathname}${location.search}`;
+  // Where a reply notification leads. A chat's address follows its agent's
+  // name, so a rename while the person waits would leave it pointing at no
+  // chat; the agent's id never changes and opens the same chat.
+  const watchPath = conversation
+    ? `${location.pathname.replace(/\/chats\/[^/?#]+/, `/chats/${encodeURIComponent(conversation.agent.id)}`)}${location.search}`
+    : `${location.pathname}${location.search}`;
   useEffect(() => (issue?.id ? showingIssue(issue.id, watchPath) : undefined), [issue?.id, watchPath]);
 
   const approvalDecision = useMutation({
@@ -5496,6 +5506,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   });
 
   const conversationAgent = conversation?.agent ?? agents?.find(agent => agent.id === issue?.conversationAgentId);
+  // A chat belongs to one person; anyone else sees it read-only (the server refuses their messages and deletes).
+  const isOthersChat = Boolean(
+    issue?.conversationAgentId && issue.conversationUserId && currentUserId && issue.conversationUserId !== currentUserId,
+  );
   useEffect(() => {
     if (conversationAgent) {
       setBreadcrumbs([{
@@ -5509,10 +5523,13 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         trailing: (
           <span className="ml-1 flex items-center gap-1">
             <AgentModelButton agent={conversationAgent} />
-            <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
+            {/* Another member's chat opens read-only: no deleting it. */}
+            {isOthersChat ? null : (
+              <ChatOptionsMenu agent={conversationAgent} chatIssueId={issue?.id} afterDelete={() => navigate("/chats")} />
+            )}
           </span>
         ),
-        trailingKey: `configure:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${JSON.stringify(conversationAgent.adapterConfig ?? null)}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
+        trailingKey: `configure:${isOthersChat ? "readonly" : "owner"}:${issue?.id ?? ""}:${conversationAgent.id}:${conversationAgent.name}:${conversationAgent.role}:${conversationAgent.title ?? ""}:${conversationAgent.reportsTo ?? ""}:${conversationAgent.adapterType}:${JSON.stringify(conversationAgent.adapterConfig ?? null)}:${JSON.stringify((conversationAgent.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? null)}`,
       }]);
       return;
     }
@@ -5529,6 +5546,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     ]);
   }, [
     conversationAgent,
+    isOthersChat,
     issue?.id,
     navigate,
     breadcrumbTitle,
@@ -6372,15 +6390,18 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         });
       } else {
         const comment = await addComment.mutateAsync({ body, reopen, attachmentIds, clientRequestId });
-        // A new chat's task exists only once its first message is in.
-        const writtenTo = issue?.id ?? comment?.issueId;
+        // The task the message went to. A new chat's task exists only once its
+        // first message is in: until then the screen shows a draft whose id
+        // ("chat:<agent>") no reply will ever carry.
+        const isDraftChat = Boolean(conversation && !conversation.issue);
+        const writtenTo = comment?.issueId ?? (isDraftChat ? null : issue?.id);
         if (writtenTo) watchIssueReplies(writtenTo, watchPath);
         return;
       }
       // The reply to this message is news even after the person leaves the task.
       if (issue?.id) watchIssueReplies(issue.id, watchPath);
     },
-    [addComment, addCommentAndReassign, issue?.id, watchPath],
+    [addComment, addCommentAndReassign, conversation, issue?.id, watchPath],
   );
   const handleCommentImageUpload = useCallback(
     async (file: File) => {
@@ -6882,18 +6903,31 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       href: createIssueDetailPath(ref),
     };
   })();
+  // Every file gets its try: one the server refuses (too large) shows its
+  // reason and doesn't stop the rest. The reason is set by each mutation.
+  const uploadPickedFiles = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        if (isMarkdownFile(file)) {
+          await importMarkdownDocument.mutateAsync(file);
+        } else {
+          await uploadAttachment.mutateAsync(file);
+        }
+      } catch {
+        // Shown through attachmentError.
+      }
+    }
+  };
+
   const handleFilePicked = async (evt: ChangeEvent<HTMLInputElement>) => {
     const files = evt.target.files;
     if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      if (isMarkdownFile(file)) {
-        await importMarkdownDocument.mutateAsync(file);
-      } else {
-        await uploadAttachment.mutateAsync(file);
+    try {
+      await uploadPickedFiles(Array.from(files));
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
     }
   };
 
@@ -6902,13 +6936,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     setAttachmentDragActive(false);
     const files = evt.dataTransfer.files;
     if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      if (isMarkdownFile(file)) {
-        await importMarkdownDocument.mutateAsync(file);
-      } else {
-        await uploadAttachment.mutateAsync(file);
-      }
-    }
+    await uploadPickedFiles(Array.from(files));
   };
 
   const hasAttachments = attachmentList.length > 0;
@@ -7688,7 +7716,19 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   sharingPreferenceAtSubmit: feedbackDataSharingPreference,
                 });
               }}
-              extraActions={!hasAttachments ? attachmentUploadButton : null}
+              extraActions={
+                !hasAttachments ? (
+                  <>
+                    {attachmentUploadButton}
+                    {/* With no attachments yet the attachments section (and its error line) isn't shown. */}
+                    {attachmentError ? (
+                      <span role="alert" className="text-xs text-destructive">
+                        {attachmentError}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null
+              }
               agentMap={agentMap}
               userProfileMap={userProfileMap}
             />
@@ -8035,7 +8075,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     } : undefined,
                     resumeHref: !activePauseHold.isRoot ? createIssueDetailPath(activePauseHoldRoot?.identifier ?? activePauseHold.rootIssueId) : undefined,
                   } : null}
-                  composerDisabledReason={issue.conversationAgentId && !instanceExperimentalSettings?.enableAgentChat ? "Agent Chat is disabled in Experimental settings." : treeControlStateError ? "Couldn’t check whether this task is paused. Refresh to try again." : null}
+                  composerDisabledReason={isOthersChat ? "This is another member's chat. You can read it, but only they can write in it." : issue.conversationAgentId && !instanceExperimentalSettings?.enableAgentChat ? "Agent Chat is disabled in Experimental settings." : treeControlStateError ? "Couldn’t check whether this task is paused. Refresh to try again." : null}
                   composerHint={composerHint}
                   queuedCommentReason={queuedCommentReason}
                   onVote={handleCommentVote}

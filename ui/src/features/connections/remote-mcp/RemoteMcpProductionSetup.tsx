@@ -9,6 +9,7 @@ import { useCompany } from "@/context/CompanyContext";
 import { useNavigate, useSearchParams } from "@/lib/router";
 import { resolveAuthorizationTarget } from "@/lib/authorizationUrl";
 import { navigateTopLevel } from "@/lib/browserNavigation";
+import { isAutomaApp } from "@/lib/automa-native";
 import { queryKeys } from "@/lib/queryKeys";
 import { RemoteMcpConnectionSetup } from "./RemoteMcpConnectionSetup";
 import { remoteMcpProviders, type RemoteMcpProviderId } from "./providers";
@@ -34,6 +35,8 @@ export function RemoteMcpProductionSetup({ providerId, connection, host = "page"
   const accessDraftKey = `paperclip:mcp-access-draft:${selectedCompanyId}:${interactionId || providerId}`;
   const intentDraftKey = `paperclip:mcp-intent-draft:${selectedCompanyId}:${interactionId}`;
   const popup = useRef<Window | null>(null);
+  // In the Automa app sign-in takes the whole page: its WebView opens no popup window.
+  const popupSignIn = host === "dialog" && !isAutomaApp();
   useEffect(() => () => {
     popup.current?.close();
     popup.current = null;
@@ -96,7 +99,7 @@ export function RemoteMcpProductionSetup({ providerId, connection, host = "page"
     } catch { edit({ connectStatus: "invalid_url" }); return; }
     // Reserve the window while handling the click so popup blockers do not
     // discard the later OAuth response. URL/token-only providers never need it.
-    if (!saveDraft && host === "dialog" && state.auth === "auto" && (!popup.current || popup.current.closed)) {
+    if (!saveDraft && popupSignIn && state.auth === "auto" && (!popup.current || popup.current.closed)) {
       popup.current = window.open("about:blank", "paperclip-connection-oauth", "popup,width=720,height=760,resizable=yes,scrollbars=yes");
     }
     busy.current = true;
@@ -137,7 +140,7 @@ export function RemoteMcpProductionSetup({ providerId, connection, host = "page"
         if (!target.ok) throw new Error(target.message);
         authorizationUrl.current = target.url;
         edit({ connectStatus: "sign_in", token: "", headers: [] });
-        if (host === "dialog") {
+        if (popupSignIn) {
           if (popup.current && !popup.current.closed) {
             popup.current.location.assign(target.url);
             popup.current.focus();
@@ -167,7 +170,7 @@ export function RemoteMcpProductionSetup({ providerId, connection, host = "page"
     edit, navigate: (step) => edit({ step }), connect: () => { void submit(); },
     cancelConnect: () => { if (!busy.current) { popup.current?.close(); popup.current = null; edit({ connectStatus: "cancelled" }); onPhaseChange?.("needs_retry"); } },
     openProvider: (purpose) => {
-      if (purpose === "sign_in" && authorizationUrl.current) { if (host === "dialog") { popup.current = null; edit({ connectStatus: "sign_in" }); } else navigateTopLevel(authorizationUrl.current); }
+      if (purpose === "sign_in" && authorizationUrl.current) { if (popupSignIn) { popup.current = null; edit({ connectStatus: "sign_in" }); } else navigateTopLevel(authorizationUrl.current); }
       else window.open(provider.setupUrl, "_blank", "noopener,noreferrer");
     },
     saveExit: () => {
@@ -187,5 +190,5 @@ export function RemoteMcpProductionSetup({ providerId, connection, host = "page"
       void onUseExisting(id).catch((error) => { setChoiceError(error instanceof Error ? error.message : "Could not use this connection."); setChoicePending(null); });
     }} />;
   if (connection && !installs.data) return <div className="space-y-3 p-8"><p>{installs.isError ? "Could not load saved access. Retry before changing this connection." : "Loading saved access…"}</p>{installs.isError && <button type="button" className="text-primary underline" onClick={() => void installs.refetch()}>Try again</button>}</div>;
-  return <RemoteMcpConnectionSetup upstreamServiceName={upstreamServiceName} host={host} lockedAgentId={requestedAgentId} authorizationUrl={host === "dialog" ? authorizationUrl.current : undefined} provider={provider} connectionId={savedConnection.current?.id ?? ""} fixedGrantKind={savedConnection.current ? savedConnection.current.credentialPolicy === "per_user" ? "user" : "organization" : undefined} state={state} actions={actions} agents={agents.data ?? []} />;
+  return <RemoteMcpConnectionSetup upstreamServiceName={upstreamServiceName} host={host} lockedAgentId={requestedAgentId} authorizationUrl={popupSignIn ? authorizationUrl.current : undefined} provider={provider} connectionId={savedConnection.current?.id ?? ""} fixedGrantKind={savedConnection.current ? savedConnection.current.credentialPolicy === "per_user" ? "user" : "organization" : undefined} state={state} actions={actions} agents={agents.data ?? []} />;
 }

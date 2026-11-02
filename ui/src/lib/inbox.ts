@@ -18,6 +18,12 @@ import { formatAssigneeUserLabel } from "./assignees";
 export const RECENT_ISSUES_LIMIT = 100;
 export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
+/**
+ * Approvals waiting on the board. One sent back for changes can still be
+ * decided (ACTIONABLE_APPROVAL_STATUSES), but it waits on its agent, so it
+ * doesn't count as needing you.
+ */
+export const APPROVAL_STATUSES_AWAITING_BOARD = new Set(["pending"]);
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
 /** Item keys the phone's bell was tapped on; the badge counts only what came after. */
@@ -309,6 +315,19 @@ export function saveCollapsedInboxParentIds(
   } catch {
     // Ignore localStorage failures.
   }
+}
+
+/**
+ * Dismissing an alert hides that organization's alert, and only until there
+ * is a new problem: another failing agent, or the next budget month (UTC,
+ * as budgets count it).
+ */
+export function agentErrorsAlertKey(companyId: string, errorCount: number): string {
+  return `alert:agent-errors:${companyId}:${errorCount}`;
+}
+
+export function budgetAlertKey(companyId: string, now: Date = new Date()): string {
+  return `alert:budget:${companyId}:${now.toISOString().slice(0, 7)}`;
 }
 
 export function loadDismissedInboxAlerts(): Set<string> {
@@ -820,7 +839,7 @@ export function getApprovalsForTab(
   }
   if (tab === "recent") return sortedApprovals;
   if (tab === "unread") {
-    return sortedApprovals.filter((approval) => ACTIONABLE_APPROVAL_STATUSES.has(approval.status));
+    return sortedApprovals.filter((approval) => APPROVAL_STATUSES_AWAITING_BOARD.has(approval.status));
   }
   if (filter === "all") return sortedApprovals;
 
@@ -834,7 +853,7 @@ export function isApprovalVisibleInMine(
   approval: Approval,
   currentUserId?: string | null,
 ): boolean {
-  if (ACTIONABLE_APPROVAL_STATUSES.has(approval.status)) return true;
+  if (APPROVAL_STATUSES_AWAITING_BOARD.has(approval.status)) return true;
   if (!currentUserId) return false;
   return approval.requestedByUserId === currentUserId || approval.decidedByUserId === currentUserId;
 }
@@ -1315,7 +1334,7 @@ export function computeInboxBadgeData({
   const actionableApprovalItems = approvals.filter(
     (approval) =>
       isApprovalVisibleInMine(approval, currentUserId) &&
-      ACTIONABLE_APPROVAL_STATUSES.has(approval.status) &&
+      APPROVAL_STATUSES_AWAITING_BOARD.has(approval.status) &&
       !isInboxEntityDismissed(dismissedAtByKey, `approval:${approval.id}`, approval.updatedAt),
   );
   const actionableApprovals = actionableApprovalItems.length;
@@ -1342,11 +1361,11 @@ export function computeInboxBadgeData({
   const showAggregateAgentError =
     agentErrorCount > 0 &&
     failedRuns === 0 &&
-    !dismissedAlerts.has("alert:agent-errors");
+    !(dashboard && dismissedAlerts.has(agentErrorsAlertKey(dashboard.companyId, agentErrorCount)));
   const showBudgetAlert =
     monthBudgetCents > 0 &&
     monthUtilizationPercent >= 80 &&
-    !dismissedAlerts.has("alert:budget");
+    !(dashboard && dismissedAlerts.has(budgetAlertKey(dashboard.companyId)));
   const alerts = Number(showAggregateAgentError) + Number(showBudgetAlert);
 
   return {

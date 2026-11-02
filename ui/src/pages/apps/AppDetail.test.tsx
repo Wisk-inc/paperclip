@@ -607,6 +607,50 @@ describe("AppDetail", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/apps/conn-1/permissions", { replace: true });
   });
 
+  it("says why a reconnect came back without connecting, with GitHub's own install link, and clears the one-time flags", async () => {
+    mockParams.tab = "permissions";
+    mockSearchParams.value = new URLSearchParams({
+      oauth: "failed",
+      code: "github_installation_required",
+      installation_url: "https://github.com/apps/automa/installations/new",
+      management_url: "https://evil.example/settings",
+    });
+
+    await renderAppDetail();
+
+    const notice = container.querySelector("[data-testid=app-oauth-notice]");
+    expect(notice?.textContent).toContain("GitHub access is required");
+    // Only a github.com link is offered.
+    expect([...notice!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual([
+      "https://github.com/apps/automa/installations/new",
+    ]);
+    expect(mockNavigate).toHaveBeenCalledWith("/apps/conn-1/permissions", { replace: true });
+
+    await act(async () => notice!.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click());
+    expect(container.querySelector("[data-testid=app-oauth-notice]")).toBeNull();
+  });
+
+  it("says a declined reconnect left the saved connection as it was", async () => {
+    mockParams.tab = "permissions";
+    mockSearchParams.value = new URLSearchParams("oauth=denied&code=oauth_authorization_denied");
+
+    await renderAppDetail();
+
+    expect(container.querySelector("[data-testid=app-oauth-notice]")?.textContent).toContain(
+      "Authorization was cancelled or declined. Your saved connection was not changed.",
+    );
+  });
+
+  it("calls an unfinished draft Setup incomplete, not Paused", async () => {
+    mockParams.tab = "permissions";
+    getConnectionMock.mockResolvedValue(connection({ status: "draft", enabled: false }));
+
+    await renderAppDetail();
+
+    expect(container.textContent).toContain("Setup incomplete");
+    expect(container.textContent).not.toContain("Paused");
+  });
+
   it("normalizes the retired post-OAuth Setup URL into Permissions", async () => {
     mockParams.tab = "setup";
     mockSearchParams.value = new URLSearchParams("oauth=choose-access");

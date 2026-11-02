@@ -2375,6 +2375,19 @@ export function createToolGatewayService(
         })
         .returning();
       formalApprovalId = approval.id;
+      // Logged like any other new approval, so the board's phones hear about it.
+      await logActivity(db, {
+        companyId: input.session.companyId,
+        actorType: input.session.agentId ? "agent" : "system",
+        actorId: input.session.agentId ?? "tool-gateway",
+        agentId: input.session.agentId,
+        runId: input.session.runId ?? null,
+        action: "approval.created",
+        entityType: "approval",
+        entityId: approval.id,
+        issueId: input.session.issueId,
+        details: { type: approval.type, tool: input.tool.name, risk: input.tool.risk },
+      });
       await db
         .insert(issueApprovals)
         .values({

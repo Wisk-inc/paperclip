@@ -20,6 +20,7 @@ const managedApi = vi.hoisted(() => ({
   checkLocalLogin: vi.fn(async () => ({ status: "sign_in_required" as const })),
   cancelLocalLogin: vi.fn(async () => ({})),
   create: vi.fn(async () => ({ connectionId: "managed-connection", grantId: "managed-grant" })),
+  setDefault: vi.fn(async () => ({})),
 }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: managedApi }));
 vi.mock("@/api/agents", () => ({
@@ -272,6 +273,41 @@ describe("AgentProviderConnection reuse", () => {
     click("Use API key instead");
     openProvider();
     expect(host.querySelector('input[type="password"]')).not.toBeNull();
+  });
+
+  it("makes a key typed during setup the default, so the agent uses it and not an older one", async () => {
+    const { connected } = await mount("claude_local", false, true, false, false);
+    click("Use API key instead");
+    openProvider();
+    const input = host.querySelector<HTMLInputElement>('input[type="password"]')!;
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "sk-ant-api03-new-key");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click("Connect");
+    await vi.waitFor(() => expect(connected).toHaveBeenCalled());
+    expect(managedApi.create).toHaveBeenCalledWith("c1", expect.objectContaining({ provider: "anthropic", method: "api_key", apiKey: "sk-ant-api03-new-key" }));
+    expect(managedApi.setDefault).toHaveBeenCalledWith("c1", "managed-grant");
+  });
+
+  it("shows a failed switch of the default, and a retry finishes it without saving the key twice", async () => {
+    const { connected } = await mount("claude_local", false, true, false, false);
+    managedApi.setDefault.mockRejectedValueOnce(new Error("Could not reach the server"));
+    click("Use API key instead");
+    openProvider();
+    const input = host.querySelector<HTMLInputElement>('input[type="password"]')!;
+    flushSync(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "sk-ant-api03-new-key");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click("Connect");
+    await vi.waitFor(() => expect(host.textContent).toContain("Could not reach the server"));
+    expect(connected).not.toHaveBeenCalled();
+    click("Connect");
+    await vi.waitFor(() => expect(connected).toHaveBeenCalled());
+    expect(managedApi.create).toHaveBeenCalledTimes(1);
+    expect(managedApi.setDefault).toHaveBeenCalledTimes(2);
+    expect(managedApi.setDefault).toHaveBeenLastCalledWith("c1", "managed-grant");
   });
 
   it("does not use a cached Claude login for Codex", async () => {

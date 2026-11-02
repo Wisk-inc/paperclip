@@ -350,7 +350,13 @@ export function CompanySettings() {
             checked={!!selectedCompany.requireBoardApprovalForNewAgents}
             onChange={(v) => settingsMutation.mutate(v)}
             toggleTestId="company-settings-team-approval-toggle"
+            disabled={settingsMutation.isPending}
           />
+          {settingsMutation.isError ? (
+            <p role="alert" className="mt-1 text-xs text-destructive">
+              {settingsMutation.error instanceof Error ? settingsMutation.error.message : "Could not change hire approval."}
+            </p>
+          ) : null}
         </div>
       </div>
 

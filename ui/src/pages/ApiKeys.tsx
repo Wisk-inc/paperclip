@@ -244,7 +244,7 @@ export function ApiKeys() {
                       {connection.unavailableReason ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{connection.unavailableReason}</p> : null}
                     </div>
                   </div>
-                  <KeyBalance companyId={companyId} connection={connection} />
+                  <KeyBalance companyId={companyId} connection={connection} providerLabel={providerName(connection.provider)} />
                   <div className="flex flex-wrap items-center gap-2">
                     {isKey ? (
                       <Button type="button" variant="outline" size="sm" onClick={() => void copyKey(connection)} data-testid="api-key-copy">

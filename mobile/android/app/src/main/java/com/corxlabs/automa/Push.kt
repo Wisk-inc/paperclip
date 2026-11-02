@@ -29,6 +29,27 @@ object Push {
     const val TAG_KEY = "tag"
     /** "1" on news about finished work: shown only while Automa is out of sight. */
     const val AWAY_ONLY_KEY = "away_only"
+    /** The registration the news is for; the app knows which server that is. */
+    const val DEVICE_KEY = "device_id"
+    /** Intent extra: the server origin a tapped notification belongs to. */
+    const val ORIGIN_KEY = "automa_origin"
+
+    private const val DEVICES_PREFS = "automa_push_devices"
+
+    /** Remembers that registration [deviceId] belongs to the server at [origin]. */
+    fun rememberDevice(context: Context, deviceId: String, origin: String) {
+        context.getSharedPreferences(DEVICES_PREFS, Context.MODE_PRIVATE).edit().putString(deviceId, origin).apply()
+    }
+
+    fun originForDevice(context: Context, deviceId: String): String? =
+        context.getSharedPreferences(DEVICES_PREFS, Context.MODE_PRIVATE).getString(deviceId, null)
+
+    /** A forgotten server's registrations: its news is no longer shown. */
+    fun forgetOrigin(context: Context, origin: String) {
+        val prefs = context.getSharedPreferences(DEVICES_PREFS, Context.MODE_PRIVATE)
+        val gone = prefs.all.filterValues { it == origin }.keys
+        if (gone.isNotEmpty()) prefs.edit().apply { gone.forEach(::remove) }.apply()
+    }
 
     private const val PREFS = "automa_push"
     private const val KEY_TOKEN = "token"
@@ -65,12 +86,13 @@ object Push {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
-    fun show(context: Context, title: String, body: String?, path: String?, tag: String? = null) {
+    fun show(context: Context, title: String, body: String?, path: String?, tag: String? = null, origin: String? = null) {
         if (!canNotify(context)) return
-        val id = (tag ?: path ?: title).hashCode()
+        val id = ((origin ?: "") + (tag ?: path ?: title)).hashCode()
         val open = Intent(MainActivity.ACTION_OPEN_PATH, Uri.parse("automa-path:${path ?: "/"}"))
             .setClass(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .apply { if (origin != null) putExtra(ORIGIN_KEY, origin) }
         val pending = PendingIntent.getActivity(
             context,
             id,
@@ -106,8 +128,11 @@ class PushMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val title = message.notification?.title ?: message.data["title"] ?: return
         val body = message.notification?.body ?: message.data["body"]
+        // Which server sent it: a server the person forgot has no say on this phone.
+        val origin = message.data[Push.DEVICE_KEY]?.let { Push.originForDevice(this, it) }
+        if (origin != null && !ServerConfig(this).knowsOrigin(origin)) return
         // A finished reply the person is watching on screen needs no notification.
         if (message.data[Push.AWAY_ONLY_KEY] == "1" && MainActivity.onScreen) return
-        Push.show(this, title, body, message.data[Push.PATH_KEY], message.data[Push.TAG_KEY])
+        Push.show(this, title, body, message.data[Push.PATH_KEY], message.data[Push.TAG_KEY], origin)
     }
 }

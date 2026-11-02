@@ -7,7 +7,7 @@
  */
 import { eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agentWakeupRequests, agents, heartbeatRuns } from "@paperclipai/db";
+import { agentWakeupRequests, agents, companies, heartbeatRuns } from "@paperclipai/db";
 import type { LiveEvent } from "@paperclipai/shared";
 import { logger } from "../middleware/logger.js";
 import { deviceFileService } from "./device-files.js";
@@ -17,8 +17,18 @@ import { pushSender, type PushMessage, type PushSender } from "./push-notificati
 type ActivityPayload = {
   action?: string;
   agentId?: string | null;
+  entityId?: string | null;
   details?: Record<string, unknown> | null;
 };
+
+/**
+ * Board paths start with the organization's prefix: a phone signed in to two
+ * organizations must open the one the notification is about, not whichever
+ * was selected last.
+ */
+function boardPath(prefix: string | null, path: string): string {
+  return prefix ? `/${prefix}${path}` : path;
+}
 
 function humanizeApprovalType(type: unknown): string {
   if (typeof type !== "string" || type.length === 0) return "A decision";
@@ -29,6 +39,7 @@ function humanizeApprovalType(type: unknown): string {
 export function pushMessageForActivity(
   payload: ActivityPayload,
   agentName: string | null,
+  prefix: string | null = null,
 ): { message: PushMessage; deviceId: string | null } | null {
   const details = payload.details ?? {};
   const who = agentName ?? "Someone";
@@ -38,17 +49,19 @@ export function pushMessageForActivity(
       message: {
         title: `${who} needs a file`,
         body: typeof details.title === "string" ? details.title : "Open Files to answer the request.",
-        path: "/device-files?tab=requests",
+        path: boardPath(prefix, "/device-files?tab=requests"),
       },
     };
   }
   if (payload.action === "approval.created") {
+    const approvalId = typeof payload.entityId === "string" && payload.entityId ? payload.entityId : null;
     return {
       deviceId: null,
       message: {
         title: "Approval needed",
         body: `${humanizeApprovalType(details.type)} from ${who} is waiting on you.`,
-        path: "/approvals",
+        path: boardPath(prefix, approvalId ? `/approvals/${approvalId}` : "/approvals"),
+        ...(approvalId ? { tag: `approval:${approvalId}` } : {}),
       },
     };
   }
@@ -88,7 +101,11 @@ export function isStaleRunOutcome(payload: RunStatusPayload, now = Date.now()): 
  * The phone notification for a finished run, worded like the board's own;
  * null while it runs, or when the person stopped it.
  */
-export function pushMessageForRunOutcome(payload: RunStatusPayload, agentName: string | null): PushMessage | null {
+export function pushMessageForRunOutcome(
+  payload: RunStatusPayload,
+  agentName: string | null,
+  prefix: string | null = null,
+): PushMessage | null {
   if (typeof payload.issueId !== "string") return null;
   const who = agentName?.trim() || "Your agent";
   const reply = typeof payload.finalText === "string" && payload.finalText.trim() ? payload.finalText : null;
@@ -106,19 +123,25 @@ export function pushMessageForRunOutcome(payload: RunStatusPayload, agentName: s
   return {
     title,
     body: notificationSnippet(body),
-    path: `/issues/${payload.issueId}`,
+    path: boardPath(prefix, `/issues/${payload.issueId}`),
     tag: `issue:${payload.issueId}`,
     awayOnly: true,
   };
 }
 
 /** The phone notification for a finished App Studio reply. */
-export function pushMessageForStudioReply(input: { workspaceId: string; projectName: string; text: string; error: string | null }): PushMessage {
+export function pushMessageForStudioReply(input: {
+  workspaceId: string;
+  projectName: string;
+  text: string;
+  error: string | null;
+  prefix?: string | null;
+}): PushMessage {
   const project = input.projectName.trim() || "your project";
   return {
     title: `App Studio · ${project}`,
     body: notificationSnippet(input.error ? `Couldn't finish: ${input.error}` : input.text.trim() || "The team finished. Open it to see the changes."),
-    path: `/studio/${input.workspaceId}`,
+    path: boardPath(input.prefix ?? null, `/studio/${input.workspaceId}`),
     tag: `studio:${input.workspaceId}`,
     awayOnly: true,
   };
@@ -133,29 +156,49 @@ function firstTellingOf(runId: string): boolean {
   return true;
 }
 
+async function companyPrefixFor(db: Db, companyId: string): Promise<string | null> {
+  return (await db.select({ prefix: companies.issuePrefix }).from(companies).where(eq(companies.id, companyId)).limit(1))[0]?.prefix ?? null;
+}
+
 async function agentNameFor(db: Db, agentId: unknown): Promise<string | null> {
   if (typeof agentId !== "string") return null;
   return (await db.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId)).limit(1))[0]?.name ?? null;
 }
 
-/** Sends `message` to every phone of the company; quiet when push is off. */
-async function pushToCompany(db: Db, push: PushSender, companyId: string, message: PushMessage) {
+/**
+ * Sends `message` to the phones of the person it is for (`userId`), or to
+ * every phone of the company when it is for whoever can act on it (null).
+ * Quiet when push is off.
+ */
+async function pushToCompany(db: Db, push: PushSender, companyId: string, message: PushMessage, userId: string | null) {
   if (!push.enabled) return;
   const devices = deviceFileService(db);
-  const targets = await devices.listPushTargets(companyId, null);
+  const targets = await devices.listPushTargets(companyId, null, { userId });
   if (targets.length === 0) return;
-  const result = await push.send(targets.map((target) => target.token), message);
+  const result = await push.send(targets.map((target) => ({ token: target.token, deviceId: target.deviceId })), message);
   await devices.clearPushTokens(result.invalidTokens);
 }
 
-/** A finished App Studio reply, for the person's phones (shown once they are out of the app). */
+/**
+ * A finished App Studio reply, for the phones of the person who asked (shown
+ * once they are out of the app). Another member's phone never hears it.
+ */
 export async function pushStudioReply(
   db: Db,
-  input: { companyId: string; workspaceId: string; projectName: string; text: string; error: string | null },
+  input: {
+    companyId: string;
+    workspaceId: string;
+    projectName: string;
+    text: string;
+    error: string | null;
+    requestedByUserId: string | null;
+  },
   push: PushSender = pushSender(),
 ) {
+  if (!input.requestedByUserId) return;
   try {
-    await pushToCompany(db, push, input.companyId, pushMessageForStudioReply(input));
+    const prefix = await companyPrefixFor(db, input.companyId);
+    await pushToCompany(db, push, input.companyId, pushMessageForStudioReply({ ...input, prefix }), input.requestedByUserId);
   } catch (error) {
     logger.warn({ err: error instanceof Error ? error.message : String(error) }, "Push notification failed");
   }
@@ -172,25 +215,27 @@ export function startPushNotifier(db: Db, push: PushSender = pushSender()): () =
     const message = pushMessageForRunOutcome(payload, null);
     if (!message || isStaleRunOutcome(payload) || !firstTellingOf(payload.runId)) return;
     const [run] = await db
-      .select({ askedBy: agentWakeupRequests.requestedByActorType })
+      .select({ askedBy: agentWakeupRequests.requestedByActorType, askedById: agentWakeupRequests.requestedByActorId })
       .from(heartbeatRuns)
       .leftJoin(agentWakeupRequests, eq(heartbeatRuns.wakeupRequestId, agentWakeupRequests.id))
       .where(eq(heartbeatRuns.id, payload.runId))
       .limit(1);
-    if (run?.askedBy !== "user") return;
-    const worded = pushMessageForRunOutcome(payload, await agentNameFor(db, payload.agentId));
-    if (worded) await pushToCompany(db, push, event.companyId, worded);
+    // The reply is the asker's: it goes to their phones, never another member's.
+    if (run?.askedBy !== "user" || !run.askedById) return;
+    const prefix = await companyPrefixFor(db, event.companyId);
+    const worded = pushMessageForRunOutcome(payload, await agentNameFor(db, payload.agentId), prefix);
+    if (worded) await pushToCompany(db, push, event.companyId, worded, run.askedById);
   }
 
   async function deliver(event: LiveEvent) {
     const payload = event.payload as ActivityPayload;
     if (payload.action !== "device_file_request.created" && payload.action !== "approval.created") return;
     const agentName = await agentNameFor(db, payload.agentId);
-    const planned = pushMessageForActivity(payload, agentName);
+    const planned = pushMessageForActivity(payload, agentName, await companyPrefixFor(db, event.companyId));
     if (!planned) return;
     const targets = await devices.listPushTargets(event.companyId, planned.deviceId);
     if (targets.length === 0) return;
-    const result = await push.send(targets.map((target) => target.token), planned.message);
+    const result = await push.send(targets.map((target) => ({ token: target.token, deviceId: target.deviceId })), planned.message);
     await devices.clearPushTokens(result.invalidTokens);
   }
 

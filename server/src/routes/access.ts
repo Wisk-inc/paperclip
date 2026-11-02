@@ -2176,14 +2176,25 @@ async function resolveAcceptedInviteJoinRequest(
     .from(joinRequests)
     .where(eq(joinRequests.inviteId, invite.id))
     .then((rows) => rows[0] ?? null);
-  if (directJoinRequest) return directJoinRequest;
-
-  if (!invite.companyId) return null;
 
   const actorRequestingUserId = isLocalImplicit(req)
     ? "local-board"
     : req.actor.userId ?? null;
   const actorEmail = await resolveActorEmail(db, req);
+
+  if (directJoinRequest) {
+    // A person's request belongs to them: anyone else opening the used link
+    // sees an invite that is no longer available, not that person's request.
+    if (directJoinRequest.requestType !== "human") return directJoinRequest;
+    const mine =
+      (actorRequestingUserId !== null && directJoinRequest.requestingUserId === actorRequestingUserId) ||
+      (actorEmail !== null &&
+        typeof directJoinRequest.requestEmailSnapshot === "string" &&
+        directJoinRequest.requestEmailSnapshot.trim().toLowerCase() === actorEmail.trim().toLowerCase());
+    return mine ? directJoinRequest : null;
+  }
+
+  if (!invite.companyId) return null;
   if (!actorRequestingUserId && !actorEmail) return null;
 
   return findReusableHumanJoinRequest(
@@ -3041,6 +3052,43 @@ export function accessRoutes(
     if (!allowed) throw forbidden("Permission denied");
   }
 
+  /**
+   * An invite hands out a role (and, for agents, grants) when it is accepted,
+   * so it may not carry more than its creator holds: otherwise an admin could
+   * invite a second account of theirs as owner. Agents invite people as
+   * operators at most.
+   */
+  async function assertInviteWithinCreatorRights(
+    req: Request,
+    companyId: string,
+    input: {
+      allowedJoinTypes: "human" | "agent" | "both";
+      humanRole: HumanCompanyMembershipRole | null;
+      defaultsPayload: Record<string, unknown> | null;
+    },
+  ) {
+    if (input.allowedJoinTypes !== "agent") {
+      const invitedRole = input.humanRole ?? "operator";
+      const creatorRole = (await resolveActorHumanRole(req, access, companyId)) ?? "operator";
+      if (humanRoleRank[invitedRole] > humanRoleRank[creatorRole]) {
+        throw forbidden(`You can only invite people as ${creatorRole} or below.`);
+      }
+    }
+    if (input.allowedJoinTypes !== "human" && !isLocalImplicit(req)) {
+      for (const grant of grantsFromDefaults(input.defaultsPayload, "agent")) {
+        // Every agent that joins gets tasks:assign.
+        if (grant.permissionKey === "tasks:assign") continue;
+        const creatorHolds =
+          req.actor.type === "agent"
+            ? Boolean(req.actor.agentId) && (await access.hasPermission(companyId, "agent", req.actor.agentId!, grant.permissionKey))
+            : req.actor.type === "board" && (await access.canUser(companyId, req.actor.userId, grant.permissionKey));
+        if (!creatorHolds) {
+          throw forbidden(`You can't give an invited agent "${grant.permissionKey}", which you don't have yourself.`);
+        }
+      }
+    }
+  }
+
   async function assertCanGenerateOpenClawInvitePrompt(
     req: Request,
     companyId: string
@@ -3320,6 +3368,11 @@ export function accessRoutes(
     async (req, res) => {
       const companyId = req.params.companyId as string;
       await assertCompanyPermission(req, companyId, "users:invite");
+      await assertInviteWithinCreatorRights(req, companyId, {
+        allowedJoinTypes: req.body.allowedJoinTypes,
+        humanRole: req.body.humanRole ?? null,
+        defaultsPayload: req.body.defaultsPayload ?? null,
+      });
       const { token, created, normalizedAgentMessage } =
         await createCompanyInviteForCompany({
           req,

@@ -66,3 +66,19 @@ export async function testAgentSetup(input: {
     checks,
   };
 }
+
+/**
+ * Whether a setup test reached the AI: a hello probe answered, or the
+ * provider accepted the key with a real call (the direct Claude API engine
+ * proves its key that way and runs no hello probe, so requiring one left
+ * the New Agent wizard unable to finish for Claude API agents).
+ */
+export function setupTestReachedProvider(checks: ReadonlyArray<{ code: string }>): boolean {
+  return checks.some(
+    (check) =>
+      check.code.endsWith("hello_probe_passed") ||
+      check.code === "claude_api_key_ok" ||
+      check.code === "ai_connection_api_key_reverified",
+  );
+}
+

@@ -1229,6 +1229,8 @@ function mergeAdapterRecoveryMetadata(input: {
 }
 const RUNNING_ISSUE_WAKE_REASONS_REQUIRING_FOLLOWUP = new Set([
   "approval_approved",
+  // Sent back for changes: the agent has work to do even if a run is going.
+  "approval_revision_requested",
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
   "issue_recovery_action_restored",
 ]);
@@ -1247,6 +1249,7 @@ const ISSUE_RESPONSIBLE_USER_WAKE_REASONS = new Set([
   "execution_approval_requested",
   "execution_changes_requested",
   "approval_approved",
+  "approval_revision_requested",
 ]);
 const SESSIONED_LOCAL_ADAPTERS = new Set([
   "claude_local",

@@ -1148,7 +1148,8 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
             { id: "reject", label: "Reject", description: "Reject the request." },
             { id: "request_revision", label: "Request revision", description: "Send the request back for changes." },
           ),
-          inlineResolvable: approval.type !== "request_board_approval",
+          // A budget stop is settled from Costs, not by approving the item.
+          inlineResolvable: approval.type !== "request_board_approval" && approval.type !== "budget_override_required",
           entryRule: "approvals.status = 'pending'",
           exitRule: "Approval leaves pending status.",
           dedupKey,

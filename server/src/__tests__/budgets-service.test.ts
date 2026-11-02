@@ -159,6 +159,16 @@ describe("budgetService", () => {
         entityId: "incident-1",
       }),
     );
+    // Logged like any new approval, which is what sends "Approval needed" to phones.
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "approval.created",
+        entityType: "approval",
+        entityId: "approval-1",
+        details: expect.objectContaining({ type: "budget_override_required" }),
+      }),
+    );
     expect(cancelWorkForScope).toHaveBeenCalledWith({
       companyId: "company-1",
       scopeType: "agent",

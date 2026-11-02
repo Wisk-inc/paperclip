@@ -1,3 +1,4 @@
+import { answerLocalSecretChallenge } from "./auth/local-secret-proof.js";
 import { slackToolRoutes } from "./routes/slack-tools.js";
 import { agentAvatarRoutes } from "./routes/agent-avatars.js";
 import { aiConnectionRoutes } from "./routes/ai-connections.js";
@@ -669,6 +670,9 @@ export async function createApp(
       deploymentMode: opts.deploymentMode,
       deploymentExposure: opts.deploymentExposure,
       localSecretRequired: Boolean(opts.localTrustedSecret),
+      answerLocalSecretChallenge: opts.localTrustedSecret
+        ? (nonceHeader) => answerLocalSecretChallenge(opts.localTrustedSecret, opts.serverPort, nonceHeader)
+        : undefined,
       authReady: opts.authReady,
       companyDeletionEnabled: opts.companyDeletionEnabled,
       signUpEnabled: opts.signUpEnabled,
@@ -677,7 +681,7 @@ export async function createApp(
   );
   api.use(openApiRoutes());
   api.use("/cloud", cloudRoutes());
-  api.use("/companies", companyRoutes(db, opts.storageService));
+  api.use("/companies", companyRoutes(db, opts.storageService, { companyDeletionEnabled: opts.companyDeletionEnabled }));
   api.use(llmRoutes(db));
   api.use(folderRoutes(db));
   api.use(companySkillRoutes(db));

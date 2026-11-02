@@ -1,3 +1,4 @@
+import { utcMonthStart } from "../hooks/useDateRange";
 import { AgentIdentity } from "../components/AgentIdentity";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "@/lib/router";
@@ -384,7 +385,8 @@ export function Dashboard() {
 
       <NeedsYouList
         companyId={selectedCompanyId!}
-        pendingApprovals={data ? data.pendingApprovals + data.budgets.pendingApprovals : null}
+        // The dashboard's count already includes budget stops (they are approvals too).
+        pendingApprovals={data ? data.pendingApprovals : null}
       />
 
       <UsageCard companyId={selectedCompanyId!} />
@@ -467,7 +469,7 @@ export function Dashboard() {
             />
             <MetricCard
               icon={ShieldCheck}
-              value={data.pendingApprovals + data.budgets.pendingApprovals}
+              value={data.pendingApprovals}
               label="Pending Approvals"
               to="/approvals"
               description={
@@ -590,9 +592,9 @@ export function Dashboard() {
   );
 }
 
-/** Start of the current month, for "this month" usage. */
+/** Start of the current month (UTC, as budgets count it), for "this month" usage. */
 function monthStartIso(now = new Date()): string {
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  return utcMonthStart(now).toISOString();
 }
 
 /**

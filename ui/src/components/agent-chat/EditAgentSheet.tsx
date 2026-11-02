@@ -65,6 +65,10 @@ function reportsUnder(agentId: string, agents: Agent[]): Set<string> {
  * full role list, with what each role does), its job title, and who it
  * reports to. Opened from the chat header, the chat welcome, and Chats.
  */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profile" }: {
   agent: Agent;
   open: boolean;
@@ -169,19 +173,22 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
         tone: "success",
       });
       onOpenChange(false);
+      // A new name gives the agent a new address, and the old one stops
+      // finding it once the agent list reloads ("Agent not found"). An open
+      // chat moves first, to the address by the agent's id: that one finds the
+      // agent in the list before and after the reload, so nothing flashes.
+      const oldRef = agentRouteRef(agent);
+      const newRef = agentRouteRef(updated ?? { ...agent, name: trimmedName, urlKey: null });
+      const chatPath = new RegExp(`/chats/${escapeRegExp(encodeURIComponent(oldRef))}(?=$|[/?#])`);
+      if (oldRef !== newRef && chatPath.test(location.pathname)) {
+        navigate(location.pathname.replace(chatPath, `/chats/${encodeURIComponent(agent.id)}`), { replace: true });
+      }
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) }),
         client.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) }),
         client.invalidateQueries({ queryKey: queryKeys.agents.instructionsBundle(agent.id) }),
         client.invalidateQueries({ queryKey: queryKeys.agents.instructionsFile(agent.id, entryFile) }),
       ]);
-      // A new name gives the agent a new address; keep an open chat on it.
-      const oldRef = agentRouteRef(agent);
-      const newRef = agentRouteRef(updated ?? { ...agent, name: trimmedName, urlKey: null });
-      const chatPath = new RegExp(`/chats/${oldRef}(?=$|[/?#])`);
-      if (oldRef !== newRef && chatPath.test(location.pathname)) {
-        navigate(location.pathname.replace(chatPath, `/chats/${newRef}`), { replace: true });
-      }
     },
     onError: (error) => {
       haptic("warning");

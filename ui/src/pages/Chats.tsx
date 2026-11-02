@@ -15,12 +15,14 @@ import { Mascot } from "@/components/mascot/Mascot";
 import { ModelLogo } from "@/components/ModelLogo";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { ThumbAction } from "@/components/ThumbAction";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useDialogActions } from "@/context/DialogContext";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
 import { useResourceMemberships } from "@/hooks/useResourceMemberships";
+import { canStartAgentChat } from "@/lib/agent-chat-draft";
 import { applyChatOrder, useChatOrder } from "@/lib/chat-order";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
@@ -105,7 +107,7 @@ export function Chats() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const { openNewAgent } = useDialogActions();
-  const { enabled, loaded } = useAgentChatEnabled();
+  const { enabled, loaded, failed: chatSettingFailed, errorMessage: chatSettingError, retry: retryChatSetting } = useAgentChatEnabled();
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -133,8 +135,14 @@ export function Chats() {
     return providers;
   }, [connections.data]);
 
+  // A chat starts only with an agent that can take work; a hire still waiting
+  // for approval would refuse the first message, so it waits off the list.
   const chatAgents = useMemo(
-    () => (agents.data ?? []).filter((agent) => agent.status !== "terminated"),
+    () => (agents.data ?? []).filter((agent) => canStartAgentChat(agent)),
+    [agents.data],
+  );
+  const awaitingApproval = useMemo(
+    () => (agents.data ?? []).filter((agent) => agent.status === "pending_approval"),
     [agents.data],
   );
   const memberships = useResourceMemberships(selectedCompanyId);
@@ -178,6 +186,17 @@ export function Chats() {
   if (!selectedCompanyId || agents.isPending || !loaded || memberships.isPending) return <PageSkeleton variant="list" />;
   if (agents.error) return <p className="text-sm text-destructive">{agents.error.message}</p>;
 
+  if (chatSettingFailed) {
+    // A failed request is not the server saying "off".
+    return (
+      <div className="rounded-lg border border-border bg-card p-4 text-sm" data-testid="chats-setting-failed">
+        <p className="font-medium text-foreground">Couldn't check whether Agent Chat is on.</p>
+        {chatSettingError && <p className="mt-1 text-muted-foreground">{chatSettingError}</p>}
+        <Button variant="outline" size="sm" className="mt-3" onClick={retryChatSetting}>Try again</Button>
+      </div>
+    );
+  }
+
   if (!enabled) {
     return (
       <div className="rounded-lg border border-border bg-card p-4 text-sm">
@@ -185,6 +204,24 @@ export function Chats() {
         <p className="mt-1 text-muted-foreground">
           Turn it on in <Link to="/instance/settings/experimental" className="font-medium text-primary">Experimental settings</Link> to chat with your agents.
         </p>
+      </div>
+    );
+  }
+
+  if (chatAgents.length === 0 && awaitingApproval.length > 0) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-border bg-card p-4 text-sm" data-testid="chats-awaiting-approval">
+          <p className="font-medium text-foreground">
+            {awaitingApproval.length === 1
+              ? `${awaitingApproval[0]!.name} is waiting for its hire to be approved.`
+              : `${awaitingApproval.length} hires are waiting to be approved.`}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            You can chat once a hire is approved in <Link to="/approvals" className="font-medium text-primary">Approvals</Link>.
+          </p>
+        </div>
+        <ByokKeysCard connected={connected} />
       </div>
     );
   }

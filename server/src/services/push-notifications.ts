@@ -28,9 +28,12 @@ export type PushMessage = {
 
 export type PushSendResult = { sent: number; invalidTokens: string[] };
 
+/** A phone to notify: its token, and the registration it belongs to (so the app knows which server sent it). */
+export type PushTarget = string | { token: string; deviceId?: string | null };
+
 export interface PushSender {
   readonly enabled: boolean;
-  send(tokens: string[], message: PushMessage): Promise<PushSendResult>;
+  send(targets: PushTarget[], message: PushMessage): Promise<PushSendResult>;
 }
 
 type ServiceAccount = { project_id: string; client_email: string; private_key: string; token_uri?: string };
@@ -38,29 +41,24 @@ type ServiceAccount = { project_id: string; client_email: string; private_key: s
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 /** Must match the notification channel the Android app creates. */
-const ANDROID_CHANNEL_ID = "automa_updates";
 
 /** The FCM HTTP v1 message for one phone. */
-export function fcmMessageFor(token: string, message: PushMessage) {
-  const data: Record<string, string> = {};
+/**
+ * Every message is data only: Android hands it to the app, which shows it
+ * (or not: a finished reply the person is watching, news from a server they
+ * forgot) and knows from `device_id` which server it came from, so a tap
+ * opens that server. Apps before 1.9.6 show data messages the same way.
+ */
+export function fcmMessageFor(token: string, message: PushMessage, deviceId?: string | null) {
+  const data: Record<string, string> = { title: message.title, body: message.body };
   if (message.path) data.path = message.path;
   if (message.tag) data.tag = message.tag;
-  if (message.awayOnly) {
-    // Data only: Android hands it to the app, which decides whether to show it.
-    return {
-      token,
-      data: { ...data, title: message.title, body: message.body, away_only: "1" },
-      android: { priority: "HIGH" },
-    };
-  }
+  if (message.awayOnly) data.away_only = "1";
+  if (deviceId) data.device_id = deviceId;
   return {
     token,
-    notification: { title: message.title, body: message.body },
     data,
-    android: {
-      priority: "HIGH",
-      notification: { channel_id: ANDROID_CHANNEL_ID, ...(message.tag ? { tag: message.tag } : {}) },
-    },
+    android: { priority: "HIGH" },
   };
 }
 
@@ -130,8 +128,15 @@ export function createFcmPushSender(options: {
 
   return {
     enabled: true,
-    async send(tokens, message) {
-      const unique = [...new Set(tokens)];
+    async send(targets, message) {
+      // One message per token; a token listed twice is sent once.
+      const deviceByToken = new Map<string, string | null>();
+      for (const target of targets) {
+        const token = typeof target === "string" ? target : target.token;
+        const deviceId = typeof target === "string" ? null : target.deviceId ?? null;
+        if (!deviceByToken.has(token) || (deviceId && !deviceByToken.get(token))) deviceByToken.set(token, deviceId);
+      }
+      const unique = [...deviceByToken.keys()];
       if (unique.length === 0) return { sent: 0, invalidTokens: [] };
       const bearer = await getAccessToken();
       const url = `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`;
@@ -142,7 +147,7 @@ export function createFcmPushSender(options: {
           const res = await fetchImpl(url, {
             method: "POST",
             headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
-            body: JSON.stringify({ message: fcmMessageFor(token, message) }),
+            body: JSON.stringify({ message: fcmMessageFor(token, message, deviceByToken.get(token)) }),
           });
           if (res.ok) {
             sent += 1;

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +18,8 @@ const svc = vi.hoisted(() => ({
   getChangeRequest: vi.fn(),
   resolveChangeRequest: vi.fn(),
   reopenChangeRequest: vi.fn(async () => undefined),
+  removeCollaborator: vi.fn(),
+  disableShare: vi.fn(),
 }));
 const completeCode = vi.hoisted(() => vi.fn());
 const openQuickTunnel = vi.hoisted(() => vi.fn());
@@ -361,4 +363,102 @@ describe("Studio change requests", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(svc.reopenChangeRequest).toHaveBeenCalledWith(WORKSPACE.id, changeId, row.files);
   });
+
+  describe("a file edited after the collaborator started from it", () => {
+    const edit = (file: string) => ({
+      id: changeId,
+      workspaceId: WORKSPACE.id,
+      status: "open",
+      authorName: "Sam",
+      files: [{ path: file, before: "original\n", after: "from Sam\n" }],
+    });
+
+    it("is not overwritten by Accept: refused with the files named, nothing written, the request still open", async () => {
+      svc.resolveChangeRequest.mockReset();
+      await writeFile(projectFile("notes.txt"), "the owner's newer text\n");
+      svc.getChangeRequest.mockResolvedValue(edit("notes.txt"));
+      const res = await request(createApp(BOARD)).post(`/api/studio/workspaces/${WORKSPACE.id}/changes/${changeId}/accept`).send({});
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("studio_change_stale");
+      expect(res.body.details.paths).toEqual(["notes.txt"]);
+      expect(res.body.error).toContain("notes.txt changed after Sam made this change");
+      expect(await readFile(projectFile("notes.txt"), "utf8")).toBe("the owner's newer text\n");
+      expect(svc.resolveChangeRequest).not.toHaveBeenCalled();
+    });
+
+    it("is replaced when the owner says so", async () => {
+      const row = edit("replace.txt");
+      await writeFile(projectFile("replace.txt"), "the owner's newer text\n");
+      svc.getChangeRequest.mockResolvedValue(row);
+      svc.resolveChangeRequest.mockResolvedValue({ ...row, status: "accepted" });
+      const res = await request(createApp(BOARD))
+        .post(`/api/studio/workspaces/${WORKSPACE.id}/changes/${changeId}/accept`)
+        .send({ overwriteNewer: true });
+      expect(res.status).toBe(200);
+      expect(await readFile(projectFile("replace.txt"), "utf8")).toBe("from Sam\n");
+    });
+
+    it("is accepted straight away when nothing changed since, with the owner's own adjustments", async () => {
+      const row = edit("same.txt");
+      await writeFile(projectFile("same.txt"), "original\n");
+      svc.getChangeRequest.mockResolvedValue(row);
+      svc.resolveChangeRequest.mockResolvedValue({ ...row, status: "accepted" });
+      const res = await request(createApp(BOARD))
+        .post(`/api/studio/workspaces/${WORKSPACE.id}/changes/${changeId}/accept`)
+        .send({ files: [{ path: "same.txt", after: "from Sam, tidied by the owner\n" }] });
+      expect(res.status).toBe(200);
+      expect(await readFile(projectFile("same.txt"), "utf8")).toBe("from Sam, tidied by the owner\n");
+    });
+  });
 });
+
+describe("Studio preview address after people lose access", () => {
+  let upstream: Server;
+  beforeAll(async () => {
+    upstream = createServer((_req, res) => res.end("the app"));
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+  });
+  afterAll(async () => {
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  });
+
+  function runningApp(token: string) {
+    const runtime = runner.studioRuntime(WORKSPACE.id);
+    const address = upstream.address();
+    runtime.previewToken = token;
+    runtime.state = {
+      ...runtime.state,
+      status: "running",
+      port: typeof address === "object" && address ? address.port : null,
+      previewPath: `/api/studio-preview/${token}/`,
+    };
+    return runtime;
+  }
+
+  it.each([
+    ["a guest is removed", (app: ReturnType<typeof createApp>) => request(app).delete(`/api/studio/workspaces/${WORKSPACE.id}/collaborators/c0ffee00-0000-4000-8000-000000000001`)],
+    ["sharing is stopped", (app: ReturnType<typeof createApp>) => request(app).delete(`/api/studio/workspaces/${WORKSPACE.id}/share`)],
+  ])("changes when %s, so the old address stops opening the running app", async (_case, act) => {
+    svc.removeCollaborator.mockResolvedValue({ id: "c0ffee00-0000-4000-8000-000000000001", displayName: "Sam" });
+    svc.disableShare.mockResolvedValue({ ...WORKSPACE, shareEnabled: false });
+    const runtime = runningApp("old-preview-token-abcdefgh");
+    const states: string[] = [];
+    const onState = (state: { previewPath: string | null }) => states.push(String(state.previewPath));
+    runtime.on("state", onState);
+    const app = createApp(BOARD);
+    expect((await request(app).get("/api/studio-preview/old-preview-token-abcdefgh/")).text).toBe("the app");
+
+    expect((await act(app)).status).toBe(200);
+
+    const oldAddress = await request(app).get("/api/studio-preview/old-preview-token-abcdefgh/");
+    expect(oldAddress.status).toBe(404);
+    // Everyone still here was told the new address, and it works.
+    const newPath = runtime.state.previewPath!;
+    expect(newPath).not.toContain("old-preview-token-abcdefgh");
+    expect(states.at(-1)).toBe(newPath);
+    expect((await request(app).get(newPath)).text).toBe("the app");
+    runtime.off("state", onState);
+    runtime.state = { ...runtime.state, status: "stopped", port: null };
+  });
+});
+

@@ -25,6 +25,9 @@ export function ApprovalDetail() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [commentBody, setCommentBody] = useState("");
+  // "Request revision" asks what should change; the note goes to the agent.
+  const [revisionNoteOpen, setRevisionNoteOpen] = useState(false);
+  const [revisionNote, setRevisionNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showRawPayload, setShowRawPayload] = useState(false);
 
@@ -105,9 +108,11 @@ export function ApprovalDetail() {
   });
 
   const revisionMutation = useMutation({
-    mutationFn: () => approvalsApi.requestRevision(approvalId!),
+    mutationFn: () => approvalsApi.requestRevision(approvalId!, revisionNote.trim() || undefined),
     onSuccess: () => {
       setError(null);
+      setRevisionNoteOpen(false);
+      setRevisionNote("");
       refresh();
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Revision request failed"),
@@ -183,9 +188,11 @@ export function ApprovalDetail() {
               </div>
               <div>
                 <p className="text-sm text-green-800 dark:text-green-100 font-medium">Approval confirmed</p>
-                <p className="text-xs text-green-700 dark:text-green-200/90">
-                  Requesting agent was notified to review this approval and linked tasks.
-                </p>
+                {approval.requestedByAgentId ? (
+                  <p className="text-xs text-green-700 dark:text-green-200/90">
+                    Requesting agent was notified to review this approval and linked tasks.
+                  </p>
+                ) : null}
               </div>
             </div>
             <Button
@@ -287,15 +294,29 @@ export function ApprovalDetail() {
               Resolve this budget stop from the budget controls on <Link to="/costs" className="underline underline-offset-2">/costs</Link>.
             </p>
           )}
-          {approval.status === "pending" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => revisionMutation.mutate()}
-              disabled={revisionMutation.isPending}
-            >
+          {approval.status === "pending" && !isBudgetApproval && !revisionNoteOpen && (
+            <Button size="sm" variant="outline" onClick={() => setRevisionNoteOpen(true)}>
               Request revision
             </Button>
+          )}
+          {approval.status === "pending" && !isBudgetApproval && revisionNoteOpen && (
+            <div className="w-full space-y-2">
+              <Textarea
+                value={revisionNote}
+                onChange={(event) => setRevisionNote(event.target.value)}
+                placeholder="What should change? The agent gets this note."
+                rows={3}
+                aria-label="What should change"
+              />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setRevisionNoteOpen(false)} disabled={revisionMutation.isPending}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={() => revisionMutation.mutate()} disabled={revisionMutation.isPending}>
+                  {revisionMutation.isPending ? "Sending…" : "Send back"}
+                </Button>
+              </div>
+            </div>
           )}
           {approval.status === "revision_requested" && (
             <Button

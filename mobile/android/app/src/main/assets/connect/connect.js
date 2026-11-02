@@ -299,14 +299,16 @@
       var message = (reply && reply.error) || "Could not connect.";
       // Not up yet (refused, still starting): try again shortly, for a while.
       if (tries < MAX_TRIES && /not running|nothing answers|still starting|try again|refused|closed the connection/i.test(message)) {
-        if (/still starting/i.test(message)) {
+        // Once it has answered, a moment of not answering is part of starting
+        // up: the line above the steps keeps saying so, as the steps do.
+        if (/still starting/i.test(message) || STEPS.indexOf(step) > STEPS.indexOf("answer")) {
           setStep("ready", "Automa is starting up. The first start after an update can take a minute…");
         } else {
           setStep("answer", startedTermux ? "Waiting for Automa to answer…" : "Waiting for Automa on this phone to answer…");
-          var waited = (Date.now() - waitStarted) / 1000;
-          if (waited > 45 && waitHelp.hidden) {
-            setHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.", true);
-          }
+        }
+        var waited = (Date.now() - waitStarted) / 1000;
+        if (!/still starting/i.test(message) && waited > 45 && waitHelp.hidden) {
+          setHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.", true);
         }
         waitTimer = setTimeout(function () { tries += 1; tryOnce(address); }, RETRY_MS);
         return;
@@ -345,9 +347,10 @@
     requested.hidden = !request;
     if (!request) return;
     document.getElementById("requested-url").textContent = request.url.replace(/^https?:\/\//, "");
+    // Any app can send this request; the app can't tell Termux from another.
     document.getElementById("requested-detail").textContent = request.withKey
-      ? "Termux is handing over the app key for Automa on this phone. Tap Connect if you just ran automa run or automa link; otherwise dismiss it."
-      : "Tap Connect if you expected this (for example, you just linked a computer over ADB); otherwise dismiss it.";
+      ? "It came with an app key, the way automa run and automa link in Termux send one. Tap Connect only if you just ran one of those; otherwise dismiss it."
+      : "Tap Connect only if you expected this (for example, you just linked a computer over ADB); otherwise dismiss it.";
     input.value = request.url.replace(/^https?:\/\//, "");
     requested.scrollIntoView({ behavior: "smooth", block: "nearest" });
     // The server this phone already uses: no tap, the page waits for it and
@@ -556,7 +559,9 @@
     if (!state.requested && params.get("wait") === "1" && state.waitFor) {
       input.value = state.waitFor.replace(/^https?:\/\//, "");
       showError("");
-      connectWaiting(state.waitFor, true);
+      // Right after automa run / automa link asked to connect, Automa is
+      // already starting in Termux: only wait for it.
+      connectWaiting(state.waitFor, !state.startedByRequest);
     }
   }
 

@@ -394,6 +394,43 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
     expect(popup.close).toHaveBeenCalled();
   });
 
+  it("in the Automa app, a task's sign-in takes the whole page instead of a popup the app cannot open", async () => {
+    const open = vi.spyOn(window, "open");
+    const appWindow = window as unknown as { AutomaNative?: unknown };
+    appWindow.AutomaNative = { getInfo: () => "{}" };
+    try {
+      const connection = { id: "conn-inline-oauth", status: "draft", credentialPolicy: "per_user", authKind: "oauth" };
+      connectAppMock.mockResolvedValue({ connectionId: connection.id, connection, catalog: [], auth: { kind: "oauth" } });
+      await render(undefined, false, <ConnectionSetupFlow host="dialog" serviceSlug="arcade" requestedAgentId="agent-1" interactionId="intent-inline" onComplete={vi.fn()} />);
+      await passAccessStep();
+      await act(async () => setInputValue(container.querySelector<HTMLInputElement>('input[type="password"]')!, "https://provider.example/mcp"));
+      await act(async () => buttonByText("Connect")!.click());
+      await vi.waitFor(() => expect(navigateTopLevelMock).toHaveBeenCalledWith("https://mcp.notion.com/authorize?state=resumed"));
+      expect(open).not.toHaveBeenCalled();
+      expect(container.textContent).not.toContain("window closed");
+    } finally {
+      delete appWindow.AutomaNative;
+    }
+  });
+
+  it("in the Automa app, a dialog's own sign-in also takes the whole page", async () => {
+    const open = vi.spyOn(window, "open");
+    const appWindow = window as unknown as { AutomaNative?: unknown };
+    appWindow.AutomaNative = { getInfo: () => "{}" };
+    try {
+      const connection = { id: "conn-dialog-oauth", status: "draft", credentialPolicy: "per_user", authKind: "oauth" };
+      connectAppMock.mockResolvedValue({ connectionId: connection.id, connection, catalog: [], auth: { kind: "oauth" } });
+      await render(undefined, false, <ConnectionSetupFlow host="dialog" serviceSlug="arcade" requestedAgentId="agent-1" onComplete={vi.fn()} />);
+      await passAccessStep();
+      await act(async () => setInputValue(container.querySelector<HTMLInputElement>('input[type="password"]')!, "https://provider.example/mcp"));
+      await act(async () => buttonByText("Connect")!.click());
+      await vi.waitFor(() => expect(navigateTopLevelMock).toHaveBeenCalledWith("https://mcp.notion.com/authorize?state=resumed"));
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      delete appWindow.AutomaNative;
+    }
+  });
+
   it("inline aggregator saves and resumes a draft without storing credentials in browser storage", async () => {
     const onCancel = vi.fn();
     const connection = { id: "conn-inline-draft", status: "draft", credentialPolicy: "per_user", authKind: "none", config: { url: "https://provider.example/mcp", sourceTemplateKey: "zapier", connectionMethodKey: "generated-url" } };
@@ -2099,6 +2136,36 @@ describe("AppsConnect — Connect with a link (M4 frame)", () => {
 
     openSpy.mockRestore();
     await act(async () => dialogRoot.unmount());
+  });
+
+  it("in the Automa app, a curated sign-in from a task dialog takes the whole page, with no popup", async () => {
+    listGalleryMock.mockResolvedValue({ apps: [NOTION] });
+    connectAppMock.mockResolvedValue({
+      connectionId: "conn-notion",
+      application: { id: "app-notion", name: "Notion" },
+      connection: { id: "conn-notion", credentialPolicy: "per_user" },
+      actions: { readOnly: [], canMakeChanges: [] },
+      catalog: [],
+      suggestedDefaults: {},
+      auth: { kind: "oauth", startUrl: null },
+    });
+    const openSpy = vi.spyOn(window, "open");
+    const appWindow = window as unknown as { AutomaNative?: unknown };
+    appWindow.AutomaNative = { getInfo: () => "{}" };
+    try {
+      const dialogRoot = await render(undefined, false, (
+        <ConnectionSetupFlow host="dialog" serviceSlug="notion" requestedAgentId="agent-1" interactionId="interaction-1" />
+      ));
+      await passAccessStep();
+      await submitCuratedOAuthSetup();
+      await vi.waitFor(() => expect(navigateTopLevelMock).toHaveBeenCalledWith("https://mcp.notion.com/authorize?state=resumed"));
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(container.textContent).not.toContain("Open sign-in in a new tab");
+      await act(async () => dialogRoot.unmount());
+    } finally {
+      delete appWindow.AutomaNative;
+      openSpy.mockRestore();
+    }
   });
 
   it("chooses identity before the Notion source deep link opens provider sign-in", async () => {

@@ -9,6 +9,9 @@ import {
 import { redactUrlSecrets } from "@/lib/redact-url-secrets";
 import { tenantSessionRecovery } from "@/lib/tenant-session-recovery";
 
+/** Carries an invite link's token on sign-up, for invite-only servers (server/src/auth/invite-sign-up.ts). */
+export const INVITE_TOKEN_HEADER = "x-automa-invite-token";
+
 type AuthErrorBody =
   | {
     code?: string;
@@ -112,13 +115,13 @@ function logAuthHttpError(method: string, path: string, status: number, statusTe
   });
 }
 
-async function authPost(path: string, body: Record<string, unknown>): Promise<unknown> {
+async function authPost(path: string, body: Record<string, unknown>, extraHeaders: Record<string, string> = {}): Promise<unknown> {
   let res: Response;
   try {
     res = await fetch(`/api/auth${path}`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...extraHeaders },
       body: JSON.stringify(body),
     });
   } catch (networkError) {
@@ -176,13 +179,14 @@ export const authApi = {
     await authPost("/sign-in/email", input);
   },
 
-  signUpEmail: async (input: { name: string; email: string; password: string }) => {
-    await authPost("/sign-up/email", input);
+  /** `inviteToken` lets an invited person make an account on an invite-only server. */
+  signUpEmail: async (input: { name: string; email: string; password: string }, options: { inviteToken?: string | null } = {}) => {
+    await authPost("/sign-up/email", input, options.inviteToken ? { [INVITE_TOKEN_HEADER]: options.inviteToken } : {});
   },
 
   /** "Continue with Google" from the Automa Android app (a Firebase ID token). */
-  signInWithFirebase: async (idToken: string) => {
-    await authPost("/firebase/sign-in", { idToken });
+  signInWithFirebase: async (idToken: string, options: { inviteToken?: string | null } = {}) => {
+    await authPost("/firebase/sign-in", options.inviteToken ? { idToken, inviteToken: options.inviteToken } : { idToken });
   },
 
   getProfile: async (): Promise<CurrentUserProfile> => {

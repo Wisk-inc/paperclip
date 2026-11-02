@@ -2,7 +2,8 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import createDOMPurify from "dompurify";
 import { JSDOM } from "jsdom";
-import type { Db } from "@paperclipai/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { authUsers, companyMemberships, type Db } from "@paperclipai/db";
 import { ASSET_NAMESPACE_RULE, createAssetImageMetadataSchema } from "@paperclipai/shared";
 import type { StorageService } from "../storage/types.js";
 import { assetService, logActivity } from "../services/index.js";
@@ -12,7 +13,7 @@ import {
   isInlineAttachmentContentType,
   MAX_ATTACHMENT_BYTES,
 } from "../attachment-types.js";
-import { assertCompanyAccess, getAccessibleResource, getActorInfo } from "./authz.js";
+import { assertCompanyAccess, getAccessibleResource, getActorInfo, hasCompanyAccess } from "./authz.js";
 const SVG_CONTENT_TYPE = "image/svg+xml";
 const ALLOWED_COMPANY_LOGO_CONTENT_TYPES = new Set([
   "image/png",
@@ -110,6 +111,40 @@ function sanitizeSvgBuffer(input: Buffer): Buffer | null {
     parsedDom?.window.close();
     baseDom.window.close();
   }
+}
+
+/**
+ * True when the asset is some person's profile photo and the viewer is that
+ * person or shares an active organization with them. Only the photo itself
+ * is opened up; nothing else in that organization's files.
+ */
+export async function isSharedProfilePhoto(db: Db, req: Request, assetId: string): Promise<boolean> {
+  if (req.actor.type !== "board") return false;
+  const owners = await db
+    .select({ id: authUsers.id })
+    .from(authUsers)
+    .where(eq(authUsers.image, `/api/assets/${assetId}/content`));
+  if (owners.length === 0) return false;
+  const viewerId = req.actor.userId ?? null;
+  if (viewerId && owners.some((owner) => owner.id === viewerId)) return true;
+  const viewerCompanies = req.actor.companyIds ?? [];
+  if (viewerCompanies.length === 0) return false;
+  const shared = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(
+      and(
+        eq(companyMemberships.principalType, "user"),
+        inArray(
+          companyMemberships.principalId,
+          owners.map((owner) => owner.id),
+        ),
+        eq(companyMemberships.status, "active"),
+        inArray(companyMemberships.companyId, viewerCompanies),
+      ),
+    )
+    .limit(1);
+  return shared.length > 0;
 }
 
 export function assetRoutes(db: Db, storage: StorageService) {
@@ -362,7 +397,14 @@ export function assetRoutes(db: Db, storage: StorageService) {
 
   router.get("/assets/:assetId/content", async (req, res, next) => {
     const assetId = req.params.assetId as string;
-    const asset = await getAccessibleResource(req, res, svc.getById(assetId), "Asset not found");
+    const found = await svc.getById(assetId);
+    // A profile photo sits in the files of whichever organization was open when
+    // it was set, but it belongs to the person: anyone who shares an
+    // organization with them sees it.
+    const asset =
+      found && !hasCompanyAccess(req, found.companyId) && (await isSharedProfilePhoto(db, req, assetId))
+        ? found
+        : await getAccessibleResource(req, res, found, "Asset not found");
     if (!asset) return;
 
     const object = await storage.getObject(asset.companyId, asset.objectKey);

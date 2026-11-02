@@ -11,12 +11,19 @@ import { AuthPage } from "./Auth";
 const getSessionMock = vi.hoisted(() => vi.fn());
 const signInEmailMock = vi.hoisted(() => vi.fn());
 const signUpEmailMock = vi.hoisted(() => vi.fn());
+const loopbackServer = vi.hoisted(() => ({ value: false }));
+vi.mock("../lib/network-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/network-mode")>()),
+  onLoopbackServer: () => loopbackServer.value,
+}));
+const signInWithFirebaseMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../api/auth", () => ({
   authApi: {
     getSession: () => getSessionMock(),
     signInEmail: (input: unknown) => signInEmailMock(input),
     signUpEmail: (input: unknown) => signUpEmailMock(input),
+    signInWithFirebase: (idToken: unknown) => signInWithFirebaseMock(idToken),
   },
 }));
 
@@ -274,6 +281,56 @@ describe("AuthPage", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+
+  it("signs in with the app's Google account by itself, but not right after the person signed out", async () => {
+    const firebaseIdToken = vi.fn((_key: string, callId: string) => {
+      window.__automaNative?.resolve(callId, JSON.stringify({ ok: true, idToken: "google-id-token" }));
+    });
+    (window as unknown as { AutomaNative: unknown }).AutomaNative = {
+      getInfo: () => "{}",
+      getAuthState: () => JSON.stringify({ enabled: true, user: { uid: "u1", email: "ada@example.com" } }),
+      firebaseIdToken,
+    };
+    window.__automaKey = "page-key";
+    try {
+      localStorage.setItem("automa.auth.signedOutOnPurpose", "1");
+      const first = await mount();
+      await act(async () => {
+        first.queryClient.setQueryData(queryKeys.health, { status: "ok", deploymentMode: "authenticated", features: { firebaseSignIn: true } });
+      });
+      await flushReact();
+      expect(firebaseIdToken).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("Continue with Google");
+      await act(async () => first.root.unmount());
+
+      localStorage.removeItem("automa.auth.signedOutOnPurpose");
+      const second = await mount();
+      await act(async () => {
+        second.queryClient.setQueryData(queryKeys.health, { status: "ok", deploymentMode: "authenticated", features: { firebaseSignIn: true } });
+      });
+      await flushReact();
+      await flushReact();
+      expect(firebaseIdToken).toHaveBeenCalledTimes(1);
+      await act(async () => second.root.unmount());
+
+      // A server on this phone (127.0.0.1): never by itself; the person taps.
+      loopbackServer.value = true;
+      const third = await mount();
+      await act(async () => {
+        third.queryClient.setQueryData(queryKeys.health, { status: "ok", deploymentMode: "authenticated", features: { firebaseSignIn: true } });
+      });
+      await flushReact();
+      await flushReact();
+      expect(firebaseIdToken).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toContain("Continue with Google");
+      await act(async () => third.root.unmount());
+    } finally {
+      loopbackServer.value = false;
+      delete (window as unknown as { AutomaNative?: unknown }).AutomaNative;
+      delete window.__automaKey;
+      localStorage.clear();
+    }
   });
 
   it("invalidates anonymous health metadata after sign-in", async () => {

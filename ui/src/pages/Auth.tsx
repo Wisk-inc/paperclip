@@ -7,6 +7,8 @@ import { automaNative, isAutomaApp } from "../lib/automa-native";
 import { haptic } from "../lib/haptics";
 import { queryKeys } from "../lib/queryKeys";
 import { getRememberedInvitePath } from "../lib/invite-memory";
+import { clearSignedOutOnPurpose, signedOutOnPurpose } from "../lib/device-sign-out";
+import { onLoopbackServer } from "../lib/network-mode";
 import { Button } from "@/components/ui/button";
 import { AsciiArtAnimation } from "@/components/AsciiArtAnimation";
 import { PaperclipLoading } from "@/components/AnimatedPaperclipIcon";
@@ -48,6 +50,7 @@ export function AuthPage() {
 
   const finishSignIn = async () => {
     setError(null);
+    clearSignedOutOnPurpose();
     await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
     await queryClient.invalidateQueries({ queryKey: queryKeys.health });
     // Reset rather than invalidate: the `["companies"]` entry is shared app-wide and
@@ -82,10 +85,15 @@ export function AuthPage() {
       setError(err instanceof Error ? err.message : "Google sign-in failed");
     },
   });
-  // Already signed in to the app with Google: sign in to this server too, once.
+  // Already signed in to the app with Google: sign in to this server too, once,
+  // unless the person just signed out on purpose (then they choose). Never
+  // by itself on a server on this phone (127.0.0.1): any app can listen there
+  // and ask Automa to connect, and the Google sign-in it would receive works
+  // elsewhere too. There the person taps Continue with Google.
   const autoGoogleTried = useRef(false);
   useEffect(() => {
     if (!googleAvailable || !appAccount?.user || session || isSessionLoading || autoGoogleTried.current) return;
+    if (signedOutOnPurpose() || onLoopbackServer()) return;
     autoGoogleTried.current = true;
     google.mutate();
   }, [googleAvailable, appAccount?.user, session, isSessionLoading, google]);

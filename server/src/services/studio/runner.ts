@@ -170,6 +170,19 @@ export class StudioRuntime extends EventEmitter {
     this.emit("state", this.state);
   }
 
+  /**
+   * A new preview address for the running app; the old one stops working at
+   * once. Called when people lose access (a guest removed, sharing stopped or
+   * expired): the preview address is the only key to the running app, and a
+   * guest let go must not keep it. Everyone still here gets the new address
+   * with the run state.
+   */
+  rotatePreviewToken() {
+    if (!this.previewToken) return;
+    this.previewToken = randomBytes(18).toString("base64url");
+    if (this.state.previewPath) this.setState({ previewPath: `/api/studio-preview/${this.previewToken}/` });
+  }
+
   setTunnel(patch: Pick<Partial<StudioRunState>, "publicUrl" | "tunnelStatus" | "tunnelError">) {
     this.setState(patch);
   }

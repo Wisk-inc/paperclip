@@ -16,17 +16,27 @@ import java.util.concurrent.CopyOnWriteArrayList
  * the app's private cache right away (share grants expire with the sending
  * app's task) and wait there until the person confirms on the Files page.
  * Nothing is uploaded without that confirmation.
+ *
+ * The queue is kept in a small index beside the copies, so it survives
+ * Android rebuilding the screen (or ending the app) while the person is
+ * elsewhere, and copies nobody is waiting on are deleted.
  */
 class IncomingShares(private val context: Context) {
     data class Item(val id: String, val name: String, val byteSize: Long, val contentType: String?, val file: File)
 
     private val items = CopyOnWriteArrayList<Item>()
     private val dir: File get() = File(context.cacheDir, "incoming").apply { mkdirs() }
+    private val indexFile: File get() = File(dir, INDEX_NAME)
+
+    init {
+        restore()
+    }
 
     fun isShareIntent(intent: Intent?): Boolean =
         intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
 
-    /** Copy everything the intent carries. Call off the main thread. */
+    /** Copy everything the intent carries. Call off the main thread. Returns how many files were kept. */
+    @Synchronized
     fun accept(intent: Intent): Int {
         val uris = mutableListOf<Uri>()
         when (intent.action) {
@@ -44,11 +54,13 @@ class IncomingShares(private val context: Context) {
             val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
             if (!text.isNullOrBlank()) {
                 val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() } ?: "Shared text"
-                val file = File(dir, "${UUID.randomUUID()}.txt").apply { writeText(text) }
-                items.add(Item(UUID.randomUUID().toString(), sanitize("$subject.txt"), file.length(), "text/plain", file))
+                val id = UUID.randomUUID().toString()
+                val file = File(dir, id).apply { writeText(text) }
+                items.add(Item(id, sanitize("$subject.txt"), file.length(), "text/plain", file))
                 added += 1
             }
         }
+        if (added > 0) save()
         return added
     }
 
@@ -107,10 +119,73 @@ class IncomingShares(private val context: Context) {
         return array.toString()
     }
 
+    /** Drops one share (sent, or discarded on its own) and its copy. */
+    @Synchronized
+    fun remove(id: String): Boolean {
+        val item = find(id) ?: return false
+        items.remove(item)
+        item.file.delete()
+        save()
+        return true
+    }
+
+    @Synchronized
     fun clear() {
-        items.forEach { it.file.delete() }
         items.clear()
+        sweep(emptySet())
+        indexFile.delete()
     }
 
     fun isEmpty() = items.isEmpty()
+
+    /** Rebuilds the queue the last screen left; copies Android already cleared are skipped. */
+    @Synchronized
+    private fun restore() {
+        val saved = runCatching { JSONArray(indexFile.readText()) }.getOrNull()
+        if (saved != null) {
+            val home = dir.canonicalPath
+            for (index in 0 until saved.length()) {
+                val entry = saved.optJSONObject(index) ?: continue
+                val file = File(dir, entry.optString("file"))
+                if (!file.isFile || file.parentFile?.canonicalPath != home) continue
+                val id = entry.optString("id")
+                if (id.isBlank()) continue
+                items.add(
+                    Item(
+                        id = id,
+                        name = entry.optString("name").ifBlank { "shared-file" },
+                        byteSize = entry.optLong("byteSize", file.length()),
+                        // optString reads a JSON null as the text "null".
+                        contentType = if (entry.isNull("contentType")) null else entry.optString("contentType").ifBlank { null },
+                        file = file,
+                    ),
+                )
+            }
+        }
+        sweep(items.map { it.file.name }.toSet())
+    }
+
+    /** Deletes every copy nobody is waiting on. */
+    private fun sweep(keep: Set<String>) {
+        dir.listFiles()?.forEach { file -> if (file.name != INDEX_NAME && file.name !in keep) file.delete() }
+    }
+
+    private fun save() {
+        val array = JSONArray()
+        for (item in items) {
+            array.put(
+                JSONObject()
+                    .put("id", item.id)
+                    .put("name", item.name)
+                    .put("byteSize", item.byteSize)
+                    .put("contentType", item.contentType ?: JSONObject.NULL)
+                    .put("file", item.file.name),
+            )
+        }
+        runCatching { indexFile.writeText(array.toString()) }
+    }
+
+    companion object {
+        private const val INDEX_NAME = "queue.json"
+    }
 }

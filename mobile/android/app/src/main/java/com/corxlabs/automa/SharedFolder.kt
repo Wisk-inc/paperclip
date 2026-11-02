@@ -15,6 +15,10 @@ import java.util.concurrent.ConcurrentHashMap
  * the Storage Access Framework. The app never asks for broad storage access:
  * Android grants it exactly this tree, and the grant can be revoked from the
  * Files page or the system settings at any time.
+ *
+ * The folder belongs to the server (origin) and organization it was shared
+ * with: another server the app connects to later never sees it, and the
+ * board shows it only in that organization.
  */
 class SharedFolder(private val context: Context) {
     private val prefs = context.getSharedPreferences("automa", Context.MODE_PRIVATE)
@@ -28,7 +32,34 @@ class SharedFolder(private val context: Context) {
     val name: String?
         get() = prefs.getString(KEY_NAME, null)
 
-    fun select(tree: Uri) {
+    /** The server origin the folder was shared with (null for one shared before 1.9.6). */
+    val origin: String?
+        get() = prefs.getString(KEY_ORIGIN, null)
+
+    /** The organization it was shared with, when the page said (1.9.6 and newer). */
+    val companyId: String?
+        get() = prefs.getString(KEY_COMPANY, null)
+
+    /**
+     * True when the server at [currentOrigin] may use the folder. A folder
+     * shared before origins were kept is bound to the first server that asks,
+     * which is the one that was already reading it.
+     */
+    fun belongsTo(currentOrigin: String?): Boolean {
+        if (currentOrigin == null || treeUri == null) return false
+        val stored = origin ?: run {
+            prefs.edit().putString(KEY_ORIGIN, currentOrigin).apply()
+            currentOrigin
+        }
+        return stored == currentOrigin
+    }
+
+    /** Gives an older folder (no organization yet) to [company]; one that has an organization keeps it. */
+    fun claimFor(company: String) {
+        if (companyId == null && treeUri != null) prefs.edit().putString(KEY_COMPANY, company).apply()
+    }
+
+    fun select(tree: Uri, sharedWithOrigin: String? = null, sharedWithCompany: String? = null) {
         val resolver = context.contentResolver
         treeUri?.let { previous ->
             if (previous != tree) {
@@ -39,6 +70,10 @@ class SharedFolder(private val context: Context) {
         prefs.edit()
             .putString(KEY_TREE, tree.toString())
             .putString(KEY_NAME, displayName(tree))
+            .apply {
+                if (sharedWithOrigin != null) putString(KEY_ORIGIN, sharedWithOrigin) else remove(KEY_ORIGIN)
+                if (sharedWithCompany != null) putString(KEY_COMPANY, sharedWithCompany) else remove(KEY_COMPANY)
+            }
             .apply()
         index.clear()
     }
@@ -49,13 +84,13 @@ class SharedFolder(private val context: Context) {
                 context.contentResolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         }
-        prefs.edit().remove(KEY_TREE).remove(KEY_NAME).apply()
+        prefs.edit().remove(KEY_TREE).remove(KEY_NAME).remove(KEY_ORIGIN).remove(KEY_COMPANY).apply()
         index.clear()
     }
 
     fun describeJson(): String {
         val folderName = name ?: return "null"
-        return JSONObject().put("name", folderName).toString()
+        return JSONObject().put("name", folderName).put("companyId", companyId ?: JSONObject.NULL).toString()
     }
 
     private fun displayName(tree: Uri): String {
@@ -101,10 +136,15 @@ class SharedFolder(private val context: Context) {
                 resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
                     while (cursor.moveToNext()) {
                         val id = cursor.getString(0) ?: continue
-                        val displayName = cursor.getString(1)?.replace('/', '_')?.trim().orEmpty()
+                        // The server refuses "/" and "\\" in paths, and paths over 1024 characters.
+                        val displayName = cursor.getString(1)?.replace('/', '_')?.replace('\\', '_')?.trim().orEmpty()
                         if (displayName.isEmpty() || displayName == "." || displayName == ".." || displayName.startsWith(".")) continue
                         val mime = cursor.getString(2)
                         val path = if (prefix.isEmpty()) displayName else "$prefix/$displayName"
+                        if (path.length > MAX_PATH_LENGTH) {
+                            truncated = true
+                            continue
+                        }
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                             if (depth < MAX_DEPTH) queue.add(id to path) else truncated = true
                             continue
@@ -147,7 +187,8 @@ class SharedFolder(private val context: Context) {
     /** Open a file by its relative path; only paths from the listing resolve. */
     fun open(path: String): Pair<InputStream, String?>? {
         if (treeUri == null) return null
-        if (index.isEmpty()) listJson()
+        // Not in the last listing: the file may have been added since, so look again once.
+        if (!index.containsKey(path)) listJson()
         val uri = index[path] ?: return null
         val resolver = context.contentResolver
         val stream = runCatching { resolver.openInputStream(uri) }.getOrNull() ?: return null
@@ -157,7 +198,11 @@ class SharedFolder(private val context: Context) {
     companion object {
         private const val KEY_TREE = "shared_tree"
         private const val KEY_NAME = "shared_tree_name"
+        private const val KEY_ORIGIN = "shared_tree_origin"
+        private const val KEY_COMPANY = "shared_tree_company"
         const val MAX_ENTRIES = 5000
+        /** The server's limit for a shared path (validators/device-files.ts). */
+        private const val MAX_PATH_LENGTH = 1024
         private const val MAX_DEPTH = 6
     }
 }

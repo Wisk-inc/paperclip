@@ -672,6 +672,12 @@ export const resolveStudioChangeRequestSchema = z.object({
     .array(z.object({ path: relativePath, after: z.string().max(5_000_000).nullable() }))
     .max(50)
     .optional(),
+  /**
+   * Accept even though some files changed after the collaborator started
+   * from them; their newer edits are replaced. Without it, such an accept
+   * is refused (409, code studio_change_stale) so the owner can decide.
+   */
+  overwriteNewer: z.boolean().optional(),
 });
 
 export const postStudioMessageSchema = z.object({

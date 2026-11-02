@@ -7,7 +7,12 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Which Automa server this phone talks to, plus the install's stable identity.
@@ -50,6 +55,14 @@ class ServerConfig(context: Context) {
     }
 
     /**
+     * A request to the server's machine that is not the server: another
+     * program on another port (127.0.0.1:5173 beside 127.0.0.1:3100), or the
+     * same host over another scheme. Cookies ignore ports, so the server's
+     * app key would go along with it; the app refuses such requests.
+     */
+    fun isOtherServiceOnServerHost(uri: Uri): Boolean = otherServiceOnHost(serverOrigin(), uri)
+
+    /**
      * The board page this phone was last on (path, query and hash), reopened
      * on the next launch so a restart lands where the person left off.
      */
@@ -72,6 +85,12 @@ class ServerConfig(context: Context) {
         prefs.edit().putString(KEY_RECENT, JSONArray(recent).toString()).apply()
     }
 
+    /** The saved server at [origin], current or recent. */
+    fun savedUrlFor(origin: String): String? =
+        (listOfNotNull(serverUrl) + recentServers).firstOrNull { originOf(Uri.parse(it)) == origin }
+
+    fun knowsOrigin(origin: String): Boolean = savedUrlFor(origin) != null
+
     fun clearCurrent() {
         prefs.edit().remove(KEY_SERVER).apply()
     }
@@ -88,7 +107,65 @@ class ServerConfig(context: Context) {
     }
 
     fun forgetSecret(origin: String) {
-        prefs.edit().remove(KEY_SECRET_PREFIX + origin).apply()
+        prefs.edit().remove(KEY_SECRET_PREFIX + origin).remove(KEY_PROVEN_PREFIX + origin).apply()
+        forgetClearance(origin)
+    }
+
+    /**
+     * Whether the server at [origin] has ever proved it holds the app key
+     * ([proveServer]). From then on it always must: a program answering
+     * without a proof is not taken for an older Automa.
+     */
+    fun hasProven(origin: String): Boolean = prefs.getBoolean(KEY_PROVEN_PREFIX + origin, false)
+
+    private fun markProven(origin: String) {
+        prefs.edit().putBoolean(KEY_PROVEN_PREFIX + origin, true).apply()
+    }
+
+    /**
+     * How a server answered the app's challenge (see [proveServer]):
+     * proved it holds the key; needs no key; gave no proof; gave a wrong
+     * one; or could not be reached.
+     */
+    enum class Proof { PROVEN, NOT_LOCKED, NONE, WRONG, UNREACHABLE }
+
+    /** What [clearKeyFor] found: may the key go to the server, and what it answered. */
+    data class KeyCheck(val cleared: Boolean, val proof: Proof)
+
+    /**
+     * Checks, before the app key goes anywhere, that the server at [url]
+     * holds it (see [proveServer]); a cleared key may then be sent for the
+     * rest of this run. A server that answers without any proof and never
+     * proved itself is an older Automa (from before proofs) and is trusted
+     * as before. Call off the main thread.
+     */
+    fun clearKeyFor(url: String, secret: String): KeyCheck {
+        val origin = originOf(Uri.parse(url)) ?: return KeyCheck(false, Proof.UNREACHABLE)
+        if (isKeyCleared(origin, secret)) return KeyCheck(true, Proof.PROVEN)
+        val proof = proveServer(url, secret)
+        val cleared = when (proof) {
+            Proof.PROVEN -> true.also { markProven(origin) }
+            Proof.NONE -> !hasProven(origin)
+            // A server that needs no key never gets it.
+            Proof.NOT_LOCKED, Proof.WRONG, Proof.UNREACHABLE -> false
+        }
+        if (cleared) clearKey(origin, secret)
+        return KeyCheck(cleared, proof)
+    }
+
+    /**
+     * Whether [secret] is the key of the server at [url]: it proved so, or,
+     * for an older Automa from before proofs, it accepted the key. Call off
+     * the main thread.
+     */
+    fun keyWorks(url: String, secret: String): Boolean {
+        val check = clearKeyFor(url, secret)
+        if (!check.cleared) return false
+        if (check.proof == Proof.PROVEN) return true
+        if (companyCount(url, secret) != null) return true
+        // The older server refused it: not a key to send again.
+        originOf(Uri.parse(url))?.let { unclearKey(it, secret) }
+        return false
     }
 
     /** A connect request another app sent (Termux's launcher). Applied only when the person taps Connect. */
@@ -117,6 +194,7 @@ class ServerConfig(context: Context) {
         private const val KEY_RECENT = "recent_servers"
         private const val KEY_CLIENT = "client_key"
         private const val KEY_SECRET_PREFIX = "secret:"
+        private const val KEY_PROVEN_PREFIX = "proven:"
         private const val KEY_PENDING = "pending_connect"
         private const val KEY_LAST_PATH = "last_path"
         /** Bounds for an app key typed by hand; the server needs 16+ characters. */
@@ -326,6 +404,100 @@ class ServerConfig(context: Context) {
             connection.disconnect()
             body?.let { JSONArray(it).length() }
         }.getOrNull()
+
+        /** Shared with the server: server/src/auth/local-secret-proof.ts. */
+        private const val PROOF_NONCE_HEADER = "x-automa-proof-nonce"
+        private const val PROOF_HEADER = "x-automa-proof"
+
+        /**
+         * Asks the server at [serverUrl] to prove it holds [secret] without
+         * sending it: a random challenge goes to /api/health, and only a
+         * server with the key can answer with its HMAC (which also covers the
+         * port, so a program on this port can't relay the challenge to the
+         * real server elsewhere). Call off the main thread.
+         */
+        fun proveServer(serverUrl: String, secret: String): Proof {
+            val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }.toHex()
+            return try {
+                val connection = URL("$serverUrl/api/health").openConnection() as HttpURLConnection
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                // An answer from wherever a redirect leads is not this server's.
+                connection.instanceFollowRedirects = false
+                connection.useCaches = false
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty(PROOF_NONCE_HEADER, nonce)
+                val code = connection.responseCode
+                val answer = connection.getHeaderField(PROOF_HEADER)?.trim()?.lowercase()
+                val body = runCatching {
+                    (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }
+                }.getOrNull()
+                connection.disconnect()
+                when {
+                    // No answer: a server without a key (its health says it isn't
+                    // locked), or one from before proofs, or not Automa at all.
+                    answer.isNullOrEmpty() -> {
+                        val health = body?.let { runCatching { JSONObject(it) }.getOrNull() }
+                        val unlocked = code in 200..299 && health?.has("status") == true && !health.optBoolean("localSecretRequired", false)
+                        if (unlocked) Proof.NOT_LOCKED else Proof.NONE
+                    }
+                    MessageDigest.isEqual(
+                        proofFor(secret, portOf(serverUrl), nonce).toByteArray(Charsets.US_ASCII),
+                        answer.toByteArray(Charsets.US_ASCII),
+                    ) -> Proof.PROVEN
+                    else -> Proof.WRONG
+                }
+            } catch (_: Exception) {
+                Proof.UNREACHABLE
+            }
+        }
+
+        /** The server's answer to [nonce]: the same HMAC as localSecretProof on the server. */
+        fun proofFor(secret: String, port: Int, nonce: String): String {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            return mac.doFinal("automa-local-secret-proof:v1:$port:$nonce".toByteArray(Charsets.UTF_8)).toHex()
+        }
+
+        private fun portOf(serverUrl: String): Int {
+            val uri = Uri.parse(serverUrl)
+            return if (uri.port != -1) uri.port else if (uri.scheme.equals("https", ignoreCase = true)) 443 else 80
+        }
+
+        private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+        /**
+         * Keys cleared for sending in this run, by origin and a hash of the key
+         * (never the key itself). Forgotten when the server goes away, so a
+         * program that takes its port meanwhile must prove itself first.
+         */
+        private val clearedKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        private fun clearanceId(origin: String, secret: String): String =
+            origin + "|" + MessageDigest.getInstance("SHA-256").digest(secret.toByteArray(Charsets.UTF_8)).toHex()
+
+        fun isKeyCleared(origin: String, secret: String): Boolean = clearanceId(origin, secret) in clearedKeys
+
+        private fun clearKey(origin: String, secret: String) {
+            clearedKeys.add(clearanceId(origin, secret))
+        }
+
+        private fun unclearKey(origin: String, secret: String) {
+            clearedKeys.remove(clearanceId(origin, secret))
+        }
+
+        fun forgetClearance(origin: String) {
+            clearedKeys.removeAll { it.startsWith("$origin|") }
+        }
+
+        /** See [isOtherServiceOnServerHost]; pure, for the given server origin. */
+        fun otherServiceOnHost(serverOrigin: String?, uri: Uri): Boolean {
+            val origin = serverOrigin ?: return false
+            val serverHost = Uri.parse(origin).host?.lowercase() ?: return false
+            val host = uri.host?.lowercase() ?: return false
+            if (host != serverHost) return false
+            return originOf(uri) != origin
+        }
 
         fun isLoopback(url: String): Boolean {
             val host = Uri.parse(url).host ?: return false

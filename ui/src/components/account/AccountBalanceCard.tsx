@@ -25,7 +25,10 @@ export function AccountBalanceCard({ companyId, open, onNavigate }: { companyId:
     enabled: open,
     staleTime: 60_000,
   });
-  const connections: AiManagedConnectionSummary[] = (list.data?.connections ?? []).slice(0, MAX_CHECKED);
+  // Removing a key only revokes it; the list still returns it, as on the API keys page.
+  const connections: AiManagedConnectionSummary[] = (list.data?.connections ?? [])
+    .filter((connection) => connection.status !== "revoked")
+    .slice(0, MAX_CHECKED);
   const balances = useQueries({
     queries: connections.map((connection) => ({
       queryKey: ["ai-connection-balance", companyId, connection.id],

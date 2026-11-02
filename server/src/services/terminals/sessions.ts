@@ -1,3 +1,4 @@
+import { withoutServerCredentials } from "@paperclipai/adapter-utils/server-utils";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -109,7 +110,7 @@ const RELAY_HIDDEN_ENV_KEYS = new Set(["ANTHROPIC_AUTH_TOKEN", "DATABASE_URL", "
  * secret or run context.
  */
 export function terminalRelayEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, TERM: "xterm-256color", ...(extra ?? {}) };
+  const env: NodeJS.ProcessEnv = { ...withoutServerCredentials(process.env), TERM: "xterm-256color", ...(extra ?? {}) };
   for (const key of Object.keys(env)) {
     if (key.startsWith("PAPERCLIP_") || RELAY_HIDDEN_ENV_KEYS.has(key)) delete env[key];
   }

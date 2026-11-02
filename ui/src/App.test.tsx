@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudAccessGate } from "./components/CloudAccessGate";
 import appSource from "./App.tsx?raw";
+import layoutSource from "./components/Layout.tsx?raw";
 
 const mockHealthApi = vi.hoisted(() => ({
   get: vi.fn(),
@@ -40,6 +41,8 @@ vi.mock("@/lib/router", () => ({
   Route: ({ children }: { children?: ReactNode }) => <>{children}</>,
   Routes: ({ children }: { children?: ReactNode }) => <>{children}</>,
   useLocation: () => ({ pathname: "/instance/settings/general", search: "", hash: "" }),
+  // The no-access page's "Sign in with another account" signs out, then navigates.
+  useNavigate: () => vi.fn(),
   useParams: () => ({}),
 }));
 
@@ -319,3 +322,11 @@ describe("Decisions routes", () => {
     expect(appSource).not.toContain('path="training/:id"');
   });
 });
+
+describe("Locked instance notice", () => {
+  it("is mounted once, by the root gate: each copy asks the app to recover its key, using up its tries", () => {
+    expect(appSource.match(/<LocalSecretNotice \/>/g)).toHaveLength(1);
+    expect(layoutSource).not.toContain("LocalSecretNotice");
+  });
+});
+

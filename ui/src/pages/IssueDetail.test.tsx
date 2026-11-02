@@ -1468,6 +1468,28 @@ describe("IssueDetail", () => {
     expect(ensureIssue).toHaveBeenCalledTimes(1);
   });
 
+  it("watches the new chat's real task for the reply to its first message, not the draft", async () => {
+    sessionStorage.removeItem("automa.notifications.watching");
+    // Opened by the agent's name; the reply notification must lead by its id,
+    // which survives a rename.
+    mockLocation.pathname = "/PAP/chats/builder";
+    const agent = createAgent();
+    const canonical = createIssue({ id: "chat-real-1", conversationAgentId: agent.id, conversationUserId: "user-1", conversationState: "waiting", status: "in_review" });
+    const ensureIssue = vi.fn().mockResolvedValue(canonical);
+    mockIssuesApi.addComment.mockResolvedValue(createIssueComment({ issueId: canonical.id, body: "Hello" }));
+    await act(async () => {
+      root.render(<QueryClientProvider client={queryClient}><TaskDetailSurface conversation={{ agent, issue: null, ensureIssue }} /></QueryClientProvider>);
+    });
+    await flushReact();
+    const props = mockIssueChatThreadRender.mock.calls.at(-1)?.[0] as { onAdd: (body: string) => Promise<void> };
+    await act(async () => { await props.onAdd("Hello"); });
+
+    const watching = JSON.parse(sessionStorage.getItem("automa.notifications.watching") ?? "{}") as Record<string, { path: string }>;
+    expect(Object.keys(watching)).toContain(canonical.id);
+    expect(Object.keys(watching)).not.toContain(`chat:${agent.id}`);
+    expect(watching[canonical.id]!.path).toBe(`/PAP/chats/${agent.id}`);
+  });
+
   it("retries the chosen initial chat mode after creation succeeded but mode persistence failed", async () => {
     mockIssuesApi.addComment.mockClear();
     mockIssuesApi.update.mockClear();

@@ -937,7 +937,7 @@ export async function markEditUndone(companyId: string, workspaceId: string, edi
   const changed = await syncUndoneSteps(companyId, workspaceId, transcript);
   if (changed.length) await writeJson(file, transcript);
   const turn = transcript.find((candidate) => candidate.steps.some((step) => step.editId === editId)) ?? null;
-  for (const other of changed) if (other !== turn) studioHub.broadcast(workspaceId, { type: "assistant", turn: other, done: true });
+  for (const other of changed) if (other !== turn) studioHub.sendToOwners(workspaceId, { type: "assistant", turn: other, done: true });
   return turn;
 }
 
@@ -1072,13 +1072,14 @@ async function startTurn(
   const publish = (done: boolean) => {
     // A late update (a usage count arriving after the reply ended) must not show it running again.
     if (finished && !done) return;
-    studioHub.broadcast(context.workspaceId, {
+    // The owner's own conversation (prompts, file contents, replies): never sent to guests.
+    studioHub.sendToOwners(context.workspaceId, {
       type: "assistant",
       turn: done ? copyOfTurn() : snapshot(),
       done,
     });
   };
-  studioHub.broadcast(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
+  studioHub.sendToOwners(context.workspaceId, { type: "assistant", turn: userTurn, done: true });
 
   // Every model call in the turn adds up; the turn is recorded once per
   // provider and model that did the work (teammates may use others), so
@@ -1142,7 +1143,7 @@ async function startTurn(
     liveTurns.delete(context.workspaceId);
     finished = true;
     publish(true);
-    for (const other of remarked) if (other !== turn) studioHub.broadcast(context.workspaceId, { type: "assistant", turn: other, done: true });
+    for (const other of remarked) if (other !== turn) studioHub.sendToOwners(context.workspaceId, { type: "assistant", turn: other, done: true });
     try {
       context.onFinished?.(copyOfTurn());
     } catch (error) {

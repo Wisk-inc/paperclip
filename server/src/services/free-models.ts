@@ -117,7 +117,9 @@ export async function freeModelUsage(db: Db, companyId: string): Promise<FreeMod
     .where(and(
       eq(heartbeatRuns.companyId, companyId),
       sql`${usage} is not null`,
-      since ? gt(heartbeatRuns.createdAt, since) : undefined,
+      // A run records its free usage when it finishes: counted by that, a reply
+      // still running at the reset counts after it instead of nowhere.
+      since ? sql`coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.createdAt}) > ${since.toISOString()}::timestamptz` : undefined,
     ));
   const studio = await db
     .select({

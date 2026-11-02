@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { accessApi } from "@/api/access";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PatchInstanceGeneralSettings, BackupRetentionPolicy } from "@paperclipai/shared";
 import {
@@ -63,6 +64,17 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
     },
   });
 
+  // Hooks stay above the early returns below.
+  const isAuthenticatedServer = healthQuery.data?.deploymentMode === "authenticated";
+  // These settings belong to the whole server: only its admins may change them.
+  const boardAccessQuery = useQuery({
+    queryKey: queryKeys.access.currentBoardAccess,
+    queryFn: () => accessApi.getCurrentBoardAccess(),
+    enabled: isAuthenticatedServer,
+    retry: false,
+  });
+  const settingsLocked = isAuthenticatedServer && boardAccessQuery.data?.isInstanceAdmin !== true;
+
   if (generalQuery.isLoading || healthQuery.isLoading) {
     return <div className="text-sm text-muted-foreground">Loading general settings...</div>;
   }
@@ -87,7 +99,9 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
   const showKeyboardShortcuts = !hiddenSettings.has("instance.general.keyboardShortcuts");
   const showBackupRetention = !hiddenSettings.has("instance.general.backupRetention");
   const showFeedbackDataSharing = FEEDBACK_SHARING_AVAILABLE && !hiddenSettings.has("instance.general.feedbackDataSharingPreference");
-  const showSignOut = !hiddenSettings.has("instance.general.signOut");
+  // Only an authenticated server has a session to end; a local board's sign-out
+  // request has nowhere to go.
+  const showSignOut = !hiddenSettings.has("instance.general.signOut") && isAuthenticatedServer;
   const visibleTopics = [
     ...(showCensorUsernameInLogs ? ["log display"] : []),
     ...(showKeyboardShortcuts ? ["keyboard shortcuts"] : []),
@@ -116,6 +130,14 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
             {visibleTopics.length > 0 ? <> including {topicSummary}</> : null}.
           </p>
         </div>
+      ) : null}
+
+      {embedded || settingsLocked ? (
+        <p className="text-sm text-muted-foreground" data-testid="instance-settings-scope">
+          {embedded ? "These apply to every organization on this Automa server." : null}
+          {embedded && settingsLocked ? " " : null}
+          {settingsLocked ? "Only a server admin can change them." : null}
+        </p>
       ) : null}
 
       {visibleActionError && (
@@ -173,7 +195,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
           <ToggleSwitch
             checked={censorUsernameInLogs}
             onCheckedChange={() => updateGeneralMutation.mutate({ censorUsernameInLogs: !censorUsernameInLogs })}
-            disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+            disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
             aria-label="Toggle username log censoring"
           />
         </div>
@@ -193,7 +215,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
           <ToggleSwitch
             checked={keyboardShortcuts}
             onCheckedChange={() => updateGeneralMutation.mutate({ keyboardShortcuts: !keyboardShortcuts })}
-            disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+            disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
             aria-label="Toggle keyboard shortcuts"
           />
         </div>
@@ -221,7 +243,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
                   <button
                     key={days}
                     type="button"
-                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
                     className={cn(
                       "rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                       active
@@ -251,7 +273,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
                   <button
                     key={weeks}
                     type="button"
-                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
                     className={cn(
                       "rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                       active
@@ -281,7 +303,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
                   <button
                     key={months}
                     type="button"
-                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+                    disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
                     className={cn(
                       "rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                       active
@@ -348,7 +370,7 @@ export function InstanceGeneralSettings({ embedded = false }: { embedded?: boole
                 <button
                   key={option.value}
                   type="button"
-                  disabled={updateGeneralMutation.isPending || signOutMutation.isPending}
+                  disabled={updateGeneralMutation.isPending || signOutMutation.isPending || settingsLocked}
                   className={cn(
                     "rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                     active

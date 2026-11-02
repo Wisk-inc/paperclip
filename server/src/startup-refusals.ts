@@ -86,3 +86,23 @@ export function shouldReportStartupFailure(
   const cloudOrigin = env.PAPERCLIP_CLOUD_API_ORIGIN?.trim();
   return !cloudOrigin;
 }
+
+/**
+ * A locked local Automa (PAPERCLIP_LOCAL_TRUSTED_SECRET) never moves off its
+ * port. The Automa app sends this server's key to the address it was given,
+ * 127.0.0.1:<port>; if the server quietly took the next free port, whatever
+ * else holds the old one would be the program the app talks to. So a busy
+ * port stops the start instead, with what to do.
+ */
+export function assertListenPortKeepsAppKeySafe(input: {
+  localTrustedSecret: string | null | undefined;
+  requestedPort: number;
+  selectedPort: number;
+}): void {
+  if (!input.localTrustedSecret || input.selectedPort === input.requestedPort) return;
+  throw new Error(
+    `Port ${input.requestedPort} is already in use by another program, so Automa did not start. ` +
+      `It won't move to port ${input.selectedPort}: the Automa app sends this server's app key to port ${input.requestedPort}. ` +
+      `Stop whatever is using port ${input.requestedPort} (often an older Automa that is still running: run "automa stop"), then start Automa again.`,
+  );
+}

@@ -28,6 +28,8 @@ import { useToastActions } from "../context/ToastContext";
 import { useThisDevice } from "../hooks/useThisDevice";
 import { useUndoableAction } from "../hooks/useUndoableAction";
 import { automaNative, isAutomaApp, type AutomaIncomingShare } from "../lib/automa-native";
+import { storedDeviceId } from "../lib/device-identity";
+import { sharedFolderFor } from "../lib/this-device";
 import { haptic } from "../lib/haptics";
 import { queryKeys } from "../lib/queryKeys";
 import { timeAgo } from "../lib/timeAgo";
@@ -160,6 +162,10 @@ export function DeviceFiles() {
   };
 
   const pendingRequests = (requests.data ?? []).filter((request) => request.status === "pending");
+  // A request addressed to a device that was since removed can be answered from any device.
+  // Unknown until the device list loads: until then nothing counts as removed.
+  const activeDeviceIds = overview.data ? new Set(devices.map((device) => device.id)) : null;
+  const sharedFolderHere = inApp && Boolean(sharedFolderFor(companyId, thisDevice.device?.sharedFolderName));
   const resolvedRequests = (requests.data ?? []).filter((request) => request.status !== "pending").slice(0, 20);
 
   if (!selectedCompanyId) return <PageSkeleton variant="list" />;
@@ -173,6 +179,7 @@ export function DeviceFiles() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 md:pb-8">
       <ThisDevicePanel
+        companyId={companyId}
         inApp={inApp}
         device={thisDevice.device}
         deviceId={thisDevice.deviceId}
@@ -233,6 +240,8 @@ export function DeviceFiles() {
             agentName={agentName}
             deviceName={deviceName}
             thisDeviceId={thisDevice.deviceId}
+            activeDeviceIds={activeDeviceIds}
+            sharedFolderHere={sharedFolderHere}
             onChanged={refreshAll}
           />
         ) : tab === "files" ? (
@@ -285,6 +294,7 @@ export function DeviceFiles() {
 }
 
 function ThisDevicePanel({
+  companyId,
   inApp,
   device,
   deviceId,
@@ -293,6 +303,7 @@ function ThisDevicePanel({
   onRegister,
   onDeviceChange,
 }: {
+  companyId: string;
   inApp: boolean;
   device: CompanyDevice | null;
   deviceId: string | null;
@@ -302,24 +313,42 @@ function ThisDevicePanel({
   onDeviceChange: (device: CompanyDevice) => void;
 }) {
   const { pushToast } = useToastActions();
-  const [folder, setFolder] = useState(() => automaNative.sharedFolder());
+  // The phone's folder as this organization sees it: shared here, or not at all.
+  const [folderVersion, setFolderVersion] = useState(0);
+  const folder = useMemo(
+    () => (inApp ? sharedFolderFor(companyId, device?.sharedFolderName) : null),
+    // folderVersion: re-read after a pick or a stop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inApp, companyId, device?.sharedFolderName, folderVersion],
+  );
   const [syncing, setSyncing] = useState(false);
 
   async function shareFolder() {
     if (!deviceId) return;
     setSyncing(true);
     try {
-      await automaNative.pickSharedFolder();
+      const previous = automaNative.sharedFolder();
+      await automaNative.pickSharedFolder(companyId);
+      setFolderVersion((version) => version + 1);
+      // The folder now belongs here: the organization it was shared with before stops listing it.
+      if (previous?.companyId && previous.companyId !== companyId) {
+        const previousDeviceId = storedDeviceId(previous.companyId);
+        if (previousDeviceId) {
+          void deviceFilesApi.reportSharedIndex(previousDeviceId, { sharedFolderName: null, entries: [] }).catch(() => undefined);
+        }
+      }
       const listing = await automaNative.listSharedFolder();
-      const updated = await deviceFilesApi.reportSharedIndex(deviceId, {
+      let updated = await deviceFilesApi.reportSharedIndex(deviceId, {
         sharedFolderName: listing.name,
         entries: listing.entries,
       });
-      setFolder({ name: listing.name });
+      // Auto-send was switched on for the old folder; the new one starts with it off.
+      const autoSendWasOn = Boolean(updated?.autoFulfill);
+      if (autoSendWasOn) updated = await deviceFilesApi.updateDevice(deviceId, { autoFulfill: false });
       onDeviceChange(updated);
       pushToast({
         title: `Sharing ${listing.name}`,
-        body: `${listing.entries.length} file${listing.entries.length === 1 ? "" : "s"} visible to your agents${listing.truncated ? " (list truncated)" : ""}.`,
+        body: `${listing.entries.length} file${listing.entries.length === 1 ? "" : "s"} visible to your agents${listing.truncated ? " (list truncated)" : ""}.${autoSendWasOn ? " Auto-send is off for this folder; turn it on again if you want." : ""}`,
         tone: "success",
       });
     } catch (error) {
@@ -331,8 +360,8 @@ function ThisDevicePanel({
 
   async function stopSharing() {
     if (!deviceId) return;
-    automaNative.clearSharedFolder();
-    setFolder(null);
+    if (folder) automaNative.clearSharedFolder();
+    setFolderVersion((version) => version + 1);
     try {
       onDeviceChange(await deviceFilesApi.reportSharedIndex(deviceId, { sharedFolderName: null, entries: [] }));
     } catch (error) {
@@ -379,12 +408,12 @@ function ThisDevicePanel({
       </div>
       <div className="border-t border-border p-4">
         {inApp ? (
-          folder || device?.sharedFolderName ? (
+          folder ? (
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <FolderOpen className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">Sharing “{folder?.name ?? device?.sharedFolderName}”</p>
+                  <p className="truncate text-sm font-medium">Sharing “{folder.name}”</p>
                   <p className="text-sm text-muted-foreground">
                     {device?.sharedIndexCount ?? 0} files listed for agents
                     {device?.sharedIndexUpdatedAt ? ` · updated ${timeAgo(device.sharedIndexUpdatedAt)}` : ""}
@@ -428,33 +457,88 @@ function ThisDevicePanel({
   );
 }
 
+/** Shares already sent, for apps older than 1.9.6 that can only clear the whole queue. */
+const SENT_SHARES_KEY = "automa.shares.sent";
+
+function readSentShares(): Set<string> {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(SENT_SHARES_KEY) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSentShares(ids: Set<string>) {
+  try {
+    if (ids.size === 0) window.sessionStorage.removeItem(SENT_SHARES_KEY);
+    else window.sessionStorage.setItem(SENT_SHARES_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Storage refused: a retry may send a file twice, as before.
+  }
+}
+
+/** The share-sheet files still waiting to be sent. */
+function waitingShares(): AutomaIncomingShare[] {
+  const sent = readSentShares();
+  return automaNative.incomingShares().filter((share) => !sent.has(share.id));
+}
+
 function IncomingShares({ companyId, deviceId, onDone }: { companyId: string; deviceId: string; onDone: () => void }) {
   const { pushToast } = useToastActions();
-  const [shares, setShares] = useState<AutomaIncomingShare[]>(() => automaNative.incomingShares());
+  const [shares, setShares] = useState<AutomaIncomingShare[]>(() => waitingShares());
+  // Why a file didn't go, shown beside it until the next try.
+  const [failures, setFailures] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const refresh = () => setShares(automaNative.incomingShares());
+    const refresh = () => setShares(waitingShares());
     window.addEventListener("automa:incoming-shares", refresh);
     return () => window.removeEventListener("automa:incoming-shares", refresh);
   }, []);
 
   if (shares.length === 0) return null;
 
+  // Each file on its own: one the server refuses (too large, unreadable) must
+  // not hold back the rest, and a retry sends only what didn't go.
   async function sendAll() {
     setSending(true);
+    const failed: Record<string, string> = {};
+    let sent = 0;
     try {
       for (const share of shares) {
-        const res = await fetch(share.url, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Could not read ${share.name}`);
-        await deviceFilesApi.uploadFile(companyId, { file: await res.blob(), filename: share.name, sourceDeviceId: deviceId });
+        try {
+          const res = await fetch(share.url, { cache: "no-store" });
+          if (!res.ok) throw new Error("The phone no longer has this file. Share it again.");
+          await deviceFilesApi.uploadFile(companyId, { file: await res.blob(), filename: share.name, sourceDeviceId: deviceId });
+          sent += 1;
+          if (!automaNative.removeIncomingShare(share.id)) {
+            const sentIds = readSentShares();
+            sentIds.add(share.id);
+            writeSentShares(sentIds);
+          }
+        } catch (error) {
+          failed[share.id] = errorMessage(error);
+        }
       }
-      pushToast({ title: shares.length === 1 ? "Shared file sent" : `${shares.length} shared files sent`, tone: "success" });
-      automaNative.clearIncomingShares();
-      setShares([]);
-      onDone();
-    } catch (error) {
-      pushToast({ title: "Could not send shared files", body: errorMessage(error), tone: "error" });
+      const left = waitingShares();
+      if (left.length === 0) {
+        automaNative.clearIncomingShares();
+        writeSentShares(new Set());
+      }
+      setShares(left);
+      setFailures(failed);
+      if (sent > 0) onDone();
+      const failedCount = Object.keys(failed).length;
+      if (failedCount === 0) {
+        pushToast({ title: sent === 1 ? "Shared file sent" : `${sent} shared files sent`, tone: "success" });
+      } else {
+        pushToast({
+          title: sent > 0 ? `${sent} sent, ${failedCount} didn't go` : failedCount === 1 ? "The shared file didn't go" : "The shared files didn't go",
+          body: "Each one says why below.",
+          tone: "error",
+        });
+      }
     } finally {
       setSending(false);
     }
@@ -468,9 +552,12 @@ function IncomingShares({ companyId, deviceId, onDone }: { companyId: string; de
       </div>
       <ul className="mt-3 space-y-1 text-sm">
         {shares.map((share) => (
-          <li key={share.id} className="flex justify-between gap-3">
-            <span className="truncate">{share.name}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">{share.byteSize != null ? formatBytes(share.byteSize) : ""}</span>
+          <li key={share.id}>
+            <div className="flex justify-between gap-3">
+              <span className="truncate">{share.name}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{share.byteSize != null ? formatBytes(share.byteSize) : ""}</span>
+            </div>
+            {failures[share.id] ? <p className="text-xs text-destructive">{failures[share.id]}</p> : null}
           </li>
         ))}
       </ul>
@@ -483,6 +570,8 @@ function IncomingShares({ companyId, deviceId, onDone }: { companyId: string; de
           className="h-11"
           onClick={() => {
             automaNative.clearIncomingShares();
+            writeSentShares(new Set());
+            setFailures({});
             setShares([]);
           }}
         >
@@ -500,6 +589,8 @@ function RequestsView({
   agentName,
   deviceName,
   thisDeviceId,
+  activeDeviceIds,
+  sharedFolderHere,
   onChanged,
 }: {
   loading: boolean;
@@ -508,6 +599,8 @@ function RequestsView({
   agentName: (id: string | null) => string | null;
   deviceName: (id: string | null) => string | null;
   thisDeviceId: string | null;
+  activeDeviceIds: ReadonlySet<string> | null;
+  sharedFolderHere: boolean;
   onChanged: () => void;
 }) {
   const { pushToast } = useToastActions();
@@ -548,6 +641,8 @@ function RequestsView({
                 agentName={agentName}
                 deviceName={deviceName}
                 thisDeviceId={thisDeviceId}
+                targetDeviceRemoved={Boolean(request.deviceId && activeDeviceIds && !activeDeviceIds.has(request.deviceId))}
+                sharedFolderHere={sharedFolderHere}
                 onChanged={onChanged}
                 onDecline={() => decline.run(request.id, `Declined “${request.title}”`)}
               />
@@ -592,6 +687,8 @@ function RequestCard({
   agentName,
   deviceName,
   thisDeviceId,
+  targetDeviceRemoved,
+  sharedFolderHere,
   onChanged,
   onDecline,
 }: {
@@ -599,13 +696,17 @@ function RequestCard({
   agentName: (id: string | null) => string | null;
   deviceName: (id: string | null) => string | null;
   thisDeviceId: string | null;
+  targetDeviceRemoved: boolean;
+  sharedFolderHere: boolean;
   onChanged: () => void;
   onDecline: () => void;
 }) {
   const { pushToast } = useToastActions();
   const inputRef = useRef<HTMLInputElement>(null);
-  const inShared = Boolean(request.devicePath && automaNative.sharedFolder());
-  const forOtherDevice = Boolean(request.deviceId && thisDeviceId && request.deviceId !== thisDeviceId);
+  const forThisPhone = !request.deviceId || request.deviceId === thisDeviceId;
+  // Only a path in this organization's shared folder on this phone can be sent from it.
+  const inShared = Boolean(request.devicePath && sharedFolderHere && forThisPhone);
+  const forOtherDevice = Boolean(request.deviceId && thisDeviceId && request.deviceId !== thisDeviceId && !targetDeviceRemoved);
 
   const fulfill = useMutation({
     mutationFn: async (input: { file: Blob; filename: string; devicePath?: string | null }) =>
@@ -634,7 +735,11 @@ function RequestCard({
       <p className="font-medium leading-snug">{request.title}</p>
       <p className="mt-1 text-sm text-muted-foreground">
         {requester} asked {timeAgo(request.createdAt)}
-        {request.deviceId ? ` · for ${deviceName(request.deviceId)}` : " · any device"}
+        {request.deviceId
+          ? targetDeviceRemoved
+            ? " · its device was removed, so answer from here"
+            : ` · for ${deviceName(request.deviceId)}`
+          : " · any device"}
       </p>
       {request.details ? <p className="mt-3 text-sm leading-relaxed">{request.details}</p> : null}
       {request.devicePath ? (

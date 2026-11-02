@@ -222,12 +222,15 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const signOut = async () => {
     haptic("tick");
     if (!localBoard) {
+      // useSignOut also signs the app out of Google and opens its connect screen.
       try {
         await serverSignOut.mutateAsync();
       } catch (error) {
         failed("Couldn’t sign out")(error);
         return;
       }
+      onOpenChange(false);
+      return;
     }
     onOpenChange(false);
     if (inApp) {

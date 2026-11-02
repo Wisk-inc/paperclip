@@ -1157,11 +1157,13 @@ export function agentService(db: Db) {
           .cancelPendingForDeletedAddressee(existing.companyId, id);
         await tx.update(agents).set({ reportsTo: null }).where(eq(agents.reportsTo, id));
         // A chat names its agent three ways that must change together (the
-        // conversation identity check), so its chats stop being chats first;
-        // their messages stay as an ordinary task.
+        // conversation identity check), so its chats stop being chats first.
+        // They were each person's private conversation: hidden at once, so
+        // they never show up as a task anyone can open (the route then
+        // deletes them, which is what removing the agent promises).
         await tx
           .update(issues)
-          .set({ conversationAgentId: null, conversationUserId: null, conversationState: null, assigneeAgentId: null })
+          .set({ conversationAgentId: null, conversationUserId: null, conversationState: null, assigneeAgentId: null, hiddenAt: new Date() })
           .where(eq(issues.conversationAgentId, id));
         await tx
           .update(issues)

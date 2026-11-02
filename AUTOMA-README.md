@@ -776,8 +776,9 @@ your Downloads. For apps you made or are allowed to analyze.
   adb once `automa adb link` has been run.
 - **Rebuild:** apktool rebuild, zipalign and apksigner with an inspector key,
   saved to `Downloads/Automa`.
-- apktool and jadx must be installed where Automa runs; the Termux installer
-  adds them.
+- apktool, apksigner and jadx must be installed where Automa runs. On a phone
+  the App Inspector installs them the first time it decodes (through Termux
+  packages, or apktool's own release jar when the package won't install).
 
 ---
 
@@ -835,8 +836,9 @@ overspends. A run that fails before its model session says so and links here.
 1. Install **Termux** from F-Droid.
 2. In Automa, tap **Run Automa on this phone → Send to Termux**, and paste the
    command Termux is given.
-3. The installer sets up Node.js and PostgreSQL, the server, apktool and jadx,
-   and an `automa` command, then starts Automa on `127.0.0.1:3100`, locked to
+3. The installer sets up Node.js and PostgreSQL (plus git, Python and
+   proot-distro for tasks and Terminals), the server, and an `automa` command,
+   then starts Automa on `127.0.0.1:3100`, locked to
    the app. The first install downloads about 380 packages (10 to 45 minutes);
    updates are much faster. The connect screen shows each step with a progress
    bar and opens the board when the server answers.

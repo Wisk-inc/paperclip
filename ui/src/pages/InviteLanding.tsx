@@ -10,6 +10,7 @@ import { accessApi } from "../api/access";
 import { authApi } from "../api/auth";
 import { fetchCompanyListForCurrentAccount, useCompanyListQuery } from "../api/companies-query";
 import { healthApi } from "../api/health";
+import { automaNative, isAutomaApp } from "../lib/automa-native";
 import { getAdapterLabel } from "../adapters/adapter-display-registry";
 import { clearPendingInviteToken, rememberPendingInviteToken } from "../lib/invite-memory";
 import { queryKeys } from "../lib/queryKeys";
@@ -153,6 +154,10 @@ function InviteCompanyLogo({
   );
 }
 
+/** The server's password rule (Better Auth's defaults), as on the sign-in page. */
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+
 function AwaitingJoinApprovalPanel({
   companyDisplayName,
   companyLogoUrl,
@@ -162,6 +167,8 @@ function AwaitingJoinApprovalPanel({
   onboardingTextUrl = null,
 }: AwaitingJoinApprovalPanelProps) {
   const approverLabel = invitedByUserName ?? "An organization admin";
+  // Agent requests are approved from the Inbox's join requests; people from Members.
+  const approvalPage = claimSecret || claimApiKeyPath ? "Inbox → Join requests" : "Settings → Members";
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-12 text-zinc-100">
@@ -180,10 +187,10 @@ function AwaitingJoinApprovalPanel({
           </p>
           <div className="border border-zinc-800 p-3">
             <p className="text-xs text-zinc-500 mb-1">Approval page</p>
-            <p className="text-sm text-zinc-200">Settings → Members</p>
+            <p className="text-sm text-zinc-200">{approvalPage}</p>
           </div>
           <p className="text-sm text-zinc-400">
-            Ask them to visit <span className="text-zinc-200">Settings → Members</span> to approve your request.
+            Ask them to visit <span className="text-zinc-200">{approvalPage}</span> to approve your request.
           </p>
           <p className="text-xs text-zinc-500">
             Refresh this page after you've been approved — you'll be redirected automatically.
@@ -223,6 +230,9 @@ export function InviteLandingPage() {
   const [error, setError] = useState<string | null>(null);
   const [authFeedback, setAuthFeedback] = useState<AuthFeedback | null>(null);
   const [autoAcceptStarted, setAutoAcceptStarted] = useState(false);
+  // Accepting uses the single-use invite up, so it happens by itself only right
+  // after signing in here; an account that was already signed in is asked first.
+  const [justSignedIn, setJustSignedIn] = useState(false);
   const authErrorId = "invite-auth-error";
 
   const healthQuery = useQuery({
@@ -313,7 +323,7 @@ export function InviteLandingPage() {
     Boolean(sessionQuery.data) &&
     !showsAgentForm &&
     invite?.inviteType !== "bootstrap_ceo" &&
-    (!inviteJoinRequestStatus || canCompleteAcceptedHumanInvite) &&
+    (canCompleteAcceptedHumanInvite || (justSignedIn && !inviteJoinRequestStatus)) &&
     !isCheckingExistingMembership &&
     !isCurrentMember &&
     !result &&
@@ -323,10 +333,15 @@ export function InviteLandingPage() {
     sessionQuery.data?.user.email?.trim() ||
     "this account";
 
+  const passwordTooShort = authMode === "sign_up" && password.length < MIN_PASSWORD_LENGTH;
+  const passwordTooLong = authMode === "sign_up" && password.length > MAX_PASSWORD_LENGTH;
   const authCanSubmit =
     email.trim().length > 0 &&
-    password.trim().length > 0 &&
-    (authMode === "sign_in" || (name.trim().length > 0 && password.trim().length >= 8));
+    password.length > 0 &&
+    (authMode === "sign_in" || (name.trim().length > 0 && !passwordTooShort && !passwordTooLong));
+  // "Continue with Google" inside the Automa app, when this server accepts it.
+  const appAccount = isAutomaApp() ? automaNative.account() : null;
+  const googleAvailable = Boolean(healthQuery.data?.features?.firebaseSignIn && appAccount?.enabled);
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
@@ -365,6 +380,27 @@ export function InviteLandingPage() {
     },
   });
 
+  // Already accepted and approved, and already a member: go to the organization
+  // instead of waiting on this page.
+  const openingApprovedMembership =
+    inviteJoinRequestStatus === "approved" && inviteJoinRequestType === "human" && isCurrentMember;
+  useEffect(() => {
+    if (!openingApprovedMembership || !invite?.companyId) return;
+    clearPendingInviteToken(token);
+    setSelectedCompanyId(invite.companyId, { source: "manual" });
+    navigate("/", { replace: true });
+  }, [openingApprovedMembership, invite?.companyId, token, setSelectedCompanyId, navigate]);
+
+  const signOutForAnotherAccount = useMutation({
+    mutationFn: () => authApi.signOut(),
+    onSuccess: async () => {
+      setJustSignedIn(false);
+      rememberPendingInviteToken(token);
+      await queryClient.resetQueries({ queryKey: queryKeys.auth.session });
+      await queryClient.resetQueries({ queryKey: queryKeys.companies.all });
+    },
+  });
+
   useEffect(() => {
     if (!shouldAutoAcceptHumanInvite || autoAcceptStarted || acceptMutation.isPending) return;
     setAutoAcceptStarted(true);
@@ -378,14 +414,40 @@ export function InviteLandingPage() {
         await authApi.signInEmail({ email: email.trim(), password });
         return;
       }
-      await authApi.signUpEmail({
-        name: name.trim(),
-        email: email.trim(),
-        password,
-      });
+      await authApi.signUpEmail(
+        {
+          name: name.trim(),
+          email: email.trim(),
+          password,
+        },
+        { inviteToken: token },
+      );
     },
-    onSuccess: async () => {
+    onSuccess: () => afterSignedIn(),
+    onError: (err) => {
+      const nextFeedback = mapInviteAuthFeedback(err, authMode, email);
+      if (getAuthErrorCode(err) === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL") {
+        setAuthMode("sign_in");
+        setPassword("");
+      }
+      setAuthFeedback(nextFeedback);
+    },
+  });
+
+  const googleMutation = useMutation({
+    mutationFn: async () => {
+      const idToken = await automaNative.firebaseIdToken();
+      await authApi.signInWithFirebase(idToken, { inviteToken: token });
+    },
+    onSuccess: () => afterSignedIn(),
+    onError: (err) => {
+      setAuthFeedback({ tone: "error", message: err instanceof Error ? err.message : "Google sign-in failed" });
+    },
+  });
+
+  async function afterSignedIn() {
       setAuthFeedback(null);
+      setJustSignedIn(true);
       rememberPendingInviteToken(token);
       await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
       await queryClient.invalidateQueries({ queryKey: queryKeys.health });
@@ -416,16 +478,7 @@ export function InviteLandingPage() {
       } catch {
         return;
       }
-    },
-    onError: (err) => {
-      const nextFeedback = mapInviteAuthFeedback(err, authMode, email);
-      if (getAuthErrorCode(err) === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL") {
-        setAuthMode("sign_in");
-        setPassword("");
-      }
-      setAuthFeedback(nextFeedback);
-    },
-  });
+  }
 
   const joinButtonLabel = useMemo(() => {
     if (!invite) return "Continue";
@@ -610,6 +663,20 @@ export function InviteLandingPage() {
             {sessionQuery.data ? (
               <div className="border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-50">
                 Signed in as <span className="font-medium">{sessionLabel}</span>.
+                {!isCurrentMember && !shouldAutoAcceptHumanInvite && !result ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2"
+                      disabled={signOutForAnotherAccount.isPending}
+                      onClick={() => signOutForAnotherAccount.mutate()}
+                      data-testid="invite-use-another-account"
+                    >
+                      {signOutForAnotherAccount.isPending ? "Signing out…" : "Use another account"}
+                    </button>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -676,6 +743,30 @@ export function InviteLandingPage() {
                   </p>
                 </div>
 
+                {googleAvailable ? (
+                  <div className="space-y-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-12 w-full gap-3 rounded-none"
+                      disabled={googleMutation.isPending}
+                      onClick={() => {
+                        setAuthFeedback(null);
+                        googleMutation.mutate();
+                      }}
+                      data-testid="invite-google-sign-in"
+                    >
+                      <img src="/brands/google-g.svg" alt="" className="size-5" />
+                      {googleMutation.isPending ? "Signing in…" : "Continue with Google"}
+                    </Button>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      <span className="h-px flex-1 bg-zinc-800" />
+                      or use email
+                      <span className="h-px flex-1 bg-zinc-800" />
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -715,7 +806,16 @@ export function InviteLandingPage() {
                     event.preventDefault();
                     if (authMutation.isPending) return;
                     if (!authCanSubmit) {
-                      setAuthFeedback({ tone: "error", message: "Please fill in all required fields." });
+                      // Say what is actually wrong: a filled-in form with a short password is not "missing fields".
+                      const filledIn = email.trim() && password && (authMode === "sign_in" || name.trim());
+                      setAuthFeedback({
+                        tone: "error",
+                        message: !filledIn
+                          ? "Please fill in all required fields."
+                          : passwordTooLong
+                            ? `Use at most ${MAX_PASSWORD_LENGTH} characters for your password.`
+                            : `Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`,
+                      });
                       return;
                     }
                     authMutation.mutate();

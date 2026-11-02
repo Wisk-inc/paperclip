@@ -273,8 +273,9 @@ APK to your Downloads. For apps you made or are authorized to analyze.
   screenshot and drive the app over adb once `automa adb link` has been run.
 - **Rebuild**: apktool rebuild, zipalign and apksigner with an inspector key,
   saved to `Downloads/Automa`.
-- The server does the work, so apktool and jadx must be installed where Automa
-  runs; the Termux installer adds them.
+- The server does the work, so apktool, apksigner and jadx must be installed
+  where Automa runs; on a phone the App Inspector installs them the first time
+  it decodes.
 
 ### Costs, Usage, Audit, Activity, Timeline
 Every token counted: agent runs, chats, App Studio replies and code

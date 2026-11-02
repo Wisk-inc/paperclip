@@ -125,8 +125,8 @@ export function BudgetPolicyCard({
       <PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         {summary.scopeType === "project"
-          ? "Execution is paused for this project until the budget is raised or the incident is dismissed."
-          : "Heartbeats are paused for this scope until the budget is raised or the incident is dismissed."}
+          ? "Execution is paused for this project until its budget is raised. Keeping it paused (or a new month) does not resume it."
+          : "Heartbeats are paused for this scope until its budget is raised. Keeping it paused (or a new month) does not resume it."}
       </div>
     </div>
   ) : null;

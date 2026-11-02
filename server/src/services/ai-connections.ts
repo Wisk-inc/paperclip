@@ -89,9 +89,9 @@ export function aiConnectionService(db: Db) {
   async function list(
     companyId: string,
     userId: string,
-    _agentId?: string,
+    agentId?: string,
   ): Promise<AiManagedConnectionSummary[]> {
-    const [accounts, defaults, members, owners] =
+    const [accounts, defaults, members, owners, installedForAgent] =
       await Promise.all([
         rows(companyId),
         db
@@ -118,6 +118,29 @@ export function aiConnectionService(db: Db) {
               eq(companyMemberships.principalType, "user"),
             ),
           ),
+        // Listed for one agent: what is installed for it, as select() requires
+        // of an existing agent.
+        agentId
+          ? db
+              .select({ connectionId: toolConnectionInstalls.connectionId })
+              .from(toolConnectionInstalls)
+              .where(
+                and(
+                  eq(toolConnectionInstalls.companyId, companyId),
+                  or(
+                    and(
+                      eq(toolConnectionInstalls.targetType, "company"),
+                      eq(toolConnectionInstalls.targetId, companyId),
+                    ),
+                    and(
+                      eq(toolConnectionInstalls.targetType, "agent"),
+                      eq(toolConnectionInstalls.targetId, agentId),
+                    ),
+                  ),
+                ),
+              )
+              .then((installs) => new Set(installs.map((install) => install.connectionId)))
+          : null,
       ]);
     return accounts.flatMap(({ connection, grant }) => {
       const metadata = aiConnectionMetadataSchema.safeParse(
@@ -127,6 +150,16 @@ export function aiConnectionService(db: Db) {
       const needsReconnect = aiSubscriptionNeedsIsolatedLogin(connection.config);
       if (!canUseCredential(grant, userId, members.filter((m) => m.grantId === grant.id)))
         return [];
+      const notForAgent = installedForAgent !== null && !installedForAgent.has(connection.id);
+      // A shared account the agent may not use is no choice for it: saving it would be refused.
+      if (notForAgent && grant.kind !== "user") return [];
+      // The person's own account stays listed (it is still their default), marked
+      // as unusable here, since this agent's runs would be refused it.
+      const unavailableReason = needsReconnect
+        ? "Reconnect with a separate sign-in to protect your existing terminal login."
+        : notForAgent
+          ? "This account isn't set up for this agent. Connect another account to use here."
+          : undefined;
       return [
         {
           id: connection.id,
@@ -135,7 +168,7 @@ export function aiConnectionService(db: Db) {
           ...metadata.data,
           name: connection.name,
           accountLabel: grant.providerTenant?.name,
-          ...(needsReconnect ? { unavailableReason: "Reconnect with a separate sign-in to protect your existing terminal login." } : {}),
+          ...(unavailableReason ? { unavailableReason } : {}),
           ownership:
             grant.kind === "user" ? ("personal" as const) : ("shared" as const),
           ownerUserId: grant.subjectUserId ?? undefined,

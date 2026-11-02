@@ -69,11 +69,19 @@ interface AutomaNativeRaw {
   getInfo(key: string): string;
   getSharedFolder(key: string): string;
   pickSharedFolder(key: string, callId: string): void;
+  /** 1.9.6+: shares a folder with one organization on this server. */
+  pickSharedFolderFor?(key: string, callId: string, companyId: string): void;
+  /** 1.9.6+: gives a folder shared before organizations were kept to `companyId`; returns the folder. */
+  claimSharedFolder?(key: string, companyId: string): string;
   clearSharedFolder(key: string): void;
   listSharedFolder(key: string, callId: string): void;
   sharedFileUrl(key: string, path: string): string;
   getIncomingShares(key: string): string;
   clearIncomingShares(key: string): void;
+  /** 1.9.6+: drops one share and its copy. */
+  removeIncomingShare?(key: string, id: string): void;
+  /** 1.9.6+: this phone is registered on this server as `deviceId` (its pushes come from here). */
+  rememberPushDevice?(key: string, deviceId: string): void;
   setDarkTheme?(key: string, dark: boolean): void;
   /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
   haptic?(key: string, kind: string): void;
@@ -182,12 +190,29 @@ export const automaNative = {
     const raw = rawBridge();
     return raw ? parseJson<AutomaNativeInfo>(raw.getInfo(pageKey())) : null;
   },
-  sharedFolder(): { name: string } | null {
+  /**
+   * The phone's shared folder, if this server may use it. `companyId` names
+   * the organization it was shared with (null when shared before 1.9.6, or
+   * undefined from an app too old to keep it).
+   */
+  sharedFolder(): { name: string; companyId?: string | null } | null {
     const raw = rawBridge();
-    return raw ? parseJson<{ name: string }>(raw.getSharedFolder(pageKey())) : null;
+    return raw ? parseJson<{ name: string; companyId?: string | null }>(raw.getSharedFolder(pageKey())) : null;
   },
-  pickSharedFolder(): Promise<{ name: string }> {
-    return callAsync((raw, key, callId) => raw.pickSharedFolder(key, callId));
+  /** True when this app keeps which organization the shared folder belongs to (1.9.6 and newer). */
+  sharedFolderKnowsOrganization(): boolean {
+    return typeof rawBridge()?.pickSharedFolderFor === "function";
+  },
+  pickSharedFolder(companyId?: string): Promise<{ name: string }> {
+    return callAsync((raw, key, callId) => {
+      if (companyId && raw.pickSharedFolderFor) raw.pickSharedFolderFor(key, callId, companyId);
+      else raw.pickSharedFolder(key, callId);
+    });
+  },
+  claimSharedFolder(companyId: string): { name: string; companyId?: string | null } | null {
+    const raw = rawBridge();
+    if (!raw?.claimSharedFolder) return null;
+    return parseJson<{ name: string; companyId?: string | null }>(raw.claimSharedFolder(pageKey(), companyId));
   },
   clearSharedFolder() {
     rawBridge()?.clearSharedFolder(pageKey());
@@ -211,6 +236,18 @@ export const automaNative = {
   },
   clearIncomingShares() {
     rawBridge()?.clearIncomingShares(pageKey());
+  },
+  /** Tells the app which server registration `deviceId` is, so it can tell where a notification came from. */
+  rememberPushDevice(deviceId: string) {
+    const raw = rawBridge();
+    raw?.rememberPushDevice?.(pageKey(), deviceId);
+  },
+  /** Drops one share; false when this app can only clear them all. */
+  removeIncomingShare(id: string): boolean {
+    const raw = rawBridge();
+    if (!raw?.removeIncomingShare) return false;
+    raw.removeIncomingShare(pageKey(), id);
+    return true;
   },
   setDarkTheme(dark: boolean) {
     rawBridge()?.setDarkTheme?.(pageKey(), dark);

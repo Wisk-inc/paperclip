@@ -8117,6 +8117,8 @@ export function issueRoutes(
       includeLiveDescendantSummary: includeLiveDescendantSummary === true,
       hasPlanDocument,
       q: req.query.q as string | undefined,
+      // A search finds the person's own chats, never another member's.
+      chatViewerUserId: req.actor.type === "board" ? req.actor.userId ?? null : undefined,
       limit,
       offset,
       sortField: sortField === "updated" || sortField === "id" ? sortField : undefined,
@@ -15030,6 +15032,11 @@ export function issueRoutes(
       "Issue not found",
     );
     if (!existing) return;
+    // A chat is its person's: only they delete it (an agent or another member can't).
+    if (existing.conversationAgentId) {
+      if (req.actor.type !== "board" || !req.actor.userId) throw forbidden("Only the person whose chat this is can delete it");
+      if (req.actor.userId !== existing.conversationUserId) throw forbidden("Only the person whose chat this is can delete it");
+    }
     if (!(await assertAgentIssueMutationAllowed(req, res, existing))) return;
     const attachments = await svc.listAttachments(id);
 

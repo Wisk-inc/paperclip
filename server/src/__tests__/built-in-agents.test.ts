@@ -258,6 +258,24 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("enforces a built-in agent's monthly budget through its budget policy, and turns it off with the budget", async () => {
+    const companyId = await seedCompany();
+    const svc = builtInAgentService(db);
+    const policy = async (agentId: string) =>
+      db.select().from(budgetPolicies).where(eq(budgetPolicies.scopeId, agentId)).then((rows) => rows);
+
+    const created = await svc.ensure(companyId, "briefs", { budgetMonthlyCents: 2500 });
+    expect(await policy(created.agentId!)).toEqual([
+      expect.objectContaining({ companyId, scopeType: "agent", amount: 2500, windowKind: "calendar_month_utc", isActive: true }),
+    ]);
+
+    await svc.ensure(companyId, "briefs", { budgetMonthlyCents: 4000 });
+    expect(await policy(created.agentId!)).toEqual([expect.objectContaining({ amount: 4000, isActive: true })]);
+
+    await svc.ensure(companyId, "briefs", { budgetMonthlyCents: 0 });
+    expect(await policy(created.agentId!)).toEqual([expect.objectContaining({ isActive: false })]);
+  });
+
   it("routes policy-gated built-in provisioning through a pending hire approval", async () => {
     const companyId = await seedCompany();
     const builtIns = builtInAgentService(db);

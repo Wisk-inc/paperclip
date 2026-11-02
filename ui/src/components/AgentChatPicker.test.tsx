@@ -54,6 +54,19 @@ describe("AgentChatPicker", () => {
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("shows a hire awaiting approval but won't open a chat with it", async () => {
+    const pending = { id: "third", name: "Robin", title: "Analyst", role: "analyst", icon: "chart", status: "pending_approval" } as Agent;
+    await render({ agents: [pending] });
+    expect(options()).toHaveLength(1);
+    expect(options()[0].textContent).toContain("Awaiting approval");
+    expect(options()[0].getAttribute("aria-disabled")).toBe("true");
+    await act(async () => options()[0].click());
+    await act(async () => {
+      document.querySelector("[role=combobox]")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
   it("recovers from no results and resets search when reopened", async () => {
     await render();
     await search("accountant");

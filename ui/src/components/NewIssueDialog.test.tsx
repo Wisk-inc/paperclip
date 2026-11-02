@@ -715,6 +715,30 @@ describe("NewIssueDialog", () => {
     act(() => root.unmount());
   });
 
+  it("keeps a draft's words across organizations, but not its agent or project", async () => {
+    mockProjectsApi.list.mockResolvedValue([{ id: "project-1", name: "Alpha", workspaces: [] }]);
+    localStorage.setItem("paperclip:issue-draft", JSON.stringify({
+      title: "Draft from another org", description: "", status: "todo", priority: "medium",
+      assigneeValue: "agent:agent-elsewhere", reviewerValue: "", approverValue: "", projectId: "project-elsewhere",
+      assigneeModelOverride: "", assigneeThinkingEffort: "", assigneeChrome: false, workMode: "standard",
+      companyId: "company-elsewhere",
+    }));
+    const { root } = renderDialog(container);
+    await flush();
+    const create = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Create Task"));
+    expect(create).not.toBeUndefined();
+    await vi.waitFor(() => expect(create?.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      create!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+    expect(mockIssuesApi.create).toHaveBeenCalledWith("company-1", expect.objectContaining({ title: "Draft from another org" }));
+    const payload = mockIssuesApi.create.mock.calls[0][1];
+    expect(payload.assigneeAgentId ?? null).toBeNull();
+    expect(payload.projectId ?? null).not.toBe("project-elsewhere");
+    act(() => root.unmount());
+  });
+
   it("hides isolation choices and omits stale workspace draft overrides", async () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: true });
     mockProjectsApi.list.mockResolvedValue([{

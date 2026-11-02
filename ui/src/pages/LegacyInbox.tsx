@@ -128,6 +128,8 @@ import { PageTabBar } from "../components/PageTabBar";
 import type { Approval, HeartbeatRun, Issue, JoinRequest } from "@paperclipai/shared";
 import {
   ACTIONABLE_APPROVAL_STATUSES,
+  agentErrorsAlertKey,
+  budgetAlertKey,
   DEFAULT_INBOX_ISSUE_COLUMNS,
   buildGroupedInboxSections,
   buildInboxIssueGroupCreateDefaults,
@@ -2220,13 +2222,13 @@ export function Inbox() {
     !!dashboard &&
     dashboard.agents.error > 0 &&
     !hasRunFailures &&
-    !dismissedAlerts.has("alert:agent-errors");
+    !dismissedAlerts.has(agentErrorsAlertKey(dashboard.companyId, dashboard.agents.error));
   const showBudgetAlert =
     showCompanyAlerts &&
     !!dashboard &&
     dashboard.costs.monthBudgetCents > 0 &&
     dashboard.costs.monthUtilizationPercent >= 80 &&
-    !dismissedAlerts.has("alert:budget");
+    !dismissedAlerts.has(budgetAlertKey(dashboard.companyId));
   const hasAlerts = showAggregateAgentError || showBudgetAlert;
   const showWorkItemsSection = totalVisibleWorkItems > 0;
   const showAlertsSection = shouldShowInboxSection({
@@ -3121,7 +3123,7 @@ export function Inbox() {
                   </Link>
                   <button
                     type="button"
-                    onClick={() => dismissAlert("alert:agent-errors")}
+                    onClick={() => dashboard && dismissAlert(agentErrorsAlertKey(dashboard.companyId, dashboard.agents.error))}
                     className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
                     aria-label="Dismiss"
                   >
@@ -3144,7 +3146,7 @@ export function Inbox() {
                   </Link>
                   <button
                     type="button"
-                    onClick={() => dismissAlert("alert:budget")}
+                    onClick={() => dashboard && dismissAlert(budgetAlertKey(dashboard.companyId))}
                     className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
                     aria-label="Dismiss"
                   >

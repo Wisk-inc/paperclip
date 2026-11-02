@@ -32,7 +32,13 @@ vi.mock("../api/studio", () => ({ studioApi: mockStudioApi, studioSocketUrl: () 
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
 vi.mock("../context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: () => undefined }) }));
 vi.mock("../context/ToastContext", () => ({ useToastActions: () => ({ pushToast: mockPushToast, dismissToast: () => undefined, clearToasts: () => undefined }) }));
-vi.mock("../hooks/useStudioSocket", () => ({ useStudioSocket: () => ({ status: "open", send: mockSocketSend }) }));
+const socketEvents = vi.hoisted(() => ({ handler: null as null | ((event: unknown) => void) }));
+vi.mock("../hooks/useStudioSocket", () => ({
+  useStudioSocket: (_url: string | null, onEvent: (event: unknown) => void) => {
+    socketEvents.handler = onEvent;
+    return { status: "open", send: mockSocketSend };
+  },
+}));
 vi.mock("../hooks/useNarrowScreen", () => ({ useNarrowScreen: () => false }));
 vi.mock("@/lib/router", () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
@@ -132,6 +138,22 @@ describe("StudioWorkspace", () => {
     await settle();
   };
   const editor = () => container.querySelector<HTMLTextAreaElement>('textarea[aria-label="editor"]')!;
+
+  it("fetches the people list again when a guest joins, so they can be removed straight away", async () => {
+    await draw();
+    const owner = { id: "owner", name: "Owner", role: "owner", color: "#7048E8", online: true, activePath: null };
+    const sam = { id: "guest:c-1", name: "Sam", role: "guest", color: "#2F9E44", online: true, activePath: null };
+    await act(async () => socketEvents.handler!({ type: "hello", you: owner, participants: [owner] }));
+    const before = mockStudioApi.collaborators.mock.calls.length;
+    // Someone only moving to another file: no refetch.
+    await act(async () => socketEvents.handler!({ type: "presence", participants: [{ ...owner, activePath: "app.js" }] }));
+    await settle();
+    expect(mockStudioApi.collaborators.mock.calls.length).toBe(before);
+    // Sam joins.
+    await act(async () => socketEvents.handler!({ type: "presence", participants: [owner, sam] }));
+    await settle();
+    expect(mockStudioApi.collaborators.mock.calls.length).toBe(before + 1);
+  });
 
   it("keeps edits that did not save open instead of switching files", async () => {
     mockStudioApi.writeFile.mockRejectedValue(new Error("Network down"));

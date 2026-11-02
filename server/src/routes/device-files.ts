@@ -139,6 +139,15 @@ export function deviceFileRoutes(
     return file;
   }
 
+  /** Lost a race: say what the request became, not what it was when this call read it. */
+  async function alreadyResolved(requestId: string): Promise<never> {
+    const current = await svc.getRequest(requestId);
+    if (current?.status === "cancelled") throw conflict("The agent cancelled this request");
+    if (current?.status === "fulfilled") throw conflict("This request was already answered");
+    if (current?.status === "declined") throw conflict("This request was already declined");
+    throw conflict(`This request is already ${current?.status ?? "closed"}`);
+  }
+
   async function requireCompanyDevice(companyId: string, deviceId: string | null | undefined) {
     if (!deviceId) return null;
     const device = await svc.getDevice(deviceId);
@@ -315,7 +324,7 @@ export function deviceFileRoutes(
     if (!existing) return;
     assertBoard(req);
     if (req.body.autoFulfill === true && !existing.sharedFolderName) {
-      throw badRequest("Share a folder from this device before turning on auto-fulfil");
+      throw badRequest("Share a folder from this device before turning on auto-send");
     }
     const updated = await svc.updateDevice(existing.id, req.body);
     const actor = getActorInfo(req);
@@ -601,7 +610,10 @@ export function deviceFileRoutes(
     const deviceId = parsed.data.deviceId ?? null;
     await requireCompanyDevice(row.companyId, deviceId);
     if (row.deviceId && deviceId && row.deviceId !== deviceId) {
-      throw forbidden("This request is addressed to a different device");
+      // Addressed to another device, unless that device was removed: then any
+      // device may answer, or the request could never be answered at all.
+      const target = await svc.getDevice(row.deviceId);
+      if (target && !target.archivedAt) throw forbidden("This request is addressed to a different device");
     }
 
     const stored = await storeDeviceFile(req, row.companyId, file, {
@@ -620,8 +632,10 @@ export function deviceFileRoutes(
       responseNote: parsed.data.note ?? null,
     });
     if (!resolved) {
-      // Another device answered first. Keep the upload (it is still a valid
-      // device file) but tell this caller the request was already resolved.
+      // Another device answered first, or the agent cancelled it. Keep the
+      // upload (it is still a valid device file) but say which.
+      const current = await svc.getRequest(row.id);
+      if (current?.status === "cancelled") throw conflict("The agent cancelled this request; your file is kept in Files");
       throw conflict("This request was answered by another device first");
     }
     await logActivity(db, {
@@ -667,7 +681,7 @@ export function deviceFileRoutes(
         resolvedByDeviceId: deviceId,
         responseNote: req.body.note ?? null,
       });
-      if (!resolved) throw conflict(`This request is already ${row.status}`);
+      if (!resolved) return alreadyResolved(row.id);
       await logActivity(db, {
         companyId: row.companyId,
         actorType: actor.actorType,
@@ -701,7 +715,7 @@ export function deviceFileRoutes(
       status: "cancelled",
       resolvedByUserId: actor.actorType === "user" ? actor.actorId : null,
     });
-    if (!resolved) throw conflict(`This request is already ${row.status}`);
+    if (!resolved) return alreadyResolved(row.id);
     await logActivity(db, {
       companyId: row.companyId,
       actorType: actor.actorType,

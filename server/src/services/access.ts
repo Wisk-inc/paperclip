@@ -1,6 +1,7 @@
-import { and, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
+  companyDevices,
   companyMemberships,
   companySecretBindings,
   companySecrets,
@@ -36,12 +37,41 @@ type MemberArchiveInput = {
 export function accessService(db: Db) {
   const authorization = authorizationService(db);
 
+  /**
+   * A member who leaves (removed, suspended, access withdrawn) keeps no phone
+   * here: their devices stop getting this organization's notifications and
+   * stop being offered to its agents.
+   */
+  async function retireMemberDevices(
+    tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+    companyId: string,
+    userId: string,
+    now: Date,
+  ) {
+    await tx
+      .update(companyDevices)
+      .set({
+        archivedAt: now,
+        pushToken: null,
+        autoFulfill: false,
+        sharedFolderName: null,
+        sharedIndex: [],
+        updatedAt: now,
+      })
+      .where(and(
+        eq(companyDevices.companyId, companyId),
+        eq(companyDevices.registeredByUserId, userId),
+        isNull(companyDevices.archivedAt),
+      ));
+  }
+
   async function sweepMemberConnectionAccess(
     tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
     companyId: string,
     userId: string,
     now: Date,
   ) {
+    await retireMemberDevices(tx, companyId, userId, now);
     const departingAudienceRows = await tx.select({
       grantId: connectionGrantMembers.grantId,
     }).from(connectionGrantMembers).where(and(

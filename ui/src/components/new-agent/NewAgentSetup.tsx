@@ -9,7 +9,7 @@ import {
   setupEfforts,
   setupProviderKeys,
 } from "@/lib/agent-setup-fields";
-import { testAgentSetup } from "@/lib/test-agent-setup";
+import { setupTestReachedProvider, testAgentSetup } from "@/lib/test-agent-setup";
 import { useCloudInstance } from "@/hooks/useCloudInstance";
 import { isNewAgentAdapterAllowed } from "@/lib/new-agent-adapters";
 import { useEffect, useRef, useState } from "react";
@@ -445,13 +445,7 @@ function Setup({
       if (run !== generation.current) return false;
       setResult(tested);
       setTestState(blocking(tested) ? "fail" : tested.status);
-      return (
-        !blocking(tested) &&
-        (!connectionAdapter ||
-          tested.checks.some((check) =>
-            check.code.endsWith("hello_probe_passed"),
-          ))
-      );
+      return !blocking(tested) && (!connectionAdapter || setupTestReachedProvider(tested.checks));
     } catch (cause) {
       if (run === generation.current) {
         setError(

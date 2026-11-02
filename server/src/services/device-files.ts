@@ -176,6 +176,9 @@ export function deviceFileService(db: Db) {
             name: input.name,
             platform: input.platform,
             ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
+            // Whoever registers the install now is the person using it: their
+            // notifications go to it, a previous user's stop.
+            ...(registeredByUserId ? { registeredByUserId } : {}),
             archivedAt: null,
             lastSeenAt: now,
             updatedAt: now,
@@ -201,6 +204,7 @@ export function deviceFileService(db: Db) {
             name: input.name,
             platform: input.platform,
             ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
+            ...(registeredByUserId ? { registeredByUserId } : {}),
             archivedAt: null,
             lastSeenAt: now,
             updatedAt: now,
@@ -229,9 +233,14 @@ export function deviceFileService(db: Db) {
 
     /**
      * Push targets for a company: one device, or every active device when
-     * `deviceId` is null (a request any device can answer).
+     * `deviceId` is null (a request any device can answer). With `userId`,
+     * only that person's devices: a reply to what they asked is theirs.
      */
-    listPushTargets: async (companyId: string, deviceId: string | null): Promise<{ deviceId: string; token: string }[]> => {
+    listPushTargets: async (
+      companyId: string,
+      deviceId: string | null,
+      options: { userId?: string | null } = {},
+    ): Promise<{ deviceId: string; token: string }[]> => {
       const rows = await db
         .select({ deviceId: companyDevices.id, token: companyDevices.pushToken })
         .from(companyDevices)
@@ -241,6 +250,7 @@ export function deviceFileService(db: Db) {
             isNull(companyDevices.archivedAt),
             isNotNull(companyDevices.pushToken),
             ...(deviceId ? [eq(companyDevices.id, deviceId)] : []),
+            ...(options.userId ? [eq(companyDevices.registeredByUserId, options.userId)] : []),
           ),
         );
       return rows.flatMap((row) => (row.token ? [{ deviceId: row.deviceId, token: row.token }] : []));
@@ -273,8 +283,13 @@ export function deviceFileService(db: Db) {
           sharedFolderName: input.sharedFolderName,
           sharedIndex: entries,
           sharedIndexUpdatedAt: now,
-          // Auto-fulfil only makes sense while a folder is shared.
-          ...(input.sharedFolderName ? {} : { autoFulfill: false }),
+          // Auto-fulfil only makes sense while a folder is shared, and only for
+          // the folder it was switched on for: a different folder starts off.
+          ...(input.sharedFolderName
+            ? {
+                autoFulfill: sql<boolean>`case when ${companyDevices.sharedFolderName} is distinct from ${input.sharedFolderName} then false else ${companyDevices.autoFulfill} end`,
+              }
+            : { autoFulfill: false }),
           lastSeenAt: now,
           updatedAt: now,
         })

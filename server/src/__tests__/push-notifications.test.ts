@@ -43,10 +43,10 @@ describe("createFcmPushSender", () => {
     const sendCall = fetchImpl.mock.calls.find(([url]) => String(url).includes("fcm.googleapis.com"))!;
     expect(String(sendCall[0])).toBe("https://fcm.googleapis.com/v1/projects/automa-agent/messages:send");
     expect((sendCall[1]!.headers as Record<string, string>).authorization).toBe("Bearer access-1");
-    expect(JSON.parse(String(sendCall[1]!.body)).message).toMatchObject({
-      notification: { title: "Ada needs a file", body: "Q3 report" },
-      data: { path: "/device-files" },
-      android: { priority: "HIGH", notification: { channel_id: "automa_updates" } },
+    expect(JSON.parse(String(sendCall[1]!.body)).message).toEqual({
+      token: "phone-1",
+      data: { title: "Ada needs a file", body: "Q3 report", path: "/device-files" },
+      android: { priority: "HIGH" },
     });
   });
 
@@ -72,6 +72,22 @@ describe("loadFirebaseServiceAccount", () => {
     expect(loadFirebaseServiceAccount({ AUTOMA_FIREBASE_SERVICE_ACCOUNT_JSON: json })?.client_email).toBe(account.client_email);
     expect(loadFirebaseServiceAccount({})).toBeNull();
     expect(loadFirebaseServiceAccount({ AUTOMA_FIREBASE_SERVICE_ACCOUNT_JSON: "{}" })).toBeNull();
+  });
+});
+
+describe("notification paths name their organization", () => {
+  it("opens the organization the news is about, not the one selected last", () => {
+    expect(pushMessageForActivity({ action: "device_file_request.created", details: { title: "Q3.pdf", deviceId: "d1" } }, "Linus", "BETA")?.message.path).toBe(
+      "/BETA/device-files?tab=requests",
+    );
+    expect(pushMessageForActivity({ action: "approval.created", entityId: "ap-1", details: { type: "hire_agent" } }, "Ada", "BETA")?.message).toEqual({
+      title: "Approval needed",
+      body: "Hire agent from Ada is waiting on you.",
+      path: "/BETA/approvals/ap-1",
+      tag: "approval:ap-1",
+    });
+    expect(pushMessageForRunOutcome({ runId: "r1", issueId: "i1", status: "succeeded", finalText: "Done" }, "Ada", "BETA")?.path).toBe("/BETA/issues/i1");
+    expect(pushMessageForStudioReply({ workspaceId: "w1", projectName: "Todo", text: "Built it.", error: null, prefix: "BETA" }).path).toBe("/BETA/studio/w1");
   });
 });
 
@@ -121,18 +137,27 @@ describe("finished work", () => {
     });
   });
 
-  it("sends away-only news as data, so the app can hold it while Automa is on screen", () => {
-    expect(fcmMessageFor("t1", { title: "Ada replied", body: "Hi", path: "/issues/i1", tag: "issue:i1", awayOnly: true })).toEqual({
+  it("sends everything as data for the app to show, naming the registration it is for", () => {
+    expect(fcmMessageFor("t1", { title: "Ada replied", body: "Hi", path: "/issues/i1", tag: "issue:i1", awayOnly: true }, "device-1")).toEqual({
       token: "t1",
-      data: { path: "/issues/i1", tag: "issue:i1", title: "Ada replied", body: "Hi", away_only: "1" },
+      data: { path: "/issues/i1", tag: "issue:i1", title: "Ada replied", body: "Hi", away_only: "1", device_id: "device-1" },
       android: { priority: "HIGH" },
     });
-    // Everything else stays a notification the system shows by itself.
+    // The app decides: a server it forgot gets no notification, and a tap opens the right server.
     expect(fcmMessageFor("t1", { title: "Approval needed", body: "Waiting", path: "/approvals" })).toEqual({
       token: "t1",
-      notification: { title: "Approval needed", body: "Waiting" },
-      data: { path: "/approvals" },
-      android: { priority: "HIGH", notification: { channel_id: "automa_updates" } },
+      data: { title: "Approval needed", body: "Waiting", path: "/approvals" },
+      android: { priority: "HIGH" },
     });
+  });
+
+  it("sends each phone the registration it belongs to", async () => {
+    const fetchImpl = fakeGoogle(() => 200);
+    const sender = createFcmPushSender({ account, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await sender.send([{ token: "a", deviceId: "dev-a" }, { token: "b", deviceId: "dev-b" }, "a"], { title: "t", body: "b" });
+    const bodies = fetchImpl.mock.calls
+      .filter(([url]) => String(url).includes("fcm.googleapis.com"))
+      .map(([, init]) => JSON.parse(String(init!.body)).message as { token: string; data: Record<string, string> });
+    expect(bodies.map((message) => [message.token, message.data.device_id]).sort()).toEqual([["a", "dev-a"], ["b", "dev-b"]]);
   });
 });

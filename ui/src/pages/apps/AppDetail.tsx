@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EmailConnectionAccess } from "@/components/EmailConnectionAccess";
 import { EmailConnectionInboxes } from "./chat/EmailEndpointSetup";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Pencil } from "lucide-react";
+import { Check, Loader2, Pencil, X } from "lucide-react";
 import type {
   ToolApplication,
   ToolConnection,
@@ -31,6 +31,7 @@ import { buildCompanyUserProfileMap } from "@/lib/company-members";
 import { installStateFrom, type InstallState } from "@/lib/tool-installs";
 import { navigateTopLevel } from "@/lib/browserNavigation";
 import { prepareOAuthNavigation, savePendingCloudHandoff } from "@/lib/oauthHandoff";
+import { githubRecoveryUrl, oauthCallbackErrorMessage } from "@/features/connections/oauth-callback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -219,6 +220,27 @@ export function AppDetail({ renderActions, onReconnect }: {
     });
     navigate(appTabHref(connection.id, "permissions"), { replace: true });
   }, [activeTab, appName, connection, navigate, pushToast, searchParams]);
+
+  // A reconnect the provider failed or the person declined comes back here
+  // with ?oauth=failed|denied (and GitHub's install links): say so, and keep
+  // the notice until it is closed, after the address drops the parameters.
+  const [oauthNotice, setOAuthNotice] = useState<{
+    message: string;
+    installationUrl: string | null;
+    managementUrl: string | null;
+  } | null>(null);
+  useEffect(() => {
+    const outcome = searchParams.get("oauth");
+    if (activeTab !== "permissions" || !connection || (outcome !== "failed" && outcome !== "denied")) return;
+    const code = searchParams.get("code");
+    const github = code === "github_installation_required";
+    setOAuthNotice({
+      message: oauthCallbackErrorMessage(outcome, code),
+      installationUrl: github ? githubRecoveryUrl(searchParams.get("installation_url")) : null,
+      managementUrl: github ? githubRecoveryUrl(searchParams.get("management_url")) : null,
+    });
+    navigate(appTabHref(connection.id, "permissions"), { replace: true });
+  }, [activeTab, connection, navigate, searchParams]);
 
   useEffect(() => {
     if (!activeTab) return;
@@ -563,6 +585,31 @@ export function AppDetail({ renderActions, onReconnect }: {
         }}
       />
 
+      {oauthNotice && (
+        <div role="alert" className="flex items-start gap-3 rounded-lg border border-destructive/60 bg-destructive/10 px-3 py-2 text-sm" data-testid="app-oauth-notice">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <p>{oauthNotice.message}</p>
+            {oauthNotice.installationUrl || oauthNotice.managementUrl ? (
+              <div className="flex flex-wrap gap-2">
+                {oauthNotice.installationUrl ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={oauthNotice.installationUrl} target="_blank" rel="noopener noreferrer">Install on GitHub</a>
+                  </Button>
+                ) : null}
+                {oauthNotice.managementUrl ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={oauthNotice.managementUrl} target="_blank" rel="noopener noreferrer">Manage GitHub access</a>
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <Button type="button" variant="ghost" size="icon-xs" aria-label="Dismiss" onClick={() => setOAuthNotice(null)}>
+            <X />
+          </Button>
+        </div>
+      )}
+
       {status.tone === "attention" && connection.requiresReauthorization === false && (
         <div role="status">
           <p>{connection.healthMessage || "GitHub access could not be checked. Try again."}</p>
@@ -832,6 +879,11 @@ function unverifiedRemoteHost(connection: ToolConnection): string | null {
 type StatusInfo = { label: string; tone: "connected" | "attention" | "paused" };
 
 function statusFor(connection: ToolConnection): StatusInfo {
+  // A draft is saved switched off: it is unfinished, not paused (as Browse says).
+  // The neutral tone keeps the page's actions as they were; only the words change.
+  if (connection.status === "draft") {
+    return { label: "Setup incomplete", tone: "paused" };
+  }
   if (connection.enabled === false || connection.status === "disabled") {
     return { label: "Paused", tone: "paused" };
   }

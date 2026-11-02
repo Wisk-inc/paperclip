@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   aiConnectionBindingSchema,
   isAiConnectionCompatible,
@@ -72,6 +72,13 @@ export function AiConnectionField({
     queryFn: () => aiConnectionsApi.list(companyId, agentId),
     enabled: Boolean(provider),
   });
+  // "Responsible user's connection" is the person's default for the provider,
+  // and the server keeps an earlier default: the account connected here
+  // becomes it, or this agent would go on with the old one.
+  const makeDefault = useMutation({
+    mutationFn: (grantId: string) => aiConnectionsApi.setDefault(companyId, grantId),
+    onSettled: () => client.invalidateQueries({ queryKey: ["ai-connections", companyId] }),
+  });
   const method: AiAuthMethod = (value?.mode !== "responsible_user" ? value?.method : undefined)
     ?? accounts.data?.connections.find((account) => account.provider === provider && account.isDefault)?.method
     ?? (provider === "openrouter" ? "api_key" : "subscription");
@@ -107,6 +114,24 @@ export function AiConnectionField({
         onConnect={() => { returnFocus.current = document.activeElement as HTMLElement; setConnecting(true); }}
         onRetry={() => void accounts.refetch()}
       />
+      {makeDefault.isError && makeDefault.variables && (
+        <div role="alert" className="flex flex-col gap-2 text-sm text-destructive" data-testid="ai-connection-default-failed">
+          <p>
+            The account is connected but isn&apos;t your default yet, so this agent still uses your
+            old one. {makeDefault.error instanceof Error ? makeDefault.error.message : ""}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            disabled={makeDefault.isPending}
+            onClick={() => makeDefault.mutate(makeDefault.variables!)}
+          >
+            Make it my default
+          </Button>
+        </div>
+      )}
       <Dialog
         open={Boolean(pendingAdoption)}
         onOpenChange={(open) => {
@@ -162,16 +187,20 @@ export function AiConnectionField({
             initialMethod={method}
             name={`My ${provider === "anthropic" ? "Claude" : provider === "openai" ? "OpenAI" : provider === "xai" ? "Grok" : "OpenRouter"} ${method === "subscription" ? "subscription" : "API"}`}
             ownership="personal"
-            agentIds={agentId ? [agentId] : []}
-            allAgents={false}
+            // It becomes the person's default, which every agent on "Responsible
+            // user's connection" uses, and runs may only use an account set up
+            // for their agent: so it is set up for all of them.
+            agentIds={[]}
+            allAgents
             environmentId={environmentId}
             onCancel={() => setConnecting(false)}
-            onComplete={() => {
+            onComplete={(result) => {
               void client.invalidateQueries({
                 queryKey: ["ai-connections", companyId],
               });
               setConnecting(false);
-              changeBinding({ provider, method, mode: "responsible_user" });
+              makeDefault.mutate(result.grantId);
+              changeBinding({ provider, method: result.method, mode: "responsible_user" });
             }}
           />
         </DialogContent>

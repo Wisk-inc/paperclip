@@ -10,8 +10,10 @@ import { isAccountScopedQueryKey, useSignOut } from "./useSignOut";
 
 const mockAuthApi = vi.hoisted(() => ({ signOut: vi.fn() }));
 const mockNavigateTopLevel = vi.hoisted(() => vi.fn());
+const mockUpdateDevice = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/auth", () => ({ authApi: mockAuthApi }));
+vi.mock("@/api/deviceFiles", () => ({ deviceFilesApi: { updateDevice: mockUpdateDevice } }));
 vi.mock("@/lib/browserNavigation", () => ({ navigateTopLevel: mockNavigateTopLevel }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,6 +41,41 @@ describe("useSignOut", () => {
     queryClient.clear();
     container.remove();
     vi.clearAllMocks();
+    delete (window as unknown as { AutomaNative?: unknown }).AutomaNative;
+    delete window.__automaKey;
+    localStorage.clear();
+  });
+
+  it("in the app, signs out of Google first, stops this phone's notifications, then ends the session", async () => {
+    const order: string[] = [];
+    (window as unknown as { AutomaNative: unknown }).AutomaNative = {
+      getInfo: vi.fn(() => "{}"),
+      signOut: vi.fn(() => order.push("google")),
+      openConnectScreen: vi.fn(() => order.push("connect screen")),
+    };
+    window.__automaKey = "page-key";
+    localStorage.setItem("automa.device.11111111-1111-4111-8111-111111111111", "device-1");
+    localStorage.setItem("automa.device.device-1.pushToken", "fcm-token");
+    mockUpdateDevice.mockImplementation(async () => {
+      order.push("phone notifications off");
+      return {};
+    });
+    mockAuthApi.signOut.mockImplementation(async () => {
+      order.push("session");
+    });
+    const root = renderHarness();
+
+    flushSync(() => captured?.mutate());
+    await vi.waitFor(() => expect(captured?.isSuccess).toBe(true));
+
+    expect(order).toEqual(["google", "phone notifications off", "session", "connect screen"]);
+    expect(mockUpdateDevice).toHaveBeenCalledWith("device-1", { pushToken: null });
+    // The next person to sign in registers the phone as theirs.
+    expect(localStorage.getItem("automa.device.11111111-1111-4111-8111-111111111111")).toBeNull();
+    expect(localStorage.getItem("automa.device.device-1.pushToken")).toBeNull();
+    // The sign-in page waits instead of signing them straight back in.
+    expect(localStorage.getItem("automa.auth.signedOutOnPurpose")).toBe("1");
+    flushSync(() => root.unmount());
   });
 
   function renderHarness(onSignedOut?: () => void) {

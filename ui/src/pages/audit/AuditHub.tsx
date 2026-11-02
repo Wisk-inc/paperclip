@@ -122,7 +122,7 @@ export function AuditHub({ section }: { section: AuditSection }) {
       ) : section === "runs" ? (
         <AuditRuns companyId={selectedCompanyId} routineId={routineId} />
       ) : section === "budgets" ? (
-        <Costs embedded initialTab="budgets" lockTab />
+        <Costs embedded initialTab="budgets" lockTab focusAgentId={scope.agentId ?? undefined} />
       ) : section === "timeline" ? (
         <Timeline embedded />
       ) : (

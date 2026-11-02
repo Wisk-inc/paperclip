@@ -13,16 +13,23 @@ export const PRESET_LABELS: Record<DatePreset, string> = {
 
 export const PRESET_KEYS: DatePreset[] = ["mtd", "7d", "30d", "ytd", "all", "custom"];
 
+/**
+ * The first moment of the current month in UTC. Budgets count by UTC month,
+ * so "this month" on Costs and the dashboard starts here too: started at
+ * local midnight, the totals and the budgets disagreed for hours each month.
+ */
+export function utcMonthStart(now = new Date()): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
 // note: computeRange is called inside a useMemo that re-evaluates once per minute
 // (driven by minuteTick). this means sliding windows (7d, 30d) advance their upper
 // bound at most once per minute — acceptable for a cost dashboard.
-function computeRange(preset: DatePreset): { from: string; to: string } {
-  const now = new Date();
+export function computeRange(preset: DatePreset, now = new Date()): { from: string; to: string } {
   const to = now.toISOString();
   switch (preset) {
     case "mtd": {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: d.toISOString(), to };
+      return { from: utcMonthStart(now).toISOString(), to };
     }
     case "7d": {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7, 0, 0, 0, 0);

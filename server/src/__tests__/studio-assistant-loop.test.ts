@@ -303,7 +303,7 @@ describe("Studio assistant loop", () => {
     const { studioHub } = await import("../services/studio/hub.js");
     const { readAssistantTranscript } = await import("../services/studio/assistant.js");
     const first = await turn({ lead: [{ call: { name: "write_file", args: { path: "app.py", content: "print(1)\n" } } }, { content: "Wrote it." }] });
-    const sent = vi.spyOn(studioHub, "broadcast");
+    const sent = vi.spyOn(studioHub, "sendToOwners");
     try {
       await turn({ lead: [{ call: { name: "undo_edit", args: { path: "app.py" } } }, { content: "Undid it." }] }, { workspaceId: first.workspaceId });
       const earlier = (await readAssistantTranscript("company-1", first.workspaceId)).find((candidate) => candidate.id === first.reply.id)!;
@@ -312,6 +312,42 @@ describe("Studio assistant loop", () => {
       expect(events.some((event) => event.type === "assistant" && event.turn?.id === first.reply.id && event.turn.steps.some((step) => step.undone))).toBe(true);
     } finally {
       sent.mockRestore();
+    }
+  });
+
+  it("sends the assistant conversation to the owner's pages only, never to a guest in the project", async () => {
+    const { studioHub } = await import("../services/studio/hub.js");
+    const socket = () => {
+      const sent: Array<{ type: string }> = [];
+      const listeners = new Map<string, Array<() => void>>();
+      return {
+        sent,
+        readyState: 1,
+        send: (data: string) => void sent.push(JSON.parse(data)),
+        close: () => undefined,
+        on: (event: string, listener: () => void) => void listeners.set(event, [...(listeners.get(event) ?? []), listener]),
+        leave: () => listeners.get("close")?.forEach((listener) => listener()),
+      };
+    };
+    const owner = socket();
+    const guest = socket();
+    try {
+      await turn(
+        { lead: [{ call: { name: "write_file", args: { path: "secret.py", content: "KEY = 'owner-only'\n" } } }, { content: "Saved your key file." }] },
+        {
+          message: "Keep my key in secret.py",
+          setup: async (workspaceId) => {
+            studioHub.join({ workspaceId, socket: owner, participant: { id: "owner", name: "Owner", role: "owner", color: "#7048E8" } });
+            studioHub.join({ workspaceId, socket: guest, participant: { id: "guest:1", name: "Sam", role: "guest", color: "#2F9E44" }, collaboratorId: "1" });
+          },
+        },
+      );
+      expect(owner.sent.some((event) => event.type === "assistant")).toBe(true);
+      expect(guest.sent.some((event) => event.type.startsWith("assistant"))).toBe(false);
+      expect(JSON.stringify(guest.sent)).not.toContain("Keep my key in secret.py");
+    } finally {
+      owner.leave();
+      guest.leave();
     }
   });
 

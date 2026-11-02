@@ -25,6 +25,8 @@ vi.mock("@/lib/feedback-sharing", async (importOriginal) => ({
 }));
 vi.mock("@/api/auth", () => ({ authApi: mockAuthApi }));
 vi.mock("@/api/health", () => ({ healthApi: mockHealthApi }));
+const mockAccessApi = vi.hoisted(() => ({ getCurrentBoardAccess: vi.fn() }));
+vi.mock("@/api/access", () => ({ accessApi: mockAccessApi }));
 vi.mock("@/api/instanceSettings", () => ({ instanceSettingsApi: mockInstanceSettingsApi }));
 vi.mock("@/lib/browserNavigation", () => ({ navigateTopLevel: mockNavigateTopLevel }));
 vi.mock("../context/BreadcrumbContext", () => ({
@@ -80,8 +82,13 @@ describe("InstanceGeneralSettings sign-out", () => {
     vi.clearAllMocks();
   });
 
-  async function renderPage(health: typeof SELF_HOSTED_HEALTH | typeof CLOUD_HEALTH) {
+  async function renderPage(
+    health: typeof SELF_HOSTED_HEALTH | typeof CLOUD_HEALTH | Record<string, unknown>,
+    options: { isInstanceAdmin?: boolean } = {},
+  ) {
     mockHealthApi.get.mockResolvedValue(health);
+    // A server admin, who may change server-wide settings, unless a test says otherwise.
+    mockAccessApi.getCurrentBoardAccess.mockResolvedValue({ isInstanceAdmin: options.isInstanceAdmin ?? true, companyIds: [] });
     queryClient.setQueryData(queryKeys.health, health);
     root = createRoot(container);
     flushSync(() => {
@@ -99,6 +106,22 @@ describe("InstanceGeneralSettings sign-out", () => {
     return Array.from(container.querySelectorAll("button"))
       .find((button) => button.textContent?.trim() === "Sign out");
   }
+
+  it("locks server-wide settings for a member who isn't a server admin", async () => {
+    await renderPage(SELF_HOSTED_HEALTH, { isInstanceAdmin: false });
+    await vi.waitFor(() => expect(container.textContent).toContain("Only a server admin can change them."));
+    const keyboardToggle = container.querySelector<HTMLButtonElement>('[aria-label="Toggle keyboard shortcuts"]');
+    expect(keyboardToggle?.disabled).toBe(true);
+    // Signing out is still theirs to do.
+    expect(signOutButton()?.disabled).toBe(false);
+  });
+
+  it("offers no sign-out on a local server, which has no session to end", async () => {
+    await renderPage({ ...SELF_HOSTED_HEALTH, deploymentMode: "local_trusted" });
+    expect(signOutButton()).toBeUndefined();
+    const keyboardToggle = container.querySelector<HTMLButtonElement>('[aria-label="Toggle keyboard shortcuts"]');
+    expect(keyboardToggle?.disabled).toBe(false);
+  });
 
   it("uses the Cloud-managed top-level logout without calling local auth", async () => {
     await renderPage(CLOUD_HEALTH);

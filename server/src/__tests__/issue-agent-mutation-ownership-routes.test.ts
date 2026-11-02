@@ -875,6 +875,19 @@ describe("agent issue mutation checkout ownership", () => {
     expect(mockStorageService.deleteObject).not.toHaveBeenCalled();
   });
 
+  it("lets only the person whose chat it is delete it", async () => {
+    const chat = makeIssue({ conversationAgentId: ownerAgentId, conversationUserId: "user-ada", assigneeAgentId: ownerAgentId });
+    mockIssueService.getById.mockResolvedValue(chat);
+    const board = (userId: string) => ({ type: "board", userId, source: "session", companyIds: [companyId], memberships: [{ companyId, membershipRole: "owner", status: "active" }], isInstanceAdmin: false });
+
+    const someoneElse = await request(await createApp(board("user-sam"))).delete(`/api/issues/${issueId}`);
+    expect(someoneElse.status).toBe(403);
+    expect(someoneElse.body.error).toContain("Only the person whose chat this is");
+    const agent = await request(await createApp(peerActor())).delete(`/api/issues/${issueId}`);
+    expect(agent.status).toBe(403);
+    expect(mockIssueService.remove).not.toHaveBeenCalled();
+  });
+
   it("allows mentioned peer agents to post comments without ownership of an active checkout", async () => {
     mockAccessService.decide.mockImplementation(async (input: { action: string }) => ({
       allowed: input.action === "issue:comment",

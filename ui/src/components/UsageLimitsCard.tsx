@@ -17,8 +17,11 @@ export function resetLabel(resetsAt: string, now = Date.now()): string | null {
   const left = at - now;
   if (left <= MINUTE) return "Resets in under a minute";
   if (left < DAY) {
-    const hours = Math.floor(left / HOUR);
-    const minutes = Math.round((left % HOUR) / MINUTE);
+    // Rounded as a whole first, then split: rounding the leftover minutes
+    // alone turned 1 h 59.6 min into "1 h 60 min".
+    const totalMinutes = Math.round(left / MINUTE);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
     if (hours === 0) return `Resets in ${minutes} min`;
     return minutes ? `Resets in ${hours} h ${minutes} min` : `Resets in ${hours} h`;
   }

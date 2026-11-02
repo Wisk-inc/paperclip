@@ -5,6 +5,7 @@ import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCloudInstance } from "../hooks/useCloudInstance";
 import { companiesApi } from "../api/companies";
+import { healthApi } from "../api/health";
 import { queryKeys } from "../lib/queryKeys";
 import { formatCents, relativeTime } from "../lib/utils";
 import { Input } from "@/components/ui/input";
@@ -66,6 +67,11 @@ export function Companies() {
       setEditingId(null);
     },
   });
+
+  // The server may switch deletion off (PAPERCLIP_ENABLE_COMPANY_DELETION, off by
+  // default on authenticated servers); don't offer what it would refuse.
+  const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: () => healthApi.get(), retry: false });
+  const deletionEnabled = health?.features?.companyDeletionEnabled !== false;
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => companiesApi.remove(id),
@@ -248,14 +254,21 @@ export function Companies() {
                           Unarchive
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => setConfirmDeleteId(company.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete Organization
-                      </DropdownMenuItem>
+                      {deletionEnabled ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              deleteMutation.reset();
+                              setConfirmDeleteId(company.id);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete Organization
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -296,9 +309,16 @@ export function Companies() {
                   className="mt-4 flex items-center justify-between bg-destructive/5 border border-destructive/20 rounded-md px-4 py-3"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <p className="text-sm text-destructive font-medium">
-                    Delete this organization and all its data? This cannot be undone.
-                  </p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-destructive font-medium">
+                      Delete this organization and all its data? This cannot be undone.
+                    </p>
+                    {deleteMutation.isError ? (
+                      <p role="alert" className="mt-1 text-sm text-destructive">
+                        {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Could not delete the organization."}
+                      </p>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2 ml-4 shrink-0">
                     <Button
                       variant="ghost"

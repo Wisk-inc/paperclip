@@ -3,13 +3,17 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const logActivityMock = vi.fn();
+const canUserMock = vi.fn();
+const hasPermissionMock = vi.fn();
+const getMembershipMock = vi.fn();
 
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
     accessService: () => ({
       isInstanceAdmin: vi.fn(),
-      canUser: vi.fn(),
-      hasPermission: vi.fn(),
+      canUser: (...args: unknown[]) => canUserMock(...args),
+      hasPermission: (...args: unknown[]) => hasPermissionMock(...args),
+      getMembership: (...args: unknown[]) => getMembershipMock(...args),
     }),
     agentService: () => ({
       getById: vi.fn(),
@@ -75,7 +79,14 @@ function createDbStub() {
   };
 }
 
-async function createApp() {
+const localBoard = {
+  type: "board",
+  source: "local_implicit",
+  userId: null,
+  companyIds: ["company-1"],
+};
+
+async function createApp(actor: Record<string, unknown> = localBoard) {
   const [{ accessRoutes }, { errorHandler }] = await Promise.all([
     import("../routes/access.js"),
     import("../middleware/index.js"),
@@ -83,12 +94,7 @@ async function createApp() {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).actor = {
-      type: "board",
-      source: "local_implicit",
-      userId: null,
-      companyIds: ["company-1"],
-    };
+    (req as any).actor = actor;
     next();
   });
   app.use(
@@ -114,6 +120,9 @@ describe("POST /companies/:companyId/invites", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     logActivityMock.mockReset();
+    canUserMock.mockReset();
+    hasPermissionMock.mockReset();
+    getMembershipMock.mockReset();
   });
 
   it("returns an absolute invite URL using the request base URL", async () => {
@@ -132,5 +141,39 @@ describe("POST /companies/:companyId/invites", () => {
     expect(res.body.companyName).toBe("Acme Robotics");
     expect(res.body.invitePath).toMatch(/^\/invite\/pcp_invite_/);
     expect(res.body.inviteUrl).toMatch(/^https:\/\/paperclip\.example\/invite\/pcp_invite_/);
+  });
+
+  it("never lets an invite carry a role or agent grants above its creator's", async () => {
+    const admin = {
+      type: "board",
+      source: "session",
+      userId: "user-admin",
+      companyIds: ["company-1"],
+      memberships: [{ companyId: "company-1", membershipRole: "admin", status: "active" }],
+      isInstanceAdmin: false,
+    };
+    getMembershipMock.mockResolvedValue({ status: "active", membershipRole: "admin" });
+    // Admins hold users:invite but not users:manage_permissions.
+    canUserMock.mockImplementation(async (_companyId: string, _userId: string, key: string) => key !== "users:manage_permissions");
+    const app = await createApp(admin);
+
+    const asOwner = await request(app).post("/api/companies/company-1/invites").send({ allowedJoinTypes: "human", humanRole: "owner" });
+    expect(asOwner.status).toBe(403);
+    expect(asOwner.body.error).toContain("as admin or below");
+
+    const agentWithMore = await request(app)
+      .post("/api/companies/company-1/invites")
+      .send({ allowedJoinTypes: "agent", defaultsPayload: { agent: { grants: [{ permissionKey: "users:manage_permissions" }] } } });
+    expect(agentWithMore.status).toBe(403);
+    expect(agentWithMore.body.error).toContain("users:manage_permissions");
+    expect(logActivityMock).not.toHaveBeenCalled();
+
+    // Within the admin's own rights: allowed.
+    const asAdmin = await request(app).post("/api/companies/company-1/invites").send({ allowedJoinTypes: "human", humanRole: "admin" });
+    expect(asAdmin.status).toBe(201);
+    const agentWithin = await request(app)
+      .post("/api/companies/company-1/invites")
+      .send({ allowedJoinTypes: "agent", defaultsPayload: { agent: { grants: [{ permissionKey: "agents:create" }] } } });
+    expect(agentWithin.status).toBe(201);
   });
 });

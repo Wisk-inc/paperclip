@@ -1789,6 +1789,11 @@ export function parseStatusFilter(
 }
 
 export interface IssueFilters {
+  /**
+   * Board searches (`q`) include chats; with this set only the ones this
+   * person owns. Undefined (agents, internal callers) leaves them as they were.
+   */
+  chatViewerUserId?: string | null;
   attention?: "blocked";
   status?: string | readonly string[];
   /**
@@ -1918,11 +1923,38 @@ type IssueUserContextInput = {
 type ProjectGoalReader = Pick<Db, "select">;
 type DbReader = Pick<Db, "select">;
 /** Conversation containers cannot acquire new child edges, even with the experiment disabled. */
-async function assertExecutionTaskParent(db: Db, companyId: string, parentId?: string | null) {
+/**
+ * A task's parent must be a task of the same organization, never the task
+ * itself or one of its own subtasks (that would make a loop no list can show,
+ * and a parent in another organization would let its title, description and
+ * workspace leak through the task view). `childId` is the task being moved;
+ * absent when creating one.
+ */
+/** Tasks, plus the chats `viewerUserId` owns (none when there is no viewer). */
+function chatVisibleToCondition(viewerUserId: string | null) {
+  return viewerUserId
+    ? or(isNull(issues.conversationAgentId), eq(issues.conversationUserId, viewerUserId))!
+    : isNull(issues.conversationAgentId);
+}
+
+export async function assertExecutionTaskParent(db: Db, companyId: string, parentId?: string | null, childId?: string | null) {
   if (!parentId) return;
-  const [parent] = await db.select({ conversationAgentId: issues.conversationAgentId })
+  if (childId && parentId === childId) throw unprocessable("A task can't be its own parent");
+  const [parent] = await db.select({ conversationAgentId: issues.conversationAgentId, parentId: issues.parentId })
     .from(issues).where(and(eq(issues.id, parentId), eq(issues.companyId, companyId)));
-  if (parent?.conversationAgentId) throw unprocessable("Conversations cannot have new subtasks; create a task in a project instead");
+  if (!parent) throw unprocessable("The parent task isn't in this organization");
+  if (parent.conversationAgentId) throw unprocessable("Conversations cannot have new subtasks; create a task in a project instead");
+  if (!childId) return;
+  // Walk up from the new parent: meeting this task means it would sit under its own subtask.
+  let cursor = parent.parentId;
+  const seen = new Set<string>([parentId]);
+  while (cursor && !seen.has(cursor) && seen.size < 200) {
+    if (cursor === childId) throw unprocessable("A task can't be moved under one of its own subtasks");
+    seen.add(cursor);
+    const [next] = await db.select({ parentId: issues.parentId })
+      .from(issues).where(and(eq(issues.id, cursor), eq(issues.companyId, companyId)));
+    cursor = next?.parentId ?? null;
+  }
 }
 
 type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -7843,6 +7875,9 @@ export function issueService(db: Db) {
         eq(issues.companyId, companyId),
         visibleIssueCondition(),
       ];
+      if (filters?.q?.trim() && filters.chatViewerUserId !== undefined) {
+        conditions.push(chatVisibleToCondition(filters.chatViewerUserId));
+      }
       if (!filters?.q?.trim()) {
         conditions.push(isNull(issues.conversationAgentId));
         if (!filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
@@ -8177,6 +8212,9 @@ export function issueService(db: Db) {
       }
 
       const conditions = [eq(issues.companyId, companyId), visibleIssueCondition()];
+      if (filters?.q?.trim() && filters.chatViewerUserId !== undefined) {
+        conditions.push(chatVisibleToCondition(filters.chatViewerUserId));
+      }
       if (!filters?.q?.trim()) {
         conditions.push(isNull(issues.conversationAgentId));
         if (!filters?.touchedByUserId && !filters?.unreadForUserId && !filters?.inboxArchivedByUserId) {
@@ -10566,7 +10604,7 @@ export function issueService(db: Db) {
         .then((rows: Array<typeof issues.$inferSelect>) => rows[0] ?? null);
       if (!existing) return null;
       if (data.parentId !== undefined && data.parentId !== existing.parentId) {
-        await assertExecutionTaskParent(dbOrTx, existing.companyId, data.parentId);
+        await assertExecutionTaskParent(dbOrTx, existing.companyId, data.parentId, existing.id);
       }
       if (existing.conversationAgentId) {
         if ((data.assigneeAgentId !== undefined && data.assigneeAgentId !== existing.conversationAgentId)
@@ -11840,15 +11878,27 @@ export function issueService(db: Db) {
       companyId: string,
       data: Pick<typeof labels.$inferInsert, "name" | "color">,
     ) => {
-      const [created] = await db
-        .insert(labels)
-        .values({
-          companyId,
-          name: data.name.trim(),
-          color: data.color,
-        })
-        .returning();
-      return created;
+      const name = data.name.trim();
+      // Names are unique per organization: say so (409) rather than failing on the index (500).
+      const [existing] = await db
+        .select({ id: labels.id })
+        .from(labels)
+        .where(and(eq(labels.companyId, companyId), eq(labels.name, name)));
+      if (existing) throw conflict(`A label named "${name}" already exists`, { labelId: existing.id });
+      try {
+        const [created] = await db
+          .insert(labels)
+          .values({
+            companyId,
+            name,
+            color: data.color,
+          })
+          .returning();
+        return created;
+      } catch (error) {
+        if ((error as { code?: string } | null)?.code === "23505") throw conflict(`A label named "${name}" already exists`);
+        throw error;
+      }
     },
 
     deleteLabel: async (id: string) =>
@@ -13111,8 +13161,10 @@ export function issueService(db: Db) {
         .from(issues)
         .where(eq(issues.id, issueId))
         .then((r) => r[0] ?? null);
+      // Everything below stays inside the task's own organization.
+      const ancestorCompanyId = start?.companyId ?? null;
       let currentId = start?.parentId ?? null;
-      while (currentId && !visited.has(currentId) && raw.length < 50) {
+      while (currentId && ancestorCompanyId && !visited.has(currentId) && raw.length < 50) {
         visited.add(currentId);
         const parent = await db
           .select({
@@ -13128,7 +13180,7 @@ export function issueService(db: Db) {
             parentId: issues.parentId,
           })
           .from(issues)
-          .where(eq(issues.id, currentId))
+          .where(and(eq(issues.id, currentId), eq(issues.companyId, ancestorCompanyId)))
           .then((r) => r[0] ?? null);
         if (!parent) break;
         raw.push({
@@ -13204,11 +13256,11 @@ export function issueService(db: Db) {
         }
       >();
 
-      if (projectIds.length > 0) {
+      if (projectIds.length > 0 && ancestorCompanyId) {
         const workspaceRows = await db
           .select()
           .from(projectWorkspaces)
-          .where(inArray(projectWorkspaces.projectId, projectIds))
+          .where(and(inArray(projectWorkspaces.projectId, projectIds), eq(projectWorkspaces.companyId, ancestorCompanyId)))
           .orderBy(
             desc(projectWorkspaces.isPrimary),
             asc(projectWorkspaces.createdAt),
@@ -13233,7 +13285,7 @@ export function issueService(db: Db) {
             goalId: projects.goalId,
           })
           .from(projects)
-          .where(inArray(projects.id, projectIds));
+          .where(and(inArray(projects.id, projectIds), eq(projects.companyId, ancestorCompanyId)));
         for (const r of rows) {
           const projectWorkspaceRows = workspaceMap.get(r.id) ?? [];
           const workspaces = projectWorkspaceRows.map((workspace) => ({
@@ -13264,7 +13316,7 @@ export function issueService(db: Db) {
         }
       }
 
-      if (goalIds.length > 0) {
+      if (goalIds.length > 0 && ancestorCompanyId) {
         const rows = await db
           .select({
             id: goals.id,
@@ -13274,7 +13326,7 @@ export function issueService(db: Db) {
             status: goals.status,
           })
           .from(goals)
-          .where(inArray(goals.id, goalIds));
+          .where(and(inArray(goals.id, goalIds), eq(goals.companyId, ancestorCompanyId)));
         for (const r of rows) goalMap.set(r.id, r);
       }
 

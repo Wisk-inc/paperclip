@@ -72,6 +72,8 @@ import { cn } from "@/lib/utils";
 import { useCopyAction } from "@/lib/use-copy-action";
 import { resolveAuthorizationTarget } from "@/lib/authorizationUrl";
 import { navigateTopLevel } from "@/lib/browserNavigation";
+import { isAutomaApp } from "@/lib/automa-native";
+import { githubRecoveryUrl, oauthCallbackErrorMessage } from "./oauth-callback";
 import { prepareOAuthNavigation, savePendingCloudHandoff } from "@/lib/oauthHandoff";
 import { redactUrlSecrets } from "@/lib/redact-url-secrets";
 import { AppLogo } from "@/pages/apps/AppLogo";
@@ -159,28 +161,6 @@ function consumeEnrollmentAccessState(appKey: string): EnrollmentAccessState | n
   } catch {
     return null;
   }
-}
-
-function githubRecoveryUrl(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.toLowerCase() === "github.com"
-      ? url.toString()
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function oauthCallbackErrorMessage(outcome: string | null, code: string | null): string {
-  if (outcome === "denied") {
-    return "Authorization was cancelled or declined. Your saved connection was not changed.";
-  }
-  if (code === "github_installation_required") {
-    return "GitHub access is required. Install Automa and grant at least one repository, then try again.";
-  }
-  return "Authorization did not complete. Your saved connection is still here, so you can try again.";
 }
 
 const ROUTE_STAGE_BY_STEP: Partial<Record<Step, string>> = {
@@ -723,17 +703,21 @@ function StandardConnectionSetupFlow({
   const [existingConnectionError, setExistingConnectionError] = useState<string | null>(null);
   const [unavailableReconnectId, setUnavailableReconnectId] = useState<string | null>(null);
 
+  // A dialog signs in through a popup window, except in the Automa app: its
+  // WebView opens no second window, so sign-in takes the whole page there (the
+  // app keeps the provider's pages in it and comes back when it is done).
+  const popupSignIn = host === "dialog" && !isAutomaApp();
   const reserveOAuthPopup = useCallback(() => {
-    if (host !== "dialog" || oauthPopupRef.current?.closed === false) return;
+    if (!popupSignIn || oauthPopupRef.current?.closed === false) return;
     oauthPopupRef.current = window.open(
       "about:blank",
       "paperclip-connection-oauth",
       "popup,width=720,height=760,resizable=yes,scrollbars=yes",
     );
-  }, [host]);
+  }, [popupSignIn]);
 
   const openAuthorization = useCallback((url: string) => {
-    if (host !== "dialog") {
+    if (!popupSignIn) {
       navigateTopLevel(url);
       return;
     }
@@ -747,7 +731,7 @@ function StandardConnectionSetupFlow({
     }
     popup.location.assign(url);
     popup.focus();
-  }, [host, onPhaseChange]);
+  }, [popupSignIn, onPhaseChange]);
 
   const openAuthorizationTab = useCallback(() => {
     // Let a real link own navigation. Some embedded browsers return a window
@@ -759,7 +743,7 @@ function StandardConnectionSetupFlow({
   }, [onPhaseChange]);
 
   useEffect(() => {
-    if (host !== "dialog" || oauthPhase !== "redirecting") return;
+    if (!popupSignIn || oauthPhase !== "redirecting") return;
     const timer = window.setInterval(() => {
       if (!oauthPopupRef.current?.closed) return;
       setOAuthPhase("error");
@@ -768,7 +752,7 @@ function StandardConnectionSetupFlow({
       onPhaseChange?.("needs_retry");
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [host, oauthPhase, onPhaseChange]);
+  }, [popupSignIn, oauthPhase, onPhaseChange]);
 
   const prepareAndOpenOAuth = useCallback(async (
     start: Pick<ToolOAuthStartResult, "authorizationUrl" | "handoff">,
@@ -779,7 +763,7 @@ function StandardConnectionSetupFlow({
     try {
       const target = await prepareOAuthNavigation(start, { signal: controller.signal });
       if (target.kind === "reauthentication") {
-        const destination = host === "dialog" ? oauthPopupRef.current : window;
+        const destination = popupSignIn ? oauthPopupRef.current : window;
         if (!destination || destination.closed || !start.handoff) {
           throw new Error("Automa couldn’t preserve this sign-in while refreshing your account.");
         }
@@ -798,7 +782,7 @@ function StandardConnectionSetupFlow({
     } finally {
       if (oauthHandoffAbortRef.current === controller) oauthHandoffAbortRef.current = null;
     }
-  }, [host, onPhaseChange, openAuthorization]);
+  }, [popupSignIn, onPhaseChange, openAuthorization]);
 
   useEffect(() => () => oauthHandoffAbortRef.current?.abort(), []);
 
@@ -830,7 +814,7 @@ function StandardConnectionSetupFlow({
   // Wait for this popup to return to our origin, then verify durable state via
   // the API. Provider-window contents never determine the saved connection.
   useEffect(() => {
-    if (host !== "dialog" || connectionIntentId || !dialogOAuthConnectionId) return;
+    if (!popupSignIn || connectionIntentId || !dialogOAuthConnectionId) return;
     let cancelled = false;
     let checking = false;
     const timer = window.setInterval(async () => {
@@ -869,7 +853,7 @@ function StandardConnectionSetupFlow({
       } finally { checking = false; }
     }, 1000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [connectionIntentId, dialogOAuthConnectionId, host, onComplete]);
+  }, [connectionIntentId, dialogOAuthConnectionId, popupSignIn, onComplete]);
 
   const resetGenericAuthState = () => {
     setLinkAuthMode("auto");
@@ -1044,7 +1028,7 @@ function StandardConnectionSetupFlow({
       setConnectorEnrollmentError(target.message);
       return;
     }
-    if (host === "dialog") {
+    if (popupSignIn) {
       setEnrollmentAuthorizationUrl(target.url);
       const popup = oauthPopupRef.current;
       if (popup && !popup.closed) {
@@ -1056,7 +1040,7 @@ function StandardConnectionSetupFlow({
       return;
     }
     navigateTopLevel(target.url);
-  }, [host, closeEnrollmentPopup]);
+  }, [popupSignIn, closeEnrollmentPopup]);
   useEffect(() => {
     if (!enrollmentAuthorizationUrl || connectorEnrollmentQuery.data?.status !== "active") return;
     // Enrollment is only a prerequisite. Re-read the server catalog and keep
@@ -1244,9 +1228,9 @@ function StandardConnectionSetupFlow({
   const startOAuth = useCallback((connection: ToolConnection) => {
     onPhaseChange?.("authorizing");
     reserveOAuthPopup();
-    if (host === "dialog" && !connectionIntentId) setDialogOAuthConnectionId(connection.id);
+    if (popupSignIn && !connectionIntentId) setDialogOAuthConnectionId(connection.id);
     mutateOAuthStart(connection);
-  }, [mutateOAuthStart, onPhaseChange, reserveOAuthPopup, host, connectionIntentId]);
+  }, [mutateOAuthStart, onPhaseChange, reserveOAuthPopup, popupSignIn, connectionIntentId]);
 
   /**
    * Commit the Access step's agent reach for a connection. Shared by the

@@ -182,6 +182,8 @@ interface IssueDraft {
   selectedExecutionWorkspaceId?: string;
   useIsolatedExecutionWorkspace?: boolean;
   workMode?: IssueWorkMode;
+  /** The organization the draft was written in; its agents, projects and workspaces mean nothing elsewhere. */
+  companyId?: string | null;
 }
 
 type StagedIssueFile = {
@@ -219,18 +221,38 @@ const ISSUE_THINKING_EFFORT_OPTIONS = {
   ],
 } as const;
 
-function loadDraft(): IssueDraft | null {
+/**
+ * The saved draft, as `companyId` may use it: the words carry over from
+ * another organization, its choices of agent, project and workspace don't
+ * (they would show as blanks and fail with "Agent not found").
+ */
+function loadDraft(companyId: string | null | undefined): IssueDraft | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as IssueDraft;
+    const draft = JSON.parse(raw) as IssueDraft;
+    if (!draft.companyId || !companyId || draft.companyId === companyId) return draft;
+    return {
+      ...draft,
+      assigneeValue: "",
+      reviewerValue: "",
+      approverValue: "",
+      watchdogAgentId: undefined,
+      watchdogInstructions: undefined,
+      assigneeId: undefined,
+      projectId: "",
+      projectWorkspaceId: undefined,
+      selectedExecutionWorkspaceId: undefined,
+      assigneeModelOverride: "",
+      companyId,
+    };
   } catch {
     return null;
   }
 }
 
-function saveDraft(draft: IssueDraft) {
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+function saveDraft(draft: IssueDraft, companyId: string | null | undefined) {
+  localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, companyId: companyId ?? draft.companyId ?? null }));
 }
 
 function clearDraft() {
@@ -252,12 +274,17 @@ function fileBaseName(filename: string) {
   return filename.replace(/\.[^.]+$/, "");
 }
 
+/** Document keys are at most 64 characters; 60 leaves room for a "-2" suffix. */
+const DOCUMENT_KEY_BASE_MAX = 60;
+
 function slugifyDocumentKey(input: string) {
   const slug = input
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, "")
+    .slice(0, DOCUMENT_KEY_BASE_MAX)
+    .replace(/-+$/g, "");
   return slug || "document";
 }
 
@@ -531,6 +558,9 @@ export function NewIssueDialog() {
   const initializationKeyRef = useRef<string | null>(null);
 
   const effectiveCompanyId = dialogCompanyId ?? selectedCompanyId;
+  // Read by the debounced draft save, which outlives renders.
+  const draftCompanyIdRef = useRef<string | null>(effectiveCompanyId ?? null);
+  draftCompanyIdRef.current = effectiveCompanyId ?? null;
   const dialogCompany = companies.find((c) => c.id === effectiveCompanyId) ?? selectedCompany;
   const isSubIssueMode = Boolean(newIssueDefaults.parentId);
   const parentIssueLabel = newIssueDefaults.parentIdentifier
@@ -646,7 +676,8 @@ export function NewIssueDialog() {
       ...data
     }: { companyId: string; stagedFiles: StagedIssueFile[] } & Record<string, unknown>) => {
       const issue = await issuesApi.create(companyId, data);
-      const failures: string[] = [];
+      // Each file that didn't go, with the server's reason (too large, a bad name).
+      const failures: Array<{ name: string; reason: string }> = [];
 
       for (const stagedFile of pendingStagedFiles) {
         try {
@@ -661,8 +692,8 @@ export function NewIssueDialog() {
           } else {
             await issuesApi.uploadAttachment(companyId, issue.id, stagedFile.file);
           }
-        } catch {
-          failures.push(stagedFile.file.name);
+        } catch (error) {
+          failures.push({ name: stagedFile.file.name, reason: error instanceof Error ? error.message : "Upload failed" });
         }
       }
 
@@ -682,7 +713,9 @@ export function NewIssueDialog() {
         const issueRef = issue.identifier ?? issue.id;
         pushToast({
           title: `Created ${issueRef} with upload warnings`,
-          body: `${failures.length} staged ${failures.length === 1 ? "file" : "files"} could not be added.`,
+          body: `${failures.length} staged ${failures.length === 1 ? "file" : "files"} could not be added: ${failures
+            .map((failure) => `${failure.name} (${failure.reason})`)
+            .join("; ")}`,
           tone: "warn",
           action: prefix
             ? { label: `Open ${issueRef}`, href: `/${prefix}/issues/${issueRef}` }
@@ -712,7 +745,7 @@ export function NewIssueDialog() {
     (draft: IssueDraft) => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
       draftTimer.current = setTimeout(() => {
-        if (draft.title.trim()) saveDraft(draft);
+        if (draft.title.trim()) saveDraft(draft, draftCompanyIdRef.current);
       }, DEBOUNCE_MS);
     },
     [],
@@ -823,7 +856,7 @@ export function NewIssueDialog() {
     setDialogCompanyId(selectedCompanyId);
     executionWorkspaceDefaultProjectId.current = null;
 
-    const draft = loadDraft();
+    const draft = loadDraft(selectedCompanyId);
     if (newIssueDefaults.parentId) {
       const nextWorkMode = isIssueWorkMode(newIssueDefaults.workMode) ? newIssueDefaults.workMode : "standard";
       const defaultProjectId = newIssueDefaults.projectId ?? "";
@@ -1056,7 +1089,7 @@ export function NewIssueDialog() {
       action: {
         label: "Undo",
         onClick: () => {
-          saveDraft(discarded);
+          saveDraft(discarded, discarded.companyId ?? draftCompanyIdRef.current);
           openNewIssue();
         },
       },
@@ -1294,7 +1327,7 @@ export function NewIssueDialog() {
       })),
     [orderedProjects],
   );
-  const savedDraft = useMemo(() => newIssueOpen ? loadDraft() : null, [newIssueOpen]);
+  const savedDraft = useMemo(() => newIssueOpen ? loadDraft(effectiveCompanyId) : null, [newIssueOpen, effectiveCompanyId]);
   const hasSavedDraft = Boolean(savedDraft?.title.trim() || savedDraft?.description.trim());
   const canDiscardDraft = hasDraft || hasSavedDraft;
   const createIssueErrorMessage =

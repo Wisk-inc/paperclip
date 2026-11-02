@@ -13,6 +13,8 @@ type BootstrapPendingPageProps = {
   claimState: "idle" | "claiming" | "success";
   claimError?: { status?: number; message?: string } | null;
   onClaim: () => void;
+  /** Signs out so another account can sign in (the sign-in page sends signed-in people back). */
+  onSwitchAccount?: () => void;
 };
 
 function CliFallback({ hasActiveInvite = false }: { hasActiveInvite?: boolean }) {
@@ -72,6 +74,7 @@ export function BootstrapPendingPage({
   claimState,
   claimError,
   onClaim,
+  onSwitchAccount,
 }: BootstrapPendingPageProps) {
   if (!claimAvailable) {
     return (
@@ -154,9 +157,15 @@ export function BootstrapPendingPage({
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
         Wrong account?{" "}
-        <Link to="/auth?next=/" className="underline underline-offset-2">
-          Switch account
-        </Link>
+        {onSwitchAccount ? (
+          <button type="button" className="underline underline-offset-2" onClick={onSwitchAccount}>
+            Switch account
+          </button>
+        ) : (
+          <Link to="/auth?next=/" className="underline underline-offset-2">
+            Switch account
+          </Link>
+        )}
         .
       </p>
       {claimError && (

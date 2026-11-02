@@ -115,6 +115,9 @@ export function AgentProviderConnection({
     ? { ...savedKeys.storedLogin, data: undefined, isPending: false, isError: false }
     : savedKeys.storedLogin;
   const savedManagedAccount = useRef<{ connectionId: string; grantId: string } | null>(null);
+  // The key typed here once saved: a retry after making it the default failed
+  // finishes that step instead of saving the same key again.
+  const savedApiKeyAccount = useRef<{ apiKey: string; grantId: string } | null>(null);
   const method = methodChoice ?? (
     (savedKeys.subscriptions.length > 0 || (adapterType === "claude_local" && !savedSubscription && storedLogin.data))
       ? "subscription" : savedKeys.options.length ? "api" : "subscription"
@@ -175,12 +178,24 @@ export function AgentProviderConnection({
                   }
                 : {}),
             };
+      // The agent uses the person's default connection for this provider
+      // ("responsible_user"), and the server keeps an earlier default: the
+      // sign-in or key made here becomes the default, or the agent would go
+      // on with the old one.
       if (method === "subscription" && canUseLocalLogin && !savedSubscription && !storedLogin.data) {
         savedManagedAccount.current ??= await localLogin.connect();
+        await aiConnectionsApi.setDefault(companyId, savedManagedAccount.current.grantId);
         connection = { env: {}, aiConnection: { provider: aiProvider, method: "subscription", mode: "responsible_user" } };
       }
       if (connection.credentials) {
-        await aiConnectionsApi.create(companyId, { provider: aiProvider, method: "api_key", name: `My ${provider} API`, ownership: "personal", apiKey: connection.credentials[envKey], agentIds: [], allAgents: true });
+        const typed = connection.credentials[envKey];
+        let saved = savedApiKeyAccount.current;
+        if (saved?.apiKey !== typed) {
+          const created = await aiConnectionsApi.create(companyId, { provider: aiProvider, method: "api_key", name: `My ${provider} API`, ownership: "personal", apiKey: typed, agentIds: [], allAgents: true });
+          saved = { apiKey: typed, grantId: created.grantId };
+          savedApiKeyAccount.current = saved;
+        }
+        await aiConnectionsApi.setDefault(companyId, saved.grantId);
         connection = { env: {}, aiConnection: { provider: aiProvider, method: "api_key", mode: "responsible_user" } };
       }
       if (run !== epoch.current) return;

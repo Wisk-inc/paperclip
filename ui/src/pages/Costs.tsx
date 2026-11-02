@@ -11,11 +11,13 @@ import type {
   QuotaWindow,
 } from "@paperclipai/shared";
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, Coins, DollarSign, ReceiptText, Code2 } from "lucide-react";
+import { agentsApi } from "../api/agents";
 import { budgetsApi } from "../api/budgets";
 import { costsApi } from "../api/costs";
 import { FreeModelsSavingsCard } from "../components/FreeModelsSavingsCard";
 import { UsageLimitsCard } from "../components/UsageLimitsCard";
 import { BillerSpendCard } from "../components/BillerSpendCard";
+import { AgentBudgetForm } from "../components/AgentBudgetForm";
 import { BudgetIncidentCard } from "../components/BudgetIncidentCard";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
 import { EmptyState } from "../components/EmptyState";
@@ -47,6 +49,8 @@ export interface CostsProps {
   lockTab?: boolean;
   /** Budgets is a peer Audit section, so omit it from the Costs sub-navigation. */
   hideBudgetsTab?: boolean;
+  /** Opened for one agent (Audit > Budgets from its page): the budget form starts on it. */
+  focusAgentId?: string;
 }
 
 function currentWeekRange(): { from: string; to: string } {
@@ -170,6 +174,7 @@ export function Costs({
   initialTab = "overview",
   lockTab = false,
   hideBudgetsTab = false,
+  focusAgentId,
 }: CostsProps = {}) {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -557,6 +562,16 @@ export function Costs({
     agent: budgetPolicies.filter((policy) => policy.scopeType === "agent"),
     project: budgetPolicies.filter((policy) => policy.scopeType === "project"),
   }), [budgetPolicies]);
+  // Agents with a budget are edited on their card; the form offers the others.
+  const { data: agentsForBudgets } = useQuery({
+    queryKey: queryKeys.agents.list(companyId),
+    queryFn: () => agentsApi.list(companyId),
+    enabled: Boolean(selectedCompanyId),
+  });
+  const budgetedAgentIds = useMemo(
+    () => new Set(budgetPoliciesByScope.agent.filter((policy) => policy.amount > 0).map((policy) => policy.scopeId)),
+    [budgetPoliciesByScope],
+  );
 
   if (!selectedCompanyId) {
     return <EmptyState icon={DollarSign} message="Select an organization to view costs." />;
@@ -986,6 +1001,14 @@ export function Costs({
               ) : null}
 
               <div className="space-y-5">
+                <AgentBudgetForm
+                  initialAgentId={focusAgentId}
+                  agents={agentsForBudgets ?? []}
+                  budgetedAgentIds={budgetedAgentIds}
+                  isSaving={policyMutation.isPending}
+                  onSave={(agentId, amount) =>
+                    policyMutation.mutate({ scopeType: "agent", scopeId: agentId, amount, windowKind: "calendar_month_utc" })}
+                />
                 {(["company", "agent", "project"] as const).map((scopeType) => {
                   const rows = budgetPoliciesByScope[scopeType];
                   if (rows.length === 0) return null;
@@ -1024,7 +1047,7 @@ export function Costs({
                 {budgetPolicies.length === 0 ? (
                   <Card>
                     <CardContent className="px-5 py-8 text-sm text-muted-foreground">
-                      No budget policies yet. Set agent and project budgets from their detail pages, or use the existing organization monthly budget control.
+                      No budget policies yet. Give an agent a monthly budget above; a project's budget is set on its page, and the organization's monthly limit under API keys.
                     </CardContent>
                   </Card>
                 ) : null}

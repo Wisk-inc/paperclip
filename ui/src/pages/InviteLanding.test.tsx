@@ -28,7 +28,7 @@ vi.mock("../api/auth", () => ({
   authApi: {
     getSession: () => getSessionMock(),
     signInEmail: (input: unknown) => signInEmailMock(input),
-    signUpEmail: (input: unknown) => signUpEmailMock(input),
+    signUpEmail: (input: unknown, options?: unknown) => signUpEmailMock(input, options),
   },
 }));
 
@@ -76,6 +76,15 @@ async function flushReact() {
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
   flushSync(() => {});
+}
+
+async function clickButton(container: HTMLElement, label: string) {
+  const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.trim() === label);
+  expect(button, `button "${label}"`).toBeTruthy();
+  await act(async () => {
+    button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  for (let i = 0; i < 4; i += 1) await flushReact();
 }
 
 describe("InviteLandingPage", () => {
@@ -243,11 +252,14 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
-    expect(signUpEmailMock).toHaveBeenCalledWith({
-      name: "Jane Example",
-      email: "jane@example.com",
-      password: "supersecret",
-    });
+    expect(signUpEmailMock).toHaveBeenCalledWith(
+      {
+        name: "Jane Example",
+        email: "jane@example.com",
+        password: "supersecret",
+      },
+      { inviteToken: "pcp_invite_test" },
+    );
     expect(container.textContent).toContain("An account already exists for jane@example.com. Sign in below to continue with this invite.");
     expect(container.querySelector('input[name="name"]')).toBeNull();
     expect(container.textContent).toContain("Sign in to continue");
@@ -531,11 +543,15 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
-    expect(signUpEmailMock).toHaveBeenCalledWith({
-      name: "Jane Example",
-      email: "jane@example.com",
-      password: "supersecret",
-    });
+    // The invite rides along, so an invite-only server still lets Jane in.
+    expect(signUpEmailMock).toHaveBeenCalledWith(
+      {
+        name: "Jane Example",
+        email: "jane@example.com",
+        password: "supersecret",
+      },
+      { inviteToken: "pcp_invite_test" },
+    );
     expect(acceptInviteMock).toHaveBeenCalledWith("pcp_invite_test", { requestType: "human" });
     expect(setSelectedCompanyIdMock).toHaveBeenCalledWith("company-1", { source: "manual" });
     expect(queryClient.getQueryState(queryKeys.access.currentBoardAccess)?.isInvalidated).toBe(true);
@@ -588,6 +604,9 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
+    // An account that was already signed in accepts with a tap, not on page load.
+    expect(acceptInviteMock).not.toHaveBeenCalled();
+    await clickButton(container, "Accept invite");
     expect(acceptInviteMock).toHaveBeenCalledWith("pcp_invite_test", { requestType: "human" });
     expect(container.textContent).toContain("Request to join Acme Robotics");
     expect(container.textContent).toContain("An organization admin must approve your request to join.");
@@ -960,6 +979,9 @@ describe("InviteLandingPage", () => {
 
       expect(listCompaniesMock).toHaveBeenCalled();
       expect(container.textContent).not.toContain("Already in this organization");
+      // An account that was already signed in accepts with a tap, not on page load.
+      expect(acceptInviteMock).not.toHaveBeenCalled();
+      await clickButton(container, "Accept invite");
       expect(acceptInviteMock).toHaveBeenCalledWith("pcp_invite_test", { requestType: "human" });
       expect(container.textContent).toContain("Request to join Acme Robotics");
 
@@ -1163,6 +1185,9 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
+    // An account that was already signed in accepts with a tap, not on page load.
+    expect(acceptInviteMock).not.toHaveBeenCalled();
+    await clickButton(container, "Accept invite");
     expect(acceptInviteMock).toHaveBeenCalledWith("pcp_invite_test", { requestType: "human" });
     expect(container.textContent).toContain("Request to join Acme Robotics");
 
@@ -1224,6 +1249,9 @@ describe("InviteLandingPage", () => {
     await flushReact();
     await flushReact();
 
+    // An account that was already signed in accepts with a tap, not on page load.
+    expect(acceptInviteMock).not.toHaveBeenCalled();
+    await clickButton(container, "Accept invite");
     expect(acceptInviteMock).toHaveBeenCalledWith("pcp_invite_test", { requestType: "human" });
     expect(container.textContent).toContain("Request to join Acme Robotics");
 

@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testAgentSetup } from "./test-agent-setup";
 const testEnvironment = vi.hoisted(() => vi.fn());
 vi.mock("../api/agents", () => ({ agentsApi: { testEnvironment } }));
@@ -78,4 +78,16 @@ it("preserves runtime warnings after a successful provider request", async () =>
     .mockResolvedValueOnce({ ...ready, status: "warn" })
     .mockResolvedValueOnce(ready);
   expect((await testAgentSetup(input)).status).toBe("warn");
+});
+
+describe("setupTestReachedProvider", () => {
+  it("counts a hello probe, and a key the provider accepted with a real call", async () => {
+    const { setupTestReachedProvider } = await import("./test-agent-setup");
+    expect(setupTestReachedProvider([{ code: "claude_hello_probe_passed" }])).toBe(true);
+    // The direct Claude API engine proves the key and runs no hello probe.
+    expect(setupTestReachedProvider([{ code: "claude_api_engine" }, { code: "claude_api_key_ok" }])).toBe(true);
+    expect(setupTestReachedProvider([{ code: "ai_connection_api_key_reverified" }])).toBe(true);
+    expect(setupTestReachedProvider([{ code: "claude_api_engine" }])).toBe(false);
+    expect(setupTestReachedProvider([])).toBe(false);
+  });
 });

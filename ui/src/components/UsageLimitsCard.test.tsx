@@ -102,4 +102,11 @@ describe("resetLabel", () => {
     expect(resetLabel("2026-11-20T00:00:00.000Z", now)).toMatch(/^Resets (Nov 20|20 Nov)$/);
     expect(resetLabel("soon", now)).toBeNull();
   });
+
+  it("never says 60 min: a nearly whole hour rounds up to it", () => {
+    // 1 h 59 min 40 s, and 59 min 40 s.
+    expect(resetLabel("2026-10-29T13:59:40.000Z", now)).toBe("Resets in 2 h");
+    expect(resetLabel("2026-10-29T12:59:40.000Z", now)).toBe("Resets in 1 h");
+    expect(resetLabel("2026-10-29T13:59:00.000Z", now)).toBe("Resets in 1 h 59 min");
+  });
 });

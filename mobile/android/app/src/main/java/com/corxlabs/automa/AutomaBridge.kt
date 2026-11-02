@@ -89,29 +89,50 @@ class AutomaBridge(
         return (if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model").take(120)
     }
 
+    /** The shared folder is the server's it was shared with: no other server sees or reads it. */
+    private fun folderOnThisServer(): Boolean = sharedFolder.belongsTo(config.serverOrigin())
+
     @JavascriptInterface
-    fun getSharedFolder(key: String?): String = if (onServerPage(key)) sharedFolder.describeJson() else "null"
+    fun getSharedFolder(key: String?): String =
+        if (onServerPage(key) && folderOnThisServer()) sharedFolder.describeJson() else "null"
 
     @JavascriptInterface
     fun pickSharedFolder(key: String?, callId: String) {
         if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
-        activity.runOnUiThread { activity.pickFolder(callId) }
+        activity.runOnUiThread { activity.pickFolder(callId, null) }
+    }
+
+    /** Shares a folder with one organization on this server (1.9.6 and newer pages). */
+    @JavascriptInterface
+    fun pickSharedFolderFor(key: String?, callId: String, companyId: String?) {
+        if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
+        val company = companyId?.trim()?.takeIf { it.isNotEmpty() && it.length <= 64 } ?: return resolve(callId, error("Pick an organization first"))
+        activity.runOnUiThread { activity.pickFolder(callId, company) }
+    }
+
+    /** Gives a folder shared before 1.9.6 (no organization yet) to the organization that was using it. */
+    @JavascriptInterface
+    fun claimSharedFolder(key: String?, companyId: String?): String {
+        if (!onServerPage(key) || !folderOnThisServer()) return "null"
+        companyId?.trim()?.takeIf { it.isNotEmpty() && it.length <= 64 }?.let(sharedFolder::claimFor)
+        return sharedFolder.describeJson()
     }
 
     @JavascriptInterface
     fun clearSharedFolder(key: String?) {
-        if (onServerPage(key)) sharedFolder.clear()
+        if (onServerPage(key) && folderOnThisServer()) sharedFolder.clear()
     }
 
     @JavascriptInterface
     fun listSharedFolder(key: String?, callId: String) {
         if (!onServerPage(key)) return resolve(callId, error("Not available on this page"))
+        if (!folderOnThisServer()) return resolve(callId, error("No folder is shared"))
         executor.execute { resolve(callId, sharedFolder.listJson()) }
     }
 
     @JavascriptInterface
     fun sharedFileUrl(key: String?, path: String): String =
-        if (onServerPage(key)) "$NATIVE_PREFIX/shared/$token?path=${Uri.encode(path)}" else ""
+        if (onServerPage(key) && folderOnThisServer()) "$NATIVE_PREFIX/shared/$token?path=${Uri.encode(path)}" else ""
 
     /** Launchable apps on this phone for the App Inspector picker; icons and APKs come from native URLs. */
     @JavascriptInterface
@@ -135,6 +156,20 @@ class AutomaBridge(
     @JavascriptInterface
     fun clearIncomingShares(key: String?) {
         if (onServerPage(key)) incoming.clear()
+    }
+
+    /** The page registered this phone as [deviceId] on this server: its notifications come from here. */
+    @JavascriptInterface
+    fun rememberPushDevice(key: String?, deviceId: String?) {
+        if (!onServerPage(key)) return
+        val id = deviceId?.trim()?.takeIf { it.isNotEmpty() && it.length <= 64 } ?: return
+        config.serverOrigin()?.let { Push.rememberDevice(activity, id, it) }
+    }
+
+    /** Drops one share once it went up, so a retry sends only what is left (1.9.6 and newer). */
+    @JavascriptInterface
+    fun removeIncomingShare(key: String?, id: String?) {
+        if (onServerPage(key) && !id.isNullOrBlank()) incoming.remove(id)
     }
 
     @JavascriptInterface
@@ -235,7 +270,8 @@ class AutomaBridge(
         val heading = title?.trim()?.take(120)?.takeIf { it.isNotEmpty() } ?: return
         val target = path?.trim()?.take(500)?.takeIf { MainActivity.isBoardPath(it) }
         val group = tag?.trim()?.take(200)?.takeIf { it.isNotEmpty() }
-        Push.show(activity, heading, body?.trim()?.take(500)?.takeIf { it.isNotEmpty() }, target, group)
+        // The page's own server: a tap opens it here even after switching servers.
+        Push.show(activity, heading, body?.trim()?.take(500)?.takeIf { it.isNotEmpty() }, target, group, config.serverOrigin())
     }
 
     /** True when a notification would show: permission granted and notifications on for Automa. */
@@ -334,6 +370,9 @@ class AutomaBridge(
                 } ?: JSONObject.NULL,
             )
             .put("waitFor", if (activity.waitingForServer) config.serverUrl ?: JSONObject.NULL else JSONObject.NULL)
+            // A connect request just came (automa run / automa link starts Automa as it
+            // sends one): the wait leaves starting it to Termux, instead of starting a second one.
+            .put("startedByRequest", activity.connectRequestedRecently())
             .toString()
     }
 
@@ -379,25 +418,31 @@ class AutomaBridge(
             }
             // A fresh install opens on setup: say so on the success screen.
             val origin = ServerConfig.originOf(Uri.parse(reachedUrl))
-            val secret = appKey
-                ?: config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
-                ?: origin?.let(config::secretFor)
-            // A locked Automa with no key here would show "Connected", then bounce
-            // straight back from the board: say what to do before that.
-            if (health.locked && secret == null) {
-                resolve(callId, error(MainActivity.LOCKED_WITHOUT_KEY))
-                return@execute
+            val pending = config.pendingConnect?.takeIf { ServerConfig.originOf(Uri.parse(it.url)) == origin }?.secret
+            // A typed key is the only one tried; otherwise the key Termux handed
+            // over, then the one the app already keeps.
+            val candidates = if (appKey != null) listOf(appKey) else listOfNotNull(pending, origin?.let(config::secretFor)).distinct()
+            var keyForServer: String? = null
+            if (health.locked) {
+                // A locked Automa with no key here would show "Connected", then bounce
+                // straight back from the board: say what to do before that.
+                if (candidates.isEmpty()) {
+                    resolve(callId, error(MainActivity.LOCKED_WITHOUT_KEY))
+                    return@execute
+                }
+                // The key goes only to a server that proves it holds it (an
+                // older Automa, from before proofs: one that accepts it).
+                keyForServer = candidates.firstOrNull { config.keyWorks(reachedUrl, it) }
+                // A handed-over key that doesn't work is not kept: any app can
+                // send one, and keeping it would replace the key that works.
+                if (pending != null && pending != keyForServer) config.pendingConnect = null
+                if (keyForServer == null) {
+                    resolve(callId, error(MainActivity.unprovenServerMessage(reachedUrl)))
+                    return@execute
+                }
             }
             val sessionCookies = runCatching { CookieManager.getInstance().getCookie(reachedUrl) }.getOrNull()
-            val companyCount = ServerConfig.companyCount(reachedUrl, secret, sessionCookies)
-            // A locked Automa that refuses the key: say so, and keep the key
-            // that works. Saving it anyway locked the board out until the
-            // next `automa link`, and let another app swap the key unseen.
-            if (health.locked && secret != null && companyCount == null) {
-                if (config.pendingConnect?.secret == secret) config.pendingConnect = null
-                resolve(callId, error("Automa on this phone rejected that app key. In Termux, run: automa link"))
-                return@execute
-            }
+            val companyCount = ServerConfig.companyCount(reachedUrl, keyForServer, sessionCookies)
             resolve(
                 callId,
                 JSONObject()
@@ -516,6 +561,7 @@ class AutomaBridge(
         if (parts.size < 2 || parts[1] != token) return notFound()
         return when (parts[0]) {
             "shared" -> {
+                if (!folderOnThisServer()) return notFound()
                 val relative = uri.getQueryParameter("path") ?: return notFound()
                 val (stream, type) = sharedFolder.open(relative) ?: return notFound()
                 WebResourceResponse(type ?: "application/octet-stream", null, 200, "OK", noStore(), stream)

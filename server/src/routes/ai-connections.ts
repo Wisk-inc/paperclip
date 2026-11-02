@@ -21,6 +21,7 @@ import {
   isAiConnectionCompatible,
   AI_PROVIDER_BILLING_URLS,
   type AiConnectionBalance,
+  type AiManagedConnectionSummary,
   type AiConnectionLoginIntent,
   type AiProvider,
   type AiConnectionBinding,
@@ -137,6 +138,18 @@ export async function canInstallSharedAiConnectionForNewAgent(
   if (!connection) return false;
   return req.actor.source === "local_implicit" || req.actor.isInstanceAdmin === true ||
     connection.creator === userId || await accessService(db).hasPermission(companyId, "user", userId, "tools:manage_connections");
+}
+
+/**
+ * Why a key's balance isn't shown, or null when it can be asked for (an
+ * OpenRouter key that works). A key that isn't connected never answers, so
+ * "try again" would never help.
+ */
+export function aiBalanceNote(summary: Pick<AiManagedConnectionSummary, "provider" | "method" | "status">): string | null {
+  if (summary.method !== "api_key") return "A subscription has no balance; it has usage limits instead.";
+  if (summary.provider !== "openrouter") return "This provider doesn't share the balance with apps. See it in its console.";
+  if (summary.status !== "connected") return "This key isn't connected, so its balance can't be checked. Reconnect it to see it.";
+  return null;
 }
 
 /**
@@ -270,17 +283,13 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
       .where(and(eq(costEvents.companyId, companyId), eq(costEvents.provider, summary.provider), gte(costEvents.occurredAt, monthStart)));
     let remainingUsd: number | null = null;
     let totalCreditsUsd: number | null = null;
-    let note: string | null = null;
-    if (summary.provider === "openrouter" && summary.method === "api_key") {
+    let note = aiBalanceNote(summary);
+    if (note === null) {
       try {
         ({ remainingUsd, totalCreditsUsd } = await fetchOpenRouterCredits(await service.reveal(companyId, userId, connectionId)));
       } catch {
         note = "OpenRouter didn't report the balance just now. Try again in a moment.";
       }
-    } else if (summary.method === "api_key") {
-      note = "This provider doesn't share the balance with apps. See it in its console.";
-    } else {
-      note = "A subscription has no balance; it has usage limits instead.";
     }
     const balance: AiConnectionBalance = {
       connectionId,

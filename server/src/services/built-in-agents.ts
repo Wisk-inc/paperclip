@@ -11,6 +11,7 @@ import type { Agent, Approval, CompanySkill, PermissionKey, Routine, RoutineTrig
 import { conflict, HttpError, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
 import { agentInstructionsService } from "./agent-instructions.js";
+import { budgetService } from "./budgets.js";
 import { agentService } from "./agents.js";
 import { approvalService } from "./approvals.js";
 import {
@@ -805,6 +806,21 @@ export function builtInAgentService(db: Db) {
   const instructionsSvc = agentInstructionsService();
   const skillSvc = companySkillService(db);
   const routineSvc = routineService(db);
+  const budgets = budgetService(db);
+
+  /**
+   * A monthly budget is enforced through its budget policy (as for a hired
+   * agent); the number on the agent alone stops nothing. A budget set back to
+   * nothing turns the policy off.
+   */
+  async function syncBudgetPolicy(agent: Pick<Agent, "id" | "companyId" | "budgetMonthlyCents">, previousCents: number) {
+    if (agent.budgetMonthlyCents <= 0 && previousCents <= 0) return;
+    await budgets.upsertPolicy(
+      agent.companyId,
+      { scopeType: "agent", scopeId: agent.id, amount: agent.budgetMonthlyCents, windowKind: "calendar_month_utc" },
+      null,
+    );
+  }
 
   async function findSingleRootManager(companyId: string) {
     const roots = await db
@@ -1647,6 +1663,7 @@ export function builtInAgentService(db: Db) {
       if (existingPendingApproval) {
         return state(definition, updated as Agent);
       }
+      if (patch.budgetMonthlyCents !== undefined) await syncBudgetPolicy(updated as Agent, existing.budgetMonthlyCents);
       await ensureBuiltInAgentDefaultGrants(updated as Agent, definition);
       const resources = await reconcileBundleResources(updated as Agent, definition, "reconcile");
       return state(definition, await agentSvc.getById(existing.id) as Agent, resources);
@@ -1695,6 +1712,8 @@ export function builtInAgentService(db: Db) {
       },
     });
 
+    // Pending approval: the policy comes with the approval (approvals.ts), as for a hire.
+    if (created.status !== "pending_approval") await syncBudgetPolicy(created, 0);
     await ensureBuiltInAgentDefaultGrants(created, definition);
     const resources = await reconcileBundleResources(created, definition, "reconcile");
     return state(definition, await agentSvc.getById(created.id) as Agent, resources);

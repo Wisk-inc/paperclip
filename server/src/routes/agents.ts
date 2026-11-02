@@ -15,6 +15,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { getStorageService } from "../storage/index.js";
 import type { Db } from "@paperclipai/db";
 import type { ChatChannelService } from "../services/chat-channels.js";
 import { activityLog, agents as agentsTable, chatConversations, companies, heartbeatRuns, issues as issuesTable, projects as projectsTable } from "@paperclipai/db";
@@ -5664,17 +5665,47 @@ export function agentRoutes(
     res.json(redactAgentRowForResponse(agent));
   });
 
+  /**
+   * Deletes a removed agent's former chats and their files, as the Remove
+   * dialog promises. One that can't be deleted (another record still points
+   * at it) stays hidden, so it is never shown to anyone.
+   */
+  async function deleteFormerChats(chatIds: string[]) {
+    if (chatIds.length === 0) return;
+    const issuesSvc = issueService(db);
+    const storage = getStorageService();
+    for (const chatId of chatIds) {
+      try {
+        const attachments = await issuesSvc.listAttachments(chatId);
+        const removed = await issuesSvc.remove(chatId);
+        if (!removed) continue;
+        for (const attachment of attachments) {
+          await storage.deleteObject(attachment.companyId, attachment.objectKey).catch(() => undefined);
+        }
+      } catch (err) {
+        logger.warn({ err, issueId: chatId }, "Could not delete a removed agent's chat; it stays hidden");
+      }
+    }
+  }
+
   router.delete("/agents/:id", async (req, res) => {
     assertBoard(req);
     const id = req.params.id as string;
     if (!(await getAccessibleAgent(req, res, id))) {
       return;
     }
+    // Its chats, found before the agent goes (removal hides them and clears the link).
+    const chatIds = await db
+      .select({ id: issuesTable.id })
+      .from(issuesTable)
+      .where(eq(issuesTable.conversationAgentId, id))
+      .then((rows) => rows.map((row) => row.id));
     const agent = await svc.remove(id);
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });
       return;
     }
+    await deleteFormerChats(chatIds);
 
     await logActivity(db, {
       companyId: agent.companyId,

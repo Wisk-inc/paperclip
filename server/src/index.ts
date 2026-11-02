@@ -48,6 +48,7 @@ import { logger } from "./middleware/logger.js";
 import { moanKnowledge } from "./services/moan/index.js";
 import { setStartupRecoveryPhase } from "./startup-recovery-state.js";
 import {
+  assertListenPortKeepsAppKeySafe,
   StartupRefusalError,
   migrationRefusalError,
   shouldReportStartupFailure,
@@ -687,6 +688,11 @@ async function startServerWithDatabaseTeardown(
   const listenPort = await detectPort({
     port: requestedListenPort,
     hostname: config.host,
+  });
+  assertListenPortKeepsAppKeySafe({
+    localTrustedSecret: config.localTrustedSecret,
+    requestedPort: requestedListenPort,
+    selectedPort: listenPort,
   });
   if (config.authBaseUrlMode === "explicit" && config.authPublicBaseUrl) {
     config.authPublicBaseUrl = rewriteLoopbackUrlPort(config.authPublicBaseUrl, listenPort);

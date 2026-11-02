@@ -1,3 +1,4 @@
+import { withoutServerCredentials } from "@paperclipai/adapter-utils/server-utils";
 import os from "node:os";
 import { Router } from "express";
 import { spawn } from "node:child_process";
@@ -253,8 +254,9 @@ export function boardChatRoutes(
       // Termux has no /tmp; a missing working folder makes spawn report the
       // program itself as missing.
       cwd: os.tmpdir(),
+      // An AI tool: never the server's database or board keys.
       env: {
-        ...process.env,
+        ...withoutServerCredentials(process.env),
         PAPERCLIP_API_URL: apiUrl,
         PAPERCLIP_COMPANY_ID: companyId,
       },

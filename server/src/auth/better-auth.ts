@@ -16,6 +16,7 @@ import {
   workspaceLoginHandoffPlugin,
   type WorkspaceHandoffExpectedIdentity,
 } from "./workspace-login-handoff-plugin.js";
+import { createInviteTokenCheck, inviteOnlySignUpPlugin } from "./invite-sign-up.js";
 import { firebaseSignInPlugin, resolveFirebaseProjectId } from "./firebase-sign-in-plugin.js";
 import {
   normalizeWorkspaceHandoffOrigin,
@@ -274,7 +275,9 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
-      disableSignUp: config.authDisableSignUp,
+      // Invite-only servers keep sign-up closed through inviteOnlySignUpPlugin,
+      // which still lets people holding a live invite link make an account.
+      disableSignUp: false,
     },
     rateLimit: buildBetterAuthRateLimitOptions({
       deploymentMode: config.deploymentMode,
@@ -284,6 +287,10 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
     advanced: buildBetterAuthAdvancedOptions({ disableSecureCookies }),
     ...(() => {
       const plugins = [];
+      const isUsableInviteToken = createInviteTokenCheck(db);
+      if (config.authDisableSignUp) {
+        plugins.push(inviteOnlySignUpPlugin({ isUsableInviteToken }) as never);
+      }
       // Registered only for a managed workspace instance: the plugin is what makes
       // `Open workspace` password-independent, and a control-plane instance that
       // was never handed a workspace key must not expose the exchange at all.
@@ -309,7 +316,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
       const firebaseProjectId = resolveFirebaseProjectId();
       if (firebaseProjectId) {
         plugins.push(
-          firebaseSignInPlugin({ projectId: firebaseProjectId, disableSignUp: config.authDisableSignUp }) as never,
+          firebaseSignInPlugin({ projectId: firebaseProjectId, disableSignUp: config.authDisableSignUp, isUsableInviteToken }) as never,
         );
       }
       return plugins.length > 0 ? { plugins } : {};

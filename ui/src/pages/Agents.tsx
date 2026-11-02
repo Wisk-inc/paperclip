@@ -460,7 +460,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         metaSpacerClassName="hidden @5xl:block"
         trailing={
           <div className="flex items-center gap-3">
-            {agentChat.enabled && <Button variant="ghost" size="sm" onClick={event => { event.preventDefault(); event.stopPropagation(); navigate(`/chats/${agentRouteRef(agent)}`); }}>Chat</Button>}
+            {agentChat.enabled && agent.status !== "pending_approval" && <Button variant="ghost" size="sm" onClick={event => { event.preventDefault(); event.stopPropagation(); navigate(`/chats/${agentRouteRef(agent)}`); }}>Chat</Button>}
             <div className="hidden sm:flex items-center gap-3">
               {liveRunByAgent.has(agent.id) && (
                 <LiveRunIndicator
@@ -611,7 +611,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         <>
           <OrgViewToggle value={orgLayout} onChange={setOrgLayout} />
           {orgLayout === "tree" ? (
-            <OrgTree orgTree={filteredOrg} agents={agents ?? []} />
+            <OrgTree orgTree={filteredOrg} agents={agents ?? []} chatEnabled={agentChat.enabled} />
           ) : (
             <OrgChart embedded orgTree={filteredOrg} agents={agents ?? []} />
           )}

@@ -16,7 +16,9 @@ import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
@@ -54,6 +56,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -140,7 +143,21 @@ class MainActivity : ComponentActivity() {
             "(function(){try{return window.__automaCloseOverlay?String(window.__automaCloseOverlay()):'false'}catch(e){return 'false'}})()"
         /** Shown on the connect screen when the board reported the key missing and nothing the app holds works. */
         private const val KEY_SHARE_HANDLED = "automa.shareHandled"
+        /** How long after a connect request the waiting screen leaves starting Automa to Termux. */
+        private const val CONNECT_REQUEST_START_WINDOW_MS = 2 * 60_000L
+
         const val LOCKED_WITHOUT_KEY = "Automa on this phone is locked to the app, and the app does not have its key. In Termux, run: automa link (it opens Automa here). You can also paste the key it prints."
+
+        /**
+         * The server at [url] didn't prove it holds the app key (a wrong key,
+         * or another program on its port), so the key was not sent.
+         */
+        fun unprovenServerMessage(url: String): String {
+            val uri = Uri.parse(url)
+            val address = if (uri.port != -1) "${uri.host}:${uri.port}" else uri.host ?: url
+            return "The Automa at $address didn't accept this app's key, so the app kept the key to itself. " +
+                "In Termux, run: automa link. If another app is using $address, close it and start Automa again."
+        }
 
         /**
          * The part of a board URL worth coming back to: path, query and hash.
@@ -233,20 +250,47 @@ class MainActivity : ComponentActivity() {
     private var pageKeyHandler: ScriptHandler? = null
     private var pageKeyOrigins: Set<String> = emptySet()
     private var pendingFolderCall: String? = null
+    /** Where a notification or shortcut was going when the app first had to sign in. */
+    private var pendingPath: String? = null
+    /** The organization the folder being picked is shared with (null from pages older than 1.9.6). */
+    private var pendingFolderCompany: String? = null
     private var downloadHookInstalled = false
     /** How many times the board reported a missing key since the last successful connect. */
     private var keyRecoveryAttempts = 0
+
+    /** A proof of the server's key is on its way (see [proveThenLoad]). */
+    private var proving = false
+
+    /** Servers on this phone that answered they need no key, this run. */
+    private val unlockedOrigins = mutableSetOf<String>()
+
     /** True while the connect screen is waiting for this phone's Automa to answer (see showConnect). */
     var waitingForServer = false
         private set
+
+    /**
+     * When the last connect request arrived (Termux's `automa run` or `automa
+     * link` sends one as it starts Automa). Shortly after one, the waiting
+     * screen does not ask Termux to start Automa again: it is starting.
+     */
+    private var connectRequestedAt = 0L
+
+    fun connectRequestedRecently(): Boolean =
+        connectRequestedAt != 0L && SystemClock.elapsedRealtime() - connectRequestedAt < CONNECT_REQUEST_START_WINDOW_MS
+
     private var offlineOverlay: ConnectionOverlay? = null
     private var mainFrameFailures = 0
+    /** When a connector's sign-in began running in the app (see [SignInLinks]); 0 when none is. */
+    private var signInStartedAt = 0L
+    private var signInBar: SignInBar? = null
     /** Set when the connect screen is shown: the board page that follows drops it from Back history. */
     private var clearHistoryOnServerPage = false
     private val connectivity: ConnectivityManager? by lazy { getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager }
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            runOnUiThread { if (offlineOverlay?.reason == ConnectionOverlay.Reason.OFFLINE) retryServer() }
+            // A network came back: any connection sheet tries again now (a server
+            // that could not be reached may answer on the new network too).
+            runOnUiThread { if (offlineOverlay != null) retryServer() }
         }
         override fun onLost(network: Network) {
             runOnUiThread {
@@ -303,13 +347,16 @@ class MainActivity : ComponentActivity() {
     private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val callId = pendingFolderCall ?: return@registerForActivityResult
         pendingFolderCall = null
+        val company = pendingFolderCompany
+        pendingFolderCompany = null
+        val origin = config.serverOrigin()
         if (uri == null) {
             bridge.resolve(callId, JSONObject().put("ok", false).put("error", "No folder was chosen").toString())
             return@registerForActivityResult
         }
         executor.execute {
             val reply = try {
-                sharedFolder.select(uri)
+                sharedFolder.select(uri, origin, company)
                 JSONObject().put("ok", true).put("name", sharedFolder.name ?: "Shared folder").toString()
             } catch (error: SecurityException) {
                 JSONObject().put("ok", false).put("error", "Android did not grant access to that folder").toString()
@@ -367,9 +414,13 @@ class MainActivity : ComponentActivity() {
 
         offerOldAppRemoval()
 
+        // Reopened from Recents, Android hands back the launch that started this
+        // task (a share, a notification, Change server): that already happened,
+        // so the board opens as it was instead of doing it again.
+        val fromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            route(intent)
-        } else if (incoming.isShareIntent(intent) && !savedInstanceState.getBoolean(KEY_SHARE_HANDLED)) {
+            if (fromHistory) loadServer() else route(intent)
+        } else if (!fromHistory && incoming.isShareIntent(intent) && !savedInstanceState.getBoolean(KEY_SHARE_HANDLED)) {
             route(intent)
         }
     }
@@ -443,7 +494,11 @@ class MainActivity : ComponentActivity() {
                     // A sending app's malformed extras must not end Automa on this worker thread.
                     val added = runCatching { incoming.accept(shareIntent) }.getOrDefault(0)
                     runOnUiThread {
-                        if (config.serverUrl == null) {
+                        if (added == 0) {
+                            // A file:// link (refused) or content Android wouldn't hand over.
+                            Toast.makeText(this, R.string.share_unreadable, Toast.LENGTH_LONG).show()
+                            if (webView.url == null) loadServer()
+                        } else if (config.serverUrl == null) {
                             showConnect("Connect to your Automa server first. Your shared file${if (added == 1) " is" else "s are"} waiting on the Files page.")
                         } else {
                             openPath("/device-files")
@@ -453,7 +508,22 @@ class MainActivity : ComponentActivity() {
             }
             intent?.getStringExtra(EXTRA_CONNECT) != null ->
                 connectRequested(intent.getStringExtra(EXTRA_CONNECT) ?: "", intent.getStringExtra(EXTRA_SECRET))
-            intent?.action == ACTION_OPEN_PATH -> openPath(intent.data?.schemeSpecificPart ?: "/")
+            intent?.action == ACTION_OPEN_PATH -> {
+                val path = intent.data?.schemeSpecificPart ?: "/"
+                val origin = intent.getStringExtra(Push.ORIGIN_KEY)
+                if (origin == null || origin == config.serverOrigin()) {
+                    openPath(path)
+                } else {
+                    // News from another saved server: open it there, not on the current one.
+                    val saved = config.savedUrlFor(origin)
+                    if (saved != null) {
+                        config.remember(saved)
+                        openPath(path)
+                    } else {
+                        loadServer()
+                    }
+                }
+            }
             // A push notification tapped while the app was in the background.
             intent?.getStringExtra(Push.PATH_KEY) != null -> openPath(intent.getStringExtra(Push.PATH_KEY) ?: "/")
             // The launcher icon tapped while Automa is open: the page stays as it
@@ -473,6 +543,7 @@ class MainActivity : ComponentActivity() {
     private fun connectRequested(input: String, secret: String?) {
         val url = ServerConfig.normalize(input)
         if (url == null || !ServerConfig.isLoopback(url)) return loadServer()
+        connectRequestedAt = SystemClock.elapsedRealtime()
         val origin = ServerConfig.originOf(Uri.parse(url))
         val appKey = secret?.trim()?.takeIf { it.length in ServerConfig.MIN_SECRET_LENGTH..ServerConfig.MAX_SECRET_LENGTH }
         val knownServer = config.serverUrl == url
@@ -485,14 +556,24 @@ class MainActivity : ComponentActivity() {
             // it, with no tap. Not up yet: the connect screen waits for it and
             // opens Automa by itself, keeping the key for when it answers.
             executor.execute {
-                val accepted = ServerConfig.companyCount(url, appKey) != null
+                // Checked by the server's proof: the key goes only to a server that holds it.
+                val accepted = config.keyWorks(url, appKey)
+                // Not taken while Automa is up and the key the app has still
+                // works: the request was stray or forged (any app can send
+                // one), and the person stays on the board.
+                val storedWorks = !accepted && config.secretFor(origin)?.let { config.keyWorks(url, it) } == true
                 runOnUiThread {
-                    if (accepted) {
-                        config.rememberSecret(origin, appKey)
-                        config.pendingConnect = null
-                        loadServer()
-                    } else {
-                        showConnect(null, wait = true)
+                    when {
+                        accepted -> {
+                            config.rememberSecret(origin, appKey)
+                            config.pendingConnect = null
+                            loadServer()
+                        }
+                        storedWorks -> {
+                            config.pendingConnect = null
+                            loadServer()
+                        }
+                        else -> showConnect(null, wait = true)
                     }
                 }
             }
@@ -519,7 +600,8 @@ class MainActivity : ComponentActivity() {
         }
         keyRecoveryAttempts += 1
         executor.execute {
-            val working = candidates.firstOrNull { ServerConfig.companyCount(url, it) != null }
+            // Each key is checked by the server's proof, not by sending it.
+            val working = candidates.firstOrNull { config.keyWorks(url, it) }
             runOnUiThread {
                 if (working == null) {
                     keyRecoveryAttempts = 0
@@ -556,6 +638,10 @@ class MainActivity : ComponentActivity() {
         ServerConfig.originOf(Uri.parse(url))?.let { origin ->
             config.forgetSecret(origin)
             clearServerCookie(origin)
+            // A forgotten server keeps nothing of this phone's: not its shared
+            // folder, and its notifications are no longer shown.
+            if (sharedFolder.origin == origin) sharedFolder.clear()
+            Push.forgetOrigin(this, origin)
         }
         config.forget(url)
     }
@@ -563,12 +649,64 @@ class MainActivity : ComponentActivity() {
     fun loadServer() {
         val url = config.serverUrl
         if (url == null || googleSignIn.needsSignIn) return showConnect(null)
+        // The app key goes only to a server that proved it holds it.
+        if (keyAwaitsProof(url)) return proveThenLoad(url)
         waitingForServer = false
         hideOffline()
         installPageKey()
         applyServerCookie()
-        // Land where the person left off; a fresh server opens on its own start page.
-        webView.loadUrl(lastPageUrl() ?: url)
+        // A notification or shortcut tapped before signing in goes first; otherwise
+        // land where the person left off, or on a fresh server's own start page.
+        val pending = pendingPath
+        pendingPath = null
+        val origin = config.serverOrigin()
+        webView.loadUrl(if (pending != null && origin != null) origin + pending else lastPageUrl() ?: url)
+    }
+
+    /** The app holds a key for [url]'s server that the server has not proved it holds, this run. */
+    private fun keyAwaitsProof(url: String): Boolean {
+        val origin = ServerConfig.originOf(Uri.parse(url)) ?: return false
+        val secret = config.secretFor(origin) ?: return false
+        return origin !in unlockedOrigins && !ServerConfig.isKeyCleared(origin, secret)
+    }
+
+    /**
+     * Has the server prove it holds the app key before any request carries
+     * it (cookies go to whatever answers on that port), then loads the board.
+     * Still starting: the connect screen waits for it. No proof: the key
+     * stays in the app and the connect screen says why.
+     */
+    private fun proveThenLoad(url: String) {
+        val origin = ServerConfig.originOf(Uri.parse(url)) ?: return
+        val secret = config.secretFor(origin) ?: return
+        clearServerCookie(origin)
+        if (proving) return
+        proving = true
+        executor.execute {
+            val check = config.clearKeyFor(url, secret)
+            runOnUiThread {
+                proving = false
+                if (config.serverUrl != url) return@runOnUiThread
+                when {
+                    check.cleared -> loadServer()
+                    check.proof == ServerConfig.Proof.NOT_LOCKED -> {
+                        // It needs no key: the board opens without one.
+                        unlockedOrigins.add(origin)
+                        loadServer()
+                    }
+                    check.proof == ServerConfig.Proof.UNREACHABLE -> showConnect(null, wait = true)
+                    else -> showConnect(unprovenServerMessage(url))
+                }
+            }
+        }
+    }
+
+    /** This phone's Automa stopped answering: before its key goes out again, it proves itself again. */
+    private fun serverWentAway() {
+        val origin = config.serverOrigin() ?: return
+        ServerConfig.forgetClearance(origin)
+        unlockedOrigins.remove(origin)
+        clearServerCookie(origin)
     }
 
     /** The page this phone was last on, as a full URL; the remembered path already carries any base path. */
@@ -581,6 +719,7 @@ class MainActivity : ComponentActivity() {
     /** Reloads the server page after a connection came back, keeping the current page. */
     private fun retryServer() {
         val url = config.serverUrl ?: return showConnect(null)
+        if (keyAwaitsProof(url)) return proveThenLoad(url)
         hideOffline()
         installPageKey()
         applyServerCookie()
@@ -588,7 +727,9 @@ class MainActivity : ComponentActivity() {
         when {
             // The page itself is fine (only the network went away): it
             // reconnects on its own, so a reload would just lose what was typed.
-            current != null && config.isServerUrl(current) && mainFrameFailures == 0 -> Unit
+            // The server is still asked: if it doesn't answer, the sheet comes
+            // back instead of Try now only hiding it.
+            current != null && config.isServerUrl(current) && mainFrameFailures == 0 -> confirmServerAnswers()
             current != null && config.isServerUrl(current) -> webView.reload()
             else -> webView.loadUrl(lastPageUrl() ?: url)
         }
@@ -615,8 +756,14 @@ class MainActivity : ComponentActivity() {
                 if (!onServerPage()) return@runOnUiThread
                 mainFrameFailures += 1
                 when {
-                    ServerConfig.isLoopback(server) -> showConnect(null, wait = true)
+                    ServerConfig.isLoopback(server) -> {
+                        serverWentAway()
+                        showConnect(null, wait = true)
+                    }
                     connectivity?.activeNetwork == null -> showOffline(ConnectionOverlay.Reason.OFFLINE, null)
+                    // Still no answer after a few tries: the connect screen, as a failed
+                    // page load does, instead of retrying the sheet forever.
+                    mainFrameFailures > 3 -> showConnect(ServerConfig.explain(server, health))
                     else -> showOffline(ConnectionOverlay.Reason.UNREACHABLE, ServerConfig.explain(server, health))
                 }
             }
@@ -627,7 +774,10 @@ class MainActivity : ComponentActivity() {
 
     /** The native "no connection" / "can't reach Automa" sheet over the page, with its retry countdown. */
     private fun showOffline(reason: ConnectionOverlay.Reason, detail: String?) {
-        val overlay = offlineOverlay ?: ConnectionOverlay(this, onRetry = { retryServer() }).also {
+        val overlay = offlineOverlay ?: ConnectionOverlay(this, onRetry = { retryServer() }, onOtherServer = {
+            hideOffline()
+            showConnect(null)
+        }).also {
             offlineOverlay = it
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
@@ -672,9 +822,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openPath(path: String) {
-        val server = config.serverUrl ?: return showConnect(null)
-        if (googleSignIn.needsSignIn) return showConnect(null)
         val safePath = if (isBoardPath(path)) path else "/"
+        val server = config.serverUrl
+        if (server == null || googleSignIn.needsSignIn) {
+            // Kept until the board opens: signing in first must not lose where
+            // the notification or shortcut was taking the person.
+            pendingPath = safePath
+            return showConnect(null)
+        }
+        if (keyAwaitsProof(server)) {
+            // Opened once the server has proved it holds the key.
+            pendingPath = safePath
+            return proveThenLoad(server)
+        }
+        pendingPath = null
         installPageKey()
         applyServerCookie()
         webView.loadUrl(server + safePath)
@@ -700,10 +861,15 @@ class MainActivity : ComponentActivity() {
     private fun applyServerCookie() {
         val origin = config.serverOrigin() ?: return
         val secret = config.secretFor(origin)
-        if (secret == null) return clearServerCookie(origin)
+        // Only to a server that proved it holds the key (loadServer asks first).
+        if (secret == null || !ServerConfig.isKeyCleared(origin, secret)) return clearServerCookie(origin)
         val secure = if (origin.startsWith("https://")) "; Secure" else ""
         CookieManager.getInstance().apply {
-            setCookie(origin, "$SECRET_COOKIE=${Uri.encode(secret)}; Path=/; HttpOnly; SameSite=Strict$secure")
+            // Lax, not Strict: a connector's sign-in comes back to the server as a
+            // redirect from the provider's site, and a Strict cookie is left off that
+            // request, so the callback refused the person. Lax still keeps it off
+            // other sites' forms and fetches; only this app's WebView holds it at all.
+            setCookie(origin, "$SECRET_COOKIE=${Uri.encode(secret)}; Path=/; HttpOnly; SameSite=Lax$secure")
             flush()
         }
     }
@@ -739,9 +905,10 @@ class MainActivity : ComponentActivity() {
         webView.evaluateJavascript(script, null)
     }
 
-    fun pickFolder(callId: String) {
+    fun pickFolder(callId: String, companyId: String?) {
         pendingFolderCall?.let { bridge.resolve(it, JSONObject().put("ok", false).put("error", "Replaced by a newer request").toString()) }
         pendingFolderCall = callId
+        pendingFolderCompany = companyId
         try {
             folderPicker.launch(null)
         } catch (error: ActivityNotFoundException) {
@@ -1007,6 +1174,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** A connector's sign-in is running in the app, within its time (see [SignInLinks.WINDOW_MS]). */
+    private fun signingIn(): Boolean {
+        if (signInStartedAt == 0L) return false
+        if (SystemClock.elapsedRealtime() - signInStartedAt < SignInLinks.WINDOW_MS) return true
+        endSignIn()
+        return false
+    }
+
+    private fun beginSignIn(host: String?) {
+        signInStartedAt = SystemClock.elapsedRealtime()
+        showSignInHost(host)
+    }
+
+    /** Names the site on screen above the page, and keeps the page clear of the strip. */
+    private fun showSignInHost(host: String?) {
+        val bar = signInBar ?: SignInBar(this, onCancel = { cancelSignIn() }).also { created ->
+            signInBar = created
+            root.addView(created, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+            created.addOnLayoutChangeListener { strip, _, top, _, bottom, _, oldTop, _, oldBottom ->
+                if (bottom - top != oldBottom - oldTop && signInBar === strip) setWebViewTopMargin(bottom - top)
+            }
+        }
+        bar.show(host.orEmpty())
+    }
+
+    private fun endSignIn() {
+        signInStartedAt = 0L
+        val bar = signInBar ?: return
+        signInBar = null
+        root.removeView(bar)
+        setWebViewTopMargin(0)
+    }
+
+    /** Cancel on the strip: back to the board page the sign-in left. */
+    private fun cancelSignIn() {
+        endSignIn()
+        loadServer()
+    }
+
+    private fun setWebViewTopMargin(margin: Int) {
+        val params = webView.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (params.topMargin == margin) return
+        params.topMargin = margin
+        webView.layoutParams = params
+    }
+
     private fun openExternal(uri: Uri) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -1072,6 +1285,7 @@ class MainActivity : ComponentActivity() {
                     if (url.path == CONNECT_PATH) bundledUi.serveConnectPage()?.let { return it }
                     return assetLoader.shouldInterceptRequest(url)
                 }
+                if (config.isOtherServiceOnServerHost(url)) return refusedRequest()
                 return bridge.intercept(url) ?: bundledUi.intercept(request, config.serverOrigin())
             }
 
@@ -1079,19 +1293,37 @@ class MainActivity : ComponentActivity() {
                 val url = request.url
                 if (url.scheme == "https" && url.host == ASSETS_HOST) return false
                 if (config.isServerUrl(url)) return false
+                // A connector's sign-in returns to the server, which knows the person only
+                // by this app's cookie: it runs here, and the provider's pages stay here
+                // until it is back (the phone's browser arrived signed out).
+                if (url.scheme == "https") {
+                    if (request.isForMainFrame && SignInLinks.returnsTo(url.toString(), config.serverOrigin())) {
+                        beginSignIn(url.host)
+                        return false
+                    }
+                    if (signingIn()) {
+                        if (request.isForMainFrame) showSignInHost(url.host)
+                        return false
+                    }
+                }
                 openExternal(url)
                 return true
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                bridge.pageOrigin = ServerConfig.originOf(Uri.parse(url))
+                val uri = Uri.parse(url)
+                bridge.pageOrigin = ServerConfig.originOf(uri)
+                if (config.isServerUrl(uri)) endSignIn()
                 if (!downloadHookInstalled) config.serverOrigin()?.let { installDownloadHook(view, it) }
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                 val uri = Uri.parse(url)
                 bridge.pageOrigin = ServerConfig.originOf(uri)
-                if (config.isServerUrl(uri)) config.lastPath = rememberablePath(uri)
+                if (config.isServerUrl(uri)) {
+                    endSignIn()
+                    config.lastPath = rememberablePath(uri)
+                }
             }
 
             override fun onPageFinished(view: WebView, url: String) {
@@ -1115,7 +1347,10 @@ class MainActivity : ComponentActivity() {
                 when {
                     // Automa on this phone stopped (Termux closed) or is still starting:
                     // the connect screen waits for it and opens the board by itself.
-                    ServerConfig.isLoopback(server) -> showConnect(null, wait = true)
+                    ServerConfig.isLoopback(server) -> {
+                        serverWentAway()
+                        showConnect(null, wait = true)
+                    }
                     mainFrameFailures > 3 -> showConnect("Could not reach ${request.url.host}. ${error.description}")
                     connectivity?.activeNetwork == null -> showOffline(ConnectionOverlay.Reason.OFFLINE, null)
                     else -> showOffline(ConnectionOverlay.Reason.UNREACHABLE, "${request.url.host}: ${error.description}")
@@ -1124,6 +1359,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 // The renderer crashed or was reclaimed: rebuild instead of taking the app down.
+                endSignIn()
                 root.removeView(webView)
                 webView.destroy()
                 installWebView()
@@ -1221,7 +1457,24 @@ class MainActivity : ComponentActivity() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) return
         ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(object : ServiceWorkerClientCompat() {
             override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? =
-                bridge.intercept(request.url) ?: bundledUi.intercept(request, config.serverOrigin())
+                if (config.isOtherServiceOnServerHost(request.url)) refusedRequest()
+                else bridge.intercept(request.url) ?: bundledUi.intercept(request, config.serverOrigin())
         })
     }
+
+    /**
+     * The answer for a request the app won't send: the server's app key rides
+     * in a cookie, and cookies go to every port of a host, so a request from
+     * the board to another program on the server's machine would hand that
+     * program the key. Answered here, it never leaves the app.
+     */
+    private fun refusedRequest(): WebResourceResponse =
+        WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            403,
+            "Forbidden",
+            mapOf("Cache-Control" to "no-store"),
+            ByteArrayInputStream(ByteArray(0)),
+        )
 }

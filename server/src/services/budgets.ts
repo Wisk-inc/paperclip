@@ -462,6 +462,18 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
       })
       .returning()
       .then((rows) => rows[0] ?? null);
+    // Logged like any other new approval, so the board's phones hear about it.
+    if (approval) {
+      await logActivity(db, {
+        companyId: policy.companyId,
+        actorType: "system",
+        actorId: "budget",
+        action: "approval.created",
+        entityType: "approval",
+        entityId: approval.id,
+        details: { type: "budget_override_required", scopeType: policy.scopeType, scopeId: policy.scopeId },
+      });
+    }
     return incident ? { incident, created: true } : null;
   }
 

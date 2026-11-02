@@ -9,13 +9,14 @@ import { ModelLogo } from "@/components/ModelLogo";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
 import { Link } from "@/lib/router";
-import { agentRouteRef, cn } from "@/lib/utils";
+import { canStartAgentChat } from "@/lib/agent-chat-draft";
+import { agentRouteRef, agentUrl, cn } from "@/lib/utils";
 
 function countDescendants(node: OrgNode): number {
   return node.reports.reduce((total, child) => total + 1 + countDescendants(child), 0);
 }
 
-function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Agent>; depth: number }) {
+function OrgRow({ node, lookup, depth, chatEnabled }: { node: OrgNode; lookup: Map<string, Agent>; depth: number; chatEnabled: boolean }) {
   const agent = lookup.get(node.id);
   const [open, setOpen] = useState(true);
   const RoleIcon = roleIcon(node.role);
@@ -43,7 +44,9 @@ function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Ag
         )}
         {agent ? (
           <Link
-            to={`/chats/${agentRouteRef(agent)}`}
+            // The chat, when one can open; else the agent's page (Agent Chat
+            // switched off, or a hire still waiting for approval).
+            to={chatEnabled && canStartAgentChat(agent) ? `/chats/${agentRouteRef(agent)}` : agentUrl(agent)}
             onClick={() => haptic("tick")}
             className="flex min-h-14 min-w-0 flex-1 items-center gap-3 py-2 active:opacity-80"
           >
@@ -83,7 +86,7 @@ function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Ag
       {open && node.reports.length > 0 ? (
         <ul className="mt-1 ml-4 space-y-1 border-l border-border pl-2">
           {node.reports.map((child) => (
-            <OrgRow key={child.id} node={child} lookup={lookup} depth={depth + 1} />
+            <OrgRow key={child.id} node={child} lookup={lookup} depth={depth + 1} chatEnabled={chatEnabled} />
           ))}
         </ul>
       ) : null}
@@ -94,9 +97,21 @@ function OrgRow({ node, lookup, depth }: { node: OrgNode; lookup: Map<string, Ag
 /**
  * The organization on a phone: who leads, who reports to whom, and who is not
  * placed yet, as a readable tree instead of a zoomable canvas. Tap an agent to
- * chat; the pencil renames it or moves it (role, manager).
+ * chat (or, with Agent Chat off, to open its page); the pencil renames it or
+ * moves it (role, manager).
  */
-export function OrgTree({ orgTree, agents, className }: { orgTree: OrgNode[]; agents: Agent[]; className?: string }) {
+export function OrgTree({
+  orgTree,
+  agents,
+  chatEnabled = false,
+  className,
+}: {
+  orgTree: OrgNode[];
+  agents: Agent[];
+  /** Agent Chat is on, so a tap opens the agent's chat. */
+  chatEnabled?: boolean;
+  className?: string;
+}) {
   const lookup = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const leaders = orgTree.filter((node) => node.reports.length > 0);
   const flat = leaders.length === 0;
@@ -129,7 +144,7 @@ export function OrgTree({ orgTree, agents, className }: { orgTree: OrgNode[]; ag
 
       <ul className="space-y-1">
         {tops.map((node) => (
-          <OrgRow key={node.id} node={node} lookup={lookup} depth={0} />
+          <OrgRow key={node.id} node={node} lookup={lookup} depth={0} chatEnabled={chatEnabled} />
         ))}
       </ul>
 
@@ -142,7 +157,7 @@ export function OrgTree({ orgTree, agents, className }: { orgTree: OrgNode[]; ag
           <p className="px-1 text-xs text-muted-foreground">They report to nobody. Tap the pencil to give them a manager.</p>
           <ul className="space-y-1">
             {unplaced.map((node) => (
-              <OrgRow key={node.id} node={node} lookup={lookup} depth={1} />
+              <OrgRow key={node.id} node={node} lookup={lookup} depth={1} chatEnabled={chatEnabled} />
             ))}
           </ul>
         </div>

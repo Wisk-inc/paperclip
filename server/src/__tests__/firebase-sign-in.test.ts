@@ -113,7 +113,7 @@ describe("resolveFirebaseUser", () => {
   }
 
   it("signs in an existing user by verified email and links the Firebase identity once", async () => {
-    const fresh = adapter({ user, accounts: [{ providerId: "credential", accountId: "user-1" }] });
+    const fresh = adapter({ user: { ...(user as object), emailVerified: true }, accounts: [{ providerId: "credential", accountId: "user-1" }] });
     await expect(resolveFirebaseUser({ claims: identity, adapter: fresh, disableSignUp: true })).resolves.toMatchObject({ ok: true, created: false });
     expect(fresh.findUserByEmail).toHaveBeenCalledWith("ada@example.com", { includeAccounts: true });
     expect(fresh.createUser).not.toHaveBeenCalled();
@@ -153,6 +153,25 @@ describe("resolveFirebaseUser", () => {
     const result = await resolveFirebaseUser({ claims: withPhoto, adapter: chosen, disableSignUp: false });
     expect(chosen.updateUser).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: true, user: { image: "/api/assets/asset-1/content" } });
+  });
+
+  it("never joins a Google user to a password account whose email nobody confirmed", async () => {
+    // A stranger signed up with Ada's address and a password; Ada now taps Continue with Google.
+    const planted = { ...adapter({ user: { ...(user as object), emailVerified: false }, accounts: [{ providerId: "credential", accountId: "user-1" }] }), updateUser: vi.fn(async () => ({})) };
+    const result = await resolveFirebaseUser({ claims: { ...identity, picture: "https://lh3.googleusercontent.com/a/x" }, adapter: planted, disableSignUp: false });
+    expect(result).toMatchObject({ ok: false, message: expect.stringContaining("Sign in with your email and password") });
+    expect(planted.linkAccount).not.toHaveBeenCalled();
+    expect(planted.updateUser).not.toHaveBeenCalled();
+    expect(planted.createUser).not.toHaveBeenCalled();
+
+    // No password on the account (made some other way): Google is the only way in, so it joins.
+    const passwordless = adapter({ user: { ...(user as object), emailVerified: false }, accounts: [] });
+    await expect(resolveFirebaseUser({ claims: identity, adapter: passwordless, disableSignUp: false })).resolves.toMatchObject({ ok: true });
+    expect(passwordless.linkAccount).toHaveBeenCalled();
+
+    // Already joined before: keeps working.
+    const linkedBefore = adapter({ user: { ...(user as object), emailVerified: false }, accounts: [{ providerId: "credential", accountId: "user-1" }, { providerId: "firebase", accountId: "firebase-uid-1" }] });
+    await expect(resolveFirebaseUser({ claims: identity, adapter: linkedBefore, disableSignUp: false })).resolves.toMatchObject({ ok: true });
   });
 
   it("refuses new users when sign-up is off, and unverified emails always", async () => {

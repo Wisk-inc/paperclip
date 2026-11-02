@@ -18,6 +18,8 @@ import {
   buildInboxKeyboardNavEntries,
   buildInboxDismissedAtByKey,
   computeInboxBadgeData,
+  agentErrorsAlertKey,
+  budgetAlertKey,
   filterInboxIssues,
   getArchivedInboxSearchIssues,
   getAvailableInboxIssueColumns,
@@ -353,7 +355,7 @@ describe("inbox helpers", () => {
       dashboard,
       heartbeatRuns: [makeRun("run-1", "failed", "2026-03-11T00:00:00.000Z")],
       mineIssues: [],
-      dismissedAlerts: new Set<string>(["alert:budget", "alert:agent-errors"]),
+      dismissedAlerts: new Set<string>([budgetAlertKey(dashboard.companyId), agentErrorsAlertKey(dashboard.companyId, dashboard.agents.error)]),
       dismissedAtByKey: new Map<string, number>([["run:run-1", new Date("2026-03-11T00:00:00.000Z").getTime()]]),
       currentUserId: "user-1",
     });
@@ -367,6 +369,24 @@ describe("inbox helpers", () => {
       alerts: 0,
       keys: expect.any(Array),
     });
+  });
+
+  it("keeps a dismissed alert to its organization, and brings it back for a new problem", () => {
+    const dismissedHere = new Set<string>([budgetAlertKey(dashboard.companyId), agentErrorsAlertKey(dashboard.companyId, dashboard.agents.error)]);
+    const otherCompany = { ...dashboard, companyId: "company-other" };
+    expect(computeInboxBadgeData({
+      approvals: [], joinRequests: [], dashboard: otherCompany, heartbeatRuns: [], mineIssues: [],
+      dismissedAlerts: dismissedHere, dismissedAtByKey: new Map(), currentUserId: "user-1",
+    }).alerts).toBe(2);
+    // Another agent starts failing: the alert is news again.
+    const worse = { ...dashboard, agents: { ...dashboard.agents, error: dashboard.agents.error + 1 } };
+    expect(computeInboxBadgeData({
+      approvals: [], joinRequests: [], dashboard: worse, heartbeatRuns: [], mineIssues: [],
+      dismissedAlerts: dismissedHere, dismissedAtByKey: new Map(), currentUserId: "user-1",
+    }).alerts).toBe(1);
+    // A budget month is UTC, as budgets count it.
+    expect(budgetAlertKey("c1", new Date("2026-11-01T00:30:00.000Z"))).toBe("alert:budget:c1:2026-11");
+    expect(budgetAlertKey("c1", new Date("2026-10-31T23:30:00.000Z"))).toBe("alert:budget:c1:2026-10");
   });
 
   it("excludes read mine issues from the inbox badge count", () => {
@@ -450,8 +470,8 @@ describe("inbox helpers", () => {
       "approval-approved",
       "approval-pending",
     ]);
+    // Sent back for changes, it waits on its agent, not on the board.
     expect(getApprovalsForTab(approvals, "unread", "all").map((approval) => approval.id)).toEqual([
-      "approval-revision",
       "approval-pending",
     ]);
     expect(getApprovalsForTab(approvals, "all", "resolved").map((approval) => approval.id)).toEqual([

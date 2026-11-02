@@ -25,6 +25,8 @@ import {
 
 export const FIREBASE_SIGN_IN_PATH = "/firebase/sign-in";
 export const FIREBASE_ACCOUNT_PROVIDER_ID = "firebase";
+/** Better Auth's provider id for email-and-password accounts. */
+const PASSWORD_ACCOUNT_PROVIDER_ID = "credential";
 
 type Account = { providerId: string; accountId: string };
 
@@ -44,7 +46,7 @@ export type FirebaseSignInAdapter = {
 };
 
 type FirebaseSignInEndpointContext = {
-  body: { idToken: string };
+  body: { idToken: string; inviteToken?: string };
   setHeader: (name: string, value: string) => void;
   error: (status: string, body?: { message?: string }) => Error;
   json: (value: unknown) => unknown;
@@ -81,6 +83,24 @@ export async function resolveFirebaseUser(input: {
   const existing = await adapter.findUserByEmail(email, { includeAccounts: true });
   let user = existing?.user ?? null;
   let created = false;
+  const alreadyLinked = (existing?.accounts ?? []).some(
+    (account) => account.providerId === FIREBASE_ACCOUNT_PROVIDER_ID && account.accountId === claims.uid,
+  );
+  // This server never confirms the email on a password sign-up, so anyone can
+  // make a password account under someone else's address. Joining a Google
+  // user to it would hand them an account the stranger can still open; join
+  // only accounts whose email was proven, or that have no password.
+  if (
+    user &&
+    !alreadyLinked &&
+    !user.emailVerified &&
+    (existing?.accounts ?? []).some((account) => account.providerId === PASSWORD_ACCOUNT_PROVIDER_ID)
+  ) {
+    return {
+      ok: false,
+      message: "An Automa account with this email already exists and uses a password. Sign in with your email and password.",
+    };
+  }
   if (!user) {
     if (input.disableSignUp) {
       return { ok: false, message: "Sign-up is turned off on this Automa server. Ask its owner for an invite." };
@@ -109,9 +129,6 @@ export async function resolveFirebaseUser(input: {
     await adapter.updateUser(user.id, { image: claims.picture });
     user = { ...user, image: claims.picture };
   }
-  const alreadyLinked = (existing?.accounts ?? []).some(
-    (account) => account.providerId === FIREBASE_ACCOUNT_PROVIDER_ID && account.accountId === claims.uid,
-  );
   if (!alreadyLinked) {
     await adapter.linkAccount({ userId: user.id, providerId: FIREBASE_ACCOUNT_PROVIDER_ID, accountId: claims.uid });
   }
@@ -122,6 +139,8 @@ export function firebaseSignInPlugin(deps: {
   projectId: string;
   disableSignUp: boolean;
   certs?: FirebaseCertSource;
+  /** Lets a person holding a live invite link make an account on an invite-only server. */
+  isUsableInviteToken?: (token: string) => Promise<boolean>;
 }) {
   const certs = deps.certs ?? createFirebaseCertSource();
   return {
@@ -132,7 +151,7 @@ export function firebaseSignInPlugin(deps: {
         {
           method: "POST",
           requireHeaders: true,
-          body: z.object({ idToken: z.string().min(1).max(8192) }),
+          body: z.object({ idToken: z.string().min(1).max(8192), inviteToken: z.string().min(1).max(512).optional() }),
         },
         async (endpointContext) => {
           const ctx = endpointContext as unknown as FirebaseSignInEndpointContext;
@@ -149,7 +168,10 @@ export function firebaseSignInPlugin(deps: {
             throw ctx.error("UNAUTHORIZED", { message: "Google sign-in could not be verified. Try again." });
           }
           const adapter = ctx.context.internalAdapter;
-          const outcome = await resolveFirebaseUser({ claims, adapter, disableSignUp: deps.disableSignUp });
+          const invited = Boolean(
+            deps.disableSignUp && ctx.body.inviteToken && deps.isUsableInviteToken && (await deps.isUsableInviteToken(ctx.body.inviteToken)),
+          );
+          const outcome = await resolveFirebaseUser({ claims, adapter, disableSignUp: deps.disableSignUp && !invited });
           if (!outcome.ok) throw ctx.error("FORBIDDEN", { message: outcome.message });
           const user = outcome.user;
 

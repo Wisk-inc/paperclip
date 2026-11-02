@@ -197,7 +197,8 @@ describe("GET /invites/:token", () => {
     const app = await createApp(
       createDbStub(
         [invite],
-        [{ requestType: "human", status: "pending_approval" }],
+        [{ requestType: "human", status: "pending_approval", requestingUserId: "user-1", requestEmailSnapshot: "jane@example.com" }],
+        [{ email: "jane@example.com" }],
         [
           {
             name: "Acme Robotics",
@@ -214,6 +215,7 @@ describe("GET /invites/:token", () => {
           },
         ],
       ),
+      { type: "board", userId: "user-1", source: "session" },
     );
 
     const res = await request(app).get("/api/invites/pcp_invite_test");
@@ -222,6 +224,33 @@ describe("GET /invites/:token", () => {
     expect(res.body.joinRequestStatus).toBe("pending_approval");
     expect(res.body.joinRequestType).toBe("human");
     expect(res.body.companyName).toBe("Acme Robotics");
+  }, 10_000);
+
+  it("shows a used invite's request only to the person who made it", async () => {
+    const invite = {
+      id: "invite-1",
+      companyId: "company-1",
+      inviteType: "company_join",
+      allowedJoinTypes: "human",
+      tokenHash: "hash",
+      defaultsPayload: null,
+      expiresAt: new Date("2027-03-07T00:10:00.000Z"),
+      invitedByUserId: null,
+      revokedAt: null,
+      acceptedAt: new Date("2026-03-07T00:05:00.000Z"),
+      createdAt: new Date("2026-03-07T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-07T00:05:00.000Z"),
+    };
+    const janesRequest = { requestType: "human", status: "approved", requestingUserId: "user-1", requestEmailSnapshot: "jane@example.com" };
+
+    const anonymous = await createApp(createDbStub([invite], [janesRequest]));
+    expect((await request(anonymous).get("/api/invites/pcp_invite_test")).status).toBe(404);
+
+    const someoneElse = await createApp(
+      createDbStub([invite], [janesRequest], [{ email: "sam@example.com" }]),
+      { type: "board", userId: "user-2", source: "session" },
+    );
+    expect((await request(someoneElse).get("/api/invites/pcp_invite_test")).status).toBe(404);
   }, 10_000);
 
   it("falls back to a reusable human join request when the accepted invite reused an existing queue entry", async () => {

@@ -1,4 +1,5 @@
-import { Navigate, Outlet, useLocation } from "@/lib/router";
+import { useState } from "react";
+import { Navigate, Outlet, useLocation, useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessApi } from "@/api/access";
 import { ApiError } from "@/api/client";
@@ -8,8 +9,16 @@ import { queryKeys } from "@/lib/queryKeys";
 import { BootstrapPendingPage } from "@/components/BootstrapPendingPage";
 import { PaperclipLoading } from "@/components/AnimatedPaperclipIcon";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useSignOut } from "@/hooks/useSignOut";
+import { inviteTargetFromInput } from "@/lib/invite-link";
 
 function NoBoardAccessPage() {
+  const navigate = useNavigate();
+  const signOut = useSignOut();
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
   return (
     <div className="mx-auto max-w-xl py-10">
       <Card className="block p-6">
@@ -21,6 +30,45 @@ function NoBoardAccessPage() {
         <p className="mt-2 text-sm text-muted-foreground">
           Use an organization invite or sign in with an account that already belongs to this org.
         </p>
+        <form
+          className="mt-4 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const target = inviteTargetFromInput(inviteLink, window.location.origin);
+            if (!target.ok) {
+              setInviteError(target.message);
+              return;
+            }
+            navigate(target.path);
+          }}
+        >
+          <label htmlFor="no-access-invite-link" className="block text-sm font-medium">
+            Have an invite link?
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="no-access-invite-link"
+              className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+              placeholder="Paste it here"
+              value={inviteLink}
+              onChange={(event) => {
+                setInviteLink(event.target.value);
+                setInviteError(null);
+              }}
+              aria-invalid={inviteError ? true : undefined}
+              aria-describedby={inviteError ? "no-access-invite-error" : undefined}
+            />
+            <Button type="submit">Open</Button>
+          </div>
+          {inviteError ? (
+            <p id="no-access-invite-error" role="alert" className="text-sm text-destructive">
+              {inviteError}
+            </p>
+          ) : null}
+        </form>
+        <Button variant="outline" className="mt-4" disabled={signOut.isPending} onClick={() => signOut.mutate()}>
+          {signOut.isPending ? "Signing out…" : "Sign in with another account"}
+        </Button>
       </Card>
     </div>
   );
@@ -29,6 +77,9 @@ function NoBoardAccessPage() {
 export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembershipRequest?: boolean } = {}) {
   const location = useLocation();
   const queryClient = useQueryClient();
+  // The sign-in page sends a signed-in person straight back, so switching
+  // account means signing out first.
+  const switchAccount = useSignOut();
   const healthQuery = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => healthApi.get(),
@@ -108,6 +159,7 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
         claimState={claimMutation.isSuccess ? "success" : claimMutation.isPending ? "claiming" : "idle"}
         claimError={claimError}
         onClaim={() => claimMutation.mutate()}
+        onSwitchAccount={() => switchAccount.mutate()}
       />
     );
   }

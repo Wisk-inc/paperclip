@@ -3418,11 +3418,46 @@ export function refreshPaperclipWorkspaceEnvForExecution(input: {
   return shapedWorkspaceEnv;
 }
 
+/**
+ * The server's own credentials, never handed to the processes it starts for
+ * agents: its database (an agent holding it could read and change every
+ * company's data around every access check) and the key that signs sign-in
+ * sessions (an agent holding it could forge a board session). An agent that
+ * needs a database of its own gets it from its own env settings, which are
+ * applied after this.
+ */
+const SERVER_ONLY_ENV_KEYS = [
+  "DATABASE_URL",
+  "DATABASE_MIGRATION_URL",
+  "PGPASSWORD",
+  "BETTER_AUTH_SECRET",
+] as const;
+
+/** Automa's own credentials among PAPERCLIP_* variables (keys, tokens, signing secrets). */
+const PAPERCLIP_CREDENTIAL_ENV_PATTERN = /^PAPERCLIP_.*(SECRET|TOKEN|PASSWORD|PRIVATE_KEY|MASTER_KEY|API_KEY)/;
+
+/**
+ * The server's environment without its credentials: for processes that need
+ * the rest of it (an AI tool for the board, a terminal, a project's own
+ * setup commands) but must never hold the database or the keys that act as
+ * the board. Narrower than [sanitizeInheritedPaperclipEnv], which also drops
+ * every other PAPERCLIP_* setting.
+ */
+export function withoutServerCredentials(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...baseEnv };
+  for (const key of SERVER_ONLY_ENV_KEYS) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (PAPERCLIP_CREDENTIAL_ENV_PATTERN.test(key)) delete env[key];
+  }
+  return env;
+}
+
 export function sanitizeInheritedPaperclipEnv(
   baseEnv: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv };
   delete env.PAPERCLIPAI_CMD;
+  for (const key of SERVER_ONLY_ENV_KEYS) delete env[key];
   for (const key of Object.keys(env)) {
     if (!key.startsWith("PAPERCLIP_")) continue;
     if (key === "PAPERCLIP_RUNTIME_API_URL") continue;

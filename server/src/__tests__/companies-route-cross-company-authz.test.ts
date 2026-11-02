@@ -62,7 +62,7 @@ function registerCompanyRouteMocks() {
 
 let appImportCounter = 0;
 
-async function createApp(actor: Record<string, unknown>) {
+async function createApp(actor: Record<string, unknown>, options?: { companyDeletionEnabled?: boolean }) {
   registerCompanyRouteMocks();
   appImportCounter += 1;
   const routeModulePath = `../routes/companies.js?cross-company-authz-${appImportCounter}`;
@@ -77,7 +77,7 @@ async function createApp(actor: Record<string, unknown>) {
     (req as any).actor = actor;
     next();
   });
-  app.use("/api/companies", companyRoutes({} as any));
+  app.use("/api/companies", companyRoutes({} as any, undefined, options));
   app.use(errorHandler);
   return app;
 }
@@ -390,7 +390,11 @@ describe.sequential("company route cross-company authorization", () => {
     await request(memberApp).patch(`/api/companies/${companyBId}`).send({ description: "Updated" }).expect(200);
     await request(memberApp).patch(`/api/companies/${companyBId}/branding`).send({ description: "Branding" }).expect(200);
     await request(memberApp).post(`/api/companies/${companyBId}/archive`).send({}).expect(200);
-    await request(memberApp).delete(`/api/companies/${companyBId}`).expect(200);
+    // Deleting erases the organization for everyone: an ordinary member may not.
+    const memberDelete = await request(memberApp).delete(`/api/companies/${companyBId}`);
+    expect(memberDelete.status).toBe(403);
+    expect(memberDelete.body.error).toContain("Only the organization's owner");
+    expect(mockCompanyService.remove).not.toHaveBeenCalled();
     await request(memberApp).post(`/api/companies/${companyBId}/export`).send(exportRequest).expect(200);
     await request(memberApp).post(`/api/companies/${companyBId}/exports/preview`).send(exportRequest).expect(200);
     await request(memberApp).post(`/api/companies/${companyBId}/imports/preview`).send(importRequest()).expect(200);
@@ -419,5 +423,56 @@ describe.sequential("company route cross-company authorization", () => {
     expect(adminWrite.status).toBe(403);
     expect(adminWrite.body.error).toContain("access to this company");
     assertNoTargetMutationSideEffects();
+  });
+  it("lets only the owner, an instance admin or the local board delete an organization, and only while deletion is on", async () => {
+    const roles = ["admin", "operator", "member"] as const;
+    for (const membershipRole of roles) {
+      vi.clearAllMocks();
+      resetMockDefaults();
+      const app = await createApp(boardActor({
+        userId: membershipRole,
+        companyIds: [companyBId],
+        memberships: [{ companyId: companyBId, membershipRole, status: "active" }],
+      }));
+      const res = await request(app).delete(`/api/companies/${companyBId}`);
+      expect(res.status).toBe(403);
+      expect(mockCompanyService.remove).not.toHaveBeenCalled();
+    }
+
+    vi.clearAllMocks();
+    resetMockDefaults();
+    const ownerApp = await createApp(boardActor({
+      userId: "owner",
+      companyIds: [companyBId],
+      memberships: [{ companyId: companyBId, membershipRole: "owner", status: "active" }],
+    }));
+    await request(ownerApp).delete(`/api/companies/${companyBId}`).expect(200);
+    expect(mockCompanyService.remove).toHaveBeenCalledWith(companyBId);
+
+    vi.clearAllMocks();
+    resetMockDefaults();
+    const adminApp = await createApp(boardActor({ userId: "instance-admin", companyIds: [companyBId], isInstanceAdmin: true }));
+    await request(adminApp).delete(`/api/companies/${companyBId}`).expect(200);
+
+    vi.clearAllMocks();
+    resetMockDefaults();
+    const localApp = await createApp(boardActor({ userId: "local-board", source: "local_implicit", isInstanceAdmin: true }));
+    await request(localApp).delete(`/api/companies/${companyBId}`).expect(200);
+
+    // PAPERCLIP_ENABLE_COMPANY_DELETION=false: nobody deletes, not even the owner.
+    vi.clearAllMocks();
+    resetMockDefaults();
+    const switchedOff = await createApp(
+      boardActor({
+        userId: "owner",
+        companyIds: [companyBId],
+        memberships: [{ companyId: companyBId, membershipRole: "owner", status: "active" }],
+      }),
+      { companyDeletionEnabled: false },
+    );
+    const refused = await request(switchedOff).delete(`/api/companies/${companyBId}`);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toContain("turned off on this server");
+    expect(mockCompanyService.remove).not.toHaveBeenCalled();
   });
 });

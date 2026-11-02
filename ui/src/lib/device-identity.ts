@@ -103,3 +103,37 @@ export function storedDeviceId(companyId: string): string | null {
 export function storeDeviceId(companyId: string, deviceId: string | null) {
   writeStorage(deviceIdStorageKey(companyId), deviceId);
 }
+
+const removedStorageKey = (companyId: string) => `automa.device.${companyId}.removed`;
+
+/**
+ * Set when the person removed this phone from an organization (or someone
+ * removed it from another device): the app then stops registering itself
+ * there until they tap "Connect this phone" again.
+ */
+export function deviceRemovedOnPurpose(companyId: string): boolean {
+  return readStorage(removedStorageKey(companyId)) === "1";
+}
+
+export function markDeviceRemovedOnPurpose(companyId: string, removed: boolean) {
+  writeStorage(removedStorageKey(companyId), removed ? "1" : null);
+}
+
+const REGISTRATION_KEY = /^automa\.device\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** Every organization this install is registered in on this server, from local storage. */
+export function storedDeviceRegistrations(): Array<{ companyId: string; deviceId: string }> {
+  const found: Array<{ companyId: string; deviceId: string }> = [];
+  try {
+    const storage = window.localStorage;
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      const match = key ? REGISTRATION_KEY.exec(key) : null;
+      const deviceId = key && match ? storage.getItem(key) : null;
+      if (match && deviceId) found.push({ companyId: match[1]!, deviceId });
+    }
+  } catch {
+    // Storage refused: nothing is remembered.
+  }
+  return found;
+}

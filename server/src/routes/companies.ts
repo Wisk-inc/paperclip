@@ -272,6 +272,24 @@ function wantsAsyncImport(req: Request) {
 export interface CompanyRoutesOptions {
   /** Overridable in tests; defaults to `<instance root>/import-transfers`. */
   importTransferSpoolRoot?: string;
+  /**
+   * `PAPERCLIP_ENABLE_COMPANY_DELETION` (off by default on authenticated
+   * servers). When false, DELETE refuses even the owner; archive still works.
+   */
+  companyDeletionEnabled?: boolean;
+}
+
+/**
+ * Deleting an organization erases everything in it for every member, so it
+ * takes the organization's owner (or an instance admin, or the local trusted
+ * board), not any member who can edit it.
+ */
+function assertCanDeleteCompany(req: Request, companyId: string) {
+  if (req.actor.type !== "board") throw forbidden("Board access required");
+  if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return;
+  const membership = req.actor.memberships?.find((item) => item.companyId === companyId);
+  if (membership?.status === "active" && membership.membershipRole === "owner") return;
+  throw forbidden("Only the organization's owner can delete it. Archive it instead to hide it.");
 }
 
 export function companyRoutes(db: Db, storage?: StorageService, options?: CompanyRoutesOptions) {
@@ -1357,6 +1375,10 @@ export function companyRoutes(db: Db, storage?: StorageService, options?: Compan
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
+    if (options?.companyDeletionEnabled === false) {
+      throw forbidden("Deleting organizations is turned off on this server. Archive it instead to hide it.");
+    }
+    assertCanDeleteCompany(req, companyId);
     const company = await svc.remove(companyId);
     if (!company) {
       res.status(404).json({ error: "Company not found" });

@@ -16,6 +16,8 @@ pgdata="${AUTOMA_PGDATA:-$PREFIX/var/lib/postgresql}"
 # while it runs); the installer and `automa backup` add theirs here too.
 backup_dir="${PAPERCLIP_HOME:-$HOME/.paperclip}/instances/${PAPERCLIP_INSTANCE_ID:-default}/data/backups"
 version="$(cat "$here/VERSION")"
+# The version as it can appear in a file name ("1.9.6 (abc1234)" -> "1.9.6-abc1234").
+file_version="$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
@@ -57,9 +59,17 @@ chmod 700 "$automa_home/bin/automa-pkg-install"
 termux_pkg_install() { bash "$automa_home/bin/automa-pkg-install" "$@"; }
 
 # Keep Android from pausing Termux in the background while this runs.
+# Termux has one wake lock for everything: on the way out it is released only
+# when no Automa server is running, since a running server needs it (a failed
+# update leaves the old server running).
+release_wake_lock() {
+  if [ -s "$automa_home/automa.pid" ] && kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null; then return 0; fi
+  if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" >/dev/null 2>&1; then return 0; fi
+  command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock || true
+}
 if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock || true
-  trap 'command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock || true' EXIT
+  trap release_wake_lock EXIT
 fi
 
 say "Checking Node.js and PostgreSQL"
@@ -144,7 +154,7 @@ else
     # board. `automa restore` lists these.
     if psql -h 127.0.0.1 -d automa -tAc "select 1" >/dev/null 2>&1; then
       mkdir -p "$backup_dir"
-      pre_update_backup="$backup_dir/automa-before-$version-$(date +%Y%m%d-%H%M%S).sql.gz"
+      pre_update_backup="$backup_dir/automa-before-$file_version-$(date +%Y%m%d-%H%M%S).sql.gz"
       if pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "$pre_update_backup"; then
         say "Database backed up to $pre_update_backup"
       else
@@ -258,6 +268,11 @@ link_app() {
     --es com.corxlabs.automa.CONNECT http://127.0.0.1:3100 \\
     --es com.corxlabs.automa.SECRET "\$PAPERCLIP_LOCAL_TRUSTED_SECRET" >/dev/null 2>&1
 }
+# Whether an Automa answers on its port: one started another way (an older
+# launcher, another Termux session) has no pid file but still holds the port.
+automa_answers() {
+  node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" >/dev/null 2>&1
+}
 # A complete copy of the database in \$1. It is written beside it first, so a
 # dump that fails (no space left, say) never leaves a file that looks like a backup.
 dump_db() {
@@ -291,6 +306,10 @@ case "\${1:-}" in
     # background, its output in ~/.automa/server.log.
     if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
       echo "Automa is already running."
+      exit 0
+    fi
+    if automa_answers; then
+      echo "Automa is already running on http://127.0.0.1:3100 (started another way)."
       exit 0
     fi
     AUTOMA_NO_APP=1 nohup "\$0" run >"$automa_home/server.log" 2>&1 </dev/null &
@@ -347,8 +366,10 @@ case "\${1:-}" in
     if [ -z "\$file" ]; then
       echo "Backups (newest first) in $backup_dir:"
       ls -t "$backup_dir"/*.sql.gz 2>/dev/null | head -n 10 | while read -r f; do printf '  %s  (%s)\n' "\$f" "\$(du -h "\$f" | cut -f1)"; done
-      # A backup cut short (the phone ran out of space mid-way, say) is passed over.
-      file="\$(ls -t "$backup_dir"/*.sql.gz 2>/dev/null | while read -r f; do if backup_ok "\$f"; then echo "\$f"; break; fi; echo "Skipping \$f: it is not a complete backup." >&2; done)"
+      # A backup cut short (the phone ran out of space mid-way, say) is passed
+      # over, and so is a copy saved before a restore: that one only goes back
+      # when named (it is the database being replaced, not a backup to choose).
+      file="\$(ls -t "$backup_dir"/*.sql.gz 2>/dev/null | while read -r f; do case "\$f" in */automa-before-restore-*) continue ;; esac; if backup_ok "\$f"; then echo "\$f"; break; fi; echo "Skipping \$f: it is not a complete backup." >&2; done)"
       [ -n "\$file" ] || { echo "No complete backup yet. automa backup makes one; Automa saves one every hour while it runs." >&2; exit 1; }
       echo "Newest complete backup: \$file"
     elif [ ! -s "\$file" ]; then
@@ -363,6 +384,17 @@ case "\${1:-}" in
       read -r answer
       [ "\$answer" = "yes" ] || { echo "Nothing changed."; exit 1; }
     fi
+    # Automa must be down while its database is swapped: one started by
+    # automa start/run stops here, one started some other way must be stopped
+    # first. Checked before the copy below, so a refused restore leaves no new
+    # file behind.
+    pid="\$(cat "$automa_home/automa.pid" 2>/dev/null || true)"
+    "\$0" stop >/dev/null 2>&1 || true
+    for _ in \$(seq 1 30); do { [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null; } || break; sleep 1; done
+    if automa_answers; then
+      echo "Automa is still running (started in another Termux session?). Stop it there with Ctrl+C, then run automa restore again. Nothing changed." >&2
+      exit 1
+    fi
     # Keep what is there now, so a restore can itself be undone; without that
     # copy nothing is replaced.
     mkdir -p "$backup_dir"
@@ -370,15 +402,6 @@ case "\${1:-}" in
     if psql -h 127.0.0.1 -d postgres -tAc "select 1 from pg_database where datname = 'automa'" | grep -q 1; then
       before="$backup_dir/automa-before-restore-\$(date +%Y%m%d-%H%M%S).sql.gz"
       dump_db "\$before" || { echo "Could not save a copy of the current database first (is there free space?). Nothing changed." >&2; exit 1; }
-    fi
-    # Automa must be down while its database is swapped: one started by
-    # automa start/run stops here, one started some other way must be stopped first.
-    pid="\$(cat "$automa_home/automa.pid" 2>/dev/null || true)"
-    "\$0" stop >/dev/null 2>&1 || true
-    for _ in \$(seq 1 30); do { [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null; } || break; sleep 1; done
-    if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null; then
-      echo "Automa is still running (started in another Termux session?). Stop it there with Ctrl+C, then run automa restore again. Nothing changed." >&2
-      exit 1
     fi
     psql -h 127.0.0.1 -d postgres -tAc "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'automa' and pid <> pg_backend_pid()" >/dev/null || true
     dropdb -h 127.0.0.1 --if-exists automa
@@ -416,6 +439,11 @@ if [ "\${1:-}" = "run" ]; then
     echo "Automa is already running. Stop it with: automa stop"
     exit 0
   fi
+  # One started another way still holds the port: a second would only fail to start, again and again.
+  if automa_answers; then
+    echo "Automa is already running on http://127.0.0.1:3100 (started another way). Stop it there first to start it here."
+    exit 0
+  fi
   echo "\$\$" > "$automa_home/automa.pid"
   # Keeps Automa up: when Android or a crash stops the server, it starts again.
   # Ctrl+C (or automa stop) ends it for good.
@@ -433,10 +461,24 @@ if [ "\${1:-}" = "run" ]; then
     wait "\$child" || code=\$?
     child=""
     [ "\$code" -eq 0 ] && finish
+    # Another Automa took the port meanwhile: starting again would only fail again.
+    if automa_answers; then
+      echo "Another Automa is answering on port 3100, so this one stops. Stop that one first, then run: automa run" >&2
+      finish
+    fi
     echo "Automa stopped (exit \$code). Starting it again in 3 seconds..." >&2
     sleep 3
     pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null || true
   done
+fi
+if [ "\${1:-}" = "onboard" ]; then
+  # onboard --yes starts the server too: its pid is recorded (exec keeps it),
+  # so automa stop, start and update know about this server.
+  if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+    echo "Automa is already running. Stop it with: automa stop"
+    exit 0
+  fi
+  echo "\$\$" > "$automa_home/automa.pid"
 fi
 exec node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@"
 LAUNCHER

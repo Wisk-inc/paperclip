@@ -330,4 +330,23 @@ describe("InvitesSection", () => {
       root.unmount();
     });
   });
+
+  it("offers only the roles the inviter may give", async () => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <InvitesSection maxRole="admin" />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+    });
+    await flushReact();
+    const roles = Array.from(container.querySelectorAll<HTMLInputElement>('input[name="invite-role"]')).map((input) => input.value);
+    expect(roles).toEqual(["viewer", "operator", "admin"]);
+    expect(container.textContent).not.toContain("Everything in Admin, plus managing members.");
+    await act(async () => root.unmount());
+  });
 });

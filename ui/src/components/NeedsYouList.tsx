@@ -41,7 +41,8 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
     { to: "/studio", label: "App Studio", hint: "Build and run your own apps", count: null, icon: CodeXml },
   ];
 
-  const waiting = inbox.inbox + (pendingApprovals ?? 0) + files.pendingRequests;
+  // The inbox count already holds the approvals it shows: count each approval once.
+  const waiting = inbox.inbox - inbox.approvals + (pendingApprovals ?? inbox.approvals) + files.pendingRequests;
   // Where you were last: the most recent task or chat you opened, one tap away.
   const { data: session } = useQuery({ queryKey: queryKeys.auth.session, queryFn: () => authApi.getSession(), retry: false });
   const userId = session?.user?.id ?? session?.session?.userId ?? null;

@@ -485,7 +485,8 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
   const connected = useMemo(() => {
     const providers = new Set<AiProvider>();
     for (const connection of connections.data?.connections ?? []) {
-      if (connection.status === "connected") providers.add(connection.provider);
+      // An account not set up for this agent is listed with a reason; its runs would be refused.
+      if (connection.status === "connected" && !connection.unavailableReason) providers.add(connection.provider);
     }
     return providers;
   }, [connections.data]);
