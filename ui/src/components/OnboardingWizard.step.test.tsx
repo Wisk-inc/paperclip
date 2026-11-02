@@ -73,6 +73,8 @@ vi.mock("@/api/adapters", () => ({ adaptersApi: mockAdaptersApi }));
 const mockAiConnectionsApi = vi.hoisted(() => ({
   list: vi.fn(async () => ({ currentUserId: "user-1", connections: [] })),
   create: vi.fn(async () => ({ connectionId: "connection-1", grantId: "grant-1" })),
+  // A key typed in onboarding becomes the person's default (1.9.6).
+  setDefault: vi.fn(async () => ({})),
 }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
 vi.mock("@/api/secrets", () => ({ secretsApi: { listMyUserSecrets: vi.fn(async () => []), list: vi.fn(async () => []) } }));
