@@ -10353,8 +10353,15 @@ export function issueService(db: Db) {
         }> = [];
 
         let counter = base;
+        // A parent this import inserts itself (rows come parents first) isn't in
+        // the table yet: the foreign key covers it, and the importer has already
+        // refused unknown parents and loops. Any other parent must be a task of
+        // this organization, never a chat.
+        const importedIds = new Set(rows.map((row) => row.id));
         for (const row of rows) {
-          await assertExecutionTaskParent(tx as unknown as Db, companyId, row.parentId);
+          if (!(row.parentId && importedIds.has(row.parentId))) {
+            await assertExecutionTaskParent(tx as unknown as Db, companyId, row.parentId);
+          }
           counter += 1;
           const issueNumber = counter;
           const identifier = `${company.issuePrefix}-${issueNumber}`;
