@@ -18,8 +18,10 @@ import android.widget.TextView
  * The native sheet shown over the board when the phone has no network, or
  * when the Automa server does not answer: the page underneath stays as it
  * was, so nothing typed is lost, and a bar fills up to the next try (no
- * seconds to count) instead of leaving a dead white page. A server on this phone never shows
- * it (the connect screen waits for Termux instead, see MainActivity).
+ * seconds to count) instead of leaving a dead white page. A server on this
+ * phone shows it only while Automa answers that it is still starting; once it
+ * stops answering at all, the connect screen waits for Termux instead (see
+ * MainActivity).
  */
 class ConnectionOverlay(
     context: Context,
@@ -27,7 +29,8 @@ class ConnectionOverlay(
     /** The connect screen, for a server that is gone for good: retrying alone was a dead end. */
     private val onOtherServer: () -> Unit,
 ) : FrameLayout(context) {
-    enum class Reason { OFFLINE, UNREACHABLE }
+    /** STARTING: Automa on this phone answered that it is still starting; it is checked again by itself. */
+    enum class Reason { OFFLINE, UNREACHABLE, STARTING }
 
     var reason: Reason = Reason.OFFLINE
         private set
@@ -120,6 +123,13 @@ class ConnectionOverlay(
             Reason.UNREACHABLE -> {
                 title.text = res.getString(R.string.unreachable_title)
                 message.text = listOfNotNull(res.getString(R.string.unreachable_message), detail).joinToString("\n\n")
+            }
+            Reason.STARTING -> {
+                title.text = res.getString(R.string.starting_title)
+                message.text = res.getString(R.string.starting_message)
+                countdown.text = res.getString(R.string.starting_waiting)
+                // Checked again by MainActivity on its own schedule: the bar keeps moving.
+                progress.isIndeterminate = true
             }
         }
         if (retryInSeconds > 0) {

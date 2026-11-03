@@ -581,7 +581,8 @@ describe("free models engine", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       let outcome: string | undefined;
-      void execute(ctx).then(() => { outcome = "done"; }, (e: Error) => { outcome = e.name; });
+      // A stop ends the run as a stopped one (acknowledged), never as a failure.
+      void execute(ctx).then((result) => { outcome = result.errorCode ?? "done"; }, (e: Error) => { outcome = e.name; });
       const tick = () => new Promise((resolve) => setImmediate(resolve));
       const waiting = () => ctx.logs.some((line) => line.includes("retrying in a moment"));
       for (let i = 0; i < 500 && !waiting() && outcome === undefined; i += 1) await tick();
@@ -589,7 +590,7 @@ describe("free models engine", () => {
       controller.abort();
       // The clock never moves: a wait that ignored the cancel would never end.
       for (let i = 0; i < 500 && outcome === undefined; i += 1) await tick();
-      expect(outcome).toBe("AbortError");
+      expect(outcome).toBe("cancelled");
       expect(net.sent()).toHaveLength(1);
       expect(net.calls.some((c) => c.method === "POST" && c.url.endsWith("/comments"))).toBe(false);
     } finally {
@@ -638,5 +639,88 @@ describe("free models engine", () => {
   it("explains a missing agent key instead of answering silently", async () => {
     stubNetwork();
     await expect(execute(context({}, null))).rejects.toThrow(/PAPERCLIP_AGENT_JWT_SECRET/);
+  });
+});
+
+describe("free models engine: stopping a reply", () => {
+  const NO_TOOLS = { model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false, imageModel: "none" };
+
+  /** A stream that sends its first pieces and then stays open until the request is aborted. */
+  function openStream(init: RequestInit, first: Record<string, unknown>[]): Response {
+    const encoder = new TextEncoder();
+    const aborted = () => new DOMException("The operation was aborted.", "AbortError");
+    // As fetch does: a request already stopped never opens.
+    if (init.signal?.aborted) throw aborted();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const line of first) controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        init.signal?.addEventListener("abort", () => controller.error(aborted()), { once: true });
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/x-ndjson" } });
+  }
+
+  /** The thread endpoints, a provider stream that stays open, and the order things happened in. */
+  function stubLiveReply(onProviderRequest: () => void) {
+    const events: string[] = [];
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const url = String(input);
+      const method = init.method ?? "GET";
+      calls.push({ url, method, headers: {}, body: init.body });
+      const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.startsWith("https://api.puter.com/")) {
+        events.push("provider");
+        onProviderRequest();
+        return openStream(init, [{ type: "text", text: "Once upon a time" }]);
+      }
+      if (url === `${API}/api/issues/issue-1`) return json({ companyId: "company-1", title: "Chat", conversationAgentId: "agent-1" });
+      if (url.startsWith(`${API}/api/issues/issue-1/comments`) && method === "GET") return json([{ id: "c1", authorType: "user", authorAgentId: null, body: "Tell me a long story" }]);
+      if (url === `${API}/api/issues/issue-1/attachments`) return json([]);
+      if (url === `${API}/api/issues/issue-1/comments` && method === "POST") return json({ id: "reply" });
+      return new Response("not found", { status: 404 });
+    }));
+    return { events, calls, posted: () => calls.filter((call) => call.method === "POST" && call.url === `${API}/api/issues/issue-1/comments`) };
+  }
+
+  it("tells the server it can be stopped before asking the model anything", async () => {
+    const stop = new AbortController();
+    const net = stubLiveReply(() => stop.abort(new Error("Cancelled because the task was deleted")));
+    const ctx = context(NO_TOOLS);
+    ctx.signal = stop.signal;
+    ctx.onCancellationReady = vi.fn(async () => { net.events.push("ready"); });
+    await execute(ctx);
+    expect(net.events.indexOf("ready")).toBeGreaterThanOrEqual(0);
+    expect(net.events.indexOf("ready")).toBeLessThan(net.events.indexOf("provider"));
+  });
+
+  it("stops the stream when the chat is deleted mid-reply, posts nothing and acknowledges the stop", async () => {
+    const stop = new AbortController();
+    const net = stubLiveReply(() => setTimeout(() => stop.abort(new Error("Cancelled because the task was deleted")), 20));
+    const ctx = context(NO_TOOLS);
+    ctx.signal = stop.signal;
+    ctx.onCancellationReady = vi.fn(async () => undefined);
+    const result = await execute(ctx);
+
+    expect(result).toMatchObject({ exitCode: null, errorCode: "cancelled", errorMessage: "Stopped.", provider: "free_models", costUsd: 0 });
+    expect((result.resultJson as { executionCancellation: { state: string } }).executionCancellation.state).toBe("acknowledged");
+    // Nothing reached the chat: the partial reply stays in the live transcript only.
+    expect(net.posted()).toEqual([]);
+    expect(ctx.logs.some((line) => line.includes("Once upon a time"))).toBe(true);
+    expect(ctx.logs.at(-1)).toContain("[paperclip] Stopped");
+  });
+
+  it("returns at once when stopped before it started, without loading the chat", async () => {
+    const stop = new AbortController();
+    stop.abort(new Error("Run stopped before provider startup"));
+    const net = stubLiveReply(() => undefined);
+    const ctx = context(NO_TOOLS);
+    ctx.signal = stop.signal;
+    ctx.onCancellationReady = vi.fn(async () => undefined);
+    const result = await execute(ctx);
+
+    expect(ctx.onCancellationReady).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ exitCode: null, errorCode: "cancelled" });
+    expect(net.calls).toEqual([]);
   });
 });

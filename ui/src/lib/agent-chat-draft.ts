@@ -1,4 +1,9 @@
 import type { Agent, Issue, IssueWorkMode } from "@paperclipai/shared";
+/** The placeholder id of a chat that has not started yet (see agentChatDraft). */
+export function isDraftChatId(issueId: string): boolean {
+  return issueId.startsWith("chat:");
+}
+
 /** Ephemeral view model; never persisted until first send or upload. */
 export function agentChatDraft(
   agent: Agent,

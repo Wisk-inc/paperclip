@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToastActions } from "@/context/ToastContext";
 import { useResourceMembershipMutation, useResourceMemberships } from "@/hooks/useResourceMemberships";
+import { isDraftChatId } from "@/lib/agent-chat-draft";
 import { haptic } from "@/lib/haptics";
 import { EditAgentSheet, type EditAgentTab } from "./EditAgentSheet";
 import { AgentTerminalSheet } from "./AgentTerminalSheet";
@@ -58,15 +59,27 @@ export function ChatOptionsMenu({ agent, chatIssueId, onMoveUp, onMoveDown, afte
 
   const deleteChat = useMutation({
     mutationFn: async () => {
-      const issueId = chatIssueId ?? (await agentChatsApi.get(agent.companyId, agent.id))?.id;
+      // A chat not started yet has a placeholder id (see agentChatDraft): the
+      // server is asked which chat exists instead of being sent that.
+      const issueId = chatIssueId && !isDraftChatId(chatIssueId)
+        ? chatIssueId
+        : (await agentChatsApi.get(agent.companyId, agent.id))?.id;
       if (!issueId) throw new Error(`There is no chat with ${agent.name} to delete yet.`);
       await issuesApi.remove(issueId);
+      return issueId;
     },
-    onSuccess: async () => {
+    onSuccess: async (issueId) => {
       haptic("success");
       pushToast({ title: `Chat with ${agent.name} deleted`, tone: "success" });
-      await client.invalidateQueries({ predicate: (query) => query.queryKey[0] === "agent-chat" || query.queryKey[0] === "issues" });
+      // Leave the chat before anything refreshes: refetching the chat that is
+      // gone put "not found" over the page for a moment, and the reply that was
+      // streaming into it kept polling a chat that no longer exists.
       afterDelete?.();
+      client.removeQueries({ predicate: (query) => query.queryKey.includes(issueId) });
+      await client.invalidateQueries({
+        predicate: (query) =>
+          (query.queryKey[0] === "agent-chat" || query.queryKey[0] === "issues") && !query.queryKey.includes(issueId),
+      });
     },
     onError: (error) => {
       haptic("warning");

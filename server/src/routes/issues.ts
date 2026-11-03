@@ -347,6 +347,8 @@ import {
 } from "../services/issue-queued-comment-queue.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
+/** How long deleting a task or chat waits for its running reply to stop. */
+const ISSUE_DELETE_STOP_WAIT_MS = 10_000;
 const updateIssueRouteSchema = updateIssueSchema.extend({
   interrupt: z.boolean().optional(),
 });
@@ -15044,15 +15046,30 @@ export function issueRoutes(
     // running it failed on the deleted row, flagged its agent and lost its spend.
     const runToStop = await resolveActiveIssueRun(existing);
     if (runToStop) {
-      try {
-        await heartbeat.cancelRun(runToStop.id, "Cancelled because the task was deleted", {
+      const stopping = heartbeat
+        .cancelRun(runToStop.id, "Cancelled because the task was deleted", {
           errorCode: "issue_deleted",
           eventMessage: "run cancelled before issue deletion",
           eventPayload: { issueId: existing.id },
-        });
-      } catch (err) {
-        logger.warn({ err, issueId: id, runId: runToStop.id }, "could not stop the run before deleting its issue");
-      }
+        })
+        .then(
+          () => undefined,
+          (err) => {
+            logger.warn({ err, issueId: id, runId: runToStop.id }, "could not stop the run before deleting its issue");
+          },
+        );
+      // The stop is asked for at once, but waited on only so long: a reply slow
+      // to stop (a tool call that ignores the stop) must not hold the delete for
+      // the minute a stop may take to verify. The run ends cancelled either way.
+      const stopWaitMs = Number(process.env.PAPERCLIP_ISSUE_DELETE_STOP_WAIT_MS) || ISSUE_DELETE_STOP_WAIT_MS;
+      let stopWait: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        stopping,
+        new Promise<void>((resolve) => {
+          stopWait = setTimeout(resolve, stopWaitMs);
+        }),
+      ]);
+      clearTimeout(stopWait);
     }
 
     const issue = await svc.remove(id);

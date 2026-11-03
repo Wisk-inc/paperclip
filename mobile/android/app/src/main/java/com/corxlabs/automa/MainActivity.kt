@@ -16,6 +16,8 @@ import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.Gravity
@@ -145,6 +147,16 @@ class MainActivity : ComponentActivity() {
         private const val KEY_SHARE_HANDLED = "automa.shareHandled"
         /** How long after a connect request the waiting screen leaves starting Automa to Termux. */
         private const val CONNECT_REQUEST_START_WINDOW_MS = 2 * 60_000L
+        /**
+         * How many times in a row Automa on this phone may not answer before the
+         * connect screen waits for it (and asks Termux to start it). One missed
+         * answer is often Android pausing Termux for a moment, or Automa
+         * restarting after an update: the page stays and is checked again.
+         */
+        private const val LOOPBACK_CHECKS_BEFORE_WAIT = 3
+        private const val LOOPBACK_RECHECK_MS = 2_500L
+        /** Automa answered that it is still starting: checked again this often. */
+        private const val STARTING_RECHECK_MS = 4_000L
 
         const val LOCKED_WITHOUT_KEY = "Automa on this phone is locked to the app, and the app does not have its key. In Termux, run: automa link (it opens Automa here). You can also paste the key it prints."
 
@@ -280,6 +292,20 @@ class MainActivity : ComponentActivity() {
 
     private var offlineOverlay: ConnectionOverlay? = null
     private var mainFrameFailures = 0
+    /** Health checks in a row that Automa on this phone did not answer (see confirmServerAnswers). */
+    private var healthFailures = 0
+    /** A health check is on its way; another is not started until it answers. */
+    private var healthCheckPending = false
+    /** The next health check, when one is scheduled (see scheduleHealthCheck). */
+    private var scheduledHealthCheck: Runnable? = null
+    /** The page failed to load while the server was away: loaded again once it answers. */
+    private var reloadWhenServerAnswers = false
+    /** Proof requests in a row that could not reach the server (see proveThenLoad). */
+    private var proofFailures = 0
+    /** The next proof request, when one is scheduled (see proveThenLoad). */
+    private var scheduledProof: Runnable? = null
+    /** Delayed checks of this phone's server; all dropped when the activity goes. */
+    private val checks = Handler(Looper.getMainLooper())
     /** When a connector's sign-in began running in the app (see [SignInLinks]); 0 when none is. */
     private var signInStartedAt = 0L
     private var signInBar: SignInBar? = null
@@ -418,10 +444,27 @@ class MainActivity : ComponentActivity() {
         // task (a share, a notification, Change server): that already happened,
         // so the board opens as it was instead of doing it again.
         val fromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            if (fromHistory) loadServer() else route(intent)
-        } else if (!fromHistory && incoming.isShareIntent(intent) && !savedInstanceState.getBoolean(KEY_SHARE_HANDLED)) {
-            route(intent)
+        val server = config.serverUrl
+        when {
+            savedInstanceState == null -> if (fromHistory) loadServer() else route(intent)
+            // Back after Android ended the app's process (memory): the server
+            // proves it holds the app key again before the key goes to it, then
+            // the page the person was on opens (loadServer remembers it).
+            server != null && (keyAwaitsProof(server) || googleSignIn.needsSignIn) -> loadServer()
+            else -> {
+                // The page key goes in before the restored page's scripts run,
+                // or the board could not reach the phone until its next full load.
+                installPageKey()
+                applyServerCookie()
+                if (webView.restoreState(savedInstanceState) == null) {
+                    // Nothing to restore: the last page, never the launch that
+                    // started this task again (Change server showed the connect
+                    // screen over a board that was fine).
+                    loadServer()
+                } else if (!fromHistory && incoming.isShareIntent(intent) && !savedInstanceState.getBoolean(KEY_SHARE_HANDLED)) {
+                    route(intent)
+                }
+            }
         }
     }
 
@@ -466,16 +509,24 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         onScreen = true
         webView.onResume()
+        // A sheet left waiting on this phone's server picks its checks up again.
+        val waitingSheet = offlineOverlay?.reason
+        if (waitingSheet != null && waitingSheet != ConnectionOverlay.Reason.OFFLINE) confirmServerAnswers()
     }
 
     override fun onPause() {
         onScreen = false
+        // Off screen the server is not checked (onResume picks the sheet's checks
+        // up again); a proof on its way still finishes, so the board is there on return.
+        scheduledHealthCheck?.let { checks.removeCallbacks(it) }
+        scheduledHealthCheck = null
         webView.onPause()
         CookieManager.getInstance().flush()
         super.onPause()
     }
 
     override fun onDestroy() {
+        cancelScheduledChecks()
         executor.shutdown()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.destroy()
@@ -548,7 +599,13 @@ class MainActivity : ComponentActivity() {
         val appKey = secret?.trim()?.takeIf { it.length in ServerConfig.MIN_SECRET_LENGTH..ServerConfig.MAX_SECRET_LENGTH }
         val knownServer = config.serverUrl == url
         val knownKey = appKey == null || (origin != null && config.secretFor(origin) == appKey)
-        if (knownServer && knownKey) return loadServer()
+        if (knownServer && knownKey) {
+            // Termux sends this each time automa run starts Automa. With the board
+            // already open on it, the page stays (a reload lost what was typed,
+            // and landed on the connect screen while Automa was still starting);
+            // the server is checked instead, and the sheet covers its start.
+            return if (onServerPage()) confirmServerAnswers() else loadServer()
+        }
         config.pendingConnect = ServerConfig.PendingConnect(url, appKey)
         if (knownServer && appKey != null && origin != null) {
             // A new key for the server this phone already uses (Termux reinstalled,
@@ -688,14 +745,37 @@ class MainActivity : ComponentActivity() {
                 proving = false
                 if (config.serverUrl != url) return@runOnUiThread
                 when {
-                    check.cleared -> loadServer()
+                    check.cleared -> {
+                        proofFailures = 0
+                        loadServer()
+                    }
                     check.proof == ServerConfig.Proof.NOT_LOCKED -> {
                         // It needs no key: the board opens without one.
+                        proofFailures = 0
                         unlockedOrigins.add(origin)
                         loadServer()
                     }
-                    check.proof == ServerConfig.Proof.UNREACHABLE -> showConnect(null, wait = true)
-                    else -> showConnect(unprovenServerMessage(url))
+                    check.proof == ServerConfig.Proof.UNREACHABLE -> {
+                        // Automa on this phone not answering for a moment (Termux paused
+                        // by Android, a restart) is asked again before the connect
+                        // screen waits for it, which also asks Termux to start it.
+                        proofFailures += 1
+                        if (ServerConfig.isLoopback(url) && proofFailures < LOOPBACK_CHECKS_BEFORE_WAIT) {
+                            val again = Runnable {
+                                scheduledProof = null
+                                if (!isDestroyed && config.serverUrl == url && keyAwaitsProof(url)) proveThenLoad(url)
+                            }
+                            scheduledProof = again
+                            checks.postDelayed(again, LOOPBACK_RECHECK_MS)
+                        } else {
+                            proofFailures = 0
+                            showConnect(null, wait = true)
+                        }
+                    }
+                    else -> {
+                        proofFailures = 0
+                        showConnect(unprovenServerMessage(url))
+                    }
                 }
             }
         }
@@ -729,7 +809,8 @@ class MainActivity : ComponentActivity() {
             // reconnects on its own, so a reload would just lose what was typed.
             // The server is still asked: if it doesn't answer, the sheet comes
             // back instead of Try now only hiding it.
-            current != null && config.isServerUrl(current) && mainFrameFailures == 0 -> confirmServerAnswers()
+            current != null && config.isServerUrl(current) &&
+                (mainFrameFailures == 0 || offlineOverlay?.reason == ConnectionOverlay.Reason.STARTING) -> confirmServerAnswers()
             current != null && config.isServerUrl(current) -> webView.reload()
             else -> webView.loadUrl(lastPageUrl() ?: url)
         }
@@ -740,26 +821,47 @@ class MainActivity : ComponentActivity() {
      * server down; then it showed only "Failed to fetch". After each board
      * page load the server is checked, and an unreachable one gets the same
      * screens as a failed page load.
+     *
+     * Automa on this phone is checked a few times before the app gives up on
+     * it: one slow or refused answer (Android paused Termux for a moment, or
+     * Automa restarting after an update) sent the person straight back to the
+     * connect screen, which then asked Termux to start an Automa that was
+     * already up. One that answers it is still starting keeps the page, with
+     * the "starting" sheet over it, until it is ready.
+     *
+     * [reloadWhenAnswering]: the page itself failed to load (onReceivedError);
+     * it is loaded again once the server answers.
      */
-    private fun confirmServerAnswers() {
+    private fun confirmServerAnswers(reloadWhenAnswering: Boolean = false) {
         val server = config.serverUrl ?: return
+        if (reloadWhenAnswering) reloadWhenServerAnswers = true
+        scheduledHealthCheck?.let { checks.removeCallbacks(it) }
+        scheduledHealthCheck = null
+        if (healthCheckPending || isDestroyed) return
+        healthCheckPending = true
         executor.execute {
             val health = ServerConfig.checkHealth(server)
             runOnUiThread {
-                if (config.serverUrl != server) return@runOnUiThread
+                healthCheckPending = false
+                if (isDestroyed || config.serverUrl != server) return@runOnUiThread
                 // Only the server answering ends a run of failures (which sets the
                 // retry wait): the bundled page loads even while the server is down.
                 if (health.ok) {
+                    val wasStarting = offlineOverlay?.reason == ConnectionOverlay.Reason.STARTING
+                    val reload = reloadWhenServerAnswers || wasStarting
+                    reloadWhenServerAnswers = false
+                    healthFailures = 0
                     mainFrameFailures = 0
+                    if (wasStarting) hideOffline()
+                    // The page's own requests failed while the server was away or
+                    // starting: loaded again now that it answers.
+                    if (reload && onServerPage()) webView.reload()
                     return@runOnUiThread
                 }
                 if (!onServerPage()) return@runOnUiThread
                 mainFrameFailures += 1
                 when {
-                    ServerConfig.isLoopback(server) -> {
-                        serverWentAway()
-                        showConnect(null, wait = true)
-                    }
+                    ServerConfig.isLoopback(server) -> phoneServerNotAnswering(health)
                     connectivity?.activeNetwork == null -> showOffline(ConnectionOverlay.Reason.OFFLINE, null)
                     // Still no answer after a few tries: the connect screen, as a failed
                     // page load does, instead of retrying the sheet forever.
@@ -768,6 +870,50 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Automa on this phone did not answer a health check: see [confirmServerAnswers]. */
+    private fun phoneServerNotAnswering(health: ServerConfig.HealthResult) {
+        when {
+            // It answered that it is still starting (its database, or the recovery
+            // after a restart): it is there, so the page stays and the sheet says
+            // so until it is ready.
+            health.kind == ServerConfig.HealthKind.UNHEALTHY -> {
+                healthFailures = 0
+                showOffline(ConnectionOverlay.Reason.STARTING, null)
+                scheduleHealthCheck(STARTING_RECHECK_MS)
+            }
+            // No answer at all: a moment of silence is checked again before the
+            // connect screen, which asks Termux to start Automa.
+            healthFailures + 1 < LOOPBACK_CHECKS_BEFORE_WAIT -> {
+                healthFailures += 1
+                scheduleHealthCheck(LOOPBACK_RECHECK_MS)
+            }
+            else -> {
+                healthFailures = 0
+                serverWentAway()
+                showConnect(null, wait = true)
+            }
+        }
+    }
+
+    /** The next check of this phone's server, in [delayMs]; only while the app is on screen. */
+    private fun scheduleHealthCheck(delayMs: Long) {
+        scheduledHealthCheck?.let { checks.removeCallbacks(it) }
+        if (!onScreen) return
+        val check = Runnable {
+            scheduledHealthCheck = null
+            confirmServerAnswers()
+        }
+        scheduledHealthCheck = check
+        checks.postDelayed(check, delayMs)
+    }
+
+    private fun cancelScheduledChecks() {
+        scheduledHealthCheck?.let { checks.removeCallbacks(it) }
+        scheduledHealthCheck = null
+        scheduledProof?.let { checks.removeCallbacks(it) }
+        scheduledProof = null
     }
 
     private fun onServerPage(): Boolean = webView.url?.let { config.isServerUrl(Uri.parse(it)) } == true
@@ -781,7 +927,12 @@ class MainActivity : ComponentActivity() {
             offlineOverlay = it
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-        overlay.show(reason, detail, retryInSeconds = if (reason == ConnectionOverlay.Reason.OFFLINE) 0 else listOf(5, 10, 20).getOrElse(mainFrameFailures - 1) { 20 })
+        val retryInSeconds = when (reason) {
+            // Waiting on the network, or on the checks MainActivity schedules: no timer.
+            ConnectionOverlay.Reason.OFFLINE, ConnectionOverlay.Reason.STARTING -> 0
+            ConnectionOverlay.Reason.UNREACHABLE -> listOf(5, 10, 20).getOrElse(mainFrameFailures - 1) { 20 }
+        }
+        overlay.show(reason, detail, retryInSeconds)
     }
 
     private fun hideOffline() {
@@ -848,6 +999,10 @@ class MainActivity : ComponentActivity() {
      */
     fun showConnect(error: String?, wait: Boolean = false) {
         keyRecoveryAttempts = 0
+        healthFailures = 0
+        proofFailures = 0
+        reloadWhenServerAnswers = false
+        cancelScheduledChecks()
         waitingForServer = wait && config.serverUrl?.let(ServerConfig::isLoopback) == true
         hideOffline()
         val query = listOfNotNull(error?.let { "error=" + Uri.encode(it) }, if (waitingForServer) "wait=1" else null)
@@ -1313,6 +1468,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 val uri = Uri.parse(url)
                 bridge.pageOrigin = ServerConfig.originOf(uri)
+                reloadWhenServerAnswers = false
                 if (config.isServerUrl(uri)) endSignIn()
                 if (!downloadHookInstalled) config.serverOrigin()?.let { installDownloadHook(view, it) }
             }
@@ -1346,7 +1502,10 @@ class MainActivity : ComponentActivity() {
                 mainFrameFailures += 1
                 when {
                     // Automa on this phone stopped (Termux closed) or is still starting:
-                    // the connect screen waits for it and opens the board by itself.
+                    // checked first (a request can fail while it restarts); if it
+                    // really is away, the connect screen waits for it and opens the
+                    // board by itself.
+                    ServerConfig.isLoopback(server) && mainFrameFailures <= 3 -> confirmServerAnswers(reloadWhenAnswering = true)
                     ServerConfig.isLoopback(server) -> {
                         serverWentAway()
                         showConnect(null, wait = true)

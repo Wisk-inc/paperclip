@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.6** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.7** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.6](#2-whats-new-in-196)
+2. [What's new in 1.9.7](#2-whats-new-in-197)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,45 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.6
+## 2. What's new in 1.9.7
+
+Two fixes from the field, both on the phone.
+
+**Coming back to the app stays on your page**
+- Switching to another app (Termux, say) and back no longer sends you to the
+  connect screen with "Waiting for Automa…". The app used to give up on your
+  phone's Automa after a single unanswered check (Android pausing Termux for a
+  moment, or Automa restarting after an update), go to the connect screen and
+  ask Termux to start an Automa that was already running. It now checks a few
+  times before it concludes Automa is gone.
+- While Automa says it is still starting (its database, or the recovery after
+  a restart), a sheet says **Automa is starting** over your page and checks
+  every few seconds; the page comes back by itself when Automa is ready.
+- When Termux starts Automa (`automa run`) it opens the app with a connect
+  request. With the board already open on that server, the page now stays
+  instead of reloading and landing on the connect screen.
+- Coming back after Android ended the app in the background (low memory): the
+  app proves your phone's Automa still holds the app key, then opens the page
+  you were on. It no longer re-runs the launch that started the app (Change
+  server showed the connect screen over a board that was fine), and the
+  restored page can reach the phone straight away (its page key was missing
+  until the next full load).
+- The connect screen's wait tries to connect once before asking Termux to
+  start Automa.
+
+**Deleting a chat while the AI is replying**
+- The reply is stopped at once. A free model used to keep writing to the end
+  and then fail on a chat that was gone, which also marked the agent as
+  failed. Stop and pausing the agent stop it the same way now.
+- The chat page leaves the deleted chat before anything refreshes, instead of
+  flashing "not found" or an empty new chat for a moment.
+- Deleting never waits more than ten seconds for a reply that is slow to
+  stop (a tool call that ignores the stop); the chat goes and the reply ends
+  on its own.
+- A chat that has not started yet is never sent to the server for deletion
+  under its placeholder id.
+
+### From 1.9.6
 
 1.9.6 is a fixes release: a full check of the app, area by area, with every
 problem found fixed and tested. What changes for you:
@@ -1102,6 +1140,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.7 | 2026-11-03 | Coming back to the app stays on your page: your phone's Automa is checked a few times before the connect screen, "Automa is starting" shows over the page while it starts, a connect request from Termux keeps the open board, and the page you were on comes back after Android ended the app in the background. Deleting a chat while the AI is replying stops the reply at once, leaves the chat before refreshing and never waits more than ten seconds. |
 | 1.9.6 | 2026-11-02 | A full check of the app with every problem found fixed: the app proves your phone's Automa holds its key before sending it; agents and terminals no longer see server secrets; invites can't give more than their maker has; sign-out sticks; connectors sign in inside the Android app; keys added while hiring become your default; agent budgets can be set and are enforced; removing an agent deletes its chats; App Studio sharing is safer; one Automa per phone; Terminals show Claude Code and Codex as installed on phones. Plus the connect and sign-in fixes: "still starting" instead of "not an Automa server", a locked phone server without its key says so up front, Continue with Google shows where it works. |
 | 1.9.5 | 2026-10-30 | Notifications when an AI reply or App Studio job finishes while you are away, with a tap that opens that chat, task or project (Android and browser; also server push with Firebase); a live App Studio Stats tab (running clock, each model's status and tokens, latest moves, steps and files); costs say what free work would have cost; the AI sees the page like you do (`view_app`: phone and desktop sizes, console errors, layout trouble); teams of up to 8; the preview reloads itself when files change. |
 | 1.9.4 | 2026-10-30 | App Studio teams you can watch (booting logos with live tokens, a readable team chat, per-model shares, a Stats tab, 30-day per-model usage on the Studio page and Home); web pages built and opened in the preview, with `localStorage` working there; the task waiting notice gets an X, a working Retry now, honest wording and a self-refresh. |

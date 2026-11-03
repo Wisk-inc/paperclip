@@ -169,6 +169,10 @@
   var stepStarted = 0;
   var step = "termux";
   var startedTermux = false;
+  // Termux is asked to start Automa only once a first try finds nothing
+  // answering: a moment of silence (Android paused Termux, Automa restarting)
+  // used to send the start request straight away, to an Automa already up.
+  var startTermuxIfSilent = false;
   var RETRY_MS = 3000;
   var MAX_TRIES = 100;
   // Each step owns a stretch of the bar. Within a step the bar creeps on
@@ -222,6 +226,7 @@
     fillTimer = null;
     tries = 0;
     startedTermux = false;
+    startTermuxIfSilent = false;
     waitBox.hidden = true;
     setBusy(false);
   }
@@ -274,11 +279,7 @@
       var canStart = !!startTermux && isThisPhone(address) && !!bridge.startAutomaInTermux && !!(bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY));
       beginWaiting(canStart);
       setBusy(true, "Waiting for Automa…");
-      if (canStart && !startedTermux) {
-        tries = 1;
-        startInTermux(function () { tryOnce(address); });
-        return;
-      }
+      startTermuxIfSilent = canStart && !startedTermux;
     }
     tries += 1;
     tryOnce(address);
@@ -297,6 +298,12 @@
         return;
       }
       var message = (reply && reply.error) || "Could not connect.";
+      // Nothing answered the first try: now Termux is asked to start Automa.
+      if (startTermuxIfSilent && !startedTermux && !/still starting/i.test(message)) {
+        startTermuxIfSilent = false;
+        startInTermux(function () { tries += 1; tryOnce(address); });
+        return;
+      }
       // Not up yet (refused, still starting): try again shortly, for a while.
       if (tries < MAX_TRIES && /not running|nothing answers|still starting|try again|refused|closed the connection/i.test(message)) {
         // Once it has answered, a moment of not answering is part of starting

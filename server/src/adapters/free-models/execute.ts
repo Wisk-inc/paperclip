@@ -176,7 +176,7 @@ function sumUsage(spent: TurnTotals[]): PuterUsage {
 }
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const { agent, config, context, runId, authToken, onLog } = ctx;
+  const { config, context, authToken, onLog } = ctx;
   const model = asString(config.model, PUTER_MODELS["deepseek-flash"]);
   // Moan is Nemotron 3 Ultra under a Jamaican persona; everything else is itself.
   const resolved = resolveFreeModel(model);
@@ -189,11 +189,35 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
   if (!authToken) throw new Error("This Automa server has no agent key (PAPERCLIP_AGENT_JWT_SECRET), so the free model cannot post its reply.");
 
+  // Tells the server Stop works from here on: the stream is aborted and the
+  // chat carries on (or its deletion goes through), instead of the reply
+  // streaming to its end and failing on a chat that is gone.
+  await ctx.onCancellationReady?.();
+  const spent: TurnTotals[] = [];
+  if (ctx.signal?.aborted) return stopped(ctx, model, spent);
+  try {
+    return await reply(ctx, model, resolved, issueId, authToken, spent);
+  } catch (error) {
+    // A stop lands as an aborted request wherever the run was: nothing is posted.
+    if (ctx.signal?.aborted) return stopped(ctx, model, spent);
+    throw error;
+  }
+}
+
+/** The whole reply, from loading the chat to posting the answer. */
+async function reply(
+  ctx: AdapterExecutionContext,
+  model: string,
+  resolved: ReturnType<typeof resolveFreeModel>,
+  issueId: string,
+  authToken: string,
+  spent: TurnTotals[],
+): Promise<AdapterExecutionResult> {
+  const { agent, config, runId, onLog } = ctx;
   const apiUrl = buildPaperclipEnv(agent).PAPERCLIP_API_URL;
   const api = threadApi(apiUrl, authToken, runId, ctx.signal);
   const { issue, comments, lastUser } = await loadThread(api, issueId, agent.id);
 
-  const spent: TurnTotals[] = [];
   const addUsage = (usageModel: string, usage: PuterUsage) => spent.push({ model: usageModel, input: usage.inputTokens, output: usage.outputTokens });
 
   // The chosen model is itself an image model: draw a picture, no chat loop.
@@ -302,6 +326,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     return { exitCode: 1, signal: null, timedOut: false, errorMessage: error.message, errorCode: "adapter_failed", errorFamily: error.errorFamily, retryNotBefore: error.retryNotBefore, provider: "free_models", model, costUsd: 0, summary: null };
   }
   const { answer, answeredBy, stopReason, hitTurnLimit } = loop;
+  // Stopped mid-reply (Stop, the chat deleted, the agent paused): the partial
+  // answer stays in the live transcript only.
+  if (ctx.signal?.aborted) return stopped(ctx, answeredBy, spent);
 
   const imageMarkdown = drawn.filter((image) => !answer.includes(image.attachmentId)).map((image) => image.markdown).join("\n\n");
   // Made files the reply does not link itself get a download line each.
@@ -645,6 +672,37 @@ async function runImageOnly(
   const image = await drawAndUploadImage(api, issue.companyId, issueId, ctx.runId, model, prompt, ctx.signal);
   const body = pictures.length ? `${image.markdown}\n\n_Redrawn from your picture: ${prompt}_` : image.markdown;
   await postReply(api, issueId, body, [image.attachmentId]);
+}
+
+/**
+ * A reply stopped by the person (Stop, the chat deleted, the agent paused):
+ * acknowledged, with whatever it used so far, so the server never holds the
+ * run for a stop it cannot verify.
+ */
+async function stopped(ctx: AdapterExecutionContext, model: string, spent: TurnTotals[]): Promise<AdapterExecutionResult> {
+  const usage = sumUsage(spent);
+  await ctx.onLog("stdout", `[paperclip] Stopped: ${usage.inputTokens + usage.outputTokens} tokens used before the stop, free.\n`);
+  return {
+    exitCode: null,
+    signal: null,
+    timedOut: false,
+    errorCode: "cancelled",
+    errorMessage: "Stopped.",
+    provider: "free_models",
+    biller: "free_models",
+    model,
+    costUsd: 0,
+    usage,
+    usageBasis: "per_run",
+    // The chat history is the session: the next message simply continues.
+    executionRecovery: { kind: "interrupted", providerStopped: true, sessionPreserved: true, actionOutcomes: "settled" },
+    resultJson: {
+      engine: "free_models",
+      freeUsage: { model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, images: 0, equivalentUsd: 0 } satisfies FreeModelRunUsage,
+      executionCancellation: { state: "acknowledged", acknowledgedAt: new Date().toISOString(), forced: false },
+    },
+    summary: null,
+  };
 }
 
 /** Builds the run result after the reply has been posted; never posts itself. */

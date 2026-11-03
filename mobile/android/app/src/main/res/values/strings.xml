@@ -33,6 +33,9 @@
     <string name="unreachable_message">The server did not answer. It may be restarting, or the phone may have switched networks.</string>
     <string name="offline_retry">Try now</string>
     <string name="offline_other_server">Connect to another server</string>
+    <string name="starting_title">Automa is starting</string>
+    <string name="starting_message">Automa on this phone is starting up. The first start after an update can take a minute; the page comes back by itself when it is ready.</string>
+    <string name="starting_waiting">Checking every few seconds…</string>
     <string name="sign_in_at">Signing in at %1$s</string>
     <string name="sign_in_cancel">Cancel</string>
     <string name="retrying_now">Checking whether Automa answers…</string>
