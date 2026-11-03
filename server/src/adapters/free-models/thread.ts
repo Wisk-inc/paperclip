@@ -27,6 +27,7 @@ export interface IssueSummary {
   description?: string | null;
   companyId: string;
   conversationAgentId?: string | null;
+  status?: string | null;
 }
 
 export interface ThreadApi {
@@ -156,6 +157,46 @@ export async function drawAndUploadImage(
   // The whole prompt rides the alt text, so Draw again asks for the same picture.
   const alt = prompt.replace(/[[\]\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
   return { attachmentId: uploaded.attachmentId, contentPath: uploaded.contentPath, mimeType: image.mimeType, markdown: `![${alt}](${uploaded.contentPath})` };
+}
+
+/**
+ * A task (not a chat) goes to the board for review once its answer is posted,
+ * the way the built-in engines hand work back: a completion review the person
+ * answers from the Inbox (approve marks the task done; "continue work" with a
+ * reason sends it back to the agent), then the task moves to in_review. A bare
+ * status change is refused by the server, since nobody would own the next
+ * step; left as it was, the heartbeat saw a run that ended without an outcome,
+ * tried to repair it twice and marked the task "recovery needed".
+ */
+export async function handBackForReview(api: ThreadApi, issueId: string, input: { answer: string; runId: string; agentName: string }): Promise<void> {
+  const headers = { "content-type": "application/json" };
+  await api.json(`/api/issues/${issueId}/interactions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      kind: "request_confirmation",
+      resolverPolicy: "human_only",
+      title: "Review requested",
+      summary: `${input.agentName} finished this task and is waiting for your verdict.`,
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Does this finish the task? Approve to mark it done, or send it back with what to change.",
+        detailsMarkdown: input.answer.slice(0, 20_000) || null,
+        acceptLabel: "Approve completion",
+        rejectLabel: "Continue work",
+        allowDeclineReason: true,
+        rejectRequiresReason: true,
+        supersedeOnUserComment: false,
+        target: { type: "custom", key: "native_completion_review", revisionId: input.runId, label: "Completion decision" },
+      },
+    }),
+  });
+  await api.json(`/api/issues/${issueId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ status: "in_review" }),
+  });
 }
 
 export async function postReply(api: ThreadApi, issueId: string, body: string, attachmentIds?: string[]): Promise<void> {

@@ -724,3 +724,91 @@ describe("free models engine: stopping a reply", () => {
     expect(net.calls).toEqual([]);
   });
 });
+
+describe("free models engine: tasks and tools that keep failing", () => {
+  /** The thread endpoints for a task (not a chat), a provider answering from a list, and every call made. */
+  function stubTask(turns: Array<Record<string, unknown>[]>, options: { conversation?: boolean; searchStatus?: number } = {}) {
+    const calls: Call[] = [];
+    let turn = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const url = String(input);
+      const method = init.method ?? "GET";
+      calls.push({ url, method, headers: {}, body: init.body });
+      const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+      if (url.startsWith("https://api.puter.com/")) return ndjson(turns[Math.min(turn++, turns.length - 1)]!);
+      if (url.startsWith("https://html.duckduckgo.com/")) return new Response("busy", { status: options.searchStatus ?? 503 });
+      if (url === `${API}/api/issues/issue-1` && method === "GET") return json({ companyId: "company-1", title: "Write the launch post", description: "Two caption options.", conversationAgentId: options.conversation ? "agent-1" : null, status: "in_progress" });
+      if (url === `${API}/api/issues/issue-1` && method === "PATCH") return json({ id: "issue-1", status: "in_review" });
+      if (url === `${API}/api/issues/issue-1/interactions` && method === "POST") return json({ id: "review-1", kind: "request_confirmation" });
+      if (url.startsWith(`${API}/api/issues/issue-1/comments`) && method === "GET") return json([{ id: "c1", authorType: "user", authorAgentId: null, body: "Write the launch post." }]);
+      if (url === `${API}/api/issues/issue-1/attachments`) return json([]);
+      if (url === `${API}/api/issues/issue-1/comments` && method === "POST") return json({ id: "reply" });
+      return new Response("not found", { status: 404 });
+    }));
+    return {
+      calls,
+      providerRequests: () => calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => JSON.parse(String(c.body)) as { args: { tools?: unknown[]; messages: Array<{ role: string; content: string }> } }),
+      patches: () => calls.filter((c) => c.method === "PATCH" && c.url === `${API}/api/issues/issue-1`).map((c) => JSON.parse(String(c.body))),
+      reviews: () => calls.filter((c) => c.method === "POST" && c.url === `${API}/api/issues/issue-1/interactions`).map((c) => JSON.parse(String(c.body)) as { kind: string; continuationPolicy: string; payload: { target: { key: string; revisionId: string }; detailsMarkdown: string } }),
+      posted: () => calls.filter((c) => c.method === "POST" && c.url === `${API}/api/issues/issue-1/comments`).map((c) => (JSON.parse(String(c.body)) as { body: string }).body),
+    };
+  }
+  const answer = (text: string) => [{ type: "text", text }, { type: "usage", usageDetails: { inputTokens: 10, outputTokens: 10 }, stopReason: "end_turn" }];
+  const search = (query: string) => [{ type: "tool_use", id: `t-${query}`, name: "WebSearch", input: { query } }, { type: "usage", usageDetails: { inputTokens: 10, outputTokens: 5 }, stopReason: "tool_use" }];
+  const NO_TOOLS = { model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false, imageModel: "none" };
+
+  it("hands a task back for review once the answer is posted", async () => {
+    const net = stubTask([answer("Caption one. Caption two.")]);
+    const ctx = context(NO_TOOLS);
+    const result = await execute(ctx);
+    expect(net.posted()).toEqual(["Caption one. Caption two."]);
+    // A completion review the person answers from the Inbox, then in_review:
+    // the server refuses a bare move to review with nobody owning the next step.
+    const [review] = net.reviews();
+    expect(review).toMatchObject({ kind: "request_confirmation", continuationPolicy: "wake_assignee" });
+    expect(review!.payload.target).toMatchObject({ key: "native_completion_review", revisionId: "run-12345678" });
+    expect(review!.payload.detailsMarkdown).toBe("Caption one. Caption two.");
+    expect(net.patches()).toEqual([{ status: "in_review" }]);
+    const order = net.calls.map((c) => `${c.method} ${c.url.slice(API.length)}`);
+    expect(order.indexOf("POST /api/issues/issue-1/comments")).toBeLessThan(order.indexOf("POST /api/issues/issue-1/interactions"));
+    expect(order.indexOf("POST /api/issues/issue-1/interactions")).toBeLessThan(order.indexOf("PATCH /api/issues/issue-1"));
+    expect(result.exitCode).toBe(0);
+    expect(ctx.logs.some((line) => line.includes("the task is in review"))).toBe(true);
+  });
+
+  it("leaves a chat where it is after replying", async () => {
+    const net = stubTask([answer("Hello there.")], { conversation: true });
+    await execute(context(NO_TOOLS));
+    expect(net.posted()).toEqual(["Hello there."]);
+    expect(net.patches()).toEqual([]);
+    expect(net.reviews()).toEqual([]);
+  });
+
+  it("drops a tool that keeps failing and gets the answer without it", async () => {
+    // The search service answers 503 to every query; the model keeps trying new ones.
+    const net = stubTask([search("a"), search("b"), search("c"), answer("I could not search the web, but here is what I know: three bakeries.")]);
+    const ctx = context({ ...NO_TOOLS, freeWeb: true });
+    await execute(ctx);
+    const requests = net.providerRequests();
+    // Three failures, then the tool is gone from the next request and the model is told so.
+    expect(requests.length).toBe(4);
+    expect(requests[2]!.args.tools?.some((tool) => (tool as { function: { name: string } }).function.name === "WebSearch")).toBe(true);
+    expect(requests[3]!.args.tools?.some((tool) => (tool as { function: { name: string } }).function.name === "WebSearch") ?? false).toBe(false);
+    expect(requests[3]!.args.messages.at(-1)!.content).toContain("WebSearch tool is failing every time");
+    expect(net.posted()).toEqual(["I could not search the web, but here is what I know: three bakeries."]);
+    expect(ctx.logs.some((line) => line.includes("WebSearch failed 3 times in a row"))).toBe(true);
+  });
+
+  it("asks for a real answer when the tool-use limit is reached instead of posting the tool call", async () => {
+    const net = stubTask([search("a"), search("b"), answer("Here is what I have so far.")], { searchStatus: 200 });
+    const ctx = context({ ...NO_TOOLS, freeWeb: true, maxTurnsPerRun: 2 });
+    await execute(ctx);
+    const requests = net.providerRequests();
+    expect(requests.length).toBe(3);
+    expect(requests[2]!.args.tools).toBeUndefined();
+    expect(requests[2]!.args.messages.at(-1)!.content).toContain("tool-use limit");
+    expect(net.posted()[0]).toContain("Here is what I have so far.");
+    expect(net.posted()[0]).toContain("Stopped after the tool-use limit");
+    expect(net.posted()[0]).not.toContain("Calling WebSearch");
+  });
+});

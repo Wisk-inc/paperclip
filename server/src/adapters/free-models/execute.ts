@@ -30,7 +30,7 @@ import { asNumber, asString, buildPaperclipEnv } from "../utils.js";
 import { equivalentImageCostUsd, equivalentTokenCostUsd } from "../../services/free-models.js";
 import { createThinkingTagSplitter, readThinkingLevel, splitThinking, thinkingInstruction } from "./thinking.js";
 import { freeToolDefinitions, runFreeTool, type FreeToolContext, type FreeToolToggles, type SavedDocument } from "./tools.js";
-import { attachmentName, drawAndUploadImage, listAttachments, loadThread, postReply, readCommentPictures, threadApi, uploadFile, type ThreadApi } from "./thread.js";
+import { attachmentName, drawAndUploadImage, handBackForReview, listAttachments, loadThread, postReply, readCommentPictures, threadApi, uploadFile, type ThreadApi } from "./thread.js";
 import { freeDirectToolRuntime } from "./direct-runtime.js";
 
 const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
@@ -40,6 +40,8 @@ const MAX_TRANSIENT_RETRIES = 4;
 const RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
 /** The same tool call with the same arguments past this many times is a loop, not research. */
 const MAX_IDENTICAL_CALLS = 2;
+/** A tool that fails this many times in a row is dropped for the rest of the run. */
+const MAX_TOOL_FAILURES = 3;
 /** Replies with no words and no tool call that are asked again before the run gives up on one. */
 const MAX_EMPTY_REPLIES = 2;
 const EMPTY_REPLY_NUDGE = "(Automa) Your last reply came back empty. Reply to the person now, in words, with what you have.";
@@ -340,8 +342,32 @@ async function reply(
     + note;
 
   await postReply(api, issueId, body.trim() || "(No reply came back. Send the message again.)", [...drawn.map((image) => image.attachmentId), ...made.map((file) => file.attachmentId)]);
+  await handTaskBack(api, issue, issueId, { answer: body.trim(), runId, agentName: agent.name }, onLog);
   await onLog("stdout", logLine({ type: "acpx.result", summary: answer ? "Replied" : stopReason, stopReason, inputTokens: sumUsage(spent).inputTokens, outputTokens: sumUsage(spent).outputTokens, costUsd: 0 }));
   return finish(ctx, drawn.length + slidePictures, answeredBy, spent, body);
+}
+
+/**
+ * A task the agent has answered goes to the board for review; a chat stays as
+ * it is, and so does a task already in review or done. Otherwise the heartbeat
+ * saw a run end "without recording an outcome", repaired it twice and marked
+ * the task "recovery needed" though the answer was there all along.
+ */
+async function handTaskBack(
+  api: ThreadApi,
+  issue: { conversationAgentId?: string | null; status?: string | null },
+  issueId: string,
+  review: { answer: string; runId: string; agentName: string },
+  onLog: AdapterExecutionContext["onLog"],
+): Promise<void> {
+  if (issue.conversationAgentId) return;
+  if (!["todo", "in_progress", "backlog"].includes(issue.status ?? "")) return;
+  try {
+    await handBackForReview(api, issueId, review);
+    await onLog("stdout", "[paperclip] Answer posted; the task is in review, waiting for your verdict in the Inbox.\n");
+  } catch (error) {
+    await onLog("stdout", `[paperclip] Could not hand the task back for review: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
 }
 
 /** What the Jamaican knowledge index has on the question, from the server's moan service; nothing when it is off or empty. */
@@ -473,11 +499,14 @@ function refusalFor(error: PuterHttpError, label: string, retries: number): Free
 }
 
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
-  const { ctx, messages, toolCtx, level, maxTurns, onLog, addUsage, puterModel } = input;
+  const { ctx, messages, toolCtx, level, onLog, addUsage, puterModel } = input;
+  let maxTurns = input.maxTurns;
   const model = input.model;
   const label = modelLabel(model);
+  // The tools still on offer: one that keeps failing is taken away mid-run.
+  let tools = input.tools;
   // Content Safety takes no tools; asking with them only wastes a request.
-  let useTools = input.tools.length > 0 && puterModelTakesTools(puterModel);
+  let useTools = tools.length > 0 && puterModelTakesTools(puterModel);
   const safetyModel = !puterModelTakesTools(puterModel);
   const answeredBy = model;
   let lastAnswer = "";
@@ -493,6 +522,10 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
   // Identical tool calls, to cut a loop short.
   const callCounts = new Map<string, number>();
   let repeated = 0;
+  // Failures in a row per tool: a tool that only ever fails (a search service
+  // answering 503, say) was called with new queries up to the turn limit.
+  const failures = new Map<string, number>();
+  let limitReached = false;
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     if (ctx.signal?.aborted) break;
@@ -511,7 +544,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     };
     const attempt = textHistory ? toolHistoryAsText(messages) : messages;
     try {
-      for await (const event of puterStream(attempt, { model: puterModel, tools: useTools ? input.tools : undefined, signal: ctx.signal })) {
+      for await (const event of puterStream(attempt, { model: puterModel, tools: useTools ? tools : undefined, signal: ctx.signal })) {
         if (event.type === "text") { for (const piece of splitter.push(event.text)) await emit(piece); }
         else if (event.type === "reasoning") { reasoning += event.text; await onLog("stdout", logLine({ type: "acpx.text_delta", text: event.text, channel: "thinking" })); }
         else if (event.type === "tool_use") calls.push({ id: event.id, type: "function", function: { name: event.name, arguments: JSON.stringify(event.input ?? {}) } });
@@ -579,7 +612,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
     // instead of calling it: run it all the same rather than post it. With
     // the tools off it is not run, and still never posted as the answer.
     if (calls.length === 0 && mayHoldTextToolCalls(text)) {
-      const written = parseTextToolCalls(text, input.tools.map((tool) => tool.function.name));
+      const written = parseTextToolCalls(text, tools.map((tool) => tool.function.name));
       if (written.calls.length) {
         text = written.text;
         if (useTools) {
@@ -610,9 +643,20 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
 
     // The calls decide, not the stop reason: some routes send "end_turn" (or no usage line at all) beside a tool call.
     if (calls.length === 0) {
-      return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: false };
+      return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: limitReached };
     }
-    if (turn >= maxTurns) return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: true };
+    if (turn >= maxTurns) {
+      if (limitReached) return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: true };
+      // One last turn without tools, so the reply is an answer and never the
+      // tool call it was about to make ("Calling WebSearch.").
+      limitReached = true;
+      useTools = false;
+      maxTurns = turn + 1;
+      messages.push({ role: "assistant", content: text.trim() || "I have to stop using tools and answer now." });
+      messages.push({ role: "user", content: "(Automa) You have reached the tool-use limit. Do not call any more tools: give your final answer now with what you have, and say what you could not finish." });
+      await onLog("stdout", logLine({ type: "acpx.status", message: "Tool-use limit reached; asking for the answer now." }));
+      continue;
+    }
 
     // Never an empty assistant message beside a tool call: some providers
     // (Nemotron 3 Ultra among them) reject the whole conversation for it.
@@ -631,6 +675,15 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         : await runFreeTool(toolCtx, call.function.name, args);
       await onLog("stdout", logLine({ type: "acpx.tool_result", name: call.function.name, toolUseId: call.id, content: result.content.slice(0, 4_000), ...(result.isError ? { isError: true } : {}) }));
       messages.push({ role: "tool", tool_call_id: call.id, content: result.content });
+      const failed = result.isError ? (failures.get(call.function.name) ?? 0) + 1 : 0;
+      failures.set(call.function.name, failed);
+      if (failed >= MAX_TOOL_FAILURES && tools.some((tool) => tool.function.name === call.function.name)) {
+        // Failing every time: taken away, and the model told to answer without it.
+        tools = tools.filter((tool) => tool.function.name !== call.function.name);
+        if (tools.length === 0) useTools = false;
+        await onLog("stdout", logLine({ type: "acpx.status", message: `${call.function.name} failed ${failed} times in a row; carrying on without it.` }));
+        messages.push({ role: "user", content: `(Automa) The ${call.function.name} tool is failing every time (${result.content.slice(0, 160)}). Do not call it again: answer now with what you know, and say plainly that it was unavailable.` });
+      }
     }
     if (repeated >= 3 && useTools) {
       // Still looping after being told twice: the tools go away and the model
@@ -640,7 +693,7 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       messages.push({ role: "user", content: "(Automa) You are repeating the same tool calls. Stop using tools and answer now with what you have." });
     }
   }
-  return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: false };
+  return { answer: lastAnswer, thinking: lastReasoning, answeredBy, stopReason, hitTurnLimit: limitReached };
 }
 
 async function runImageOnly(
