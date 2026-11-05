@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="What the Automa app for Android does with your data: no cloud account, no ads, no tracking; your data stays on the Automa server you control.">
+<title>Privacy Policy · Automa</title>
+<style>
+  :root { --bg: #000; --fg: #f5f5f5; --muted: #a3a3a3; --border: rgb(255 255 255 / 12%); color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root { --bg: #fff; --fg: #111; --muted: #555; --border: rgb(0 0 0 / 12%); color-scheme: light; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
+  .doc { max-width: 720px; margin: 0 auto; padding: 32px 20px 48px; display: flex; flex-direction: column; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; color: var(--fg); text-decoration: none; font-weight: 600; font-size: 18px; }
+  .brand svg { width: 28px; height: 28px; border-radius: 7px; }
+  h1 { margin: 0; font-size: 30px; line-height: 1.2; font-weight: 700; }
+  .updated { margin: 0; color: var(--muted); font-size: 14px; }
+  h2 { margin: 14px 0 0; font-size: 19px; font-weight: 600; }
+  p, li { margin: 0; color: var(--muted); font-size: 16px; }
+  ul { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+  strong { color: var(--fg); }
+  code { font-size: 14px; background: var(--border); padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+  a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+  .made-in { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 14px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <a class="brand" href="./"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" aria-hidden="true"><rect width="108" height="108" fill="#000"/><g transform="translate(15.6 14.4) scale(2.4)"><path fill="#fff" d="M7.6 25.46 13.87 7.54H18.13L24.4 25.46H20.59L16 12.13 11.41 25.46Z M18.35 21.43A2.35 2.35 0 1 1 13.65 21.43A2.35 2.35 0 1 1 18.35 21.43Z"/></g></svg>automa</a>
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated: November 5, 2026</p>
+<p>This policy explains what Automa does with your data. Automa is the Automa app
+for Android and the Automa board it opens (including Chats, App Studio,
+Terminals and App Inspector). Automa is made and published by Corx Labs, a
+Jamaican business (&quot;we&quot;, &quot;us&quot;).</p>
+<p>The short version: Automa has no cloud account, no ads, no analytics and no
+tracking. Your organizations, tasks, chats, agents and files live on an Automa
+server you control, usually the phone itself. The only data that leaves that
+server is what an AI model needs to answer you, and what an agent&#39;s tools fetch
+from the web when you use them.</p>
+<h2>Your Automa server</h2>
+<p>The app connects to an Automa server that you operate or were given access to:
+your phone (inside the free Termux app), your computer, or a server you rent.
+Everything you see and create in the app (organizations, tasks, comments,
+approvals, chats, agent activity, generated images and documents, App Studio
+projects, and files) is stored on that server. We do not operate your server and
+we do not receive that data.</p>
+<p>When the server runs on your phone, it keeps its database, hourly backups and
+the backups made by <code>automa backup</code> in Termux&#39;s private storage. Nothing is
+uploaded anywhere by the backup feature.</p>
+<p>The server&#39;s own usage reporting (Paperclip telemetry) is turned off by the
+installer on the phone. It can be turned on by setting
+<code>PAPERCLIP_TELEMETRY_DISABLED=0</code> in Termux; leave it as installed and nothing is
+reported.</p>
+<h2>Your account and sign-in</h2>
+<p>When Automa runs on your phone there is no account. The installer makes a key
+that only the Automa app knows, the app proves the server holds that key before
+it sends it, and the server answers only the Automa app. Signing out and in
+again never leaves the phone.</p>
+<p>When you connect to an Automa server on a computer, you sign in to that server
+with the name and password its owner set up, or with an invite link. That
+server, not us, holds your account.</p>
+<p><strong>Google sign-in and push notifications</strong> exist only in builds set up with
+Google Firebase. The build published on APKPure (version 1.9.7) is not: it shows
+no &quot;Continue with Google&quot; button, has no push service, and sends nothing to
+Google. If a future build adds them, this applies: your Google name, email
+address, profile photo link and a user ID would be stored in our Firebase
+Authentication project (run by Google for us) so you can sign in, the app would
+pass your Automa server a short-lived sign-in token, and Firebase Cloud
+Messaging would give the phone a push token that the app registers with your
+server. We would use these only to sign you in and to notify you.</p>
+<h2>Notifications</h2>
+<p>If you allow notifications, the app shows one when an AI reply or a team job
+finishes while the app is out of sight, and when an agent needs a file or an
+approval is waiting. The board page asks the app to show it over its own
+connection to your server. No notification service outside the phone is
+involved.</p>
+<h2>AI models</h2>
+<p>Automa&#39;s agents answer with AI models. What goes to a model is exactly what the
+agent needs to reply: the messages of that chat (the newest 40 since the last
+<code>/new</code>), the agent&#39;s instructions and role, the names of attached files, images
+when the model can see them, the text of documents the agent reads with its
+tools, and the result of every tool it uses. Every tool step is shown in the
+chat as it happens.</p>
+<ul>
+<li><strong>Free models.</strong> When an agent, Moan or App Studio uses Automa&#39;s free models
+(the default, with no key), your server sends that data to the free AI service
+Automa uses, which passes it to the company that runs the model you picked
+(for example OpenAI, Google, DeepSeek, xAI or NVIDIA). The free models are
+shared by everyone using Automa and are run by those companies under their own
+terms, so do not send them anything you would not give a third-party AI
+service. To show your remaining free usage on the Costs page, your server asks
+the free AI service how much has been used.</li>
+<li><strong>Your own keys.</strong> When you add an API key or sign in to a provider (Claude,
+Codex, Gemini, Cursor and others), your server sends the same data straight to
+that provider, with your key, under that provider&#39;s privacy policy. Keys are
+stored on your server, encrypted; agents and terminals never see them.</li>
+<li><strong>Images.</strong> Pictures an agent draws or edits are made by the image model of
+the free AI service (or the provider you chose) and stored on your server.
+Pictures you attach are sent to the model only when the model can see images.</li>
+<li><strong>Moan.</strong> Moan answers from a Jamaica knowledge index that your server builds
+by fetching public pages from Jamaican news, government, law and reference
+websites on a schedule. Those sites see a normal web request from your
+server&#39;s connection and nothing about you. The index holds only those public
+pages, never your data.</li>
+</ul>
+<h2>Agents&#39; web tools</h2>
+<p>When an agent&#39;s web tools are on, its searches go to DuckDuckGo and the pages it
+reads are downloaded by your server from their own sites, which see your
+server&#39;s connection. Links in chats show each site&#39;s icon, loaded from that
+site. Web tools never reach private or local addresses.</p>
+<h2>Connected apps</h2>
+<p>If you connect an app (Gmail, GitHub, Notion, Slack and others) for your agents,
+the sign-in tokens for it are stored on your server, encrypted, and used only by
+the agents you allowed. What an agent reads from a connected app becomes part of
+the conversation and can be sent to the AI model, as described above.</p>
+<h2>App Studio</h2>
+<ul>
+<li>Studio projects (your files, console output and collaboration chat) are stored
+on the Automa server that hosts them. We do not receive them.</li>
+<li>When you ask the Studio assistant or a team of models for help, the files and
+console output they read are sent to the AI model as described under
+&quot;AI models&quot;.</li>
+<li>When you turn on a public link, your app (not the rest of Automa) is reachable
+through Cloudflare by anyone with the link until you turn it off.</li>
+<li>People you invite with a share code see that workspace&#39;s files and chat, and
+the name they choose when they join is shown to you.</li>
+<li>Cloning from GitHub downloads the repository you enter directly from GitHub to
+your server.</li>
+<li>Previews run sandboxed: a preview cannot act as you or reach the rest of
+Automa.</li>
+</ul>
+<h2>Agents on your phone</h2>
+<p>When Automa runs on your phone, its agents and Terminals run commands in Termux
+on that phone, in Automa&#39;s own folder. If you link <strong>Wireless debugging</strong> with
+<code>automa adb link</code>, agents you ask can also act on the phone through the Android
+shell: open apps, tap and type, read settings and take screenshots. A screenshot
+an agent takes is sent to the AI model like any other image. Turn Wireless
+debugging off in Developer options to take that away again. App Inspector opens
+an APK you pick on the phone; the file never leaves your server.</p>
+<h2>On your phone</h2>
+<p>The app itself keeps:</p>
+<ul>
+<li>your server address and recent addresses, and a random installation ID sent
+to your server to recognize this phone;</li>
+<li>sign-in cookies from your server, kept by Android&#39;s WebView;</li>
+<li>files you pick, share to the app or place in the one folder you share. They
+are read only when you (or auto-send, if you turned it on) send them to your
+server. Shared files wait in the app&#39;s private storage until you send or
+discard them;</li>
+<li>downloads, saved to Downloads/Automa.</li>
+</ul>
+<p>The app asks for internet access, the notification permission, and the Termux
+permission that lets it start Automa on the phone. It does not ask for
+location, contacts, camera, microphone or broad storage access. You can revoke
+folder access in the app (Stop sharing) or in Android settings.</p>
+<h2>Sharing and selling</h2>
+<p>Data goes to the Automa server you choose and from there to the AI providers,
+websites and connected apps described above, only when you or your agents use
+them. The app contains no advertising or analytics SDKs. We do not sell data and
+we do not receive your data at all.</p>
+<h2>Security</h2>
+<p>Use an HTTPS address for a server on the internet. On a plain HTTP address on a
+private network (home Wi-Fi, or a VPN such as Tailscale) traffic on that network
+is not encrypted by the app. On the phone, Automa listens on the phone only and
+answers only the Automa app. Keys saved for AI providers and connected apps are
+encrypted on your server, and agents never see the server&#39;s database password or
+sign-in secret. The full threat model is published with Automa&#39;s source as
+<code>doc/AUTOMA-SECURITY.md</code>.</p>
+<h2>Keeping and deleting data</h2>
+<p>Server data is kept and deleted by your server&#39;s settings. You can delete chats,
+tasks, files, agents and whole organizations in the app, and remove devices on
+the Files page. Uninstalling the app removes everything it stored on the phone;
+uninstalling Termux removes the server and its
+data from the phone. If a future build includes Google sign-in, contact us to
+delete that account.</p>
+<h2>Children</h2>
+<p>The app is not directed to children under 13.</p>
+<h2>Changes and contact</h2>
+<p>We will post changes here and update the date above. Questions or deletion
+requests: ask on our <a rel="noopener" href="https://discord.gg/NfnSrFK7YM">Discord support server</a> or
+use the support email on Automa&#39;s APKPure page.</p>
+<p class="made-in">© 2026 Corx Labs · Made in Jamaica 🇯🇲</p>
+</main>
+</body>
+</html>

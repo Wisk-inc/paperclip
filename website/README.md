@@ -492,6 +492,8 @@ update, and a restore never loses the database. Set Termux's battery use to
   of Automa. Free agents' web tools never reach private or local addresses.
 - **Governed by you.** Hires, budgets and plans wait for your approval; budgets
   stop spending. Invites can't give more than the person who made them has.
+- **Privacy policy.** What leaves the phone and what never does, in plain words:
+  [PRIVACY.md](PRIVACY.md) (hostable page: `privacy.html`).
 - The full threat model is in `doc/AUTOMA-SECURITY.md`.
 
 ---

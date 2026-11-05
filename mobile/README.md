@@ -371,11 +371,11 @@ the device record (the token never leaves the server; the API only says
 | Large screens / foldables | Resizable, no orientation lock, config changes handled |
 | Permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`; files use the system pickers (no storage permission) |
 | Store icon 512×512 | `store/app-icon-512.png` |
-| Feature graphic 1024×500 | `store/feature-graphic-1024x500.png` |
-| Phone screenshots (1080×1920) | `store/screenshots/phone/` |
+| Feature graphic 1024×500 | `store/feature-graphic-1024x500.png` (24-bit PNG, no alpha) and `store/feature-graphic-1024x500.jpg` |
+| Phone screenshots (1080×2400) | `store/screenshots/phone/` (10 screens of 1.9.7) |
 | Tablet screenshots | `store/screenshots/tablet/` |
 | Listing text | `store/listing.md` |
-| Privacy policy and terms | `store/PRIVACY.md` and `store/TERMS.md` (also built into the app under `assets/connect/legal/`); host both at public URLs |
+| Privacy policy and terms | `website/PRIVACY.md` is the policy to edit (hostable page `website/privacy.html`; `store/PRIVACY.md` and the in-app `assets/connect/legal/privacy.html` are generated from it), `store/TERMS.md` the terms; host both at public URLs |
 | Data safety form | Answers in `store/listing.md` |
 
 Before you submit:
