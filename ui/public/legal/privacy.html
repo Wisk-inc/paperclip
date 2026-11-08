@@ -15,6 +15,7 @@ h2 { font-size: 18px; margin: 28px 0 8px; }
 p, li { color: var(--fg); }
 ul { padding-left: 20px; }
 a { color: var(--link); }
+code { font-size: 14px; background: var(--border); padding: 1px 5px; border-radius: 4px; }
 .updated, .made-in { color: var(--muted); font-size: 14px; }
 .back { display: inline-block; padding: 8px 0; text-decoration: none; }
 </style>
@@ -22,53 +23,160 @@ a { color: var(--link); }
 <body>
 <main>
   <a class="back" href="/">← Back to Automa</a>
-  <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: October 28, 2026</p>
-
-  <p>This policy explains what Automa (the Automa app for Android and the Automa board it opens, including Studio) does with your data. Automa is made and published by Corx Labs, a Jamaican business ("we", "us").</p>
-
-  <h2>Your Automa server</h2>
-  <p>The app connects to an Automa server that you operate or were given access to. Everything you see and create in the app (tasks, comments, approvals, agent activity, and files) is stored on that server. We do not operate your server and do not receive that data.</p>
-
-  <h2>Your account</h2>
-  <p>When you choose "Continue with Google", your Google name, email address, profile photo link, and a user ID are stored in our Firebase Authentication project (run by Google for us) so you can sign in. The app also gives your Automa server a short-lived sign-in token so it can sign you in with the same account. We use this only to sign you in.</p>
-
-  <h2>Studio</h2>
-  <ul>
-    <li>Studio projects (your files, console output, and collaboration chat) are stored on the Automa server that hosts them: your computer, a server, or your phone through Termux. We do not receive them.</li>
-    <li>When you ask the Studio assistant for help, the files and console output it reads are sent to the AI provider you picked, using your own API key, under that provider's privacy policy.</li>
-    <li>When you turn on a public link, your app (not the rest of Automa) is reachable through Cloudflare by anyone with the link until you turn it off.</li>
-    <li>People you invite with a share code see that workspace's files and chat, and the name they choose when they join is shown to you.</li>
-    <li>Cloning from GitHub downloads the repository you enter directly from GitHub to your server.</li>
-  </ul>
-
-  <h2>Notifications</h2>
-  <p>If you allow notifications, Firebase Cloud Messaging gives this phone a push token. The app registers it with your Automa server, which uses it to tell you when an agent needs a file or an approval is waiting. It is not used for advertising.</p>
-
-  <h2>On your phone</h2>
-  <ul>
-    <li>Your server address and recent addresses, and a random installation ID sent to your server to recognize this phone.</li>
-    <li>Sign-in cookies from your server, kept by Android's WebView.</li>
-    <li>Files you pick, share to the app, or place in the one folder you share are read only when you (or auto-send, if you turned it on) send them to your server. Shared files wait in the app's private storage until you send or discard them.</li>
-    <li>Downloads are saved to Downloads/Automa.</li>
-  </ul>
-  <p>The app does not ask for location, contacts, camera, microphone, or broad storage access. You can revoke folder access in the app (Stop sharing) or in Android settings.</p>
-
-  <h2>Sharing</h2>
-  <p>Data goes to the Automa server you choose and, for sign-in and notifications, to Google Firebase. The app contains no advertising or analytics SDKs, and we do not sell data. When your Automa server runs on this phone (in Termux) and a Claude agent answers a chat, the server on your phone sends that chat's messages, the agent's instructions and any image attachments to Anthropic (or to the AI provider address set for that agent), with the API key you added, so the model can reply. App Studio's assistant sends your message and the files you attach to the AI provider you pick. Those providers handle that data under their own terms. When an agent or App Studio uses Automa's free models (including Moan), the server sends that chat's messages, the agent's instructions and any attachments to the free AI service Automa uses, which passes them to the company that runs the model you picked; the free models are shared by everyone using Automa, so do not send them anything you would not give a third-party AI service. When an agent's web tools are on, its searches go to DuckDuckGo and the pages it reads are fetched from their own sites. Links in chats show each site's icon, loaded from that site.</p>
-
-  <h2>Security</h2>
-  <p>Firebase traffic is encrypted. Use an HTTPS address for your server; on a plain HTTP address on a private network (home Wi-Fi or a VPN such as Tailscale), traffic on that network is not encrypted by the app.</p>
-
-  <h2>Keeping and deleting data</h2>
-  <p>Server data is kept and deleted by your server's settings; you can delete files and remove devices on the Files page. To delete your account, contact us. Uninstalling the app removes everything it stored on the phone.</p>
-
-  <h2>Children</h2>
-  <p>The app is not directed to children under 13.</p>
-
-  <h2>Changes and contact</h2>
-  <p>We will post changes here and update the date above. Questions or deletion requests: ask on our <a href="https://discord.gg/NfnSrFK7YM">Discord support server</a> or use the support email on Automa's APKPure page.</p>
-  <p class="made-in">© 2026 Corx Labs · Made in Jamaica 🇯🇲</p>
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated: November 8, 2026</p>
+<p>This policy explains what Automa does with your data. Automa is the Automa app
+for Android and the Automa board it opens (including Chats, App Studio,
+Terminals and App Inspector). Automa is made and published by Corx Labs, a
+Jamaican business (&quot;we&quot;, &quot;us&quot;).</p>
+<p>The short version: Automa has no cloud account, no ads, no analytics and no
+tracking. Your organizations, tasks, chats, agents and files live on an Automa
+server you control, usually the phone itself. The only data that leaves that
+server is what an AI model needs to answer you, and what an agent&#39;s tools fetch
+from the web when you use them.</p>
+<h2>Your Automa server</h2>
+<p>The app connects to an Automa server that you operate or were given access to:
+your phone (inside the free Termux app), your computer, or a server you rent.
+Everything you see and create in the app (organizations, tasks, comments,
+approvals, chats, agent activity, generated images and documents, App Studio
+projects, and files) is stored on that server. We do not operate your server and
+we do not receive that data.</p>
+<p>When the server runs on your phone, it keeps its database, hourly backups and
+the backups made by <code>automa backup</code> in Termux&#39;s private storage. Nothing is
+uploaded anywhere by the backup feature.</p>
+<p>The server&#39;s own usage reporting (Paperclip telemetry) is turned off by the
+installer on the phone. It can be turned on by setting
+<code>PAPERCLIP_TELEMETRY_DISABLED=0</code> in Termux; leave it as installed and nothing is
+reported.</p>
+<h2>Your account and sign-in</h2>
+<p>When Automa runs on your phone there is no account. The installer makes a key
+that only the Automa app knows, the app proves the server holds that key before
+it sends it, and the server answers only the Automa app. Signing out and in
+again never leaves the phone.</p>
+<p>When you connect to an Automa server on a computer, you sign in to that server
+with the name and password its owner set up, or with an invite link. That
+server, not us, holds your account.</p>
+<p><strong>Google sign-in and push notifications</strong> exist only in builds set up with
+Google Firebase. The builds published on APKPure (1.9.7 and newer) are not:
+they show no &quot;Continue with Google&quot; button, have no push service, and send
+nothing to Google. If a future build adds them, this applies: your Google name, email
+address, profile photo link and a user ID would be stored in our Firebase
+Authentication project (run by Google for us) so you can sign in, the app would
+pass your Automa server a short-lived sign-in token, and Firebase Cloud
+Messaging would give the phone a push token that the app registers with your
+server. We would use these only to sign you in and to notify you.</p>
+<h2>Notifications</h2>
+<p>If you allow notifications, the app shows one when an AI reply or a team job
+finishes while the app is out of sight, and when an agent needs a file or an
+approval is waiting. The board page asks the app to show it over its own
+connection to your server. No notification service outside the phone is
+involved.</p>
+<h2>AI models</h2>
+<p>Automa&#39;s agents answer with AI models. What goes to a model is exactly what the
+agent needs to reply: the messages of that chat (the newest 40 since the last
+<code>/new</code>), the agent&#39;s instructions and role, the names of attached files, images
+when the model can see them, the text of documents the agent reads with its
+tools, and the result of every tool it uses. Every tool step is shown in the
+chat as it happens.</p>
+<ul>
+<li><strong>Free models.</strong> When an agent, Moan or App Studio uses Automa&#39;s free models
+(the default, with no key), your server sends that data to the free AI service
+Automa uses, which passes it to the company that runs the model you picked
+(for example OpenAI, Google, DeepSeek, xAI or NVIDIA). The free models are
+shared by everyone using Automa and are run by those companies under their own
+terms, so do not send them anything you would not give a third-party AI
+service. To show your remaining free usage on the Costs page, your server asks
+the free AI service how much has been used.</li>
+<li><strong>Your own keys.</strong> When you add an API key or sign in to a provider (Claude,
+Codex, Gemini, Cursor and others), your server sends the same data straight to
+that provider, with your key, under that provider&#39;s privacy policy. Keys are
+stored on your server, encrypted; agents and terminals never see them.</li>
+<li><strong>Images.</strong> Pictures an agent draws or edits are made by the image model of
+the free AI service (or the provider you chose) and stored on your server.
+Pictures you attach are sent to the model only when the model can see images.</li>
+<li><strong>Moan.</strong> Moan answers from a Jamaica knowledge index that your server builds
+by fetching public pages from Jamaican news, government, law and reference
+websites on a schedule. Those sites see a normal web request from your
+server&#39;s connection and nothing about you. The index holds only those public
+pages, never your data.</li>
+</ul>
+<h2>Agents&#39; web tools</h2>
+<p>When an agent&#39;s web tools are on, its searches go to DuckDuckGo, or to Bing
+when DuckDuckGo refuses to answer, and the pages it reads are downloaded by your
+server from their own sites, which see your server&#39;s connection. Links in chats show each site&#39;s icon, loaded from that
+site. Web tools never reach private or local addresses.</p>
+<h2>Connected apps</h2>
+<p>If you connect an app (Gmail, GitHub, Notion, Slack and others) for your agents,
+the sign-in tokens for it are stored on your server, encrypted, and used only by
+the agents you allowed. What an agent reads from a connected app becomes part of
+the conversation and can be sent to the AI model, as described above.</p>
+<h2>App Studio</h2>
+<ul>
+<li>Studio projects (your files, console output and collaboration chat) are stored
+on the Automa server that hosts them. We do not receive them.</li>
+<li>When you ask the Studio assistant or a team of models for help, the files and
+console output they read are sent to the AI model as described under
+&quot;AI models&quot;.</li>
+<li>When you turn on a public link, your app (not the rest of Automa) is reachable
+through Cloudflare by anyone with the link until you turn it off.</li>
+<li>People you invite with a share code see that workspace&#39;s files and chat, and
+the name they choose when they join is shown to you.</li>
+<li>Cloning from GitHub downloads the repository you enter directly from GitHub to
+your server.</li>
+<li>Previews run sandboxed: a preview cannot act as you or reach the rest of
+Automa.</li>
+</ul>
+<h2>Agents on your phone</h2>
+<p>When Automa runs on your phone, its agents and Terminals run commands in Termux
+on that phone, in Automa&#39;s own folder. If you link <strong>Wireless debugging</strong> with
+<code>automa adb link</code>, agents you ask can also act on the phone through the Android
+shell: open apps, tap and type, read settings and take screenshots. A screenshot
+an agent takes is sent to the AI model like any other image. Turn Wireless
+debugging off in Developer options to take that away again. App Inspector opens
+an APK you pick on the phone; the file never leaves your server.</p>
+<h2>On your phone</h2>
+<p>The app itself keeps:</p>
+<ul>
+<li>your server address and recent addresses, and a random installation ID sent
+to your server to recognize this phone;</li>
+<li>sign-in cookies from your server, kept by Android&#39;s WebView;</li>
+<li>files you pick, share to the app or place in the one folder you share. They
+are read only when you (or auto-send, if you turned it on) send them to your
+server. Shared files wait in the app&#39;s private storage until you send or
+discard them;</li>
+<li>downloads, saved to Downloads/Automa.</li>
+</ul>
+<p>The app asks for internet access, the notification permission, and the Termux
+permission that lets it start Automa on the phone. It does not ask for
+location, contacts, camera, microphone or broad storage access. You can revoke
+folder access in the app (Stop sharing) or in Android settings.</p>
+<h2>Sharing and selling</h2>
+<p>Data goes to the Automa server you choose and from there to the AI providers,
+websites and connected apps described above, only when you or your agents use
+them. The app contains no advertising or analytics SDKs. We do not sell data and
+we do not receive your data at all.</p>
+<h2>Security</h2>
+<p>Use an HTTPS address for a server on the internet. On a plain HTTP address on a
+private network (home Wi-Fi, or a VPN such as Tailscale) traffic on that network
+is not encrypted by the app. On the phone, Automa listens on the phone only and
+answers only the Automa app. Keys saved for AI providers and connected apps are
+encrypted on your server, and agents never see the server&#39;s database password or
+sign-in secret. The full threat model is published with Automa&#39;s source as
+<code>doc/AUTOMA-SECURITY.md</code>.</p>
+<h2>Keeping and deleting data</h2>
+<p>Server data is kept and deleted by your server&#39;s settings. You can delete chats,
+tasks, files, agents and whole organizations in the app, and remove devices on
+the Files page. Uninstalling the app removes everything it stored on the phone;
+uninstalling Termux removes the server and its
+data from the phone. If a future build includes Google sign-in, contact us to
+delete that account.</p>
+<h2>Children</h2>
+<p>The app is not directed to children under 13.</p>
+<h2>Changes and contact</h2>
+<p>We will post changes here and update the date above. Questions or deletion
+requests: ask on our <a rel="noopener" href="https://discord.gg/NfnSrFK7YM">Discord support server</a> or
+use the support email on Automa&#39;s APKPure page.</p>
+<p class="made-in">© 2026 Corx Labs · Made in Jamaica 🇯🇲</p>
 </main>
 </body>
 </html>

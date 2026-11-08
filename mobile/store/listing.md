@@ -71,7 +71,7 @@ Support: https://discord.gg/NfnSrFK7YM
 Privacy policy URL: the public URL of `website/PRIVACY.md` (or `website/privacy.html` once the website is hosted)
 Terms of service URL: the public URL of `TERMS.md` in this folder
 
-## Data safety answers (for the APKPure build, 1.9.7, built without Firebase)
+## Data safety answers (for the APKPure build, 1.9.8, built without Firebase)
 
 - Data collected by the developer: none. The app has no Google sign-in and no
   push service in this build, and the server's usage reporting is off.
@@ -80,7 +80,7 @@ Terms of service URL: the public URL of `TERMS.md` in this folder
   recognizes the phone.
 - Data transmitted from the user's server: chat messages, agent instructions
   and attachments go to the AI model the user picked (the free AI service, or
-  the provider whose key the user added); web searches go to DuckDuckGo; pages
+  the provider whose key the user added); web searches go to DuckDuckGo (or Bing when DuckDuckGo refuses); pages
   agents read are fetched from their own sites.
 - Encrypted in transit: yes to the AI providers and the web; to the user's own
   server, yes when it uses HTTPS (on the phone, traffic never leaves the phone).
@@ -99,5 +99,5 @@ free models are run by their makers under their own terms.
 - `app-icon-512.png`: 512×512 icon, 24-bit PNG (the launcher glyph on black)
 - `feature-graphic-1024x500.png`: 1024×500 feature graphic, 24-bit PNG without
   alpha (`feature-graphic-1024x500.jpg` is the same graphic as JPEG)
-- `screenshots/phone/*.png`: 1080×2400 phone screenshots of version 1.9.7
+- `screenshots/phone/*.png`: 1080×2400 phone screenshots (the 1.9.7 interface, unchanged in 1.9.8)
 - `screenshots/tablet/*.png`: 1920×1200 tablet screenshots (older UI)

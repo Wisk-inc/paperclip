@@ -72,29 +72,111 @@ function parsePage(html: string): WebSearchResult[] {
 }
 
 /**
+ * DuckDuckGo answers some networks (data centres, busy shared addresses) with a
+ * "bot check" page instead of results: status 202 and a challenge form. The
+ * page parses to no results, so it is told apart from a real empty result page
+ * by its markers.
+ */
+export function isSearchChallenge(html: string): boolean {
+  return /id="anomaly-modal"|id="challenge-form"|class="anomaly-modal/.test(html);
+}
+
+/** A Bing result link that goes through its click tracker carries the real URL as base64 in `u`. */
+function bingRealUrl(href: string): string {
+  try {
+    const url = new URL(href);
+    if (!/(^|\.)bing\.com$/.test(url.hostname) || url.pathname !== "/ck/a") return href;
+    const packed = url.searchParams.get("u");
+    if (!packed?.startsWith("a1")) return href;
+    const decoded = Buffer.from(packed.slice(2).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return /^https?:\/\//.test(decoded) ? decoded : href;
+  } catch {
+    return href;
+  }
+}
+
+/** Results from Bing's RSS feed of a search, the second source when DuckDuckGo refuses. */
+export function parseBingRss(xml: string): WebSearchResult[] {
+  const results: WebSearchResult[] = [];
+  const item = /<item>([\s\S]*?)<\/item>/g;
+  const field = (body: string, name: string) => {
+    const match = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(body);
+    return match ? stripTags(match[1]!.replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/, "$1")) : "";
+  };
+  for (let match = item.exec(xml); match; match = item.exec(xml)) {
+    const title = field(match[1]!, "title");
+    const url = bingRealUrl(field(match[1]!, "link"));
+    if (!title || !/^https?:/.test(url)) continue;
+    results.push({ title, url, snippet: field(match[1]!, "description") });
+  }
+  return results;
+}
+
+interface SearchSource {
+  name: string;
+  url: (query: string) => string;
+  accept: string;
+  parse: (body: string) => WebSearchResult[];
+}
+
+/** DuckDuckGo first; Bing's RSS feed when DuckDuckGo refuses or returns nothing but a bot check. */
+const SEARCH_SOURCES: SearchSource[] = [
+  { name: "DuckDuckGo", url: (query) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, accept: "text/html", parse: parsePage },
+  { name: "Bing", url: (query) => `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`, accept: "application/rss+xml, text/xml", parse: parseBingRss },
+];
+
+/**
  * One web search across the whole index (not a fixed shortlist), returning up
  * to `limit` de-duplicated results. Deep pagination needs a per-session token
  * the scraper can't mint, so breadth across thousands of sites comes from the
  * agent running many searches with different queries and reading many pages in
  * one run — which its tool loop is sized for.
+ *
+ * The sources are tried in order: a source that answers with an error status,
+ * a bot check, or a page that parses to nothing hands over to the next one, so
+ * a network DuckDuckGo refuses still gets results from Bing. No results from a
+ * source that answered properly is an empty result; only when every source
+ * refuses does the search fail, naming each source's answer.
  */
 export async function webSearch(query: string, limit = DEFAULT_RESULTS, signal?: AbortSignal): Promise<WebSearchResult[]> {
   const want = Math.max(1, Math.min(limit, MAX_RESULTS));
-  const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-    headers: { "user-agent": UA, accept: "text/html" },
-    signal: signal ?? AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`Search answered ${response.status}`);
-  const seen = new Set<string>();
-  const results: WebSearchResult[] = [];
-  for (const result of parsePage(await response.text())) {
-    const key = result.url.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    results.push(result);
-    if (results.length >= want) break;
+  const failures: string[] = [];
+  let answered = false;
+  for (const source of SEARCH_SOURCES) {
+    let parsed: WebSearchResult[];
+    try {
+      const response = await fetch(source.url(query), {
+        headers: { "user-agent": UA, accept: source.accept },
+        signal: signal ?? AbortSignal.timeout(20_000),
+      });
+      const body = await response.text();
+      if (!response.ok || isSearchChallenge(body)) {
+        failures.push(`${source.name} answered ${response.ok ? "with a bot check" : response.status}`);
+        continue;
+      }
+      parsed = source.parse(body);
+    } catch (error) {
+      // The caller's own stop (an aborted signal) ends the search at once.
+      if (signal?.aborted) throw error;
+      failures.push(`${source.name}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    const seen = new Set<string>();
+    const results: WebSearchResult[] = [];
+    for (const result of parsed) {
+      const key = result.url.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(result);
+      if (results.length >= want) break;
+    }
+    if (results.length > 0) return results;
+    // A proper answer with no results: try the next source, and if none has
+    // anything either, that is an empty result, not a failure.
+    answered = true;
   }
-  return results;
+  if (answered) return [];
+  throw new Error(`Search failed: ${failures.join("; ")}`);
 }
 
 export interface WebPage {

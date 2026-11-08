@@ -1218,7 +1218,7 @@ class MainActivity : ComponentActivity() {
             .putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
             .putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", reply)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(run) else startService(run)
+            startForegroundService(run)
             root.postDelayed(timeout, TERMUX_REPLY_TIMEOUT_MS)
         } catch (error: Exception) {
             finish(termuxFailure("blocked", "Android did not let Automa reach Termux. Open Termux and run: automa run"))

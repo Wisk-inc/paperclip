@@ -63,6 +63,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import {
   and,
@@ -17324,18 +17325,36 @@ export function heartbeatService(
     }
 
     const claimedAt = new Date();
-    const responsibleUserId = await resolveResponsibleUserIdForRun({
-      run,
-      contextSnapshot: context,
-      issueContext: issueId
-        ? await getIssueExecutionContext(run.companyId, issueId)
-        : null,
-      routineEnvContext: {
-        routineId: null,
-        env: null,
-        responsibleUserId: null,
-      },
-    });
+    let responsibleUserId: Awaited<ReturnType<typeof resolveResponsibleUserIdForRun>>;
+    try {
+      responsibleUserId = await resolveResponsibleUserIdForRun({
+        run,
+        contextSnapshot: context,
+        issueContext: issueId
+          ? await getIssueExecutionContext(run.companyId, issueId)
+          : null,
+        routineEnvContext: {
+          routineId: null,
+          env: null,
+          responsibleUserId: null,
+        },
+      });
+    } catch (err) {
+      if (!(err instanceof HttpError && err.status === 403)) throw err;
+      // The run's persisted wake receipts do not prove who may act through
+      // it (a queue left behind by an older version, or a receipt that no
+      // longer matches the run). Receipts never change, so the claim would
+      // fail the same way every cycle; the run is cancelled instead.
+      await cancelRunInternal(
+        run.id,
+        `Cancelled because the run's wake authority could not be verified: ${err.message}`,
+      );
+      logger.warn(
+        { runId: run.id, issueId, reason: err.message },
+        "claimQueuedRun: cancelled queued run with unverifiable wake authority",
+      );
+      return null;
+    }
     // All ordinary and comment claims use the same company-scoped issue
     // lock. A batch may claim several runs before executeRun tracks any owner.
     async function lockIssueExecutionClaim(tx: Db) {
@@ -19819,145 +19838,197 @@ export function heartbeatService(
     }
   }
 
-  async function startNextQueuedRunForAgent(agentId: string) {
+  /**
+   * The start cycle of one agent, when it is already running in the current
+   * async context. Claiming inside the cycle can cancel a queued run; that
+   * cancel releases the run's issue and promotes a follow-up wake, which asks
+   * to start the agent's next run. From inside the cycle that request would
+   * wait on the cycle's own start lock until the lock is declared stale
+   * (30 s), stalling the scheduler, and startup recovery with it. The request
+   * is noted on the cycle instead and served once the lock is released.
+   */
+  type AgentStartCycle = { agentId: string; done: boolean; restartRequested: boolean };
+  const agentStartCycle = new AsyncLocalStorage<AgentStartCycle>();
+  const MAX_AGENT_START_RESTARTS = 5;
+
+  async function startNextQueuedRunForAgent(
+    agentId: string,
+    restarts = 0,
+  ): Promise<Array<typeof heartbeatRuns.$inferSelect>> {
+    const enclosing = agentStartCycle.getStore();
+    if (enclosing && enclosing.agentId === agentId && !enclosing.done) {
+      enclosing.restartRequested = true;
+      return [];
+    }
     if ((await getSchedulingSuppression()).suppressed) return [];
     const cutoff = await getWorktreeExecutionCutoff();
 
-    return withAgentStartLock(agentId, async () => {
-      const agent = await getAgent(agentId);
-      if (!agent) return [];
-      const invokability = await getAgentInvokability(agent);
-      if (!invokability.invokable) {
-        if (shouldCancelRunsForNonInvokableAgent(invokability)) {
-          await cancelActiveForAgentInternal(
-            agentId,
-            `Cancelled because the agent is not invokable: ${invokability.reason}`,
+    const cycle: AgentStartCycle = { agentId, done: false, restartRequested: false };
+    let started: Array<typeof heartbeatRuns.$inferSelect>;
+    try {
+      started = await withAgentStartLock(agentId, () =>
+        agentStartCycle.run(cycle, async () => {
+          const agent = await getAgent(agentId);
+          if (!agent) return [];
+          const invokability = await getAgentInvokability(agent);
+          if (!invokability.invokable) {
+            if (shouldCancelRunsForNonInvokableAgent(invokability)) {
+              await cancelActiveForAgentInternal(
+                agentId,
+                `Cancelled because the agent is not invokable: ${invokability.reason}`,
+              );
+            }
+            return [];
+          }
+          const policy = parseHeartbeatPolicy(agent);
+          const runningCount = await countRunningRunsForAgent(agentId);
+          const availableSlots = Math.max(
+            0,
+            policy.maxConcurrentRuns - runningCount,
           );
-        }
-        return [];
-      }
-      const policy = parseHeartbeatPolicy(agent);
-      const runningCount = await countRunningRunsForAgent(agentId);
-      const availableSlots = Math.max(
-        0,
-        policy.maxConcurrentRuns - runningCount,
-      );
-      if (availableSlots <= 0) return [];
+          if (availableSlots <= 0) return [];
 
-      const queuedRuns = await db
-        .select()
-        .from(heartbeatRuns)
-        .where(
-          and(
-            eq(heartbeatRuns.agentId, agentId),
-            eq(heartbeatRuns.status, "queued"),
-            cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
-          ),
-        )
-        .orderBy(asc(heartbeatRuns.createdAt));
-      if (queuedRuns.length === 0) return [];
-
-      const dependencyReadiness = await listQueuedRunDependencyReadiness(
-        agent.companyId,
-        queuedRuns,
-      );
-      const queuedIssueIds = [
-        ...new Set(
-          queuedRuns
-            .map((run) =>
-              readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+          const queuedRuns = await db
+            .select()
+            .from(heartbeatRuns)
+            .where(
+              and(
+                eq(heartbeatRuns.agentId, agentId),
+                eq(heartbeatRuns.status, "queued"),
+                cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
+              ),
             )
-            .filter((issueId): issueId is string => Boolean(issueId)),
-        ),
-      ];
-      const issueRows = await db
-        .select({
-          id: issues.id,
-          status: issues.status,
-          priority: issues.priority,
-        })
-        .from(issues)
-        .where(
-          queuedIssueIds.length > 0
-            ? and(
-                eq(issues.companyId, agent.companyId),
-                inArray(issues.id, queuedIssueIds),
-              )
-            : sql`false`,
-        );
-      const issueById = new Map(issueRows.map((row) => [row.id, row]));
-      const companyAgents = await listCompanyAgentOrgRows(agent.companyId);
-      const prioritizedRuns = [...queuedRuns].sort((left, right) => {
-        const leftIssueId = readNonEmptyString(
-          parseObject(left.contextSnapshot).issueId,
-        );
-        const rightIssueId = readNonEmptyString(
-          parseObject(right.contextSnapshot).issueId,
-        );
-        const leftReadiness = leftIssueId
-          ? dependencyReadiness.get(leftIssueId)
-          : null;
-        const rightReadiness = rightIssueId
-          ? dependencyReadiness.get(rightIssueId)
-          : null;
-        const leftReady = leftIssueId
-          ? (leftReadiness?.isDependencyReady ?? true)
-          : true;
-        const rightReady = rightIssueId
-          ? (rightReadiness?.isDependencyReady ?? true)
-          : true;
-        const leftIssue = leftIssueId ? issueById.get(leftIssueId) : null;
-        const rightIssue = rightIssueId ? issueById.get(rightIssueId) : null;
-        const leftRank = leftIssueId
-          ? leftReady
-            ? leftIssue?.status === "in_progress"
-              ? 0
-              : 1
-            : 3
-          : 2;
-        const rightRank = rightIssueId
-          ? rightReady
-            ? rightIssue?.status === "in_progress"
-              ? 0
-              : 1
-            : 3
-          : 2;
-        if (leftRank !== rightRank) return leftRank - rightRank;
-        const leftPriorityRank = issueRunPriorityRank(leftIssue?.priority);
-        const rightPriorityRank = issueRunPriorityRank(rightIssue?.priority);
-        if (leftPriorityRank !== rightPriorityRank)
-          return leftPriorityRank - rightPriorityRank;
-        return left.createdAt.getTime() - right.createdAt.getTime();
-      });
+            .orderBy(asc(heartbeatRuns.createdAt));
+          if (queuedRuns.length === 0) return [];
 
-      const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
-      for (const queuedRun of prioritizedRuns) {
-        if (claimedRuns.length >= availableSlots) break;
-        const claimed = await claimQueuedRun(queuedRun, companyAgents);
-        if (claimed) claimedRuns.push(claimed);
-      }
-      if (claimedRuns.length === 0) return [];
-
-      for (const claimedRun of claimedRuns) {
-        const execution = executeRun(claimedRun.id).catch((err) => {
-          logger.error(
-            { err, runId: claimedRun.id },
-            "queued heartbeat execution failed",
+          const dependencyReadiness = await listQueuedRunDependencyReadiness(
+            agent.companyId,
+            queuedRuns,
           );
-        });
-        // Register the in-flight execution so drainActiveRunExecutions() can await
-        // it. executeRun resolves only after its finally block finishes flushing
-        // run rows/events, so awaiting this promise guarantees the run's writes
-        // have landed before a caller (e.g. a test's afterEach) mutates the DB.
-        activeRunExecutionPromises.add(execution);
-        void execution.finally(() => {
-          // drainActiveRunExecutions loops on activeRunExecutionPromises.size,
-          // so an entry that never clears here would hang it forever.
-          activeRunExecutionPromises.delete(execution);
-        });
-      }
-      return claimedRuns;
-    });
+          const queuedIssueIds = [
+            ...new Set(
+              queuedRuns
+                .map((run) =>
+                  readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+                )
+                .filter((issueId): issueId is string => Boolean(issueId)),
+            ),
+          ];
+          const issueRows = await db
+            .select({
+              id: issues.id,
+              status: issues.status,
+              priority: issues.priority,
+            })
+            .from(issues)
+            .where(
+              queuedIssueIds.length > 0
+                ? and(
+                    eq(issues.companyId, agent.companyId),
+                    inArray(issues.id, queuedIssueIds),
+                  )
+                : sql`false`,
+            );
+          const issueById = new Map(issueRows.map((row) => [row.id, row]));
+          const companyAgents = await listCompanyAgentOrgRows(agent.companyId);
+          const prioritizedRuns = [...queuedRuns].sort((left, right) => {
+            const leftIssueId = readNonEmptyString(
+              parseObject(left.contextSnapshot).issueId,
+            );
+            const rightIssueId = readNonEmptyString(
+              parseObject(right.contextSnapshot).issueId,
+            );
+            const leftReadiness = leftIssueId
+              ? dependencyReadiness.get(leftIssueId)
+              : null;
+            const rightReadiness = rightIssueId
+              ? dependencyReadiness.get(rightIssueId)
+              : null;
+            const leftReady = leftIssueId
+              ? (leftReadiness?.isDependencyReady ?? true)
+              : true;
+            const rightReady = rightIssueId
+              ? (rightReadiness?.isDependencyReady ?? true)
+              : true;
+            const leftIssue = leftIssueId ? issueById.get(leftIssueId) : null;
+            const rightIssue = rightIssueId ? issueById.get(rightIssueId) : null;
+            const leftRank = leftIssueId
+              ? leftReady
+                ? leftIssue?.status === "in_progress"
+                  ? 0
+                  : 1
+                : 3
+              : 2;
+            const rightRank = rightIssueId
+              ? rightReady
+                ? rightIssue?.status === "in_progress"
+                  ? 0
+                  : 1
+                : 3
+              : 2;
+            if (leftRank !== rightRank) return leftRank - rightRank;
+            const leftPriorityRank = issueRunPriorityRank(leftIssue?.priority);
+            const rightPriorityRank = issueRunPriorityRank(rightIssue?.priority);
+            if (leftPriorityRank !== rightPriorityRank)
+              return leftPriorityRank - rightPriorityRank;
+            return left.createdAt.getTime() - right.createdAt.getTime();
+          });
+
+          const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
+          for (const queuedRun of prioritizedRuns) {
+            if (claimedRuns.length >= availableSlots) break;
+            let claimed: typeof heartbeatRuns.$inferSelect | null;
+            try {
+              claimed = await claimQueuedRun(queuedRun, companyAgents);
+            } catch (err) {
+              // One run that cannot be claimed (a transient database error, a
+              // receipt check that threw) must not stop the agent's other runs,
+              // nor the startup recovery that runs this loop: on a phone that
+              // used to keep the whole server from starting. The run stays
+              // queued for the next cycle unless claimQueuedRun cancelled it.
+              logger.error(
+                { err, runId: queuedRun.id, agentId },
+                "claimQueuedRun failed; skipping the run this cycle",
+              );
+              continue;
+            }
+            if (claimed) claimedRuns.push(claimed);
+          }
+          if (claimedRuns.length === 0) return [];
+
+          for (const claimedRun of claimedRuns) {
+            const execution = executeRun(claimedRun.id).catch((err) => {
+              logger.error(
+                { err, runId: claimedRun.id },
+                "queued heartbeat execution failed",
+              );
+            });
+            // Register the in-flight execution so drainActiveRunExecutions() can await
+            // it. executeRun resolves only after its finally block finishes flushing
+            // run rows/events, so awaiting this promise guarantees the run's writes
+            // have landed before a caller (e.g. a test's afterEach) mutates the DB.
+            activeRunExecutionPromises.add(execution);
+            void execution.finally(() => {
+              // drainActiveRunExecutions loops on activeRunExecutionPromises.size,
+              // so an entry that never clears here would hang it forever.
+              activeRunExecutionPromises.delete(execution);
+            });
+          }
+          return claimedRuns;
+        }),
+      );
+    } finally {
+      cycle.done = true;
+    }
+    if (!cycle.restartRequested) return started;
+    if (restarts >= MAX_AGENT_START_RESTARTS) {
+      logger.warn(
+        { agentId, restarts },
+        "agent start cycle kept queueing follow-up runs; leaving the rest to the next scheduler pass",
+      );
+      return started;
+    }
+    return [...started, ...(await startNextQueuedRunForAgent(agentId, restarts + 1))];
   }
 
   // Await every background heartbeat execution that is currently in flight. A

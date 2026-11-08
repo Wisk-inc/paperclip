@@ -70,7 +70,6 @@ object Push {
     }
 
     fun createChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             context.getString(R.string.notification_channel_id),
             context.getString(R.string.notification_channel_name),

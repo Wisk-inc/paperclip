@@ -182,6 +182,14 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       model: "test-model",
     }));
     runningProcesses.clear();
+    // A run promoted while a test's own run finished (a released issue wakes
+    // its assignee) can still be in its completion bookkeeping; truncating the
+    // fixture under those writes deadlocks. Let in-flight executions settle,
+    // but never hang the suite on one a test left gated.
+    await Promise.race([
+      heartbeat.drainActiveRunExecutions(),
+      new Promise((resolve) => setTimeout(resolve, 10_000)),
+    ]);
     let idlePolls = 0;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const runs = await db
@@ -1748,4 +1756,40 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
     await waitForCondition(async () => claimedIssue !== null);
     expect(claimedIssue).toEqual({ status: "in_progress", executionRunId: runId });
   });
+
+  it("startup recovery cancels a queued run whose wake receipt cannot be verified and still starts the others", async () => {
+    const { companyId, agentId } = await seedCompanyAndAgent({ maxConcurrentRuns: 2 });
+    const staleIssueId = randomUUID();
+    const healthyIssueId = randomUUID();
+    for (const id of [staleIssueId, healthyIssueId]) {
+      await db.insert(issues).values({ id, companyId, title: "Startup recovery", status: "todo", assigneeAgentId: agentId });
+    }
+    // A queue left behind by an older version: its receipt says a queued
+    // comment interrupted the run, but the key names no queue, so the
+    // identity check refuses the run every time it is claimed. That refusal
+    // used to escape startup recovery and keep the whole server from starting.
+    const stale = await seedQueuedRun({ companyId, agentId, issueId: staleIssueId, wakeReason: "issue_commented" });
+    await db.update(agentWakeupRequests)
+      .set({ idempotencyKey: "queued-comment-interrupt:not-a-queue" })
+      .where(eq(agentWakeupRequests.id, stale.wakeupRequestId));
+    const healthy = await seedQueuedRun({ companyId, agentId, issueId: healthyIssueId, wakeReason: "issue_assigned" });
+
+    const startedAt = Date.now();
+    await expect(heartbeat.resumeQueuedRuns()).resolves.toBeUndefined();
+    // The cancel must not wait out the agent start lock (30 s) the claim loop holds.
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+
+    const [cancelled] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, stale.runId));
+    expect(cancelled?.status).toBe("cancelled");
+    expect(cancelled?.error).toContain("wake authority could not be verified");
+    expect(await waitForCondition(async () =>
+      (await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, healthy.runId)))[0]?.status === "succeeded",
+    )).toBe(true);
+    await heartbeat.waitForRunExecutionDrain(healthy.runId);
+    expect(countExecuteCallsForRun(healthy.runId)).toBe(1);
+    expect(countExecuteCallsForRun(stale.runId)).toBe(0);
+    // Releasing the cancelled run's issue wakes its assignee afresh; let those
+    // follow-up runs finish before the fixture is truncated.
+    await heartbeat.drainActiveRunExecutions();
+  }, 60_000);
 });

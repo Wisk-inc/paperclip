@@ -1,6 +1,6 @@
 # Automa Privacy Policy
 
-_Last updated: November 5, 2026_
+_Last updated: November 8, 2026_
 
 This policy explains what Automa does with your data. Automa is the Automa app
 for Android and the Automa board it opens (including Chats, App Studio,
@@ -43,9 +43,9 @@ with the name and password its owner set up, or with an invite link. That
 server, not us, holds your account.
 
 **Google sign-in and push notifications** exist only in builds set up with
-Google Firebase. The build published on APKPure (version 1.9.7) is not: it shows
-no "Continue with Google" button, has no push service, and sends nothing to
-Google. If a future build adds them, this applies: your Google name, email
+Google Firebase. The builds published on APKPure (1.9.7 and newer) are not:
+they show no "Continue with Google" button, have no push service, and send
+nothing to Google. If a future build adds them, this applies: your Google name, email
 address, profile photo link and a user ID would be stored in our Firebase
 Authentication project (run by Google for us) so you can sign in, the app would
 pass your Automa server a short-lived sign-in token, and Firebase Cloud
@@ -92,9 +92,9 @@ chat as it happens.
 
 ## Agents' web tools
 
-When an agent's web tools are on, its searches go to DuckDuckGo and the pages it
-reads are downloaded by your server from their own sites, which see your
-server's connection. Links in chats show each site's icon, loaded from that
+When an agent's web tools are on, its searches go to DuckDuckGo, or to Bing
+when DuckDuckGo refuses to answer, and the pages it reads are downloaded by your
+server from their own sites, which see your server's connection. Links in chats show each site's icon, loaded from that
 site. Web tools never reach private or local addresses.
 
 ## Connected apps

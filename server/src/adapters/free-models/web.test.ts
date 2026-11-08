@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const { lookup } = vi.hoisted(() => ({ lookup: vi.fn(async (host: string) => [{ address: host === "metadata.evil.test" ? "169.254.169.254" : "93.184.216.34", family: 4 }]) }));
 vi.mock("node:dns/promises", () => ({ lookup }));
 
-const { linkMatcher, pageLinks, privateAddress, readableText, webCrawl, webDownload, webFetch } = await import("./web.js");
+const { isSearchChallenge, linkMatcher, pageLinks, parseBingRss, privateAddress, readableText, webCrawl, webDownload, webFetch, webSearch } = await import("./web.js");
 
 type Hop = { status?: number; location?: string; body?: string | Uint8Array<ArrayBuffer>; contentType?: string; contentLength?: string };
 
@@ -162,5 +162,76 @@ describe("numeric character references", () => {
   it("keeps the page when a reference names no character", () => {
     // The out-of-range reference becomes a space (collapsed here) rather than throwing and losing the page; a valid one still decodes.
     expect(readableText("<body><p>Budget &#99999999; passed &#65;.</p></body>")).toBe("Budget passed A.");
+  });
+});
+
+const DDG_RESULTS = `<div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fone&amp;rut=x">One &amp; only</a><a class="result__snippet" href="x">First snippet</a></div>
+<div class="result"><a class="result__a" href="https://example.com/two">Two</a><a class="result__snippet" href="x">Second snippet</a></div>`;
+const DDG_CHALLENGE = `<html><body><div id="anomaly-modal" class="anomaly-modal"><form id="challenge-form"><div class="anomaly-modal__title">Select all squares with traffic lights</div></form></div></body></html>`;
+const BING_RSS = `<?xml version="1.0" encoding="utf-8" ?><rss version="2.0"><channel><title>Bing: q</title>
+<item><title>Jamaica - Wikipedia</title><link>https://en.wikipedia.org/wiki/Jamaica</link><description>Jamaica is an island country &amp; Commonwealth realm.</description></item>
+<item><title><![CDATA[Tracked <b>result</b>]]></title><link>https://www.bing.com/ck/a?!&amp;&amp;p=abc&amp;u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS90cmFja2Vk&amp;ntb=1</link><description><![CDATA[Through the click tracker.]]></description></item>
+<item><title>No link</title><link></link><description>Dropped.</description></item>
+</channel></rss>`;
+
+describe("web search sources", () => {
+  it("reads DuckDuckGo results and never asks Bing when DuckDuckGo answers", async () => {
+    const seen = stubFetch((url) => (url.includes("duckduckgo") ? { body: DDG_RESULTS } : { status: 500 }));
+    const results = await webSearch("example", 8);
+    expect(results).toEqual([
+      { title: "One & only", url: "https://example.com/one", snippet: "First snippet" },
+      { title: "Two", url: "https://example.com/two", snippet: "Second snippet" },
+    ]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("html.duckduckgo.com");
+  });
+
+  it("falls back to Bing when DuckDuckGo answers with its bot check", async () => {
+    const seen = stubFetch((url) => (url.includes("duckduckgo") ? { status: 202, body: DDG_CHALLENGE } : { body: BING_RSS, contentType: "text/xml" }));
+    const results = await webSearch("jamaica", 8);
+    expect(results).toEqual([
+      { title: "Jamaica - Wikipedia", url: "https://en.wikipedia.org/wiki/Jamaica", snippet: "Jamaica is an island country & Commonwealth realm." },
+      { title: "Tracked result", url: "https://example.com/tracked", snippet: "Through the click tracker." },
+    ]);
+    expect(seen.map((url) => new URL(url).host)).toEqual(["html.duckduckgo.com", "www.bing.com"]);
+    expect(seen[1]).toContain("format=rss");
+    expect(seen[1]).toContain("q=jamaica");
+  });
+
+  it("falls back to Bing when DuckDuckGo answers an error status", async () => {
+    const seen = stubFetch((url) => (url.includes("duckduckgo") ? { status: 503, body: "busy" } : { body: BING_RSS, contentType: "text/xml" }));
+    const results = await webSearch("jamaica", 1);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.url).toBe("https://en.wikipedia.org/wiki/Jamaica");
+    expect(seen).toHaveLength(2);
+  });
+
+  it("names every source's answer when all of them fail", async () => {
+    stubFetch((url) => (url.includes("duckduckgo") ? { status: 202, body: DDG_CHALLENGE } : { status: 403, body: "no" }));
+    await expect(webSearch("jamaica")).rejects.toThrow("Search failed: DuckDuckGo answered with a bot check; Bing answered 403");
+  });
+
+  it("returns no results, not an error, when every source answers properly with nothing", async () => {
+    const seen = stubFetch((url) => (url.includes("duckduckgo") ? { body: "<html><body><div class=\"no-results\">No results.</div></body></html>" } : { body: "<rss><channel></channel></rss>", contentType: "text/xml" }));
+    await expect(webSearch("xqzv nonsense")).resolves.toEqual([]);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("treats a real empty result page as empty, not as a bot check", () => {
+    expect(isSearchChallenge("<html><body><div class=\"no-results\">No results.</div></body></html>")).toBe(false);
+    expect(isSearchChallenge(DDG_CHALLENGE)).toBe(true);
+    expect(parseBingRss("<rss><channel></channel></rss>")).toEqual([]);
+  });
+
+  it("stops at once when the caller aborts, instead of trying the next source", async () => {
+    const controller = new AbortController();
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      seen.push(String(input));
+      controller.abort();
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }));
+    await expect(webSearch("jamaica", 8, controller.signal)).rejects.toThrow(/aborted/);
+    expect(seen).toHaveLength(1);
   });
 });
