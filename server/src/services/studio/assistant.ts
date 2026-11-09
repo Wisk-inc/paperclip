@@ -1856,7 +1856,14 @@ async function runFreeModels(input: {
       // Only a refusal of the request as sent reshapes it; a busy line, a server error or a dropped connection keeps it.
       if (!textHistory && refusedTheRequest(error) && messages.some((m) => m.role === "tool")) { textHistory = true; step -= 1; continue; }
       if (useTools && refusedTheRequest(error)) { useTools = false; input.onStep({ tool: "say", summary: `(${label} did not take the tools; continuing in text.)`, ok: true, detail: null }); step -= 1; continue; }
-      if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) { retries += 1; await pause(FREE_RETRY_BASE_MS * retries, input.signal); step -= 1; continue; }
+      if (retries < FREE_BUSY_RETRIES && isTransientPuterError(error)) {
+        retries += 1;
+        // The service's own rate limit: the next call is held until it lifts, so say why nothing moves meanwhile.
+        if (error.slowDown) input.onStep({ tool: "say", summary: "(The free AI service asked Automa to slow down; waiting about a minute, then carrying on.)", ok: true, detail: null });
+        await pause(FREE_RETRY_BASE_MS * retries, input.signal);
+        step -= 1;
+        continue;
+      }
       throw describePuterError(error, label, retries);
     }
     await input.onUsage({ provider: "free", model: input.model, inputTokens: usage.inputTokens, cachedInputTokens: 0, outputTokens: usage.outputTokens, costUsd: 0 });

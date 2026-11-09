@@ -200,6 +200,41 @@ describe("free models engine", () => {
     expect(net.posted()).toBe("Back now.");
   });
 
+  it("waits out the free AI service's own rate limit, then carries on with the same model", async () => {
+    // The service's limit covers every model and lifts after the wait it names.
+    // Four quick retries, as for a busy model, all landed inside that wait and failed the reply.
+    const net = stubPuter([
+      refusal(429, { error: "Too many AI requests from this account, network or device. Try again in 1 second.", code: "too_many_requests" }),
+      () => ndjson([{ type: "text", text: "Back now." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }]),
+    ]);
+    const ctx = context({ model: NEMOTRON, ...NO_TOOLS });
+    const startedAt = Date.now();
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+    expect(net.puterModels()).toEqual([NEMOTRON, NEMOTRON]);
+    expect(net.posted()).toBe("Back now.");
+    // The second call went out only after the second the service asked for.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
+    expect(ctx.logs.some((line) => line.includes("The free AI service asked Automa to slow down"))).toBe(true);
+    expect(ctx.logs.some((line) => line.includes("is busy (429"))).toBe(false);
+  });
+
+  it("says the service asked for the slow-down, not that the model is busy, when the limit does not lift", async () => {
+    const slowDown = refusal(429, { error: "Too many AI requests from this account, network or device. Try again in 1 second.", code: "too_many_requests" });
+    const net = stubPuter([slowDown, slowDown, slowDown, slowDown, slowDown, slowDown]);
+    const result = await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toContain("The free AI service asked Automa to slow down");
+    expect(result.errorMessage).toContain("Automa waited and asked again 4 times");
+    expect(result.errorMessage).toContain("Another model will not answer sooner");
+    expect(result.errorMessage).not.toContain("busy at its provider");
+    // Every try stayed on the chosen model, and none was sent to a second route.
+    expect(new Set(net.puterModels())).toEqual(new Set([NEMOTRON]));
+    // The server's own retry of this reply is told to wait at least as long as the service asked.
+    expect(result.errorFamily).toBe("transient_upstream");
+    expect(Date.parse(result.retryNotBefore!)).toBeGreaterThan(Date.now());
+  }, 30_000);
+
   it("asks the same model again when a reply comes back empty, then for words without tools", async () => {
     const empty = () => ndjson([{ type: "usage", usageDetails: { inputTokens: 5, outputTokens: 0 } }]);
     const net = stubPuter([empty, empty, () => ndjson([{ type: "text", text: "It's 31°C in Kingston." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 6 } }])]);

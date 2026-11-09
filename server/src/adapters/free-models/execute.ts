@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   describePuterError,
   formatSafetyVerdict,
+  freeServiceSlowDownMs,
   isLastingPuterError,
   isPuterImageModel,
   isTransientPuterError,
@@ -38,6 +39,16 @@ const DEFAULT_MAX_TOOL_TURNS = 40;
 /** Same-model retries for a busy provider, and how long to wait between them (short under test). */
 const MAX_TRANSIENT_RETRIES = 4;
 const RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
+/**
+ * How long to wait when the free AI service asks this install to slow down:
+ * the time it named (a minute, usually), kept between one second and ninety,
+ * plus a little so the next call lands after the limit lifts rather than on
+ * its edge. Short under test.
+ */
+function slowDownPauseMs(askedMs: number | null): number {
+  if (process.env.VITEST) return 20;
+  return Math.min(Math.max(askedMs ?? 60_000, 1000), 90_000) + 2000;
+}
 /** The same tool call with the same arguments past this many times is a loop, not research. */
 const MAX_IDENTICAL_CALLS = 2;
 /** A tool that fails this many times in a row is dropped for the rest of the run. */
@@ -495,7 +506,9 @@ function refusalFor(error: PuterHttpError, label: string, retries: number): Free
   if (error.kind === "daily_limit") {
     return new FreeModelRefusal(message, "provider_quota", error.retryAfterMs == null ? null : new Date(Date.now() + error.retryAfterMs).toISOString());
   }
-  return new FreeModelRefusal(message, isTransientPuterError(error) ? "transient_upstream" : null, null);
+  // After a slow-down the server's own retry of this reply waits at least as long as the service asked.
+  const notBefore = error.slowDown && error.retryAfterMs != null ? new Date(Date.now() + error.retryAfterMs).toISOString() : null;
+  return new FreeModelRefusal(message, isTransientPuterError(error) ? "transient_upstream" : null, notBefore);
 }
 
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
@@ -543,6 +556,13 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       await onLog("stdout", logLine({ type: "acpx.text_delta", text: piece.text, ...(piece.channel === "thinking" ? { channel: "thinking" } : {}) }));
     };
     const attempt = textHistory ? toolHistoryAsText(messages) : messages;
+    // The next call is held while the service's own rate limit stands (another
+    // agent's call, or this model's second route, may be what met it). Say so,
+    // or the reply looks stuck for the minute the wait can take.
+    const held = freeServiceSlowDownMs();
+    if (held > 3000) {
+      await onLog("stdout", logLine({ type: "acpx.status", message: `The free AI service asked Automa to slow down (too many requests in a short time). Waiting about ${Math.round(Math.min(held, 90_000) / 1000)} seconds, then carrying on.` }));
+    }
     try {
       for await (const event of puterStream(attempt, { model: puterModel, tools: useTools ? tools : undefined, signal: ctx.signal })) {
         if (event.type === "text") { for (const piece of splitter.push(event.text)) await emit(piece); }
@@ -578,11 +598,17 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
       }
       if (retries < MAX_TRANSIENT_RETRIES && isTransientPuterError(error)) {
         retries += 1;
+        // The service's own rate limit lifts after the wait it names; asking
+        // again sooner, as a busy model is asked, is refused for sure.
+        const slowDown = !dropped && error.slowDown;
+        const waitMs = slowDown ? slowDownPauseMs(error.retryAfterMs) : RETRY_BASE_MS * retries;
         const message = dropped
           ? `The connection to ${label} dropped; retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).`
-          : `${label} is busy (${status}); retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).`;
+          : slowDown
+            ? `The free AI service asked Automa to slow down (too many requests in a short time). Waiting about ${Math.max(1, Math.round(waitMs / 1000))} seconds, then carrying on (${retries}/${MAX_TRANSIENT_RETRIES}).`
+            : `${label} is busy (${status}); retrying in a moment (${retries}/${MAX_TRANSIENT_RETRIES}).`;
         await onLog("stdout", logLine({ type: "acpx.status", message }));
-        await pause(RETRY_BASE_MS * retries, ctx.signal);
+        await pause(waitMs, ctx.signal);
         turn -= 1;
         continue;
       }

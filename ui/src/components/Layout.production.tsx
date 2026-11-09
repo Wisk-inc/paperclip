@@ -22,6 +22,7 @@ import { CompanySettingsSidebar } from "./CompanySettingsSidebar.production";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { AppsSidebar } from "./AppsSidebar.production";
 import { AppDetailSidebar } from "./AppConnectionSidebar.production";
+import { appConnectionIdFromSegments } from "@/lib/apps-routes";
 import { BreadcrumbBar } from "./BreadcrumbBar.production";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { CommandPalette } from "./CommandPalette";
@@ -92,18 +93,6 @@ function getCompanyPathSegments(
   return segments.slice(1);
 }
 
-const RESERVED_APP_SUBPATHS = new Set([
-  "browse",
-  "connections",
-  "connect",
-  "chat",
-  "review",
-  "attention",
-  "gateways",
-  "advanced",
-  "app",
-]);
-
 function isSkillsStoreRoute(
   pathname: string,
   companyPrefix: string | undefined,
@@ -158,12 +147,7 @@ export function Layout() {
   );
   const isToolsRoute = companyPathSegments[0]?.toLowerCase() === "tools";
   const isAppsRoute = companyPathSegments[0]?.toLowerCase() === "apps";
-  const appDetailConnectionId =
-    isAppsRoute &&
-    companyPathSegments[1] &&
-    !RESERVED_APP_SUBPATHS.has(companyPathSegments[1].toLowerCase())
-      ? companyPathSegments[1]
-      : null;
+  const appDetailConnectionId = appConnectionIdFromSegments(companyPathSegments);
   const appDetailApplicationId =
     isAppsRoute &&
     companyPathSegments[1]?.toLowerCase() === "app" &&

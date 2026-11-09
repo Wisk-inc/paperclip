@@ -6745,6 +6745,23 @@ export function agentRoutes(
     const minCount = readLiveRunsQueryInt(req.query.minCount, 50, 0);
     const limit = readLiveRunsQueryInt(req.query.limit, 50, 50);
 
+    // A run keeps the id of the task it worked on in its context. When that
+    // task has since been deleted (a chat the person removed, say) the id leads
+    // nowhere: the dashboard asked for the task, got a 404 and showed "Task
+    // unavailable" over a dead link. Such a run is reported without a task,
+    // and is not used to pad the list with past work. The id is compared as a
+    // uuid only when it is shaped like one, so the lookup stays on the index
+    // and an odd value in a context cannot fail the query.
+    const runIssueId = sql<string | null>`(${heartbeatRuns.contextSnapshot} ->> 'issueId')`;
+    const runIssueExists = sql<boolean>`exists (
+      select 1 from ${issuesTable}
+      where ${issuesTable.companyId} = ${heartbeatRuns.companyId}
+        and ${issuesTable.id} = case
+          when ${runIssueId} ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          then ${runIssueId}::uuid
+        end
+    )`;
+
     const columns = {
       id: heartbeatRuns.id,
       runtimeMode: heartbeatRuns.runtimeMode,
@@ -6772,7 +6789,7 @@ export function agentRoutes(
       lastOutputStream: heartbeatRuns.lastOutputStream,
       lastOutputBytes: heartbeatRuns.lastOutputBytes,
       processStartedAt: heartbeatRuns.processStartedAt,
-      issueId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`.as("issueId"),
+      issueId: sql<string | null>`case when ${runIssueExists} then ${runIssueId} end`.as("issueId"),
     };
 
     const liveRunsQuery = db
@@ -6801,6 +6818,7 @@ export function agentRoutes(
             eq(heartbeatRuns.companyId, companyId),
             not(inArray(heartbeatRuns.status, ["queued", "running"])),
             ...(activeIds.length > 0 ? [not(inArray(heartbeatRuns.id, activeIds))] : []),
+            sql`(${runIssueId} is null or ${runIssueExists})`,
           ),
         )
         .orderBy(desc(heartbeatRuns.createdAt))

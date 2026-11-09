@@ -161,6 +161,44 @@ const support = await getEmbeddedPostgresTestSupport();
     }
   });
 
+  it("cancels the retries and queued follow-ups still waiting for a deleted chat", async () => {
+    const opened = await request(app).post(`/api/companies/${companyId}/chats/${agentId}`).send({});
+    expect(opened.status).toBe(200);
+    const chat = opened.body as { id: string };
+    // The reply failed on a busy model and a retry waits for later (hours away
+    // when a model's daily limit has to reset); another message is queued behind it.
+    const waiting = await db
+      .insert(heartbeatRuns)
+      .values([
+        { companyId, agentId, status: "failed", startedAt: new Date(), finishedAt: new Date(), contextSnapshot: { issueId: chat.id } },
+        { companyId, agentId, status: "scheduled_retry", scheduledRetryAt: new Date(Date.now() + 6 * 60 * 60_000), scheduledRetryAttempt: 1, contextSnapshot: { issueId: chat.id } },
+        { companyId, agentId, status: "queued", contextSnapshot: { issueId: chat.id } },
+      ])
+      .returning();
+    // A retry waiting for another chat is none of this delete's business.
+    const [elsewhere] = await db
+      .insert(heartbeatRuns)
+      .values({ companyId, agentId, status: "scheduled_retry", scheduledRetryAt: new Date(Date.now() + 60_000), scheduledRetryAttempt: 1, contextSnapshot: { issueId: randomUUID() } })
+      .returning();
+
+    const res = await request(app).delete(`/api/issues/${chat.id}`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(await db.select({ id: issues.id }).from(issues).where(eq(issues.id, chat.id))).toEqual([]);
+
+    const after = new Map((await db.select().from(heartbeatRuns)).map((run) => [run.id, run]));
+    expect(after.get(waiting[0]!.id)?.status).toBe("failed");
+    for (const run of waiting.slice(1)) {
+      expect(after.get(run.id)?.status).toBe("cancelled");
+      expect(after.get(run.id)?.errorCode).toBe("issue_deleted");
+    }
+    // Nothing of the deleted chat keeps the agent "still working", so it can be removed.
+    const stillWaiting = [...after.values()].filter((run) =>
+      ["queued", "running", "scheduled_retry"].includes(run.status) && (run.contextSnapshot as { issueId?: string } | null)?.issueId === chat.id);
+    expect(stillWaiting).toEqual([]);
+    expect(after.get(elsewhere!.id)?.status).toBe("scheduled_retry");
+    await db.update(heartbeatRuns).set({ status: "cancelled", finishedAt: new Date() }).where(eq(heartbeatRuns.id, elsewhere!.id));
+  });
+
   it("deletes a chat that is only waiting for its reply to start", async () => {
     const opened = await request(app).post(`/api/companies/${companyId}/chats/${agentId}`).send({});
     const chat = opened.body as { id: string };

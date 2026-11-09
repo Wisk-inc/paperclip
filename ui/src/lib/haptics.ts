@@ -31,6 +31,10 @@ export function haptic(kind: HapticKind): void {
   try {
     if (automaNative.haptic(kind)) return;
     if (!hasTouchInput()) return;
+    // A haptic that plays as a screen appears (the "all caught up" hero) can
+    // run before the person has touched the page. Browsers refuse to vibrate
+    // until then and log an error for the attempt, so it is not made.
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     if (typeof navigator.vibrate === "function") navigator.vibrate(VIBRATION_PATTERNS[kind]);
   } catch {
     // Haptics are an enhancement; a blocked or missing vibration API is not an error.

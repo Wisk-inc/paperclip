@@ -444,6 +444,8 @@ export async function runFreeTool(ctx: FreeToolContext, name: string, rawInput: 
     }
     if (name === "WebSearch") {
       const count = typeof input.count === "number" ? input.count : Number(input.count) || undefined;
+      // Some models call the tool with nothing in it; "No results." then reads as if the web had no answer.
+      if (!str(input, "query").trim()) return { content: "WebSearch needs a query: call it again with the words to search for.", isError: true };
       const results = await webSearch(str(input, "query"), count, ctx.signal);
       if (results.length === 0) return { content: "No results.", isError: false };
       return { content: `${results.length} results:\n\n` + results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n\n"), isError: false };

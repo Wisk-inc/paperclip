@@ -65,6 +65,17 @@ describe("free agent tools", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("asks for a query when a model calls WebSearch with none, without searching", async () => {
+    const fetch = stubWeb("<html></html>", "text/html");
+    const ctx = toolContext({});
+    for (const input of [{}, { query: "   " }, { query: 42 }]) {
+      const outcome = await runFreeTool(ctx, "WebSearch", input as Record<string, unknown>);
+      expect(outcome.isError).toBe(true);
+      expect(outcome.content).toContain("WebSearch needs a query");
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("reads working-folder and web files only when those tools are on", async () => {
     await fs.writeFile(path.join(work, "notes.txt"), "the secret plans");
     const fetch = stubWeb("from the web", "text/plain");

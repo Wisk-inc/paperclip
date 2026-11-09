@@ -280,12 +280,32 @@ function msUntilUtcMidnight(now = Date.now()): number {
   return next.getTime() - now;
 }
 
+/**
+ * The service's own rate limit on this install ("Too many AI requests from
+ * this account, network or device. Try again in a minute."), as opposed to a
+ * model's provider being busy. It covers every model, so a call sent before
+ * the wait is over, or to another model, only draws the same answer.
+ */
+function isServiceSlowDown(code: string | null, text: string): boolean {
+  return code === 'too_many_requests' || /too many ai requests/.test(text);
+}
+
+/** How long the service asked to wait ("in a minute", "in 30 seconds", "in 2 minutes"); a minute when it does not say. */
+function slowDownWaitMs(text: string): number {
+  const said = /try again (?:in|after) (a|an|\d+)? ?(second|minute)s?/.exec(text);
+  if (!said) return 60_000;
+  const count = said[1] && /^\d+$/.test(said[1]) ? Number(said[1]) : 1;
+  const ms = count * (said[2] === 'minute' ? 60_000 : 1000);
+  return Math.min(Math.max(ms, 1000), 5 * 60_000);
+}
+
 function classifyRefusal(status: number, code: string | null, body: string): { kind: PuterRefusalKind; retryAfterMs: number | null } {
   const text = body.toLowerCase();
   if (/daily limit|requests per day/.test(text)) {
     const seconds = /try again (?:after|in) (\d+)/.exec(text)?.[1];
     return { kind: 'daily_limit', retryAfterMs: seconds ? Number(seconds) * 1000 : msUntilUtcMidnight() };
   }
+  if (isServiceSlowDown(code, text)) return { kind: 'busy', retryAfterMs: slowDownWaitMs(text) };
   if (/only available on|not available for this app|agentic harness/.test(text) || code === 'upstream_auth_failed' || status === 403) {
     return { kind: 'restricted', retryAfterMs: null };
   }
@@ -307,8 +327,10 @@ export class PuterHttpError extends Error {
   readonly code: string | null;
   readonly upstream: string | null;
   readonly kind: PuterRefusalKind;
-  /** For a daily limit: how long until the model answers again. */
+  /** For a daily limit: how long until the model answers again. For the service's own rate limit: how long it asked to wait. */
   readonly retryAfterMs: number | null;
+  /** The service asked this install to slow down, whatever the model: wait, do not switch model or route. */
+  readonly slowDown: boolean;
   constructor(readonly status: number, readonly body: string, held?: { kind: PuterRefusalKind; retryAfterMs: number | null }) {
     body = hideToken(body);
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
@@ -332,6 +354,7 @@ export class PuterHttpError extends Error {
     const classified = held ?? classifyRefusal(status, code, body);
     this.kind = classified.kind;
     this.retryAfterMs = classified.retryAfterMs;
+    this.slowDown = !held && isServiceSlowDown(code, body.toLowerCase());
   }
 }
 
@@ -369,6 +392,10 @@ export function describePuterError(error: unknown, modelLabel: string, retries =
     case 'charged':
       return new Error(`${modelLabel} started charging for requests, so Automa stopped calling it to keep the free models free for everyone. It's tried again in a few hours.`);
     default: {
+      if (error.slowDown) {
+        const tried = retries > 0 ? ` Automa waited and asked again ${retries} time${retries === 1 ? '' : 's'}.` : '';
+        return new Error(`The free AI service asked Automa to slow down: too many requests reached it in a short time, from this phone, its network or the free allowance every Automa user shares.${tried} Send the message again in a minute. Another model will not answer sooner; the limit covers them all.`);
+      }
       const why = error.kind === 'busy'
         ? error.code === 'upstream_provider_unavailable'
           ? `could not be reached${error.upstream ? ` (${error.upstream})` : ''}`
@@ -394,6 +421,8 @@ const HOLD_MS: Record<Exclude<FreeModelState, 'ok' | 'daily_limit'>, number> = {
 const health = new Map<string, { state: FreeModelState; until: number; checkedAt: number; status: number; body: string }>();
 
 function noteRefusal(model: string, error: PuterHttpError) {
+  // The service slowing this install down says nothing about the model: it is not busy, and its other route is no faster.
+  if (error.slowDown) return;
   const state: FreeModelState | null = error.kind === 'daily_limit' || error.kind === 'busy' || error.kind === 'restricted' || error.kind === 'withdrawn' || error.kind === 'charged'
     ? error.kind
     : null;
@@ -440,9 +469,68 @@ export function freeModelHealth(): Record<string, FreeModelHealthEntry> {
   return out;
 }
 
-/** Forgets every model's state (tests). */
+/** Forgets every model's state, and any wait the service asked for (tests). */
 export function resetFreeModelHealth(): void {
   health.clear();
+  slowDownUntil = 0;
+  slowDownHeld = 0;
+}
+
+// ── Slowing down when the service asks ───────────────────────────────────
+// The service limits how fast one install may call it, across all models, and
+// says so with a 429: "Too many AI requests from this account, network or
+// device. Try again in a minute." A call sent before that minute is up is
+// refused as well, so asking again at once (as a busy model is asked) can
+// only fail. Calls wait the time out here instead: one refusal holds them all,
+// whichever agent or model they are for, and they go out when it has passed.
+
+/** The longest one call waits for the service's limit to lift before it is sent anyway. */
+const SLOW_DOWN_MAX_WAIT_MS = 90_000;
+/** Calls held together go out this far apart, so the wait does not end in the burst that caused it. */
+const SLOW_DOWN_SPACING_MS = 1500;
+let slowDownUntil = 0;
+let slowDownHeld = 0;
+
+function noteSlowDown(error: PuterHttpError): void {
+  if (!error.slowDown) return;
+  slowDownUntil = Math.max(slowDownUntil, Date.now() + (error.retryAfterMs ?? 60_000));
+}
+
+/** How much longer calls are held for the service's rate limit, in ms (0 when they are not held). */
+export function freeServiceSlowDownMs(): number {
+  return Math.max(0, slowDownUntil - Date.now());
+}
+
+/** Resolves when the service's rate limit has passed (at once when there is none); rejects when the caller stops. */
+async function waitOutSlowDown(signal?: AbortSignal): Promise<void> {
+  const left = Math.min(freeServiceSlowDownMs(), SLOW_DOWN_MAX_WAIT_MS);
+  if (left <= 0) return;
+  // Each call held behind another leaves a little later than it.
+  const wait = left + slowDownHeld * SLOW_DOWN_SPACING_MS;
+  slowDownHeld += 1;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const stop = () => {
+        clearTimeout(timer);
+        reject(signal!.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', stop);
+        resolve();
+      }, wait);
+      if (signal?.aborted) stop();
+      else signal?.addEventListener('abort', stop, { once: true });
+    });
+  } finally {
+    slowDownHeld -= 1;
+  }
+}
+
+/** The refusal for a response the service did not accept; a slow-down is remembered for every other call. */
+function refusedBy(status: number, body: string): PuterHttpError {
+  const error = new PuterHttpError(status, body);
+  noteSlowDown(error);
+  return error;
 }
 
 // ── Tools as text, for a route that drops native tool calls ──────────────
@@ -624,6 +712,12 @@ async function readWithin(reader: ReadableStreamDefaultReader<Uint8Array>, ms: n
 async function driverCall(body: Record<string, unknown>, token: string, signal?: AbortSignal, queueKey?: string): Promise<unknown> {
   const model = (body.args as { model?: unknown } | undefined)?.model;
   const release = await queTurn(signal, queueKey ?? (typeof model === 'string' ? model : undefined));
+  try {
+    await waitOutSlowDown(signal);
+  } catch (stopped) {
+    release();
+    throw stopped;
+  }
   const appUid = nextAppUid();
   const deadline = withDeadline(CALL_LIMIT_MS, signal);
   try {
@@ -634,8 +728,10 @@ async function driverCall(body: Record<string, unknown>, token: string, signal?:
       signal: deadline.signal,
     });
     if (!r.ok) {
-      if (r.status === 429) { cooldownAppUid(appUid); spawnAppIds(20); }
-      throw new PuterHttpError(r.status, await r.text().catch(() => ''));
+      const refused = refusedBy(r.status, await r.text().catch(() => ''));
+      // A busy app id rests and others take over; the service's own limit is on the install, not the app id.
+      if (r.status === 429 && !refused.slowDown) { cooldownAppUid(appUid); spawnAppIds(20); }
+      throw refused;
     }
     const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
     if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
@@ -724,7 +820,7 @@ export async function puterComplete(
       if (opts.signal?.aborted) throw e;
       if (e instanceof PuterHttpError && !onBackup) noteRefusal(appId, e);
       // A busy model with a second route goes straight to it on the next try.
-      if (e instanceof PuterHttpError && e.kind === 'busy' && backup && !onBackup) {
+      if (e instanceof PuterHttpError && e.kind === 'busy' && !e.slowDown && backup && !onBackup) {
         i -= 1;
         continue;
       }
@@ -932,6 +1028,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
   const backup = PUTER_BACKUP_ROUTES[appId];
 
   const open = async (model: string, sent: PuterMessage[], withTools?: PuterTool[]) => {
+    await waitOutSlowDown(opts.signal);
     const appUid = nextAppUid();
     const deadline = withDeadline(STREAM_QUIET_MS, opts.signal);
     try {
@@ -949,8 +1046,9 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
         signal: deadline.signal,
       });
       if (!response.ok || !response.body) {
-        if (response.status === 429) { cooldownAppUid(appUid); spawnAppIds(20); }
-        throw new PuterHttpError(response.status, await response.text().catch(() => ''));
+        const refused = refusedBy(response.status, await response.text().catch(() => ''));
+        if (response.status === 429 && !refused.slowDown) { cooldownAppUid(appUid); spawnAppIds(20); }
+        throw refused;
       }
       if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
         const body = await response.text();
@@ -984,7 +1082,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
       reader = await open(primary, messages, tools);
     } catch (error) {
       if (error instanceof PuterHttpError) noteRefusal(appId, error);
-      if (!(error instanceof PuterHttpError) || error.kind !== 'busy' || !backup || opts.signal?.aborted) throw error;
+      if (!(error instanceof PuterHttpError) || error.kind !== 'busy' || error.slowDown || !backup || opts.signal?.aborted) throw error;
       try {
         reader = await openBackup();
         onBackup = true;

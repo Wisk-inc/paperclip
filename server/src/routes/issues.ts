@@ -15078,6 +15078,37 @@ export function issueRoutes(
       return;
     }
 
+    // Runs still waiting for this task or chat have nothing left to work on: a
+    // retry scheduled for later (after a busy or rate-limited model, sometimes
+    // hours away, when a daily limit resets) or a queued follow-up. Left alone
+    // they kept the agent "still working" until their turn came, which blocked
+    // removing the agent. They are cancelled now that the row is gone, so
+    // nothing they release can start more work on it.
+    const waitingRuns = await db
+      .select({ id: heartbeatRuns.id, status: heartbeatRuns.status })
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, issue.companyId),
+          inArray(heartbeatRuns.status, ["queued", "scheduled_retry"]),
+          sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issue.id}`,
+        ),
+      );
+    // Queued runs first: cancelling a run lets its agent start its next queued
+    // one, which would otherwise be one of these.
+    waitingRuns.sort((left, right) => Number(right.status === "queued") - Number(left.status === "queued"));
+    for (const waiting of waitingRuns) {
+      await heartbeat
+        .cancelRun(waiting.id, "Cancelled because the task was deleted", {
+          errorCode: "issue_deleted",
+          eventMessage: "waiting run cancelled after issue deletion",
+          eventPayload: { issueId: issue.id },
+        })
+        .catch((err) => {
+          logger.warn({ err, issueId: id, runId: waiting.id }, "could not cancel a waiting run of a deleted issue");
+        });
+    }
+
     for (const attachment of attachments) {
       try {
         await storage.deleteObject(attachment.companyId, attachment.objectKey);

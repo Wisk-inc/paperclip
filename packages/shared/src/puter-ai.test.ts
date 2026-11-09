@@ -4,6 +4,7 @@ import {
   formatSafetyVerdict,
   freeModelAllowance,
   freeModelHealth,
+  freeServiceSlowDownMs,
   mayHoldTextToolCalls,
   parseTextToolCalls,
   PUTER_MODELS,
@@ -108,6 +109,117 @@ describe("free model refusals", () => {
     expect(message).toContain("isn't anything you did");
     expect(message).toContain("back in about 1 hour 30 minutes");
     expect(describePuterError(new PuterHttpError(500, RESTRICTED), "Inkling").message).toContain("only lets certain partner apps use it");
+  });
+});
+
+const SLOW_DOWN = JSON.stringify({
+  error: "Too many AI requests from this account, network or device. Try again in a minute.",
+  message: "Too many AI requests from this account, network or device. Try again in a minute.",
+  code: "too_many_requests",
+});
+
+describe("the service's own rate limit", () => {
+  it("is told apart from a busy model, with the wait the service named", () => {
+    const error = new PuterHttpError(429, SLOW_DOWN);
+    expect(error.kind).toBe("busy");
+    expect(error.slowDown).toBe(true);
+    expect(error.retryAfterMs).toBe(60_000);
+    expect(new PuterHttpError(429, JSON.stringify({ error: "Too many AI requests. Try again in 30 seconds.", code: "too_many_requests" })).retryAfterMs).toBe(30_000);
+    expect(new PuterHttpError(429, JSON.stringify({ error: "Too many AI requests from this device. Try again in 2 minutes." })).retryAfterMs).toBe(120_000);
+    // Said without a time: a minute. Said with an absurd one: never more than five.
+    expect(new PuterHttpError(429, JSON.stringify({ code: "too_many_requests" })).retryAfterMs).toBe(60_000);
+    expect(new PuterHttpError(429, JSON.stringify({ error: "Too many AI requests. Try again in 500 minutes." })).retryAfterMs).toBe(300_000);
+    // A busy provider is not a slow-down, and a daily limit stays a daily limit.
+    expect(new PuterHttpError(429, BUSY).slowDown).toBe(false);
+    expect(new PuterHttpError(429, BUSY).retryAfterMs).toBeNull();
+    expect(new PuterHttpError(429, DAILY_LIMIT).kind).toBe("daily_limit");
+    expect(new PuterHttpError(429, DAILY_LIMIT).slowDown).toBe(false);
+  });
+
+  it("says it is the service, not the model, and that another model will not help", () => {
+    const message = describePuterError(new PuterHttpError(429, SLOW_DOWN), "Gemma 4 31B", 2).message;
+    expect(message).toContain("The free AI service asked Automa to slow down");
+    expect(message).toContain("Automa waited and asked again 2 times");
+    expect(message).toContain("Another model will not answer sooner");
+    expect(message).not.toContain("Gemma 4 31B");
+    expect(message).not.toContain("busy at its provider");
+  });
+
+  it("holds every later call until the wait is over, whatever its model", async () => {
+    vi.useFakeTimers();
+    try {
+      serve(refusal(429, SLOW_DOWN), stream("Hello"));
+      await expect(collect(PUTER_MODELS["deepseek-flash"])).rejects.toMatchObject({ slowDown: true, kind: "busy" });
+      expect(freeServiceSlowDownMs()).toBeGreaterThan(59_000);
+      // Another model, asked while the limit stands, is not sent: it would only be refused too.
+      const later = collect(PUTER_MODELS["bonsai-27b"]);
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(16_000);
+      const events = await later;
+      expect(calls).toHaveLength(2);
+      expect(events.some((event) => event.type === "text" && event.text === "Hello")).toBe(true);
+      expect(freeServiceSlowDownMs()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets calls held together go out one after another, not in one burst", async () => {
+    vi.useFakeTimers();
+    try {
+      serve(refusal(429, SLOW_DOWN), stream("one"), stream("two"), stream("three"));
+      await expect(collect(PUTER_MODELS["deepseek-flash"])).rejects.toMatchObject({ slowDown: true });
+      const held = [collect(PUTER_MODELS["bonsai-27b"]), collect(PUTER_MODELS["deepseek-flash"]), collect(PUTER_MODELS["gemma-31b"])];
+      await vi.advanceTimersByTimeAsync(60_100);
+      expect(calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(calls).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(calls).toHaveLength(4);
+      await Promise.all(held);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not call the model busy, nor move it to its second route", async () => {
+    vi.useFakeTimers();
+    try {
+      serve(refusal(429, SLOW_DOWN), stream("Hello"));
+      await expect(collect(PUTER_MODELS["gemma-31b"])).rejects.toMatchObject({ slowDown: true });
+      // One call only: a busy Gemma is asked again over Google's route at once, a slow-down is not.
+      expect(calls).toHaveLength(1);
+      expect(freeModelHealth()[PUTER_MODELS["gemma-31b"]]).toBeUndefined();
+      const again = collect(PUTER_MODELS["gemma-31b"]);
+      await vi.advanceTimersByTimeAsync(61_000);
+      await again;
+      expect(calls.map((call) => call.model)).toEqual([PUTER_MODELS["gemma-31b"], PUTER_MODELS["gemma-31b"]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds one-shot calls too, and lets a caller stop while it waits", async () => {
+    vi.useFakeTimers();
+    try {
+      serve(refusal(429, SLOW_DOWN), chatReply("ready"));
+      await expect(collect(PUTER_MODELS["deepseek-flash"])).rejects.toMatchObject({ slowDown: true });
+      const stop = new AbortController();
+      const stopped = puterComplete([{ role: "user", content: "hi" }], { model: PUTER_MODELS["bonsai-27b"], retries: 1, signal: stop.signal });
+      const outcome = stopped.then(() => "answered", (error: unknown) => (error as Error).name);
+      await vi.advanceTimersByTimeAsync(10_000);
+      stop.abort();
+      expect(await outcome).toBe("AbortError");
+      expect(calls).toHaveLength(1);
+      // The next caller waits the rest of the minute and is answered.
+      const answered = puterComplete([{ role: "user", content: "hi" }], { model: PUTER_MODELS["bonsai-27b"], retries: 1 });
+      await vi.advanceTimersByTimeAsync(51_000);
+      expect((await answered).text).toBe("ready");
+      expect(calls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
