@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.8** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.9** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.8](#2-whats-new-in-198)
+2. [What's new in 1.9.9](#2-whats-new-in-199)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,57 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.8
+## 2. What's new in 1.9.9
+
+Fixes from a scan of the whole app: every page was opened and watched for
+errors, every test group was run on its own, and a live agent was put through
+a chat with a web search and a task with a review.
+
+**When the free AI service says "slow down"**
+- The free AI service limits how fast one phone, network or the shared free
+  allowance may send requests, across all models, and answers "Too many AI
+  requests ... Try again in a minute" when the limit is reached. Automa used
+  to treat that like a busy model: it asked again four times within 25
+  seconds, all inside that minute, then failed the reply saying the model
+  "is busy at its provider" and suggesting another model, which could not
+  help. The automatic retry then started the whole reply over, web search
+  and all.
+- Automa now waits the time the service asks for and carries on with the same
+  reply. One refusal holds every other call too (another agent, a teammate in
+  App Studio, the model's second route), so nothing is sent just to be
+  refused. The transcript says so while it waits: "The free AI service asked
+  Automa to slow down ... Waiting about 60 seconds, then carrying on."
+- If the limit still stands after the waits, the message says what it is and
+  that another model will not answer sooner. The model is no longer marked
+  busy in the switcher for it.
+
+**Home and deleted chats**
+- Home's agent cards no longer show "Task unavailable" over a dead link for
+  chats and tasks you deleted. The list of recent runs used to name the task
+  of every run, deleted or not, and the page asked the server for each one.
+  Past runs of a deleted task are now left out, and a live one is shown
+  without a task.
+- Deleting a chat or task also cancels the runs still waiting for it: a retry
+  scheduled for later (hours away when a model's daily limit has to reset)
+  or a queued follow-up. They used to keep the agent "still working", which
+  blocked removing the agent until the retry's turn came.
+
+**Connections**
+- The bring-your-own page (`/apps/byo`) and the Vercel connect page were
+  taken for the detail page of a connection named "byo": they opened with
+  the wrong sidebar and asked the server for a connection that does not
+  exist. Both layouts now share one list of the Apps pages that are not
+  connections, checked against the router by a test.
+
+**Small things**
+- A web search called with no query (some models do that) tells the model to
+  give one, instead of "No results."
+- In a phone browser, a haptic that plays as a screen appears no longer asks
+  the browser to vibrate before the first touch (the browser refused and
+  logged an error). The app's own haptics are unchanged.
+- Android lint is clean.
+
+### From 1.9.8
 
 Fixes under the hood, found by running every check in the repository and by
 chasing two failures seen while making the website screenshots. Nothing on
@@ -621,6 +671,7 @@ never hidden; they fail gracefully.
 Automa was made in Jamaica by Nathan Lyttle (Corx Labs).
 
 **It keeps going.** It rides out a busy provider by retrying on the same model,
+waits the minute out when the free AI service asks Automa to slow down,
 survives dropped connections, keeps its tools when a provider has an error,
 runs only the tools you switched on, carries out tool calls a model writes as
 plain text, and cuts short the same tool call repeated over and over.
@@ -673,6 +724,10 @@ engine, so many questions at once all get answered instead of some failing.
   burst of rate limits.
 - **Retries** on busy answers, a **5-minute answer cache**, **conversations**,
   and **batches** of up to 20 questions.
+- **Slow-down:** when the free AI service says too many requests reached it
+  in a short time (from this phone, its network or the shared allowance),
+  every call waits the time it asks for, a minute usually, and then they go
+  out one after another instead of all at once.
 - **Fair use:** 30 questions a minute per person, to protect the shared allowance.
 - A status line under the free models in the model switcher shows the engine.
 
@@ -1191,6 +1246,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.9 | 2026-11-09 | Scan fixes: Automa waits out the free AI service's own rate limit (once, for all agents) instead of four quick retries and a failed reply that blamed the model; Home shows no "Task unavailable" cards for deleted chats and tasks; deleting a chat or task cancels the retries still waiting for it, so its agent can be removed; the bring-your-own and Vercel connect pages no longer open as a connection named "byo"; a web search without a query asks for one. |
 | 1.9.8 | 2026-11-08 | Fixes under the hood: Automa on the phone starts even when an old queued run is poisoned (the run is cancelled, the others start), cancelling a queued run no longer stalls the scheduler for 30 seconds, web search falls back to Bing when DuckDuckGo refuses, a failed search names what each source answered, free-model agents hand tasks back for review and drop a tool that keeps failing, and the privacy policy is rewritten for the APKPure build. |
 | 1.9.7 | 2026-11-03 | Coming back to the app stays on your page: your phone's Automa is checked a few times before the connect screen, "Automa is starting" shows over the page while it starts, a connect request from Termux keeps the open board, and the page you were on comes back after Android ended the app in the background. Deleting a chat while the AI is replying stops the reply at once, leaves the chat before refreshing and never waits more than ten seconds. |
 | 1.9.6 | 2026-11-02 | A full check of the app with every problem found fixed: the app proves your phone's Automa holds its key before sending it; agents and terminals no longer see server secrets; invites can't give more than their maker has; sign-out sticks; connectors sign in inside the Android app; keys added while hiring become your default; agent budgets can be set and are enforced; removing an agent deletes its chats; App Studio sharing is safer; one Automa per phone; Terminals show Claude Code and Codex as installed on phones. Plus the connect and sign-in fixes: "still starting" instead of "not an Automa server", a locked phone server without its key says so up front, Continue with Google shows where it works. |

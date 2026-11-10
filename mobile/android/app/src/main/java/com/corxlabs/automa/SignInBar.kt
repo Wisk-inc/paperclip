@@ -1,5 +1,6 @@
 package com.corxlabs.automa
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.text.TextUtils
@@ -13,8 +14,10 @@ import android.widget.TextView
 /**
  * The strip above a connector's sign-in page while it runs in the app (see
  * [SignInLinks]). The app shows no address bar, so this names the site the
- * person is typing into, and Cancel goes back to the board.
+ * person is typing into, and Cancel goes back to the board. Built in code
+ * only, never inflated from a layout.
  */
+@SuppressLint("ViewConstructor")
 class SignInBar(context: Context, onCancel: () -> Unit) : LinearLayout(context) {
     private val label = TextView(context)
 

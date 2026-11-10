@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.8
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.9
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -198,7 +198,9 @@ match the question plus the newest news, with source, date and link.
 **The Que engine** sits under every free-model call: up to ten calls at once, at
 most two at a time on any one model, a pool of app IDs that grows on rate limits,
 retries on busy answers, a five-minute answer cache, conversations and batches.
-Many questions at once all get answered instead of some failing.
+Many questions at once all get answered instead of some failing. When the
+free AI service asks Automa to slow down, every call waits the minute it asks
+for and then carries on, rather than asking again at once and failing.
 
 ---
 
@@ -503,7 +505,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.8.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.9.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -520,6 +522,15 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.9** (9 November 2026) — Fixes from a scan of every page and a live run
+of the app. When the free AI service asks Automa to slow down, Automa now
+waits the minute it asks for, once for all agents, and carries on, instead of
+asking four times in 25 seconds, failing the reply and blaming the model. Home
+no longer shows "Task unavailable" cards for chats and tasks you deleted.
+Deleting a chat or task also cancels the retries still waiting for it, so its
+agent can be removed. The bring-your-own and Vercel connect pages no longer
+open as a connection that does not exist.
 
 **1.9.8** (8 November 2026) — Fixes under the hood. Automa on the phone starts
 even when an old queued run is poisoned: the run is cancelled and the others

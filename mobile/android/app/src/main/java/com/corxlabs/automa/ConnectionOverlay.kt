@@ -1,5 +1,6 @@
 package com.corxlabs.automa
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -22,7 +23,11 @@ import android.widget.TextView
  * phone shows it only while Automa answers that it is still starting; once it
  * stops answering at all, the connect screen waits for Termux instead (see
  * MainActivity).
+ *
+ * Built in code only, never inflated from a layout, so it takes its callbacks
+ * in the constructor instead of the (Context, AttributeSet) one layouts use.
  */
+@SuppressLint("ViewConstructor")
 class ConnectionOverlay(
     context: Context,
     private val onRetry: () -> Unit,
