@@ -16117,13 +16117,15 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // Simulate another server process reconciling the same durable rows at
     // the same time as the webhook process's deferred drain.
     await competingService.processPendingDeliveries();
+    // The drain stores eight messages one transaction at a time; on a slower
+    // machine that takes longer than vi.waitFor's 1 s default.
     await vi.waitFor(async () => {
       const rows = await db
         .select()
         .from(chatConversations)
         .where(eq(chatConversations.endpointId, endpoint.id));
       expect(rows).toHaveLength(1);
-    });
+    }, { timeout: 10_000 });
     const [conversation] = await db
       .select()
       .from(chatConversations)
@@ -16134,7 +16136,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         .from(issueComments)
         .where(eq(issueComments.issueId, conversation.issueId));
       expect(rows).toHaveLength(8);
-    });
+    }, { timeout: 10_000 });
     const comments = await db
       .select({ id: issueComments.id, body: issueComments.body })
       .from(issueComments)
@@ -61853,6 +61855,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // request is queued. The duplicate delivery callback becomes a no-op.
     expect(deferred).toHaveLength(4);
     await drainDeferred();
+    // Waits for the drains to finish: longer than vi.waitFor's 1 s default on a slower machine.
     await vi.waitFor(async () => {
       const deliveries = await db
         .select({
@@ -61865,7 +61868,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(
         deliveries.every((delivery) => delivery.state === "processed"),
       ).toBe(true);
-    });
+    }, { timeout: 10_000 });
 
     const [conversation] = await db
       .select()
@@ -61893,7 +61896,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     ).resolves.toMatchObject({ ok: true });
     expect(deferred).toHaveLength(1);
     await drainDeferred();
-    await vi.waitFor(() => expect(deferred).toHaveLength(1));
+    await vi.waitFor(() => expect(deferred).toHaveLength(1), { timeout: 10_000 });
     await drainDeferred();
     await vi.waitFor(async () => {
       await expect(
@@ -61919,7 +61922,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           state: "filtered",
         },
       ]);
-    });
+    }, { timeout: 10_000 });
     await expect(
       db
         .select({ body: issueComments.body })

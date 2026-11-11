@@ -31,9 +31,13 @@ export default defineConfig({
     // the loaded serial shard (maxWorkers=1) that cost can cross vitest's
     // default 5s testTimeout and fail the first test, which also lets its
     // fire-and-forget wake leak into the next test. Give each test generous
-    // headroom; 15s is far above the observed module-load cost yet still
-    // catches a genuinely hung test well inside the 20 minute job limit.
-    testTimeout: 15000,
+    // headroom. 15s used to be far above the observed module-load cost, but
+    // the graph has grown: on a 4-core cloud container the first test of a
+    // route suite measured 12-16s of transform alone (2026-11), failing about
+    // a dozen suites whose other tests take milliseconds. 30s restores the
+    // margin, matches hookTimeout, and still catches a genuinely hung test
+    // well inside the 20 minute job limit.
+    testTimeout: 30000,
     isolate: true,
     maxConcurrency: 1,
     maxWorkers: 1,
