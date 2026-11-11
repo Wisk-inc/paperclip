@@ -3966,6 +3966,7 @@ describe("ACPX engine remote session-lifecycle re-staging (PR 3: stage once / re
     expect(createRuntime).toHaveBeenCalledOnce();
   });
 
+  // These build a real remote sandbox on disk (4-6 s on a slower machine), like the other heavy tests here with explicit limits.
   it("test_acp_resume_compatible_session_does_not_restage", async () => {
     const { stateDir, localCwd, remoteCwd, executionTarget } = await setupRemoteSandbox();
     const ensureInputs: Array<Record<string, unknown>> = [];
@@ -3993,7 +3994,7 @@ describe("ACPX engine remote session-lifecycle re-staging (PR 3: stage once / re
     expect(ensureInputs[1]?.cwd).toBe(remoteCwd);
     // ...and the second run RESUMES the first session rather than starting fresh.
     expect(ensureInputs[1]?.resumeSessionId).toBe(first.sessionId);
-  });
+  }, 15_000);
 
   it("test_acp_resume_incompatible_fingerprint_stages_fresh", async () => {
     const { stateDir, localCwd, remoteCwd, executionTarget } = await setupRemoteSandbox();
@@ -4025,7 +4026,7 @@ describe("ACPX engine remote session-lifecycle re-staging (PR 3: stage once / re
     expect(ensureInputs[1]?.cwd).toBe(remoteCwd);
     // The second run does NOT resume the first session (fingerprint differs).
     expect(ensureInputs[1]?.resumeSessionId).toBeUndefined();
-  });
+  }, 15_000);
 
   it("test_warm_handle_scoped_per_fingerprint_no_cross_session_credential_reuse", async () => {
     const { root, stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
@@ -4314,7 +4315,7 @@ describe("ACPX engine remote session-lifecycle re-staging (PR 3: stage once / re
     expect(resultB.exitCode).toBe(0);
     expect(resultC.exitCode).toBe(0);
     expect(events).toEqual(["stage:run-a", "dispose:run-a", "stage:run-c"]);
-  });
+  }, 15_000);
 
   // Superseding an incompatible session that collides on sessionKey re-stages
   // fresh AND releases the superseded entry's host staged-temp (no leak, no
@@ -6048,7 +6049,7 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
         `scenario "${scenario.name}" must end the sandbox.startup span exactly once`,
       ).toBe(1);
     }
-  });
+  }, 15_000);
 });
 
 describe("ACPX engine run lifecycle corrections (F2: close the runtime for every pre-turn failure)", () => {

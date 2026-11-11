@@ -104,6 +104,22 @@ describeEmbeddedPostgres("routine routes end-to-end", () => {
     db = createDb(tempDb.connectionString);
   }, 20_000);
 
+  // Each test imports the routes afresh (beforeEach resets modules), and the
+  // first such import compiles the whole route module tree. On a slower
+  // machine that alone took whichever test ran first past its 15 s limit.
+  // Compiling it once here, under the hook's own limit, leaves every test to
+  // time only its own work; the module instances made here are discarded by
+  // the reset before each test, so no test sees them.
+  beforeAll(async () => {
+    await Promise.all([
+      import("../routes/routines.js"),
+      import("../middleware/index.js"),
+      import("../middleware/auth.js"),
+      import("../middleware/board-mutation-guard.js"),
+      import("../middleware/error-handler.js"),
+    ]);
+  }, 120_000);
+
   afterEach(async () => {
     vi.unstubAllEnvs();
     await db.delete(activityLog);
