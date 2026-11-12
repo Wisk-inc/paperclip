@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.9** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.10** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.9](#2-whats-new-in-199)
+2. [What's new in 1.9.10](#2-whats-new-in-1910)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,67 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.9
+## 2. What's new in 1.9.10
+
+Two fixes from the field: the wait while Automa on the phone starts, and
+"Failed to fetch" when the connection drops.
+
+**Opening the app while Automa starts**
+- The connect screen used to sit on "Automa finishes starting up" with a bar
+  creeping along, saying nothing about what Automa was doing, while Termux
+  already looked finished. Automa now reports which step of its start it is
+  on, and the screen shows it: "Automa is starting up: checking assigned
+  tasks…", how long it has waited, and "step 13 of 23"; the bar follows the
+  steps. The sheet over the board while Automa restarts shows the same.
+- A step that runs five minutes or more is called out, with what to do.
+- A start that stopped (Android closed Termux, or Automa hit an error) is no
+  longer shown as "still starting": after about ten seconds without an
+  answer the screen says Automa stopped answering, offers Open Termux, and
+  asks Termux once to start it again.
+- The wait no longer gives up after five minutes while Automa still answers
+  that it is starting; it stops only after five minutes with no answer at
+  all, and says what to do.
+- When `automa run` (or `automa link`) in Termux asks the app to connect while
+  the screen is already waiting, the wait carries on instead of starting over
+  from the top.
+- A key check that got no answer (Automa busy starting) no longer reads as
+  "this app's key was not accepted", and the key from Termux is kept.
+
+**Automa on the phone gets to "ready" sooner, and starts more reliably**
+- Checking connected apps over the network and tidying every inbox now happen
+  right after Automa is ready, not before: on a phone with a slow connection
+  they held the start (and the app) for minutes.
+- One startup step that fails is written to the log and the start goes on;
+  it used to end the whole start, and Automa then restarted over and over.
+- The terminal shows each step's time, and says when one is still running
+  after 30 seconds.
+
+**In Termux**
+- `automa run` while Automa already runs in the background (the app starts it
+  with `automa start`) follows that start step by step until it is ready, then
+  opens the app on the board. It used to print "Automa is already running" and
+  end while the app kept waiting.
+- `automa status` says which step a starting Automa is on.
+- A pid file or PostgreSQL lock file left behind when Android ended Termux no
+  longer stops Automa from starting, and its old process number is never sent
+  a stop signal when another program has it now.
+- An Automa that keeps stopping while it starts waits a minute between tries
+  (instead of every 3 seconds) and says where the error is; `automa stop` ends
+  that wait at once.
+
+**No more "Failed to fetch"**
+- When the Wi-Fi drops or the server restarts, the board keeps what it shows,
+  with a short "Can't reach Automa right now" note. It checks every few
+  seconds, and the moment the connection or the server is back it loads again
+  by itself: no reopening the app, nothing typed lost. The app tells the board
+  as soon as the phone's network returns.
+- The whole board is no longer replaced by one red line ("Failed to fetch")
+  that stayed until the app was reopened.
+- A dropped connection no longer sends you to the sign-in page.
+- When there is nothing to show yet, "Reconnecting to Automa…" says so, with
+  **Try now**.
+
+### From 1.9.9
 
 Fixes from a scan of the whole app: every page was opened and watched for
 errors, every test group was run on its own, and a live agent was put through
@@ -1068,9 +1128,9 @@ overspends. A run that fails before its model session says so and links here.
 
 | Command | What it does |
 |---|---|
-| `automa run` | Run in the foreground, restarting the server if it stops |
+| `automa run` | Run in the foreground, restarting the server if it stops (with one already running in the background, it follows that start until it is ready) |
 | `automa start` | Run in the background (log in `~/.automa/server.log`) |
-| `automa stop` / `automa status` | Stop it / check it |
+| `automa stop` / `automa status` | Stop it / check it (a starting Automa says which step it is on) |
 | `automa update` | Update the server (backs up the database first) |
 | `automa backup` | Save a database backup now |
 | `automa restore` | List backups and put the newest back (or `automa restore FILE`), keeping a copy of what it replaced |
@@ -1165,7 +1225,7 @@ The full threat model is in `doc/AUTOMA-SECURITY.md`.
 | **Update Automa on this phone** on Terminals or App Inspector | The phone's server is older than the page. | Tap it, Send to Termux, paste the command (or `automa update`). |
 | "App not installed" / "conflicts with an existing package" | The installed Automa was signed with a different key (1.8.1 or older). | Uninstall Automa, then install. Board data lives in Termux and is kept. |
 | Termux "RunCommandService requires allow-external-apps" | Termux hasn't let the app run commands yet. | Use the app's one-tap fix, or run the installer again. |
-| The connect screen keeps counting down | The server isn't up yet, or the address is wrong. | `automa status` in Termux, or check the address (not the Wireless debugging one). |
+| The connect screen keeps waiting | Automa is still starting (the screen shows its current step and time), it stopped (the screen says so), or the address is wrong. | `automa status` in Termux shows the step; `automa run` follows the start; check the address (not the Wireless debugging one). |
 | "Automa needs Node.js 24 or newer" in Termux | Termux packages are old. | `pkg upgrade -y`, then run the install command again. |
 | The board is empty after an update (onboarding again, chats gone) | The server isn't reading its old database (for example a PostgreSQL major upgrade); nothing was deleted. | `automa restore`. The message "Your Automa database was written by PostgreSQL N" gives the exact steps. |
 | "Connect a model" with no key | A first agent needs a model. | **Skip for now: start on the free models**; add a key later in Settings. |
@@ -1246,6 +1306,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.10 | 2026-11-12 | The wait while Automa on the phone starts shows the step Automa is on, its time and "step x of y", tells a stopped start from a slow one (and asks Termux once to start it again), and no longer gives up while Automa still answers; Automa reaches "ready" sooner (network checks and inbox tidying after ready) and one failing startup step no longer ends the start; `automa run` follows a background start until ready, `automa status` shows the step, stale pid and PostgreSQL lock files no longer block a start; no more "Failed to fetch": the board keeps its page during an outage and reloads by itself when Wi-Fi or the server is back, and a dropped connection no longer signs you out. |
 | 1.9.9 | 2026-11-09 | Scan fixes: Automa waits out the free AI service's own rate limit (once, for all agents) instead of four quick retries and a failed reply that blamed the model; Home shows no "Task unavailable" cards for deleted chats and tasks; deleting a chat or task cancels the retries still waiting for it, so its agent can be removed; the bring-your-own and Vercel connect pages no longer open as a connection named "byo"; a web search without a query asks for one. |
 | 1.9.8 | 2026-11-08 | Fixes under the hood: Automa on the phone starts even when an old queued run is poisoned (the run is cancelled, the others start), cancelling a queued run no longer stalls the scheduler for 30 seconds, web search falls back to Bing when DuckDuckGo refuses, a failed search names what each source answered, free-model agents hand tasks back for review and drop a tool that keeps failing, and the privacy policy is rewritten for the APKPure build. |
 | 1.9.7 | 2026-11-03 | Coming back to the app stays on your page: your phone's Automa is checked a few times before the connect screen, "Automa is starting" shows over the page while it starts, a connect request from Termux keeps the open board, and the page you were on comes back after Android ended the app in the background. Deleting a chat while the AI is replying stops the reply at once, leaves the chat before refreshing and never waits more than ten seconds. |

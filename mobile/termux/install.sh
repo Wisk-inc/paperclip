@@ -21,6 +21,31 @@ file_version="$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | 
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
+# The process number in automa.pid when it really is a running Automa: after
+# Android ends Termux the file stays behind, and its number can come back as
+# another process (which then got Automa's stop signal, or made `automa run`
+# say "already running" and quit).
+running_automa_pid() {
+  local pid
+  pid="$(cat "$automa_home/automa.pid" 2>/dev/null)" || return 1
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+  { tr '\0' ' ' < "/proc/$pid/cmdline"; } 2>/dev/null | grep -q automa || return 1
+  printf '%s\n' "$pid"
+}
+
+# PostgreSQL's lock file outlives a Termux that Android ended. After a phone
+# restart its process number can belong to something else, and PostgreSQL
+# then refuses to start ("lock file postmaster.pid already exists"). A lock
+# no running PostgreSQL of this Termux holds is cleared.
+clear_stale_pg_lock() {
+  local lock="$pgdata/postmaster.pid" pid
+  [ -f "$lock" ] || return 0
+  pid="$(head -n 1 "$lock" 2>/dev/null | tr -dc '0-9')"
+  if [ -n "$pid" ] && { tr '\0' ' ' < "/proc/$pid/cmdline"; } 2>/dev/null | grep -q postgres; then return 0; fi
+  echo "Clearing PostgreSQL's lock file left from before (it was not shut down cleanly)." >&2
+  rm -f "$lock"
+}
+
 if [ -z "${PREFIX:-}" ] || [ ! -d "$PREFIX/bin" ]; then
   echo "Run this inside the Termux app." >&2
   exit 1
@@ -135,6 +160,7 @@ if [ ! -f "$pgdata/PG_VERSION" ]; then
   mkdir -p "$pgdata"
   initdb --auth=scram-sha-256 --pwfile="$db_password_file" "$pgdata" >/dev/null
 fi
+clear_stale_pg_lock
 if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
   pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
 fi
@@ -226,12 +252,12 @@ else
   printf '%s\n' "$version" > "$next_dir/.automa-version"
   # A running Automa keeps the old code loaded, so it stops only now, just
   # before the new server takes its place; the new one starts at the end of this install.
-  if [ -s "$automa_home/automa.pid" ] && kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+  if running_pid="$(running_automa_pid)"; then
     say "Stopping the running Automa server so the update takes effect"
-    kill -TERM "$(cat "$automa_home/automa.pid")" 2>/dev/null || true
-    for _ in $(seq 1 30); do kill -0 "$(cat "$automa_home/automa.pid")" 2>/dev/null || break; sleep 1; done
-    rm -f "$automa_home/automa.pid"
+    kill -TERM "$running_pid" 2>/dev/null || true
+    for _ in $(seq 1 30); do kill -0 "$running_pid" 2>/dev/null || break; sleep 1; done
   fi
+  rm -f "$automa_home/automa.pid"
   if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" 2>/dev/null; then
     echo "An Automa server is still running (started in another Termux session?). Stop it there with Ctrl+C, or the old version keeps answering until the phone restarts." >&2
   fi
@@ -245,6 +271,13 @@ say "Adding the automa command"
 mkdir -p "$automa_home/bin"
 cp "$here/automa-adb-link.sh" "$automa_home/bin/automa-adb-link"
 chmod 700 "$automa_home/bin/automa-adb-link"
+# Follows a starting Automa until it is ready, printing each step it reports
+# (Automa 1.9.10 on). `automa run` uses it when Automa already runs in the
+# background (it used to say "already running" and end, while the app still
+# waited), and `automa status` (--once) for one line. Exits 0 once ready, 1
+# when nothing answers for a minute, 2 when asked once and it is still starting.
+cp "$here/automa-follow-start.mjs" "$automa_home/bin/automa-follow-start.mjs"
+chmod 600 "$automa_home/bin/automa-follow-start.mjs"
 # The app key: on a phone every app can reach 127.0.0.1, so Automa only answers
 # the Automa app, which gets this key (PAPERCLIP_LOCAL_TRUSTED_SECRET) from the
 # launcher. Made once, kept readable by Termux alone.
@@ -281,6 +314,40 @@ link_app() {
 automa_answers() {
   node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" >/dev/null 2>&1
 }
+# The process number in automa.pid when it really is a running Automa: the
+# file outlives a Termux that Android ended, and its number can come back as
+# another process (which then got the stop signal, or made automa run quit).
+running_pid() {
+  local pid
+  pid="\$(cat "$automa_home/automa.pid" 2>/dev/null)" || return 1
+  [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null || return 1
+  { tr '\\0' ' ' < "/proc/\$pid/cmdline"; } 2>/dev/null | grep -q automa || return 1
+  printf '%s\\n' "\$pid"
+}
+# PostgreSQL's lock file outlives a Termux that Android ended; after a phone
+# restart its number can belong to something else and PostgreSQL refuses to
+# start. A lock no running PostgreSQL of this Termux holds is cleared.
+clear_stale_pg_lock() {
+  local lock="$pgdata/postmaster.pid" pid
+  [ -f "\$lock" ] || return 0
+  pid="\$(head -n 1 "\$lock" 2>/dev/null | tr -dc '0-9')"
+  if [ -n "\$pid" ] && { tr '\\0' ' ' < "/proc/\$pid/cmdline"; } 2>/dev/null | grep -q postgres; then return 0; fi
+  echo "Clearing PostgreSQL's lock file left from before (it was not shut down cleanly)." >&2
+  rm -f "\$lock"
+}
+# Starts the database unless it is running.
+start_db() {
+  clear_stale_pg_lock
+  pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+}
+# Follows the Automa that is already running until it is ready (printing the
+# startup steps it reports), then has the app open the board.
+follow_running() {
+  echo "Following its start; Ctrl+C stops following, not Automa."
+  if node "$automa_home/bin/automa-follow-start.mjs"; then
+    [ -n "\${AUTOMA_NO_APP:-}" ] || link_app || true
+  fi
+}
 # A complete copy of the database in \$1. It is written beside it first, so a
 # dump that fails (no space left, say) never leaves a file that looks like a backup.
 dump_db() {
@@ -312,7 +379,7 @@ case "\${1:-}" in
   start)
     # Already up: nothing to do. Otherwise the supervisor below runs in the
     # background, its output in ~/.automa/server.log.
-    if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+    if running_pid >/dev/null; then
       echo "Automa is already running."
       exit 0
     fi
@@ -325,24 +392,23 @@ case "\${1:-}" in
     exit 0
     ;;
   stop)
-    if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
-      kill -TERM "\$(cat "$automa_home/automa.pid")"
+    if pid="\$(running_pid)"; then
+      kill -TERM "\$pid"
       rm -f "$automa_home/automa.pid"
       command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock || true
       echo "Automa stopped."
     else
+      # A file left from before names no Automa: it goes, and nothing is signalled.
+      rm -f "$automa_home/automa.pid"
       echo "Automa is not running in the background."
     fi
     exit 0
     ;;
   status)
-    if node -e "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"; then
-      echo "Automa is running on http://127.0.0.1:3100"
-    else
-      echo "Automa is not answering. Start it with: automa run"
-      exit 1
-    fi
-    exit 0
+    # One line: ready, starting (and on which step), or not answering.
+    if node "$automa_home/bin/automa-follow-start.mjs" --once; then exit 0; fi
+    running_pid >/dev/null && echo "(Its output is in $automa_home/server.log when the Automa app started it.)"
+    exit 1
     ;;
   update)
     # The app saves its bundled server as ~/downloads/automa-server.tar.xz
@@ -356,7 +422,7 @@ case "\${1:-}" in
     ;;
   backup)
     # Same shape as the server's hourly backups, so automa restore reads both.
-    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+    start_db
     export PGPASSWORD="\$(cat "$db_password_file")"
     mkdir -p "$backup_dir"
     file="$backup_dir/automa-manual-\$(date +%Y%m%d-%H%M%S).sql.gz"
@@ -367,7 +433,7 @@ case "\${1:-}" in
   restore)
     # Puts a backup back in place of the current database. Destructive, so it
     # says what it will replace and asks first (automa restore FILE --yes skips the question).
-    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+    start_db
     export PGPASSWORD="\$(cat "$db_password_file")"
     file="\${2:-}"
     if [ "\$file" = "--yes" ]; then file=""; fi
@@ -427,9 +493,7 @@ case "\${1:-}" in
     exit 0
     ;;
 esac
-if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
-  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
-fi
+start_db
 export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un):\$(cat "$db_password_file")@127.0.0.1:5432/automa}"
 # Automa sends no usage data anywhere: the upstream telemetry endpoint belongs
 # to another company. Set PAPERCLIP_TELEMETRY_DISABLED=0 to opt back in.
@@ -443,13 +507,18 @@ fi
 if [ "\${1:-}" = "run" ]; then
   # One Automa at a time: a second one (the app or Termux:Boot starting it
   # while it already runs) would only fight the first for the port.
-  if [ -s "$automa_home/automa.pid" ] && [ "\$(cat "$automa_home/automa.pid")" != "\$\$" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
-    echo "Automa is already running. Stop it with: automa stop"
+  # Already running (the Automa app starts it in the background): this
+  # follows that one's start until it is ready instead of ending at once
+  # while the app still waited; automa stop stops it.
+  if pid="\$(running_pid)" && [ "\$pid" != "\$\$" ]; then
+    echo "Automa is already running in the background (automa stop stops it)."
+    follow_running
     exit 0
   fi
   # One started another way still holds the port: a second would only fail to start, again and again.
   if automa_answers; then
-    echo "Automa is already running on http://127.0.0.1:3100 (started another way). Stop it there first to start it here."
+    echo "Automa is already running on http://127.0.0.1:3100 (started another way; stop it there to start it here)."
+    follow_running
     exit 0
   fi
   echo "\$\$" > "$automa_home/automa.pid"
@@ -457,12 +526,19 @@ if [ "\${1:-}" = "run" ]; then
   # Ctrl+C (or automa stop) ends it for good.
   child=""
   finish() {
-    [ -n "\$child" ] && kill -TERM "\$child" 2>/dev/null && wait "\$child" 2>/dev/null
-    [ "\$(cat "$automa_home/automa.pid" 2>/dev/null)" = "\$\$" ] && rm -f "$automa_home/automa.pid"
+    # Each step may fail (the child already gone, or ended by the signal):
+    # under set -e that ended this handler early, leaving automa.pid behind.
+    if [ -n "\$child" ]; then
+      kill -TERM "\$child" 2>/dev/null || true
+      wait "\$child" 2>/dev/null || true
+    fi
+    if [ "\$(cat "$automa_home/automa.pid" 2>/dev/null)" = "\$\$" ]; then rm -f "$automa_home/automa.pid"; fi
     exit 0
   }
   trap finish INT TERM HUP
+  quick_stops=0
   while true; do
+    started_at=\$(date +%s)
     node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@" &
     child=\$!
     code=0
@@ -474,15 +550,28 @@ if [ "\${1:-}" = "run" ]; then
       echo "Another Automa is answering on port 3100, so this one stops. Stop that one first, then run: automa run" >&2
       finish
     fi
-    echo "Automa stopped (exit \$code). Starting it again in 3 seconds..." >&2
-    sleep 3
-    pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null || true
+    # Stopping again and again within minutes of starting is an error at start,
+    # not Android: it says so, and waits longer instead of looping every 3 s.
+    if [ \$((\$(date +%s) - started_at)) -lt 300 ]; then quick_stops=\$((quick_stops + 1)); else quick_stops=0; fi
+    if [ "\$quick_stops" -ge 3 ]; then
+      echo "Automa stopped \$quick_stops times in a row while starting (exit \$code). The error is above (or in $automa_home/server.log when the Automa app started it). Trying again in 60 seconds; Ctrl+C stops it." >&2
+      wait_secs=60
+    else
+      echo "Automa stopped (exit \$code). Starting it again in 3 seconds..." >&2
+      wait_secs=3
+    fi
+    # In the background, so automa stop (or Ctrl+C) ends the wait at once.
+    sleep "\$wait_secs" &
+    child=\$!
+    wait "\$child" || true
+    child=""
+    start_db || true
   done
 fi
 if [ "\${1:-}" = "onboard" ]; then
   # onboard --yes starts the server too: its pid is recorded (exec keeps it),
   # so automa stop, start and update know about this server.
-  if [ -s "$automa_home/automa.pid" ] && kill -0 "\$(cat "$automa_home/automa.pid")" 2>/dev/null; then
+  if running_pid >/dev/null; then
     echo "Automa is already running. Stop it with: automa stop"
     exit 0
   fi

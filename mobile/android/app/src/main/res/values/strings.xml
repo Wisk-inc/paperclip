@@ -36,6 +36,11 @@
     <string name="starting_title">Automa is starting</string>
     <string name="starting_message">Automa on this phone is starting up. The first start after an update can take a minute; the page comes back by itself when it is ready.</string>
     <string name="starting_waiting">Checking every few seconds…</string>
+    <!-- What a starting Automa says it is doing, under the message: "Now: checking assigned tasks · 1 min 05 s so far". -->
+    <string name="starting_step">Now: %1$s</string>
+    <string name="starting_elapsed">%1$s so far</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
     <string name="sign_in_at">Signing in at %1$s</string>
     <string name="sign_in_cancel">Cancel</string>
     <string name="retrying_now">Checking whether Automa answers…</string>

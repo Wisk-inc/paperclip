@@ -46,7 +46,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { moanKnowledge } from "./services/moan/index.js";
-import { setStartupRecoveryPhase } from "./startup-recovery-state.js";
+import { runStartupStep, setStartupRecoveryPhase } from "./startup-recovery-state.js";
 import {
   assertListenPortKeepsAppKeySafe,
   StartupRefusalError,
@@ -1030,8 +1030,12 @@ async function startServerWithDatabaseTeardown(
   startupListenerBound = true;
 
   try {
-    const result = await workspaceOperationService(db as any)
-      .reconcileStaleRuntimeControlOperations();
+    const result = await runStartupStep(
+      "runtime-operations",
+      "Tidying up after the last run",
+      logger,
+      () => workspaceOperationService(db as any).reconcileStaleRuntimeControlOperations(),
+    );
     if (result.reconciled > 0) {
       logger.warn(
         { reconciled: result.reconciled, operationIds: result.operationIds },
@@ -1116,7 +1120,12 @@ async function startServerWithDatabaseTeardown(
   // PAPERCLIP_EXECUTION_MODE / PAPERCLIP_K8S_* value throws and fails startup
   // (fail-loud) rather than silently allowing local execution.
   try {
-    const policyResult = await bootstrapExecutionPolicyFromEnv(db as any);
+    const policyResult = await runStartupStep(
+      "execution-policy",
+      "Applying execution settings",
+      logger,
+      () => bootstrapExecutionPolicyFromEnv(db as any),
+    );
     if (policyResult) {
       logger.warn(
         {
@@ -1144,10 +1153,15 @@ async function startServerWithDatabaseTeardown(
   try {
     const bundledPluginsStartup = (app as { locals?: { bundledPluginsStartup?: Promise<unknown> } })
       .locals?.bundledPluginsStartup;
-    const managedEnvironmentsResult = await applyManagedEnvironments(db as any, managedConfig, {
-      pluginsReady: bundledPluginsStartup,
-      workerManager: pluginWorkerManager,
-    });
+    const managedEnvironmentsResult = await runStartupStep(
+      "managed-environments",
+      "Starting plugins",
+      logger,
+      () => applyManagedEnvironments(db as any, managedConfig, {
+        pluginsReady: bundledPluginsStartup,
+        workerManager: pluginWorkerManager,
+      }),
+    );
     if (managedEnvironmentsResult) {
       logger.warn(managedEnvironmentsResult, "managed sandbox environments ensured from managed config");
     }
@@ -1285,6 +1299,16 @@ async function startServerWithDatabaseTeardown(
       ?? process.env.PAPERCLIP_TOOL_RUNTIME_TRUSTED_HOST
       ?? null,
   });
+  // One sweep at a time: the startup one runs after "ready" and can still be
+  // going when the scheduler's first tick starts the next.
+  let connectionHealthSweepInFlight: ReturnType<typeof tools.sweepConnectionHealth> | null = null;
+  const sweepConnectionHealthOnce = () => {
+    if (connectionHealthSweepInFlight) return connectionHealthSweepInFlight;
+    connectionHealthSweepInFlight = tools.sweepConnectionHealth().finally(() => {
+      connectionHealthSweepInFlight = null;
+    });
+    return connectionHealthSweepInFlight;
+  };
   const scheduleGitHubConnectionEventPoll = () => {
     if (heartbeatSchedulerStopped) return;
     trackHeartbeatSchedulerWork(githubConnectionEvents.pollOnce()
@@ -1310,18 +1334,50 @@ async function startServerWithDatabaseTeardown(
       }));
   };
 
-  await connectionDeliveries.sweepPending();
-  await app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "startup tool review recovery failed"));
-  await app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup tool review delivery sweep failed"));
-  await questionResponseDeliveries.sweepPending().then((result) => {
-    if (result.scanned > 0) {
-      logger.info(result, "startup question-response delivery sweep completed");
-    }
-  }).catch((err) => {
-    logger.error({ err }, "startup question-response delivery sweep failed");
+  // Each sweep below also runs on the scheduler's interval: one that fails here
+  // is logged and retried there, instead of ending the whole start (the
+  // connection sweep's failure used to: a phone's Automa then restarted over
+  // and over while the app waited on it).
+  await runStartupStep("deliveries", "Delivering messages that were waiting", logger, async () => {
+    await connectionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup connection continuation delivery failed"));
+    await app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "startup tool review recovery failed"));
+    await app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup tool review delivery sweep failed"));
+    await questionResponseDeliveries.sweepPending().then((result) => {
+      if (result.scanned > 0) {
+        logger.info(result, "startup question-response delivery sweep completed");
+      }
+    }).catch((err) => {
+      logger.error({ err }, "startup question-response delivery sweep failed");
+    });
   });
   scheduleGitHubConnectionEventPoll();
   scheduleGitHubConnectionContinuitySweep();
+
+  // A recovery step that fails is logged and the start goes on. Most of them
+  // run again on the scheduler's interval, which retries them; failing the
+  // whole start instead left a phone's Automa restarting over and over while
+  // the app said "still starting". Native-run recovery alone still fails
+  // closed (a runner that survived must not get a duplicate).
+  const recoverStep = async <T>(
+    id: string,
+    label: string,
+    retriedBy: "scheduler" | "next start",
+    work: () => Promise<T>,
+  ): Promise<T | null> => {
+    try {
+      return await runStartupStep(id, label, logger, work);
+    } catch (err) {
+      logger.error(
+        { err, step: id, retriedBy },
+        `startup recovery step failed; Automa starts without it: ${label}`,
+      );
+      return null;
+    }
+  };
+  // Upkeep that needs the network or reads every company's whole inbox runs
+  // once the server is ready, not before: on a phone it held "ready" (and so
+  // the app) for minutes. Each also runs on the scheduler's interval.
+  const afterReady: Array<() => Promise<unknown>> = [];
 
   if (heartbeat) {
     const secretProposals = createSecretProposalsService(db as any);
@@ -1473,10 +1529,16 @@ async function startServerWithDatabaseTeardown(
       const startupHeartbeatRecovery = (async () => {
         // Legacy remote recovery releases sandbox leases. Wait for provider
         // workers before cleanup or retry admission, including unmanaged installs.
-        await app.locals.bundledPluginsStartup;
+        await runStartupStep("plugins", "Starting plugins", logger, async () => {
+          await app.locals.bundledPluginsStartup;
+        });
         try {
-          const nativeRecovery =
-            await heartbeat.recoverNativeRunsAfterRestart();
+          const nativeRecovery = await runStartupStep(
+            "native-recovery",
+            "Checking work that was running when Automa stopped",
+            logger,
+            () => heartbeat.recoverNativeRunsAfterRestart(),
+          );
           if (nativeRecovery.dispositions.length > 0) {
             logger.info(
               {
@@ -1501,7 +1563,12 @@ async function startServerWithDatabaseTeardown(
           throw err;
         }
         try {
-          const hotRestart = await heartbeat.reconcileHotRestartAdoption();
+          const hotRestart = await runStartupStep(
+            "hot-restart",
+            "Checking work that was running when Automa stopped",
+            logger,
+            () => heartbeat.reconcileHotRestartAdoption(),
+          );
           if (hotRestart.mode === "reported") {
             logger.info(
               hotRestart,
@@ -1515,84 +1582,131 @@ async function startServerWithDatabaseTeardown(
           );
         }
 
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            const result = await heartbeat.reapOrphanedRuns();
-            logger.info(
-              { reaped: result.reaped, runIds: result.runIds },
-              "startup reap of orphaned heartbeat runs complete",
-            );
-            break;
-          } catch (err) {
-            if (attempt < 2) {
-              logger.warn({ err, attempt }, "startup reap failed, retrying");
-            } else {
-              logger.error(
-                { err },
-                "startup reap of orphaned heartbeat runs failed after retry - periodic reaper will serve as degraded backstop",
+        await runStartupStep("orphaned-runs", "Closing runs that stopped with Automa", logger, async () => {
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              const result = await heartbeat.reapOrphanedRuns();
+              logger.info(
+                { reaped: result.reaped, runIds: result.runIds },
+                "startup reap of orphaned heartbeat runs complete",
               );
+              break;
+            } catch (err) {
+              if (attempt < 2) {
+                logger.warn({ err, attempt }, "startup reap failed, retrying");
+              } else {
+                logger.error(
+                  { err },
+                  "startup reap of orphaned heartbeat runs failed after retry - periodic reaper will serve as degraded backstop",
+                );
+              }
             }
           }
-        }
+        });
 
-        const promotion = await heartbeat.promoteDueScheduledRetries();
-        await heartbeat.resumeQueuedRuns();
-        const recoveredGoalActions = await heartbeat.recoverPendingSessionGoalActions();
+        const promotion = await recoverStep(
+          "scheduled-retries",
+          "Resuming waiting work",
+          "scheduler",
+          () => heartbeat.promoteDueScheduledRetries(),
+        );
+        await recoverStep("queued-runs", "Resuming waiting work", "scheduler", () => heartbeat.resumeQueuedRuns());
+        const recoveredGoalActions = await recoverStep(
+          "goal-actions",
+          "Resuming agent goals",
+          "next start",
+          () => heartbeat.recoverPendingSessionGoalActions(),
+        );
         if (
-          recoveredGoalActions.enqueued > 0 ||
-          recoveredGoalActions.invalid > 0
+          recoveredGoalActions &&
+          (recoveredGoalActions.enqueued > 0 || recoveredGoalActions.invalid > 0)
         ) {
           logger.warn(
             recoveredGoalActions,
             "startup session-goal action outbox recovery reconciled pending controls",
           );
         }
-        const recoveredGoals = await heartbeat.recoverActiveSessionGoals();
-        if (recoveredGoals.enqueued > 0) {
+        const recoveredGoals = await recoverStep(
+          "goals",
+          "Resuming agent goals",
+          "next start",
+          () => heartbeat.recoverActiveSessionGoals(),
+        );
+        if (recoveredGoals && recoveredGoals.enqueued > 0) {
           logger.warn(
             recoveredGoals,
             "startup session-goal recovery resumed durable agent goals",
           );
         }
-        const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
+        const reconciled = await recoverStep(
+          "assigned-issues",
+          "Checking assigned tasks",
+          "scheduler",
+          () => heartbeat.reconcileStrandedAssignedIssues(),
+        );
         if (
-          promotion.promoted > 0 ||
-          reconciled.assignmentDispatched > 0 ||
-          reconciled.dispatchRequeued > 0 ||
-          reconciled.continuationRequeued > 0 ||
-          reconciled.successfulRunHandoffEscalated > 0 ||
-          reconciled.successfulRunHandoffRetried > 0 ||
-          reconciled.escalated > 0
+          (promotion?.promoted ?? 0) > 0 ||
+          (reconciled &&
+            (reconciled.assignmentDispatched > 0 ||
+              reconciled.dispatchRequeued > 0 ||
+              reconciled.continuationRequeued > 0 ||
+              reconciled.successfulRunHandoffEscalated > 0 ||
+              reconciled.successfulRunHandoffRetried > 0 ||
+              reconciled.escalated > 0))
         ) {
           logger.warn(
-            { promotedScheduledRetries: promotion.promoted, promotedScheduledRetryRunIds: promotion.runIds, ...reconciled },
+            {
+              promotedScheduledRetries: promotion?.promoted ?? 0,
+              promotedScheduledRetryRunIds: promotion?.runIds ?? [],
+              ...(reconciled ?? {}),
+            },
             "startup heartbeat recovery changed assigned issue state",
           );
         }
 
-        const dependencyWakesReconciled = await heartbeat.reconcileResolvedDependencyWakes();
-        if (dependencyWakesReconciled.healed > 0) {
+        const dependencyWakesReconciled = await recoverStep(
+          "dependency-wakes",
+          "Checking tasks that were waiting on others",
+          "scheduler",
+          () => heartbeat.reconcileResolvedDependencyWakes(),
+        );
+        if (dependencyWakesReconciled && dependencyWakesReconciled.healed > 0) {
           logger.warn(
             { ...dependencyWakesReconciled },
             "startup dependency-wake reconciliation restored task execution paths",
           );
         }
 
-        const taskWatchdogsReconciled = await heartbeat.reconcileTaskWatchdogs();
-        if (taskWatchdogsReconciled.triggered > 0) {
+        const taskWatchdogsReconciled = await recoverStep(
+          "task-watchdogs",
+          "Checking task watchdogs",
+          "scheduler",
+          () => heartbeat.reconcileTaskWatchdogs(),
+        );
+        if (taskWatchdogsReconciled && taskWatchdogsReconciled.triggered > 0) {
           logger.warn(
             { ...taskWatchdogsReconciled },
             "startup task-watchdog reconciliation triggered watchdog work",
           );
         }
 
-        const scanned = await heartbeat.scanSilentActiveRuns();
-        if (scanned.created > 0 || scanned.escalated > 0) {
+        const scanned = await recoverStep(
+          "silent-runs",
+          "Checking runs that went quiet",
+          "scheduler",
+          () => heartbeat.scanSilentActiveRuns(),
+        );
+        if (scanned && (scanned.created > 0 || scanned.escalated > 0)) {
           logger.warn({ ...scanned }, "startup active-run output watchdog created review work");
         }
 
-        const swept = await heartbeat.sweepStaleIssueLocks();
-        if (swept.cleared > 0) {
+        const swept = await recoverStep(
+          "stale-locks",
+          "Releasing stale task locks",
+          "scheduler",
+          () => heartbeat.sweepStaleIssueLocks(),
+        );
+        if (swept && swept.cleared > 0) {
           logger.warn({ ...swept }, "startup stale-lock sweeper cleared issue locks");
         }
       })().catch((err) => {
@@ -1603,40 +1717,51 @@ async function startServerWithDatabaseTeardown(
       await startupHeartbeatRecovery;
     }
 
-    const setupCleanup = await environmentCustomImages.cleanupExpiredSetupSessions();
-    if (setupCleanup.timedOut > 0 || setupCleanup.failed > 0) {
+    const setupCleanup = await recoverStep(
+      "setup-sessions",
+      "Closing expired setup sessions",
+      "scheduler",
+      () => environmentCustomImages.cleanupExpiredSetupSessions(),
+    );
+    if (setupCleanup && (setupCleanup.timedOut > 0 || setupCleanup.failed > 0)) {
       logger.warn({ ...setupCleanup }, "startup environment customImage setup cleanup changed sessions");
     }
 
-    const toolHealthSweep = await tools.sweepConnectionHealth();
-    if (toolHealthSweep.failed > 0) {
-      logger.warn({ ...toolHealthSweep }, "startup tool connection health sweep found failing connections");
-    }
-    await decisionExecutor.sweepExpired();
+    // Calls each connected app over the network (see afterReady).
+    afterReady.push(() => sweepConnectionHealthOnce()
+      .then((toolHealthSweep) => {
+        if (toolHealthSweep && toolHealthSweep.failed > 0) {
+          logger.warn({ ...toolHealthSweep }, "startup tool connection health sweep found failing connections");
+        }
+      })
+      .catch((err) => {
+        logger.error({ err }, "startup tool connection health sweep failed");
+      }));
+    await recoverStep("decisions", "Expiring old decisions", "scheduler", () => decisionExecutor.sweepExpired());
 
     // Run the adapter login reaper once at startup, so a login sandbox that
     // outlived a server restart is deleted before timer ticks start.
-    await adapterLoginReaper
+    await runStartupStep("adapter-logins", "Closing old sign-in sessions", logger, () => adapterLoginReaper
       .sweep()
       .then(logAdapterLoginReaperResult)
       .catch((err) => {
         logger.error({ err }, "startup adapter login reaper sweep failed");
-      });
+      }));
 
     // Run the setup-token login reaper once at startup, so a login sandbox lease
     // that outlived a server restart releases before timer ticks start.
-    await setupTokenReaper
+    await runStartupStep("setup-token-logins", "Closing old sign-in sessions", logger, () => setupTokenReaper
       .sweep()
       .then(logSetupTokenReaperResult)
       .catch((err) => {
         logger.error({ err }, "startup setup-token login reaper sweep failed");
-      });
+      }));
 
     // Retry any orphan sandbox teardown left by a failed acquire before a server
     // restart, so a leaked sandbox does not stay allocated across the restart.
-    await runEnvironmentLeaseCleanupSweep(0);
+    await runStartupStep("environment-leases", "Releasing leftover sandboxes", logger, () => runEnvironmentLeaseCleanupSweep(0));
 
-    const runRetentionSweep = async () => {
+    const runRetentionSweepNow = async () => {
       const activeCompanies = await db.select({ id: companies.id }).from(companies).where(eq(companies.status, "active"));
       let archived = 0;
       for (const company of activeCompanies) {
@@ -1653,7 +1778,20 @@ async function startServerWithDatabaseTeardown(
       const notifications = await retentionExecutor.deliverNotifications();
       return { archived, ...notifications };
     };
-    await runRetentionSweep();
+    // One at a time: the first runs right after "ready" and can still be going
+    // when the scheduler's first tick asks for the next.
+    let retentionSweepInFlight: Promise<unknown> | null = null;
+    const runRetentionSweep = () => {
+      if (retentionSweepInFlight) return retentionSweepInFlight;
+      retentionSweepInFlight = runRetentionSweepNow().finally(() => {
+        retentionSweepInFlight = null;
+      });
+      return retentionSweepInFlight;
+    };
+    // Builds every company's whole inbox (see afterReady).
+    afterReady.push(() => runRetentionSweep().catch((err: unknown) => {
+      logger.error({ err }, "startup decision retention sweep failed");
+    }));
 
     startHeartbeatSchedulerInterval(() => {
       // Track the outer async callback as well as the work it starts. Shutdown
@@ -1754,10 +1892,9 @@ async function startServerWithDatabaseTeardown(
           }));
 
         if (heartbeatSchedulerStopped) return;
-        trackHeartbeatSchedulerWork(tools
-          .sweepConnectionHealth()
+        trackHeartbeatSchedulerWork(sweepConnectionHealthOnce()
           .then((swept) => {
-            if (swept.failed > 0) {
+            if (swept && swept.failed > 0) {
               logger.warn({ ...swept }, "periodic tool connection health sweep found failing connections");
             }
           })
@@ -1879,7 +2016,7 @@ async function startServerWithDatabaseTeardown(
   // Without this, adapter type validation (assertKnownAdapterType) would
   // reject valid external adapter types during the startup loading window.
   const { waitForExternalAdapters } = await import("./adapters/registry.js");
-  await waitForExternalAdapters();
+  await runStartupStep("adapters", "Loading agent adapters", logger, () => waitForExternalAdapters());
 
   // Reconcile the agent-creation picker to the declaratively-configured adapter
   // set (PAPERCLIP_ADAPTERS). Must run after external adapters are loaded so the
@@ -1895,6 +2032,7 @@ async function startServerWithDatabaseTeardown(
 
   setStartupRecoveryPhase("ready");
   logger.info(`Server startup recovery complete on ${config.host}:${listenPort}`);
+  for (const work of afterReady.splice(0)) trackHeartbeatSchedulerWork(work());
   void systemdNotify(["--ready", `--status=Listening on ${config.host}:${listenPort}`]).then((notified) => {
     if (notified) logger.info("Notified systemd that Paperclip is ready");
   });

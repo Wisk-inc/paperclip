@@ -182,7 +182,7 @@ try {
     // A source archive without git history still bundles.
   }
   writeFileSync(path.join(bundleDir, "VERSION"), `${version} (${commit})\n`);
-  for (const file of ["install.sh", "add-sharp-wasm.mjs", "automa-adb-link.sh"]) {
+  for (const file of ["install.sh", "add-sharp-wasm.mjs", "automa-adb-link.sh", "automa-follow-start.mjs"]) {
     cpSync(path.join(repoRoot, "mobile", "termux", file), path.join(bundleDir, file));
   }
 

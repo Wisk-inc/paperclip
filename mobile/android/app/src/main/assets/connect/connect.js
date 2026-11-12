@@ -161,6 +161,7 @@
   var waitTermux = document.getElementById("wait-termux");
   var waitFix = document.getElementById("wait-fix");
   var waitFixCommand = document.getElementById("wait-fix-command");
+  var waitTime = document.getElementById("wait-time");
   var lastWaitAddress = "";
   var waitTimer = null;
   var fillTimer = null;
@@ -173,20 +174,48 @@
   // answering: a moment of silence (Android paused Termux, Automa restarting)
   // used to send the start request straight away, to an Automa already up.
   var startTermuxIfSilent = false;
+  // A try is on its way to Automa (only one at a time).
+  var inFlight = false;
+  // Automa answered during this wait (it said it is starting up). Silence after
+  // that is not "still starting": it stopped, and the page says so.
+  var answered = false;
+  var silentTries = 0;
+  var silentSince = 0;
+  // Termux was asked to start Automa again after it went silent (once per silence).
+  var askedRestart = false;
+  // What Automa last said it is doing: {label, seconds, stepSeconds, number, total}.
+  var startup = null;
+  // The help line is about silence (it goes when Automa answers again).
+  var silenceHelp = false;
   var RETRY_MS = 3000;
-  var MAX_TRIES = 100;
+  // Tries in a row with no answer, after Automa had answered, before the page
+  // says it stopped (about ten seconds).
+  var SILENT_TRIES_BEFORE_HELP = 3;
+  // How long the page waits while nothing answers before it stops and says
+  // what to do. While Automa answers that it is starting up, the page keeps
+  // waiting: it shows what Automa is doing and for how long.
+  var GIVE_UP_SILENT_MS = 5 * 60 * 1000;
+  // Automa on one step this long is called out, with what to do.
+  var STUCK_STEP_SECONDS = 5 * 60;
   // Each step owns a stretch of the bar. Within a step the bar creeps on
   // toward the step's end, so a slow start still shows movement, and jumps
-  // ahead the moment the step is done.
+  // ahead the moment the step is done. While Automa says which of its startup
+  // steps it is on, the bar follows those instead.
   var STEPS = ["termux", "answer", "ready", "open"];
   var SPAN = { termux: [0, 30], answer: [30, 65], ready: [65, 90], open: [90, 100] };
+  var fillFloor = 0;
   function stepState(name, state) {
     var item = waitBox.querySelector('[data-step="' + name + '"]');
     if (item) item.setAttribute("data-state", state);
   }
-  function setStep(name, status) {
-    if (STEPS.indexOf(name) < STEPS.indexOf(step)) name = step;
-    if (name !== step) stepStarted = Date.now();
+  // `back`: Automa stopped answering after it had, so "Automa answers" is the
+  // step again; otherwise the steps only move forward.
+  function setStep(name, status, back) {
+    if (!back && STEPS.indexOf(name) < STEPS.indexOf(step)) name = step;
+    if (name !== step) {
+      stepStarted = Date.now();
+      if (STEPS.indexOf(name) < STEPS.indexOf(step)) fillFloor = 0;
+    }
     step = name;
     STEPS.forEach(function (other) {
       var item = waitBox.querySelector('[data-step="' + other + '"]');
@@ -200,16 +229,48 @@
   }
   function drawFill() {
     var span = SPAN[step];
-    var seconds = (Date.now() - stepStarted) / 1000;
-    var within = step === "open" ? 1 : 1 - Math.exp(-seconds / 12);
-    var value = Math.round(span[0] + (span[1] - span[0]) * 0.92 * within);
+    var within;
+    if (step === "open") {
+      within = 1;
+    } else if (step === "ready" && startup && startup.number && startup.total) {
+      within = Math.min(1, (startup.number - 0.5) / startup.total);
+    } else {
+      within = 1 - Math.exp(-((Date.now() - stepStarted) / 1000) / 12);
+    }
+    var value = Math.max(fillFloor, Math.round(span[0] + (span[1] - span[0]) * 0.92 * within));
+    fillFloor = value;
     waitFill.style.width = value + "%";
     waitBar.setAttribute("aria-valuenow", String(value));
+    drawTime();
+  }
+  /** "45 s", "2 min 05 s". */
+  function duration(seconds) {
+    var whole = Math.max(0, Math.round(seconds));
+    if (whole < 60) return whole + " s";
+    var rest = whole % 60;
+    return Math.floor(whole / 60) + " min" + (rest ? " " + (rest < 10 ? "0" : "") + rest + " s" : "");
+  }
+  function drawTime() {
+    if (!waitTime) return;
+    if (waitBox.hidden || !waitStarted) {
+      waitTime.textContent = "";
+      return;
+    }
+    var text = "Waiting " + duration((Date.now() - waitStarted) / 1000);
+    if (step === "ready" && startup && startup.number && startup.total) {
+      text += " · step " + startup.number + " of " + startup.total;
+    }
+    waitTime.textContent = text;
   }
   function setHelp(text, offerTermux) {
     waitHelp.textContent = text || "";
     waitHelp.hidden = !text;
     waitTermux.hidden = !offerTermux;
+    silenceHelp = false;
+  }
+  function setSilenceHelp(text) {
+    setHelp(text, true);
+    silenceHelp = true;
   }
   // Termux refused (allow-external-apps is off): show the one-line fix
   // instead of asking it again, which only makes Termux pop an error report.
@@ -218,19 +279,30 @@
     waitFix.hidden = false;
     setHelp("", false);
   }
+  function resetWaitState() {
+    tries = 0;
+    startedTermux = false;
+    startTermuxIfSilent = false;
+    answered = false;
+    silentTries = 0;
+    silentSince = 0;
+    askedRestart = false;
+    startup = null;
+    fillFloor = 0;
+  }
   function stopWaiting() {
     waitFix.hidden = true;
     if (waitTimer) clearTimeout(waitTimer);
     if (fillTimer) clearInterval(fillTimer);
     waitTimer = null;
     fillTimer = null;
-    tries = 0;
-    startedTermux = false;
-    startTermuxIfSilent = false;
+    resetWaitState();
     waitBox.hidden = true;
+    drawTime();
     setBusy(false);
   }
   function beginWaiting(canStartTermux) {
+    resetWaitState();
     waitBox.hidden = false;
     waitStarted = Date.now();
     stepStarted = waitStarted;
@@ -243,6 +315,11 @@
   }
   function isThisPhone(address) {
     return /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test((address || "").trim());
+  }
+  // Termux can be asked without Android asking the person first.
+  function canAskTermuxQuietly() {
+    return !!(bridge && bridge.startAutomaInTermux && bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY) &&
+      bridge.termuxRunPermissionGranted && bridge.termuxRunPermissionGranted(KEY) && isThisPhone(lastWaitAddress));
   }
   // Asks Termux to start Automa (`automa start`), saying what it waits on:
   // Android's permission dialog the first time, then Termux's answer.
@@ -275,17 +352,51 @@
     lastWaitAddress = address;
     showError("");
     setPose("thinking");
-    if (tries === 0) {
+    if (waitBox.hidden) {
       var canStart = !!startTermux && isThisPhone(address) && !!bridge.startAutomaInTermux && !!(bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY));
       beginWaiting(canStart);
       setBusy(true, "Waiting for Automa…");
       startTermuxIfSilent = canStart && !startedTermux;
     }
+    if (inFlight) return;
+    if (waitTimer) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
     tries += 1;
     tryOnce(address);
   }
+  function tryLater(address) {
+    if (waitTimer) clearTimeout(waitTimer);
+    waitTimer = setTimeout(function () {
+      waitTimer = null;
+      // A try already on its way schedules the next one itself.
+      if (inFlight || waitBox.hidden) return;
+      tries += 1;
+      tryOnce(address);
+    }, RETRY_MS);
+  }
+  /** What Automa said it is doing, from the app's reply (older servers send none of it). */
+  function startupOf(reply) {
+    if (!reply || (typeof reply.step !== "string" && typeof reply.seconds !== "number")) return null;
+    return {
+      label: typeof reply.step === "string" ? reply.step : "",
+      seconds: typeof reply.seconds === "number" ? reply.seconds : null,
+      stepSeconds: typeof reply.stepSeconds === "number" ? reply.stepSeconds : null,
+      number: typeof reply.stepNumber === "number" ? reply.stepNumber : null,
+      total: typeof reply.stepTotal === "number" ? reply.stepTotal : null,
+    };
+  }
+  function startingStatus() {
+    if (startup && startup.label) {
+      return "Automa is starting up: " + startup.label.charAt(0).toLowerCase() + startup.label.slice(1) + "…";
+    }
+    return "Automa is starting up. The first start after an update can take a minute…";
+  }
   function tryOnce(address) {
+    inFlight = true;
     connectOnce(address, null, function (reply) {
+      inFlight = false;
       if (waitBox.hidden) return;
       if (reply && reply.ok !== false) {
         setStep("open", "Connected. " + nextStepText(reply));
@@ -298,34 +409,89 @@
         return;
       }
       var message = (reply && reply.error) || "Could not connect.";
+      var starting = !!(reply && reply.starting) || /still starting/i.test(message);
       // Nothing answered the first try: now Termux is asked to start Automa.
-      if (startTermuxIfSilent && !startedTermux && !/still starting/i.test(message)) {
+      if (startTermuxIfSilent && !startedTermux && !starting) {
         startTermuxIfSilent = false;
-        startInTermux(function () { tries += 1; tryOnce(address); });
+        startInTermux(function () { tryLater(address); });
         return;
       }
-      // Not up yet (refused, still starting): try again shortly, for a while.
-      if (tries < MAX_TRIES && /not running|nothing answers|still starting|try again|refused|closed the connection/i.test(message)) {
-        // Once it has answered, a moment of not answering is part of starting
-        // up: the line above the steps keeps saying so, as the steps do.
-        if (/still starting/i.test(message) || STEPS.indexOf(step) > STEPS.indexOf("answer")) {
-          setStep("ready", "Automa is starting up. The first start after an update can take a minute…");
+      if (starting) {
+        // It answers: it is alive and working through its start. The page
+        // keeps waiting, saying what Automa is doing and for how long.
+        answered = true;
+        silentTries = 0;
+        silentSince = 0;
+        askedRestart = false;
+        startup = startupOf(reply);
+        setStep("ready", startingStatus(), step !== "ready" && step !== "open");
+        if (startup && startup.stepSeconds !== null && startup.stepSeconds >= STUCK_STEP_SECONDS) {
+          setHelp("Automa has been on this step for " + duration(startup.stepSeconds) + ". If it doesn't move on, open Termux to see what it says; Ctrl+C there and then automa run starts it again.", true);
+        } else if (silenceHelp || (startup && !waitHelp.hidden && /on this step/.test(waitHelp.textContent))) {
+          setHelp("", false);
+        }
+        tryLater(address);
+        return;
+      }
+      var silent = !!(reply && reply.silent) || /not running|nothing answers|try again|refused|closed the connection|did not answer/i.test(message);
+      if (silent) {
+        if (!silentSince) silentSince = Date.now();
+        if (answered) {
+          // It had answered and now does not: it stopped (Android closed
+          // Termux, or Automa hit an error), which is not "still starting".
+          silentTries += 1;
+          if (silentTries >= SILENT_TRIES_BEFORE_HELP) {
+            setStep("answer", "Automa stopped answering while it was starting up. Waiting for it to come back…", true);
+            if (!silenceHelp) {
+              setSilenceHelp("Android may have closed Termux, or Automa ran into an error. Open Termux to see what it says; automa run starts it again. Setting Termux's battery use to Unrestricted keeps it running.");
+            }
+            // `automa start` starts it only if it is not running: once per silence.
+            if (!askedRestart && canAskTermuxQuietly()) {
+              askedRestart = true;
+              startInTermux(function () { tryLater(address); });
+              return;
+            }
+          }
         } else {
           setStep("answer", startedTermux ? "Waiting for Automa to answer…" : "Waiting for Automa on this phone to answer…");
+          if (Date.now() - waitStarted > 45000 && waitHelp.hidden) {
+            setSilenceHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.");
+          }
         }
-        var waited = (Date.now() - waitStarted) / 1000;
-        if (!/still starting/i.test(message) && waited > 45 && waitHelp.hidden) {
-          setHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.", true);
+        if (Date.now() - silentSince < GIVE_UP_SILENT_MS) {
+          tryLater(address);
+          return;
         }
-        waitTimer = setTimeout(function () { tries += 1; tryOnce(address); }, RETRY_MS);
-        return;
+        if (answered) {
+          message = "Automa on this phone stopped answering while it was starting up, and has not come back in 5 minutes. Open Termux to see what it says, then run automa run there.";
+        }
       }
       stopWaiting();
       setPose("confused");
       haptic("warning");
       showError(message);
+      if (silent && isThisPhone(address)) openThisPhone();
     });
   }
+  // Termux's automa run (or automa link) asked the app to connect while this
+  // page is open: Termux is starting Automa, so the page waits for it (it used
+  // to reload and start its steps over) and asks Termux for nothing.
+  window.__automaConnectRequested = function (address) {
+    var target = address || lastWaitAddress || input.value;
+    if (!target) return;
+    startTermuxIfSilent = false;
+    if (waitBox.hidden) {
+      connectWaiting(target, false);
+      startedTermux = true;
+      return;
+    }
+    startedTermux = true;
+    if (!answered && (step === "termux" || step === "answer")) {
+      setStep("answer", "Termux is starting Automa. Waiting for it to answer…");
+    }
+    // Asked now instead of at the next tick, unless a try is already on its way.
+    if (!inFlight) connectWaiting(lastWaitAddress || target, false);
+  };
   document.getElementById("wait-fix-copy").addEventListener("click", function () {
     haptic("tick");
     if (bridge && bridge.copyText) bridge.copyText(KEY, waitFixCommand.textContent || "");

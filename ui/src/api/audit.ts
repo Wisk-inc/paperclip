@@ -1,5 +1,5 @@
 import { tenantSessionRecovery } from "@/lib/tenant-session-recovery";
-import { api } from "./client";
+import { api, fetchApi } from "./client";
 
 /**
  * Agent audit API client.
@@ -105,7 +105,7 @@ export const auditApi = {
   ): Promise<Blob> => {
     const search = buildAuditQuery(filters);
     const qs = search.toString();
-    const res = await fetch(
+    const res = await fetchApi(
       `/api/companies/${companyId}/audit/agent-actions.csv${qs ? `?${qs}` : ""}`,
       { credentials: "include", headers: { Accept: "text/csv" } },
     );

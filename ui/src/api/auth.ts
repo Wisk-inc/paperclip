@@ -1,4 +1,4 @@
-import { NETWORK_ERROR_MESSAGE } from "./client";
+import { fetchApi, NETWORK_ERROR_MESSAGE } from "./client";
 import {
   authSessionSchema,
   currentUserProfileSchema,
@@ -158,7 +158,9 @@ async function authPatch<T>(path: string, body: Record<string, unknown>, parse: 
 
 export const authApi = {
   getSession: async (): Promise<AuthSession | null> => {
-    const res = await fetch("/api/auth/get-session", {
+    // A dropped connection throws (status 0); it never reads as signed out,
+    // which sent people to the sign-in page whenever the Wi-Fi blinked.
+    const res = await fetchApi("/api/auth/get-session", {
       credentials: "include",
       headers: { Accept: "application/json" },
     });
@@ -190,7 +192,7 @@ export const authApi = {
   },
 
   getProfile: async (): Promise<CurrentUserProfile> => {
-    const res = await fetch("/api/auth/profile", {
+    const res = await fetchApi("/api/auth/profile", {
       credentials: "include",
       headers: { Accept: "application/json" },
     });

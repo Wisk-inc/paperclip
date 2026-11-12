@@ -12,6 +12,34 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useSignOut } from "@/hooks/useSignOut";
 import { inviteTargetFromInput } from "@/lib/invite-link";
+import { isReachabilityError, reconnectRetryDelay, retryWhileUnreachable } from "@/lib/connection-recovery";
+
+/**
+ * Shown while the server can't be reached (offline, or Automa restarting),
+ * instead of the browser's bare "Failed to fetch" that stayed until the app
+ * was reopened. The checks behind it keep going by themselves.
+ */
+function ReconnectingNotice({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return (
+    <div className="mx-auto max-w-xl py-10">
+      <Card className="block p-6" role="status" aria-live="polite">
+        <h1 className="text-xl font-semibold">Reconnecting to Automa…</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {message ?? "Automa isn't answering right now."} This page comes back by itself as soon as it answers; nothing
+          is lost.
+        </p>
+        <Button className="mt-4" variant="outline" onClick={onRetry}>
+          Try now
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
+/** A query still trying after failing to reach the server, with nothing to show yet. */
+function stillReconnecting(query: { isPending: boolean; failureCount: number; failureReason: unknown }): boolean {
+  return query.isPending && query.failureCount > 0 && isReachabilityError(query.failureReason);
+}
 
 function NoBoardAccessPage() {
   const navigate = useNavigate();
@@ -83,7 +111,9 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
   const healthQuery = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => healthApi.get(),
-    retry: false,
+    // Asked again while the server can't be reached; a real answer is final.
+    retry: retryWhileUnreachable,
+    retryDelay: reconnectRetryDelay,
     refetchInterval: (query) => {
       const data = query.state.data as
         | { deploymentMode?: "local_trusted" | "authenticated"; bootstrapStatus?: "ready" | "bootstrap_pending" }
@@ -101,14 +131,18 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
     enabled: isAuthenticatedMode,
-    retry: false,
+    // A dropped connection is not "signed out": it is asked again, and the
+    // sign-in page only follows a real answer.
+    retry: retryWhileUnreachable,
+    retryDelay: reconnectRetryDelay,
   });
 
   const boardAccessQuery = useQuery({
     queryKey: queryKeys.access.currentBoardAccess,
     queryFn: () => accessApi.getCurrentBoardAccess(),
     enabled: isAuthenticatedMode && !isBootstrapPending && !!sessionQuery.data,
-    retry: false,
+    retry: retryWhileUnreachable,
+    retryDelay: reconnectRetryDelay,
   });
   const claimMutation = useMutation({
     mutationFn: () => accessApi.claimBootstrapAdmin(),
@@ -121,6 +155,20 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
     },
   });
 
+  const reconnecting = [healthQuery, isAuthenticatedMode ? sessionQuery : null, boardAccessQuery].find(
+    (query) => query !== null && stillReconnecting(query),
+  );
+  if (reconnecting) {
+    const reason = reconnecting.failureReason;
+    return (
+      <ReconnectingNotice
+        // Never the browser's own words ("Failed to fetch"): what it means.
+        message={reason instanceof ApiError && reason.status >= 500 ? "Automa answered that it isn't ready yet." : null}
+        onRetry={() => void reconnecting.refetch()}
+      />
+    );
+  }
+
   if (
     healthQuery.isLoading ||
     (isAuthenticatedMode && sessionQuery.isLoading) ||
@@ -129,13 +177,33 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
     return <PaperclipLoading />;
   }
 
-  if (healthQuery.error || boardAccessQuery.error) {
+  // The server can't be reached right now. That is no error page: the health
+  // check is shared with the rest of the board, and when one of its re-checks
+  // gave up during an outage, the whole board turned into one red line
+  // ("Failed to fetch") that stayed until the app was reopened. With what the
+  // board already has, it stays on screen (ConnectionRecovery asks again the
+  // moment the server answers); with nothing yet, the reconnect card shows.
+  const unreachable = (query: { error: unknown }) => query.error != null && isReachabilityError(query.error);
+  if ((unreachable(healthQuery) && !healthQuery.data) || (unreachable(boardAccessQuery) && !boardAccessQuery.data)) {
+    return (
+      <ReconnectingNotice
+        message={null}
+        onRetry={() => {
+          void healthQuery.refetch();
+          if (boardAccessQuery.error) void boardAccessQuery.refetch();
+        }}
+      />
+    );
+  }
+  const healthError = unreachable(healthQuery) ? null : healthQuery.error;
+  const boardAccessError = unreachable(boardAccessQuery) ? null : boardAccessQuery.error;
+  if (healthError || boardAccessError) {
     return (
       <div className="mx-auto max-w-xl py-10 text-sm text-destructive">
-        {healthQuery.error instanceof Error
-          ? healthQuery.error.message
-          : boardAccessQuery.error instanceof Error
-            ? boardAccessQuery.error.message
+        {healthError instanceof Error
+          ? healthError.message
+          : boardAccessError instanceof Error
+            ? boardAccessError.message
             : "Failed to load app state"}
       </div>
     );
@@ -165,6 +233,10 @@ export function CloudAccessGate({ allowMembershipRequest = false }: { allowMembe
   }
 
   if (isAuthenticatedMode && !sessionQuery.data) {
+    // Not answered yet (the connection dropped): wait, rather than sign out.
+    if (sessionQuery.error && isReachabilityError(sessionQuery.error)) {
+      return <ReconnectingNotice message={null} onRetry={() => void sessionQuery.refetch()} />;
+    }
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     return <Navigate to={`/auth?next=${next}`} replace />;
   }

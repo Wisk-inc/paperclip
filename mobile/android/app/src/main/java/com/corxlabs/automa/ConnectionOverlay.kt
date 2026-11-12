@@ -131,7 +131,8 @@ class ConnectionOverlay(
             }
             Reason.STARTING -> {
                 title.text = res.getString(R.string.starting_title)
-                message.text = res.getString(R.string.starting_message)
+                // [detail]: what Automa says it is doing, and for how long (Automa 1.9.10 on).
+                message.text = listOfNotNull(res.getString(R.string.starting_message), detail).joinToString("\n\n")
                 countdown.text = res.getString(R.string.starting_waiting)
                 // Checked again by MainActivity on its own schedule: the bar keeps moving.
                 progress.isIndeterminate = true

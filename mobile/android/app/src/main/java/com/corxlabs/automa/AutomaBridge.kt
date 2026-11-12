@@ -31,6 +31,14 @@ import java.util.concurrent.ExecutorService
 /** The largest file a page may save through [AutomaBridge.beginDownload]. */
 private const val MAX_DOWNLOAD_BYTES = 2L * 1024 * 1024 * 1024
 
+/** Health check outcomes where nothing that speaks HTTP answered at all. */
+private val SILENT_KINDS = setOf(
+    ServerConfig.HealthKind.REFUSED,
+    ServerConfig.HealthKind.TIMEOUT,
+    ServerConfig.HealthKind.RESET,
+    ServerConfig.HealthKind.NOT_FOUND,
+)
+
 class AutomaBridge(
     private val activity: MainActivity,
     private val config: ServerConfig,
@@ -59,6 +67,30 @@ class AutomaBridge(
     private fun onAppPage(key: String?): Boolean = onServerPage(key) || onConnectPage(key)
 
     private fun error(message: String) = JSONObject().put("ok", false).put("error", message).toString()
+
+    /**
+     * Why a connect failed, for the connect screen: the sentence, plus what the
+     * waiting screen needs without reading the sentence. `starting`: Automa
+     * answered that it is starting up, with the step it says it is on (Automa
+     * 1.9.10 on). `silent`: Automa on this phone did not answer at all.
+     */
+    private fun healthFailure(url: String, health: ServerConfig.HealthResult): String {
+        val reply = JSONObject().put("ok", false).put("error", ServerConfig.explain(url, health))
+        when {
+            health.kind == ServerConfig.HealthKind.UNHEALTHY -> {
+                reply.put("starting", true)
+                health.startup?.let { startup ->
+                    startup.label?.let { reply.put("step", it) }
+                    startup.seconds?.let { reply.put("seconds", it) }
+                    startup.stepSeconds?.let { reply.put("stepSeconds", it) }
+                    startup.number?.let { reply.put("stepNumber", it) }
+                    startup.total?.let { reply.put("stepTotal", it) }
+                }
+            }
+            ServerConfig.isLoopback(url) && health.kind in SILENT_KINDS -> reply.put("silent", true)
+        }
+        return reply.toString()
+    }
 
     fun resolve(callId: String, json: String) {
         val script = "window.__automaNative && window.__automaNative.resolve(${JSONObject.quote(callId)}, ${JSONObject.quote(json)})"
@@ -413,7 +445,7 @@ class AutomaBridge(
         executor.execute {
             val (reachedUrl, health) = ServerConfig.probe(input, url)
             if (!health.ok) {
-                resolve(callId, error(ServerConfig.explain(reachedUrl, health)))
+                resolve(callId, healthFailure(reachedUrl, health))
                 return@execute
             }
             // A fresh install opens on setup: say so on the success screen.
@@ -432,7 +464,22 @@ class AutomaBridge(
                 }
                 // The key goes only to a server that proves it holds it (an
                 // older Automa, from before proofs: one that accepts it).
-                keyForServer = candidates.firstOrNull { config.keyWorks(reachedUrl, it) }
+                var unanswered = false
+                for (candidate in candidates) {
+                    when (config.verifyKey(reachedUrl, candidate)) {
+                        ServerConfig.KeyVerdict.WORKS -> keyForServer = candidate
+                        // It answered its health check, then not the key check:
+                        // still starting, or busy. That says nothing about the
+                        // keys, so none is dropped and the wait goes on.
+                        ServerConfig.KeyVerdict.UNREACHABLE -> unanswered = true
+                        ServerConfig.KeyVerdict.REJECTED -> continue
+                    }
+                    break
+                }
+                if (keyForServer == null && unanswered) {
+                    resolve(callId, healthFailure(reachedUrl, ServerConfig.HealthResult(ServerConfig.HealthKind.TIMEOUT, "no answer to the key check")))
+                    return@execute
+                }
                 // A handed-over key that doesn't work is not kept: any app can
                 // send one, and keeping it would replace the key that works.
                 if (pending != null && pending != keyForServer) config.pendingConnect = null

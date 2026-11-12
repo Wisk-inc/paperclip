@@ -49,6 +49,27 @@ function sleep(ms: number, signal: AbortSignal | null | undefined): Promise<void
   });
 }
 
+/**
+ * `fetch` for API calls that read the response themselves. A request that
+ * never reached the server (offline, refused, Automa restarting) throws the
+ * plain-words ApiError with status 0, never the browser's bare "Failed to
+ * fetch"; a read is tried again a couple of times first, a write is not (it
+ * may have reached the server).
+ */
+export async function fetchApi(input: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const retries = method === "GET" || method === "HEAD" ? READ_RETRY_DELAYS_MS : [];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      if (!isConnectionFailure(error) || init?.signal?.aborted) throw error;
+      if (attempt >= retries.length) throw new ApiError(NETWORK_ERROR_MESSAGE, 0, null);
+      await sleep(retries[attempt]!, init?.signal);
+    }
+  }
+}
+
 export interface RequestOptions {
   /** Abort signal wired through to `fetch` and coalescing (per-caller). */
   signal?: AbortSignal;
@@ -86,23 +107,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   // Reads are tried again a couple of times when the connection drops; a
   // write is not (it may have reached the server), and says so plainly.
-  const method = (init?.method ?? "GET").toUpperCase();
-  const retries = method === "GET" || method === "HEAD" ? READ_RETRY_DELAYS_MS : [];
-  let res: Response;
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      res = await fetch(`${BASE}${path}`, {
-        headers,
-        credentials: "include",
-        ...init,
-      });
-      break;
-    } catch (error) {
-      if (!isConnectionFailure(error) || init?.signal?.aborted) throw error;
-      if (attempt >= retries.length) throw new ApiError(NETWORK_ERROR_MESSAGE, 0, null);
-      await sleep(retries[attempt]!, init?.signal);
-    }
-  }
+  const res = await fetchApi(`${BASE}${path}`, {
+    headers,
+    credentials: "include",
+    ...init,
+  });
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
     const recovery = tenantSessionRecovery.recoverIfNeeded(res.status, errorBody);

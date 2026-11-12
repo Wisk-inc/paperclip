@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.9
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.10
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -505,7 +505,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.9.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.10.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -522,6 +522,17 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.10** (12 November 2026) — Opening the app while Automa on the phone
+starts now shows what Automa is doing ("checking assigned tasks", step 13 of
+23) and for how long, instead of spinning on "Automa finishes starting up". A
+start that stopped is told apart from a slow one, and Termux is asked once to
+start it again. Automa reaches "ready" sooner, and one failing startup step no
+longer ends the start. In Termux, `automa run` follows a start that is already
+going until it is ready, and `automa status` shows the step. No more "Failed to
+fetch": when the Wi-Fi drops or the server restarts, the board keeps its page
+and loads again by itself the moment the connection is back, with no need to
+reopen the app.
 
 **1.9.9** (9 November 2026) — Fixes from a scan of every page and a live run
 of the app. When the free AI service asks Automa to slow down, Automa now

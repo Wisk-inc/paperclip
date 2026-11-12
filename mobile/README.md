@@ -121,15 +121,25 @@ Termux app with no computer:
    in Termux with `automa run`.
 
 **Keeping it running.** `automa run` starts the server again by itself when
-it stops (a crash, or Android ending it), until Ctrl+C. `automa start` does
-the same in the background (log in `~/.automa/server.log`), `automa stop`
-ends it, and `automa status` says whether it answers; only one runs at a time.
+it stops (a crash, or Android ending it), until Ctrl+C; one that keeps
+stopping while it starts is tried again every minute instead of every 3
+seconds, with a note of where the error is. `automa start` does the same in
+the background (log in `~/.automa/server.log`), `automa stop` ends it, and
+`automa status` says whether it answers and, while it starts, which step it is
+on; only one runs at a time. `automa run` while one already runs in the
+background follows that start step by step until it is ready, then opens the
+app. A pid file or PostgreSQL lock file left behind when Android ended Termux
+is recognised as stale (by the process's command line) and cleared.
 When the app opens and Automa on the phone does not answer, the app starts it
 for you through Termux's `RUN_COMMAND`: the installer turns on
 `allow-external-apps` in `~/.termux/termux.properties`, and Android asks once
 whether Automa may run commands in Termux. The connect screen then shows each
 step (Termux starts Automa, Automa answers, Automa finishes starting up, your
-board opens) with a bar that fills as they finish, instead of a timer. With
+board opens) with a bar that fills as they finish, instead of a timer. While
+Automa starts it reports its own startup step (`startup` in `/api/health`),
+and the screen shows it with the time so far and "step x of y"; an Automa
+that answered and then went quiet is shown as stopped (and Termux is asked
+once to start it again), not as still starting. With
 the Termux:Boot app (F-Droid) installed, `~/.termux/boot/automa` starts it
 when the phone boots. Set Termux's battery use to **Unrestricted** (App info →
 Battery) so Android does not close it in the background.

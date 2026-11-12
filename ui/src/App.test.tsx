@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudAccessGate } from "./components/CloudAccessGate";
+import { ApiError, NETWORK_ERROR_MESSAGE } from "./api/client";
 import appSource from "./App.tsx?raw";
 import layoutSource from "./components/Layout.tsx?raw";
 
@@ -157,6 +158,93 @@ describe("CloudAccessGate", () => {
     const root = renderGate(container, true);
     await waitForText(container, "Access check unavailable");
     expect(container.textContent).not.toContain("Outlet content");
+    unmountRoot(root);
+  });
+
+  it("reconnects by itself when the server can't be reached, instead of a dead 'Failed to fetch'", async () => {
+    mockHealthApi.get
+      .mockRejectedValueOnce(new ApiError(NETWORK_ERROR_MESSAGE, 0, null))
+      .mockResolvedValue({ status: "ok", deploymentMode: "local_trusted", deploymentExposure: "private" });
+
+    const root = renderGate(container);
+    await waitForText(container, "Reconnecting to Automa");
+    expect(container.textContent).toContain("Try now");
+    expect(container.textContent).not.toContain("Failed to fetch");
+
+    // The retry a second later finds the server: the board opens, no reopening the app.
+    await vi.waitFor(() => expect(container.textContent).toContain("Outlet content"), { timeout: 5_000 });
+    expect(mockHealthApi.get).toHaveBeenCalledTimes(2);
+    unmountRoot(root);
+  });
+
+  it("treats a raw fetch failure the same way", async () => {
+    mockHealthApi.get
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue({ status: "ok", deploymentMode: "local_trusted", deploymentExposure: "private" });
+
+    const root = renderGate(container);
+    await waitForText(container, "Reconnecting to Automa");
+    expect(container.textContent).not.toContain("Failed to fetch");
+    await vi.waitFor(() => expect(container.textContent).toContain("Outlet content"), { timeout: 5_000 });
+    unmountRoot(root);
+  });
+
+  it("does not send a signed-in person to the sign-in page when the connection drops", async () => {
+    mockAuthApi.getSession
+      .mockRejectedValueOnce(new ApiError(NETWORK_ERROR_MESSAGE, 0, null))
+      .mockResolvedValue({
+        session: { id: "session-1", userId: "user-1" },
+        user: { id: "user-1", email: "user@example.com", name: "User", image: null },
+      });
+    mockAccessApi.getCurrentBoardAccess.mockResolvedValue({
+      user: { id: "user-1", email: "user@example.com", name: "User", image: null },
+      userId: "user-1",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+      source: "session",
+      keyId: null,
+    });
+
+    const root = renderGate(container);
+    await waitForText(container, "Reconnecting to Automa");
+    expect(container.textContent).not.toContain("Navigate:/auth");
+    await vi.waitFor(() => expect(container.textContent).toContain("Outlet content"), { timeout: 5_000 });
+    expect(container.textContent).not.toContain("Navigate:/auth");
+    unmountRoot(root);
+  });
+
+  it("keeps the board on screen when a re-check of the server fails during an outage", async () => {
+    mockHealthApi.get.mockResolvedValue({ status: "ok", deploymentMode: "local_trusted", deploymentExposure: "private" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const root = createRoot(container);
+    flushSync(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CloudAccessGate />
+        </QueryClientProvider>,
+      );
+    });
+    await waitForText(container, "Outlet content");
+
+    // Another part of the board re-checks the server while it is down, and gives up.
+    mockHealthApi.get.mockRejectedValue(new ApiError(NETWORK_ERROR_MESSAGE, 0, null));
+    await queryClient.fetchQuery({ queryKey: ["health"], queryFn: () => mockHealthApi.get(), retry: false, staleTime: 0 }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The board stays (it refreshes by itself when the server answers), no red line over it.
+    expect(container.textContent).toContain("Outlet content");
+    expect(container.textContent).not.toContain(NETWORK_ERROR_MESSAGE);
+    expect(container.textContent).not.toContain("Reconnecting");
+    unmountRoot(root);
+  });
+
+  it("still shows a real error from the server without retrying it", async () => {
+    mockHealthApi.get.mockRejectedValue(new ApiError("Forbidden", 403, null));
+
+    const root = renderGate(container);
+    await waitForText(container, "Forbidden");
+    expect(container.textContent).not.toContain("Reconnecting");
+    expect(mockHealthApi.get).toHaveBeenCalledTimes(1);
     unmountRoot(root);
   });
 

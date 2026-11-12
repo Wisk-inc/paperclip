@@ -71,7 +71,7 @@ Support: https://discord.gg/NfnSrFK7YM
 Privacy policy URL: the public URL of `website/PRIVACY.md` (or `website/privacy.html` once the website is hosted)
 Terms of service URL: the public URL of `TERMS.md` in this folder
 
-## Data safety answers (for the APKPure build, 1.9.9, built without Firebase)
+## Data safety answers (for the APKPure build, 1.9.10, built without Firebase)
 
 - Data collected by the developer: none. The app has no Google sign-in and no
   push service in this build, and the server's usage reporting is off.

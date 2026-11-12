@@ -256,6 +256,13 @@ export function healthRoutes(
     const startupRecovery = getStartupRecoveryState();
     const healthStatus =
       startupRecovery.phase === "ready" ? "ok" : "starting";
+    // While the server is not ready, every answer says what it is doing and for
+    // how long: the Automa app waiting on Automa on the phone shows it instead
+    // of an endless "starting up". Fixed step labels only, never instance data,
+    // so it rides the redacted answer too.
+    const startup = startupRecovery.phase === "ready"
+      ? null
+      : { phase: startupRecovery.phase, seconds: startupRecovery.seconds, step: startupRecovery.step };
     const cloud = getCloudHealthStatus(runtimeEnv);
     // Operator-hidden settings ride every response (like `cloud`): the list
     // holds UI surface names only, and the settings nav needs it before any
@@ -296,6 +303,7 @@ export function healthRoutes(
               serverVersion: serverVersion,
               commit,
               serverInfo,
+              ...(startup ? { startup } : {}),
               ...(cloud ? { cloud } : {}),
               ...(hiddenSettings.length ? { hiddenSettings } : {}),
             }
@@ -303,6 +311,7 @@ export function healthRoutes(
               status: healthStatus,
               deploymentMode: opts.deploymentMode,
               commit,
+              ...(startup ? { startup } : {}),
               ...(cloud ? { cloud } : {}),
               ...(hiddenSettings.length ? { hiddenSettings } : {}),
             },
@@ -419,6 +428,7 @@ export function healthRoutes(
         ...(opts.localSecretRequired ? { localSecretRequired: true } : {}),
         localAiLoginSupported: supportsLocalAiLogin(opts),
         commit,
+        ...(startup ? { startup } : {}),
         bootstrapStatus,
         bootstrapInviteActive,
         ...(opts.deploymentMode === "authenticated" ? { features: signInFeatures } : {}),
@@ -453,6 +463,7 @@ export function healthRoutes(
       },
       serverInfo,
       startupRecovery,
+      ...(startup ? { startup } : {}),
       nativeRecovery,
       ...(databaseBackup ? { databaseBackup } : {}),
       ...(warnings ? { warnings } : {}),

@@ -6,6 +6,8 @@ const mockApi = vi.hoisted(() => ({
 
 vi.mock("./client", () => ({
   api: mockApi,
+  // Direct downloads go through the client's fetch, which reaches the stubbed global.
+  fetchApi: (input: string, init?: RequestInit) => fetch(input, init),
 }));
 
 import { heartbeatsApi } from "./heartbeats";

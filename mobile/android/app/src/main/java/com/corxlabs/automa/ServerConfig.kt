@@ -153,20 +153,28 @@ class ServerConfig(context: Context) {
         return KeyCheck(cleared, proof)
     }
 
+    /** What [verifyKey] found: the key works, the server said no, or the server did not answer. */
+    enum class KeyVerdict { WORKS, REJECTED, UNREACHABLE }
+
     /**
      * Whether [secret] is the key of the server at [url]: it proved so, or,
-     * for an older Automa from before proofs, it accepted the key. Call off
-     * the main thread.
+     * for an older Automa from before proofs, it accepted the key. A server
+     * that did not answer the check (still starting, or busy) says nothing
+     * about the key: that is [KeyVerdict.UNREACHABLE], never a rejection.
+     * Call off the main thread.
      */
-    fun keyWorks(url: String, secret: String): Boolean {
+    fun verifyKey(url: String, secret: String): KeyVerdict {
         val check = clearKeyFor(url, secret)
-        if (!check.cleared) return false
-        if (check.proof == Proof.PROVEN) return true
-        if (companyCount(url, secret) != null) return true
+        if (check.proof == Proof.UNREACHABLE) return KeyVerdict.UNREACHABLE
+        if (!check.cleared) return KeyVerdict.REJECTED
+        if (check.proof == Proof.PROVEN) return KeyVerdict.WORKS
+        if (companyCount(url, secret) != null) return KeyVerdict.WORKS
         // The older server refused it: not a key to send again.
         originOf(Uri.parse(url))?.let { unclearKey(it, secret) }
-        return false
+        return KeyVerdict.REJECTED
     }
+
+    fun keyWorks(url: String, secret: String): Boolean = verifyKey(url, secret) == KeyVerdict.WORKS
 
     /** A connect request another app sent (Termux's launcher). Applied only when the person taps Connect. */
     data class PendingConnect(val url: String, val secret: String?)
@@ -260,14 +268,14 @@ class ServerConfig(context: Context) {
                     val status = json?.optString("status").orEmpty()
                     val starting = status == "unhealthy" || status == "starting" || json?.optString("error") == "database_unavailable"
                     return if (starting) {
-                        HealthResult(HealthKind.UNHEALTHY, json?.optString("error")?.takeIf { it.isNotBlank() } ?: status)
+                        HealthResult(HealthKind.UNHEALTHY, json?.optString("error")?.takeIf { it.isNotBlank() } ?: status, startup = startupOf(json))
                     } else {
                         HealthResult(HealthKind.NOT_AUTOMA, "HTTP $code")
                     }
                 }
                 if (json == null) return HealthResult(HealthKind.NOT_AUTOMA, "not JSON")
                 if (!json.has("status")) return HealthResult(HealthKind.NOT_AUTOMA, "no status")
-                if (json.optString("status") != "ok") return HealthResult(HealthKind.UNHEALTHY, json.optString("status"))
+                if (json.optString("status") != "ok") return HealthResult(HealthKind.UNHEALTHY, json.optString("status"), startup = startupOf(json))
                 HealthResult(HealthKind.OK, null, json.optString("deploymentMode"), json.optString("version"), json.optBoolean("localSecretRequired", false))
             } catch (error: java.net.UnknownHostException) {
                 HealthResult(HealthKind.NOT_FOUND, error.message)
@@ -284,6 +292,27 @@ class ServerConfig(context: Context) {
             } catch (error: Exception) {
                 HealthResult(HealthKind.RESET, error.message)
             }
+        }
+
+        /**
+         * What a starting Automa says it is doing (its health answer's
+         * `startup`, from Automa 1.9.10 on): the step's few words, and how
+         * long the whole start and the step have taken. Null from older
+         * servers, or once it is ready.
+         */
+        fun startupOf(json: JSONObject?): Startup? {
+            val startup = json?.optJSONObject("startup") ?: return null
+            val step = startup.optJSONObject("step")
+            fun whole(obj: JSONObject?, name: String): Int? =
+                obj?.takeIf { it.has(name) }?.optDouble(name)?.takeIf { !it.isNaN() && it >= 0 }?.toInt()
+            return Startup(
+                // A short label from the server, shown as it is: kept short and on one line.
+                label = step?.optString("label")?.replace(Regex("\\s+"), " ")?.trim()?.take(80)?.takeIf { it.isNotEmpty() },
+                seconds = whole(startup, "seconds"),
+                stepSeconds = whole(step, "seconds"),
+                number = whole(step, "number")?.takeIf { it > 0 },
+                total = whole(step, "total")?.takeIf { it > 0 },
+            )
         }
 
         /**
@@ -514,7 +543,18 @@ class ServerConfig(context: Context) {
         val version: String? = null,
         /** The instance only answers the app that holds its key (PAPERCLIP_LOCAL_TRUSTED_SECRET). */
         val locked: Boolean = false,
+        /** While it is starting up: what it says it is doing (see [startupOf]). */
+        val startup: Startup? = null,
     ) {
         val ok: Boolean get() = kind == HealthKind.OK
     }
+
+    /** A starting Automa's own account of its start: the step's label, seconds so far, and the step's place. */
+    data class Startup(
+        val label: String?,
+        val seconds: Int?,
+        val stepSeconds: Int?,
+        val number: Int?,
+        val total: Int?,
+    )
 }

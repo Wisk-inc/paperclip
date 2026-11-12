@@ -1,4 +1,5 @@
 import { getPageVisibility, usePageVisibility } from "../lib/page-visibility";
+import { SERVER_BACK_EVENT } from "../lib/connection-recovery";
 import { hasWatchedIssues, noteRunOutcomeSeen, startAwayReplyWatch } from "../lib/background-notify";
 import {
   createContext,
@@ -2161,6 +2162,17 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       };
     };
 
+    // The connection is back (the network returned, or the Automa app saw its
+    // server answer again): reconnect now, not at the end of the back-off,
+    // which could be 15 seconds of a board that looks frozen.
+    const reconnectNow = () => {
+      if (closed || socket !== null || reconnectTimer === null) return;
+      clearReconnect();
+      connect();
+    };
+    window.addEventListener("online", reconnectNow);
+    window.addEventListener(SERVER_BACK_EVENT, reconnectNow);
+
     // Delay initial connect slightly so React StrictMode's double-invoke
     // cleanup fires before the WebSocket is created, avoiding the
     // "WebSocket closed before connection established" dev-mode error.
@@ -2168,6 +2180,8 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
     return () => {
       closed = true;
+      window.removeEventListener("online", reconnectNow);
+      window.removeEventListener(SERVER_BACK_EVENT, reconnectNow);
       window.clearTimeout(connectTimer);
       clearReconnect();
       stopPolling();

@@ -263,7 +263,7 @@ describe("the automa command's backup and restore", () => {
     await mkdir(path.join(bundle, "packages", "server", "package"), { recursive: true });
     await writeFile(path.join(bundle, "packages", "server", "package", "package.json"), "{}\n");
     await writeFile(path.join(bundle, "VERSION"), "9.9.9\n");
-    for (const name of ["install.sh", "automa-adb-link.sh"]) await copyFile(path.join(MOBILE_TERMUX, name), path.join(bundle, name));
+    for (const name of ["install.sh", "automa-adb-link.sh", "automa-follow-start.mjs"]) await copyFile(path.join(MOBILE_TERMUX, name), path.join(bundle, name));
     await mkdir(path.join(root, "pgdata"), { recursive: true });
     await mkdir(path.join(root, "tmp"), { recursive: true });
     await writeFile(path.join(root, "pgdata", "PG_VERSION"), "17\n");
@@ -271,7 +271,17 @@ describe("the automa command's backup and restore", () => {
     await writeFile(path.join(root, "pkg-works"), "");
     await symlink("/bin/bash", path.join(prefix, "bin", "bash"));
     // Without Node, pkg installs it (the stand-in) when asked for nodejs-lts.
-    await fake("node", `case "$*" in *process.versions*) echo 24;; *process.platform*) echo linux;; *) [ -f "${root}/server-up" ];; esac`, nodeMissing ? path.join(root, "pkg-files") : bin);
+    // The launcher's own follow script runs on the real Node; the server is a
+    // stand-in that logs its start and ends with the code in server-exit (0).
+    await fake("node", [
+      `case "$*" in`,
+      `  *automa-follow-start.mjs*) exec "${process.execPath}" "$@";;`,
+      `  *dist/index.js*) echo "server $*" >> "${root}/calls.log"; exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
+      `  *process.versions*) echo 24;;`,
+      `  *process.platform*) echo linux;;`,
+      `  *) [ -f "${root}/server-up" ];;`,
+      `esac`,
+    ].join("\n"), nodeMissing ? path.join(root, "pkg-files") : bin);
     if (nodeMissing) await fake("pkg", `echo "pkg $*" >> "${root}/calls.log"; case " $* " in *" nodejs-lts "*) cp "${root}/pkg-files/node" "${prefix}/bin/node";; esac`);
     await fake("pg_ctl", `[ "$1" = --version ] && echo "pg_ctl (PostgreSQL) 17.6"; exit 0`);
     await fake("psql", `echo "psql $*" >> "${root}/calls.log"; case "$*" in *--quiet*) cat > "${root}/restored.sql";; *) echo 1;; esac`);
@@ -375,7 +385,8 @@ describe("the automa command's backup and restore", () => {
     async function updateWithFailingDownloads(failures: number, version = "9.9.10") {
       await installAutoma();
       await writeFile(path.join(serverDir(), "old-server"), "9.9.9");
-      running = spawn("sleep", ["300"], { stdio: "ignore" });
+      // Named like the launcher's own process: only a real Automa is stopped.
+      running = spawn("sleep", ["300"], { stdio: "ignore", argv0: "automa-run" });
       await writeFile(path.join(root, "home", ".automa", "automa.pid"), `${running.pid}\n`);
       await writeFile(path.join(root, "bundle", "VERSION"), `${version}\n`);
       await writeFile(path.join(root, "npm-failures"), String(failures));
@@ -474,4 +485,141 @@ describe("the automa command's backup and restore", () => {
     await runFile(automa(), ["onboard", "--yes"]);
     expect((await readFile(path.join(root, "home", ".automa", "automa.pid"), "utf8")).trim()).toMatch(/^\d+$/);
   }, 60_000);
+
+  describe("an Automa that is already starting", () => {
+    const pidFile = () => path.join(root, "home", ".automa", "automa.pid");
+    let processes: ReturnType<typeof spawn>[] = [];
+    let health: import("node:http").Server | null = null;
+    afterEach(async () => {
+      for (const child of processes) child.kill("SIGKILL");
+      processes = [];
+      await new Promise<void>((resolve) => (health ? health.close(() => resolve()) : resolve()));
+      health = null;
+    });
+    const alive = (pid: number | undefined) => {
+      try {
+        process.kill(pid!, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    /** A long-running stand-in process; `argv0` is what its command line shows. */
+    function background(argv0: string) {
+      const child = spawn("sleep", ["300"], { stdio: "ignore", argv0 });
+      processes.push(child);
+      return child;
+    }
+    /** A health endpoint that answers each request with the next body (the last one repeats). */
+    async function healthAnswers(bodies: unknown[]) {
+      const http = await import("node:http");
+      let next = 0;
+      health = http.createServer((_req, res) => {
+        const body = bodies[Math.min(next, bodies.length - 1)];
+        next += 1;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(body));
+      });
+      await new Promise<void>((resolve) => health!.listen(0, "127.0.0.1", () => resolve()));
+      const { port } = health.address() as { port: number };
+      return `http://127.0.0.1:${port}/api/health`;
+    }
+    const starting = (label: string, number: number) => ({
+      status: "starting",
+      startup: { phase: "recovering", seconds: 40, step: { id: "x", label, seconds: 3, number, total: 23 } },
+    });
+
+    it("automa run follows the one the app started until it is ready, then opens the app", async () => {
+      await installAutoma();
+      await fake("am", `echo "am $*" >> "${root}/calls.log"`);
+      const supervisor = background("automa-run");
+      await writeFile(pidFile(), `${supervisor.pid}\n`);
+      const url = await healthAnswers([starting("Checking assigned tasks", 13), starting("Tidying up", 18), { status: "ok" }]);
+
+      const ran = await runFile(automa(), ["run"], { env: { AUTOMA_HEALTH_URL: url, AUTOMA_FOLLOW_POLL_MS: "20" } });
+
+      expect(ran.code, ran.out).toBe(0);
+      expect(ran.out).toContain("Automa is already running in the background");
+      expect(ran.out).toContain("Automa is starting up: Checking assigned tasks (step 13 of 23)…");
+      expect(ran.out).toContain("Automa is starting up: Tidying up (step 18 of 23)…");
+      expect(ran.out).toContain("Automa is running and ready on http://127.0.0.1:3100");
+      // Asked once on the way in, and again the moment it is ready.
+      expect((await calls()).match(/am start .*com\.corxlabs\.automa\.CONNECT/g)).toHaveLength(2);
+      // The running one is left alone; no second one was started.
+      expect(alive(supervisor.pid)).toBe(true);
+      expect(await calls()).not.toContain("server ");
+    }, 60_000);
+
+    it("automa status says which step a starting Automa is on", async () => {
+      await installAutoma();
+      const url = await healthAnswers([starting("Resuming agent goals", 11)]);
+      const status = await runFile(automa(), ["status"], { env: { AUTOMA_HEALTH_URL: url } });
+      expect(status.code).toBe(1);
+      expect(status.out).toContain("Automa is starting up: Resuming agent goals (step 11 of 23)…");
+
+      const ready = await runFile(automa(), ["status"], { env: { AUTOMA_HEALTH_URL: await healthAnswers([{ status: "ok" }]) } });
+      expect(ready.code).toBe(0);
+      expect(ready.out).toContain("running and ready");
+    }, 60_000);
+
+    it("never signals a process that only took over Automa's old number, and starts Automa", async () => {
+      await installAutoma();
+      // Android ended Termux; the number in automa.pid now belongs to something else.
+      const stranger = background("sleep");
+      await writeFile(pidFile(), `${stranger.pid}\n`);
+
+      const stopped = await runFile(automa(), ["stop"]);
+      expect(stopped.out).toContain("Automa is not running in the background.");
+      expect(alive(stranger.pid)).toBe(true);
+      await expect(readFile(pidFile(), "utf8")).rejects.toThrow();
+
+      await writeFile(pidFile(), `${stranger.pid}\n`);
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.out).not.toContain("already running");
+      // The stand-in server ran (and ended cleanly, which ends automa run).
+      expect(await calls()).toContain("server ");
+      expect(ran.code, ran.out).toBe(0);
+      expect(alive(stranger.pid)).toBe(true);
+    }, 60_000);
+
+    it("clears PostgreSQL's lock file left from before, but never a running PostgreSQL's", async () => {
+      await installAutoma();
+      const lock = path.join(root, "pgdata", "postmaster.pid");
+      const stranger = background("sleep");
+      await writeFile(lock, `${stranger.pid}\n${path.join(root, "pgdata")}\n`);
+      const saved = await runFile(automa(), ["backup"]);
+      expect(saved.code, saved.out).toBe(0);
+      expect(saved.out).toContain("Clearing PostgreSQL's lock file left from before");
+      await expect(readFile(lock, "utf8")).rejects.toThrow();
+
+      const postgres = background("postgres");
+      await writeFile(lock, `${postgres.pid}\n${path.join(root, "pgdata")}\n`);
+      const again = await runFile(automa(), ["backup"]);
+      expect(again.code, again.out).toBe(0);
+      expect(again.out).not.toContain("Clearing PostgreSQL's lock file");
+      expect(await readFile(lock, "utf8")).toContain(String(postgres.pid));
+    }, 60_000);
+
+    it("slows down when Automa keeps stopping while it starts, and automa stop ends the wait at once", async () => {
+      await installAutoma();
+      await writeFile(path.join(root, "server-exit"), "1");
+      const supervisor = spawn("bash", [automa(), "run"], { env: phoneEnv(), cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      processes.push(supervisor);
+      let out = "";
+      supervisor.stdout!.on("data", (chunk) => { out += String(chunk); });
+      supervisor.stderr!.on("data", (chunk) => { out += String(chunk); });
+
+      await vi.waitFor(() => expect(out).toContain("Automa stopped 3 times in a row while starting (exit 1)"), { timeout: 30_000, interval: 100 });
+      expect(out).toContain("Trying again in 60 seconds");
+      expect((await calls()).match(/^server /gm)).toHaveLength(3);
+
+      const ended = new Promise<number | null>((resolve) => supervisor.on("exit", (code) => resolve(code)));
+      const stop = await runFile(automa(), ["stop"]);
+      expect(stop.out).toContain("Automa stopped.");
+      const started = Date.now();
+      expect(await ended).toBe(0);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect((await calls()).match(/^server /gm)).toHaveLength(3);
+    }, 60_000);
+  });
 });

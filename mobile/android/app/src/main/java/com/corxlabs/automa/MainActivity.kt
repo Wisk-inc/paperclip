@@ -106,6 +106,12 @@ class MainActivity : ComponentActivity() {
         const val CONNECT_PATH = "/assets/connect/index.html"
         const val CONNECT_URL = "$ASSETS_ORIGIN$CONNECT_PATH"
         private const val SHARE_EVENT = "window.dispatchEvent(new Event('automa:incoming-shares'))"
+        /**
+         * Tells the board its server answers again after it did not: the board
+         * makes the requests that failed meanwhile again ("Failed to fetch"
+         * stayed until the app was reopened). See ui/src/lib/connection-recovery.ts.
+         */
+        private const val SERVER_BACK_EVENT = "window.dispatchEvent(new Event('automa:server-back'))"
         private const val CAMERA_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
         private const val SERVER_BUNDLE_NAME = "automa-server.tar.xz"
         private const val SERVER_BUNDLE_ASSET = "server/$SERVER_BUNDLE_NAME"
@@ -291,6 +297,12 @@ class MainActivity : ComponentActivity() {
         connectRequestedAt != 0L && SystemClock.elapsedRealtime() - connectRequestedAt < CONNECT_REQUEST_START_WINDOW_MS
 
     private var offlineOverlay: ConnectionOverlay? = null
+    /**
+     * The server did not answer since its last answer, or the network went:
+     * requests the board made meanwhile may have failed, so it is told when
+     * the server answers again (see [SERVER_BACK_EVENT]).
+     */
+    private var serverAway = false
     private var mainFrameFailures = 0
     /** Health checks in a row that Automa on this phone did not answer (see confirmServerAnswers). */
     private var healthFailures = 0
@@ -315,14 +327,22 @@ class MainActivity : ComponentActivity() {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             // A network came back: any connection sheet tries again now (a server
-            // that could not be reached may answer on the new network too).
-            runOnUiThread { if (offlineOverlay != null) retryServer() }
+            // that could not be reached may answer on the new network too), and
+            // an open board whose server went away is checked, so the moment it
+            // answers the board makes its failed requests again.
+            runOnUiThread {
+                when {
+                    offlineOverlay != null -> retryServer()
+                    serverAway && onServerPage() -> confirmServerAnswers()
+                }
+            }
         }
         override fun onLost(network: Network) {
             runOnUiThread {
                 val server = config.serverUrl ?: return@runOnUiThread
                 // A server on this phone does not need the network; only a remote one goes offline.
                 if (ServerConfig.isLoopback(server) || !onServerPage()) return@runOnUiThread
+                serverAway = true
                 if (connectivity?.activeNetwork == null) showOffline(ConnectionOverlay.Reason.OFFLINE, null)
             }
         }
@@ -509,9 +529,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         onScreen = true
         webView.onResume()
-        // A sheet left waiting on this phone's server picks its checks up again.
+        // A sheet left waiting on this phone's server picks its checks up again,
+        // and a board whose server went away while the app was away is checked
+        // (it hears the moment the server answers, see SERVER_BACK_EVENT).
         val waitingSheet = offlineOverlay?.reason
         if (waitingSheet != null && waitingSheet != ConnectionOverlay.Reason.OFFLINE) confirmServerAnswers()
+        else if (waitingSheet == null && serverAway && onServerPage()) confirmServerAnswers()
     }
 
     override fun onPause() {
@@ -604,7 +627,16 @@ class MainActivity : ComponentActivity() {
             // already open on it, the page stays (a reload lost what was typed,
             // and landed on the connect screen while Automa was still starting);
             // the server is checked instead, and the sheet covers its start.
-            return if (onServerPage()) confirmServerAnswers() else loadServer()
+            if (onServerPage()) return confirmServerAnswers()
+            // The connect screen open: it waits for Automa right there, its steps
+            // carrying on (reloading it started them over from the top each time
+            // Termux sent this), and leaves starting Automa to Termux.
+            if (onConnectPage()) {
+                val hook = "(function(){if(window.__automaConnectRequested){window.__automaConnectRequested(${JSONObject.quote(url)});return 'waiting'}return 'no'})()"
+                webView.evaluateJavascript(hook) { result -> if (result != "\"waiting\"") loadServer() }
+                return
+            }
+            return loadServer()
         }
         config.pendingConnect = ServerConfig.PendingConnect(url, appKey)
         if (knownServer && appKey != null && origin != null) {
@@ -658,15 +690,34 @@ class MainActivity : ComponentActivity() {
         keyRecoveryAttempts += 1
         executor.execute {
             // Each key is checked by the server's proof, not by sending it.
-            val working = candidates.firstOrNull { config.keyWorks(url, it) }
+            var working: String? = null
+            var unanswered = false
+            for (candidate in candidates) {
+                when (config.verifyKey(url, candidate)) {
+                    ServerConfig.KeyVerdict.WORKS -> working = candidate
+                    ServerConfig.KeyVerdict.UNREACHABLE -> unanswered = true
+                    ServerConfig.KeyVerdict.REJECTED -> continue
+                }
+                break
+            }
             runOnUiThread {
-                if (working == null) {
-                    keyRecoveryAttempts = 0
-                    showConnect(LOCKED_WITHOUT_KEY)
-                } else {
-                    config.rememberSecret(origin, working)
-                    if (working == pending) config.pendingConnect = null
-                    loadServer()
+                when {
+                    working != null -> {
+                        config.rememberSecret(origin, working)
+                        if (working == pending) config.pendingConnect = null
+                        loadServer()
+                    }
+                    // Automa did not answer the check (restarting, or still
+                    // starting): that is no missing key. It is waited for.
+                    unanswered -> {
+                        keyRecoveryAttempts = 0
+                        serverWentAway()
+                        showConnect(null, wait = true)
+                    }
+                    else -> {
+                        keyRecoveryAttempts = 0
+                        showConnect(LOCKED_WITHOUT_KEY)
+                    }
                 }
             }
         }
@@ -849,15 +900,21 @@ class MainActivity : ComponentActivity() {
                 if (health.ok) {
                     val wasStarting = offlineOverlay?.reason == ConnectionOverlay.Reason.STARTING
                     val reload = reloadWhenServerAnswers || wasStarting
+                    val wasAway = serverAway
                     reloadWhenServerAnswers = false
+                    serverAway = false
                     healthFailures = 0
                     mainFrameFailures = 0
                     if (wasStarting) hideOffline()
                     // The page's own requests failed while the server was away or
-                    // starting: loaded again now that it answers.
+                    // starting: loaded again now that it answers. A page that
+                    // loaded fine is not reloaded (what was typed stays): it is
+                    // told, and makes its failed requests again.
                     if (reload && onServerPage()) webView.reload()
+                    else if (wasAway && onServerPage()) evaluate(SERVER_BACK_EVENT)
                     return@runOnUiThread
                 }
+                serverAway = true
                 if (!onServerPage()) return@runOnUiThread
                 mainFrameFailures += 1
                 when {
@@ -880,7 +937,7 @@ class MainActivity : ComponentActivity() {
             // so until it is ready.
             health.kind == ServerConfig.HealthKind.UNHEALTHY -> {
                 healthFailures = 0
-                showOffline(ConnectionOverlay.Reason.STARTING, null)
+                showOffline(ConnectionOverlay.Reason.STARTING, startingDetail(health.startup))
                 scheduleHealthCheck(STARTING_RECHECK_MS)
             }
             // No answer at all: a moment of silence is checked again before the
@@ -896,6 +953,20 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /** "Now: checking assigned tasks · 1 min 05 s so far", from what a starting Automa says (1.9.10 on). */
+    private fun startingDetail(startup: ServerConfig.Startup?): String? {
+        startup ?: return null
+        val parts = listOfNotNull(
+            startup.label?.let { getString(R.string.starting_step, it.replaceFirstChar { first -> first.lowercaseChar() }) },
+            startup.seconds?.let { getString(R.string.starting_elapsed, formatSeconds(it)) },
+        )
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun formatSeconds(seconds: Int): String =
+        if (seconds < 60) getString(R.string.duration_seconds, seconds)
+        else getString(R.string.duration_minutes, seconds / 60, seconds % 60)
 
     /** The next check of this phone's server, in [delayMs]; only while the app is on screen. */
     private fun scheduleHealthCheck(delayMs: Long) {
@@ -918,8 +989,11 @@ class MainActivity : ComponentActivity() {
 
     private fun onServerPage(): Boolean = webView.url?.let { config.isServerUrl(Uri.parse(it)) } == true
 
+    private fun onConnectPage(): Boolean = webView.url?.startsWith(CONNECT_URL) == true
+
     /** The native "no connection" / "can't reach Automa" sheet over the page, with its retry countdown. */
     private fun showOffline(reason: ConnectionOverlay.Reason, detail: String?) {
+        serverAway = true
         val overlay = offlineOverlay ?: ConnectionOverlay(this, onRetry = { retryServer() }, onOtherServer = {
             hideOffline()
             showConnect(null)
