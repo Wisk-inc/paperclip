@@ -21,6 +21,10 @@ vi.mock("@/api/instanceSettings", () => ({
   instanceSettingsApi: mockInstanceSettingsApi,
 }));
 
+// No server here: the health check fails at once, as these tests expect (a
+// toggle re-checks health, and a real request is tried again for a couple of
+// seconds first, keeping the toggle busy).
+vi.mock("@/api/health", () => ({ healthApi: { get: () => Promise.reject(new Error("no server in this test")) } }));
 vi.mock("../context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }),
 }));

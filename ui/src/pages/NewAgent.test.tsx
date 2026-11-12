@@ -46,6 +46,10 @@ const managedApi = vi.hoisted(() => ({
   setDefault: vi.fn(async () => ({})),
 }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: managedApi }));
+// No server here: the health check fails at once, as these tests expect. (A
+// real request is now tried again for a couple of seconds first, which kept
+// Connect disabled through each test.)
+vi.mock("@/api/health", () => ({ healthApi: { get: () => Promise.reject(new Error("no server in this test")) } }));
 vi.mock("@/api/agents", () => ({ agentsApi: api }));
 vi.mock("@/api/environments", () => ({ environmentsApi: envApi }));
 vi.mock("@/api/instanceSettings", () => ({ instanceSettingsApi: settings }));
