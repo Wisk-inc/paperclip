@@ -171,6 +171,36 @@ describe("startConnectionRecovery", () => {
     queryClient.clear();
   });
 
+  it("after a recovery, a failed page you already left does not keep the server checked", async () => {
+    const stop = startConnectionRecovery(ctx.queryClient, ctx.deps);
+    // A second page failed too, and was then left (no one on screen reads it).
+    const left = new QueryObserver(ctx.queryClient, {
+      queryKey: ["left-page"],
+      queryFn: async () => {
+        throw offline();
+      },
+    });
+    const unsubscribeLeft = left.subscribe(() => undefined);
+    await failFirst();
+    await vi.waitFor(() => expect(left.getCurrentResult().status).toBe("error"));
+    unsubscribeLeft();
+
+    ctx.state.serverUp = true;
+    ctx.target.dispatchEvent(new Event(SERVER_BACK_EVENT));
+    await settle();
+    await vi.waitFor(() => expect(ctx.observer.getCurrentResult().status).toBe("success"));
+    // The page left behind is marked to load again when shown.
+    expect(ctx.queryClient.getQueryCache().find({ queryKey: ["left-page"] })?.state.isInvalidated).toBe(true);
+
+    // Nothing on screen waits on the server now: focus and network events ask it nothing.
+    ctx.checks.mockClear();
+    ctx.target.dispatchEvent(new Event("online"));
+    ctx.target.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ctx.checks).not.toHaveBeenCalled();
+    stop();
+  });
+
   it("stops checking and listening once stopped", async () => {
     const stop = startConnectionRecovery(ctx.queryClient, ctx.deps);
     await failFirst();

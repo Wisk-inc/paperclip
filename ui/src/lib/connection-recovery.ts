@@ -85,7 +85,11 @@ export function startConnectionRecovery(
   let attempt = 0;
   let checking = false;
 
-  const hasFailedQueries = () => queryClient.getQueryCache().findAll({ predicate: failedToReachServer }).length > 0;
+  // What still waits on the server: a failed query on screen, or one off screen
+  // not yet marked to load again when shown (recover() marks those).
+  const waitsOnServer = (query: Query) =>
+    failedToReachServer(query) && (query.getObserversCount() > 0 || !query.state.isInvalidated);
+  const hasFailedQueries = () => queryClient.getQueryCache().findAll({ predicate: waitsOnServer }).length > 0;
 
   const cancelTimer = () => {
     if (timer !== null) deps.clearTimer(timer);

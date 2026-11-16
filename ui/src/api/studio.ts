@@ -185,11 +185,23 @@ export interface StudioGuestSession {
   workspace: { id: string; name: string; language: string };
 }
 
+/** What a guest sees when a request never reached the owner's Automa (offline, or it is restarting). */
+export const GUEST_NETWORK_ERROR_MESSAGE =
+  "Can't reach this App Studio session right now. Check your connection, then try again.";
+
 async function guestRequest<T>(token: string | null, path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (token) headers.set("x-studio-guest", token);
   if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
-  const res = await fetch(`/api/studio-guest${path}`, { ...init, headers, credentials: "omit" });
+  let res: Response;
+  try {
+    res = await fetch(`/api/studio-guest${path}`, { ...init, headers, credentials: "omit" });
+  } catch (error) {
+    // Plain words, not the browser's "Failed to fetch"; status 0 never ends the
+    // guest's session (only a 401 does).
+    if (error instanceof TypeError && !init.signal?.aborted) throw new ApiError(GUEST_NETWORK_ERROR_MESSAGE, 0, null);
+    throw error;
+  }
   const text = await res.text();
   let body: unknown = null;
   try {

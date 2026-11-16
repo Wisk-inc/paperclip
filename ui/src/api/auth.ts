@@ -141,12 +141,21 @@ async function authPost(path: string, body: Record<string, unknown>, extraHeader
 }
 
 async function authPatch<T>(path: string, body: Record<string, unknown>, parse: (value: unknown) => T): Promise<T> {
-  const res = await fetch(`/api/auth${path}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api/auth${path}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (networkError) {
+    logAuthNetworkFailure("PATCH", path, networkError);
+    // Saving your name or photo says this, not the browser's bare "Failed to
+    // fetch". Not tried again: the change may have reached the server.
+    if (networkError instanceof TypeError) throw new AuthApiError(NETWORK_ERROR_MESSAGE, 0, null, "network_error");
+    throw networkError;
+  }
   const payload = await res.json().catch(() => null);
   if (!res.ok) {
     const recovery = tenantSessionRecovery.recoverIfNeeded(res.status, payload);

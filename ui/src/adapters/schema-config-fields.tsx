@@ -13,6 +13,7 @@ import {
 } from "../components/agent-config-primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { ChevronDown } from "lucide-react";
+import { RECONNECT_CHECK_DELAYS_MS, SERVER_BACK_EVENT } from "../lib/connection-recovery";
 
 // ── Select field (extracted to keep hooks at component top level) ──────
 function SelectField({
@@ -206,7 +207,16 @@ function ComboboxField({
 
 const schemaCache = new Map<string, AdapterConfigSchema | null>();
 const schemaFetchInflight = new Map<string, Promise<AdapterConfigSchema | null>>();
+// The server answered that this adapter has no schema (404), that building it
+// failed (500, logged on the server), or sent one that could not be read: not
+// asked again this session.
 const failedSchemaTypes = new Set<string>();
+// The last request got no answer (offline, Automa restarting) or an answer that
+// the server is not ready (502, 503, 504). That says nothing about the adapter,
+// so it is asked again; it used to count as "no schema", and the adapter's
+// fields stayed missing until the app was reopened.
+const unreachableSchemaTypes = new Set<string>();
+const NOT_READY_STATUSES = new Set([502, 503, 504]);
 
 async function fetchConfigSchema(adapterType: string): Promise<AdapterConfigSchema | null> {
   const cached = schemaCache.get(adapterType);
@@ -218,7 +228,18 @@ async function fetchConfigSchema(adapterType: string): Promise<AdapterConfigSche
 
   const promise = (async () => {
     try {
-      const res = await fetch(`/api/adapters/${encodeURIComponent(adapterType)}/config-schema`);
+      let res: Response;
+      try {
+        res = await fetch(`/api/adapters/${encodeURIComponent(adapterType)}/config-schema`);
+      } catch {
+        unreachableSchemaTypes.add(adapterType);
+        return null;
+      }
+      if (NOT_READY_STATUSES.has(res.status)) {
+        unreachableSchemaTypes.add(adapterType);
+        return null;
+      }
+      unreachableSchemaTypes.delete(adapterType);
       if (!res.ok) {
         failedSchemaTypes.add(adapterType);
         return null;
@@ -241,6 +262,7 @@ async function fetchConfigSchema(adapterType: string): Promise<AdapterConfigSche
 export function invalidateConfigSchemaCache(adapterType: string): void {
   schemaCache.delete(adapterType);
   failedSchemaTypes.delete(adapterType);
+  unreachableSchemaTypes.delete(adapterType);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,11 +276,38 @@ export function useConfigSchema(adapterType: string): AdapterConfigSchema | null
 
   useEffect(() => {
     let cancelled = false;
-    fetchConfigSchema(adapterType).then((s) => {
-      if (!cancelled) setLoaded({ adapterType, schema: s });
-    });
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    const load = () => {
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
+      void fetchConfigSchema(adapterType).then((s) => {
+        if (cancelled) return;
+        setLoaded((prev) => (prev.adapterType === adapterType && prev.schema === s ? prev : { adapterType, schema: s }));
+        // It never reached the server: asked again by itself (2, 4, 8, then
+        // every 10 seconds) while the form is open, so the fields appear once
+        // Automa answers, without reopening the app.
+        if (s === null && unreachableSchemaTypes.has(adapterType) && retryTimer === null) {
+          const delay = RECONNECT_CHECK_DELAYS_MS[Math.min(attempt, RECONNECT_CHECK_DELAYS_MS.length - 1)]!;
+          attempt += 1;
+          retryTimer = setTimeout(load, delay);
+        }
+      });
+    };
+    // The network or the server is back: ask at once, not at the next try.
+    const loadNow = () => {
+      if (cancelled || !unreachableSchemaTypes.has(adapterType)) return;
+      attempt = 0;
+      load();
+    };
+    load();
+    window.addEventListener("online", loadNow);
+    window.addEventListener(SERVER_BACK_EVENT, loadNow);
     return () => {
       cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      window.removeEventListener("online", loadNow);
+      window.removeEventListener(SERVER_BACK_EVENT, loadNow);
     };
   }, [adapterType]);
 

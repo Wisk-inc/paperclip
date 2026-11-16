@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bytesToPortableFileEntry, isBlobStorePath, readZipArchive } from "../commands/client/zip.js";
+import {
+  bytesToPortableFileEntry,
+  createStoredZipArchive as createPackageZip,
+  isBlobStorePath,
+  readZipArchive,
+} from "../commands/client/zip.js";
 import { createStoredZipArchive } from "./helpers/zip.js";
 
 describe("isBlobStorePath", () => {
@@ -65,5 +70,33 @@ describe("readZipArchive", () => {
         },
       },
     });
+  });
+});
+
+describe("createStoredZipArchive (the CLI's package zip)", () => {
+  // The zip reader here does not check CRCs, so a wrong checksum would only
+  // show up when someone opened the zip with another tool.
+  it("writes each entry's standard CRC-32 in both its local and central headers", () => {
+    const zip = Buffer.from(
+      createPackageZip({ "check.txt": new TextEncoder().encode("123456789"), "empty.txt": new Uint8Array(0) }, "pkg"),
+    );
+    // "123456789" is the standard CRC-32 check input; its checksum is 0xCBF43926. An empty entry's is 0.
+    const expected: Record<string, number> = { "pkg/check.txt": 0xcbf43926, "pkg/empty.txt": 0 };
+
+    const local = new Map<string, number>();
+    const central = new Map<string, number>();
+    for (let offset = 0; offset + 4 <= zip.length; offset += 1) {
+      const signature = zip.readUInt32LE(offset);
+      if (signature === 0x04034b50) {
+        const nameLength = zip.readUInt16LE(offset + 26);
+        local.set(zip.toString("utf8", offset + 30, offset + 30 + nameLength), zip.readUInt32LE(offset + 14));
+      } else if (signature === 0x02014b50) {
+        const nameLength = zip.readUInt16LE(offset + 28);
+        central.set(zip.toString("utf8", offset + 46, offset + 46 + nameLength), zip.readUInt32LE(offset + 16));
+      }
+    }
+
+    expect(Object.fromEntries(local)).toEqual(expected);
+    expect(Object.fromEntries(central)).toEqual(expected);
   });
 });

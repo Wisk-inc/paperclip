@@ -3,7 +3,8 @@ import {
   createTenantSessionRecoveryCoordinator,
   tenantSessionRecovery,
 } from "@/lib/tenant-session-recovery";
-import { authApi } from "./auth";
+import { AuthApiError, authApi } from "./auth";
+import { NETWORK_ERROR_MESSAGE } from "./client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -67,6 +68,37 @@ describe("authApi.signOut", () => {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+    });
+  });
+});
+
+describe("authApi.updateProfile (saving your name or photo)", () => {
+  it("says the connection dropped in plain words, never the browser's 'Failed to fetch'", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const saving = authApi.updateProfile({ name: "Kemar", image: null });
+    await expect(saving).rejects.toBeInstanceOf(AuthApiError);
+    await expect(saving).rejects.toMatchObject({ status: 0, code: "network_error", message: NETWORK_ERROR_MESSAGE });
+    // A write is not sent twice: it may have reached the server.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the server's own answer when it refuses the change", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "Name is too long" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(authApi.updateProfile({ name: "x".repeat(500), image: null })).rejects.toMatchObject({
+      status: 400,
+      message: "Name is too long",
     });
   });
 });

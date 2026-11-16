@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { crc32 as zlibCrc32 } from "node:zlib";
 import pc from "picocolors";
 import { Command } from "commander";
 import type { Company, FeedbackTrace, FeedbackTraceBundle } from "@paperclipai/shared";
@@ -600,15 +601,10 @@ function writeUint32(target: Uint8Array, offset: number, value: number) {
   target[offset + 3] = (value >>> 24) & 0xff;
 }
 
+// Node's own CRC-32 (the zip checksum): a bit-at-a-time loop in JavaScript
+// took seconds on a package of tens of megabytes, and far longer on a phone.
 function crc32(bytes: Uint8Array) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc & 1) === 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
+  return zlibCrc32(bytes) >>> 0;
 }
 
 function createStoredZipArchive(files: Record<string, string>, rootPath: string): Uint8Array {
