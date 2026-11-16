@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.10
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.11
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -505,7 +505,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.10.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.11.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -522,6 +522,16 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.11** (16 November 2026) — Fixes from another scan of every page, every
+test group, the build and every check. Saving your name or photo, and the App
+Studio page an invited collaborator uses, now say "Can't reach…" in plain
+words instead of "Failed to fetch" when the connection drops. An agent's
+settings page loads the extra settings of its AI connection by itself once
+Automa answers again; they used to stay missing until the app was reopened.
+After a reconnect, pages you had already left stop asking the server every few
+seconds. Company folders pack for import with Node's own zip checksum, so a big
+package no longer spends seconds on it.
 
 **1.9.10** (12 November 2026) — Opening the app while Automa on the phone
 starts now shows what Automa is doing ("checking assigned tasks", step 13 of

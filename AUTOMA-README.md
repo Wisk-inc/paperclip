@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.10** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.11** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.10](#2-whats-new-in-1910)
+2. [What's new in 1.9.11](#2-whats-new-in-1911)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,47 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.10
+## 2. What's new in 1.9.11
+
+Fixes from another wide scan of the whole app: every page was opened and
+watched for errors, every test group was run on its own, the full build and
+every repository check were run, and the code changed in 1.9.10 was reviewed
+again.
+
+**No more "Failed to fetch" in two more places**
+- Saving your name or photo while the connection drops now says "Can't reach
+  Automa right now. Check your connection (on a phone, that Automa is running
+  in Termux), then try again." instead of the browser's "Failed to fetch". The
+  change is not sent twice.
+- The App Studio page an invited collaborator uses says "Can't reach this App
+  Studio session right now. Check your connection, then try again." instead of
+  "Failed to fetch".
+
+**Loads by itself when the connection is back**
+- An agent's settings page: the extra settings some AI connections add (Codex,
+  Gemini and others) stayed missing for the rest of the session if the page was
+  first opened while the connection was down, until the app was reopened. They
+  now load by themselves the moment Automa answers, and at once when the
+  phone's network returns.
+- After the connection comes back, pages you had already left no longer keep
+  the board asking the server every 10 seconds; they load fresh when you open
+  them again.
+
+**Under the hood**
+- The command-line tool (`paperclipai company import <folder>`) packs a company
+  folder with Node's own zip checksum: on a 64 MB package that step alone took
+  several seconds (longer on a phone), and now takes milliseconds.
+- Tests that failed only on a busy machine now wait for what they check, for
+  as long as it really takes: the environment settings tests, the command-line
+  import/export test that starts the whole server from source, a GitHub
+  launcher test that runs about twenty separate launcher processes, a 64 MB zip
+  test, the chat channels suite's waits for background deliveries, and five
+  route test files that pay a one-time compile of a very large module. A test
+  that left its server running after every run now stops it. No app behaviour
+  changed with them.
+- Four broken links in the developer docs are fixed.
+
+### From 1.9.10
 
 Two fixes from the field: the wait while Automa on the phone starts, and
 "Failed to fetch" when the connection drops.
@@ -1306,6 +1346,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.11 | 2026-11-16 | Wide-scan fixes: saving your name or photo and the App Studio guest page say "Can't reach…" instead of "Failed to fetch"; an agent's settings page loads its extra AI-connection settings by itself once Automa answers (they used to stay missing until the app was reopened); pages you left stop asking the server after a reconnect; company folders pack with Node's own zip checksum (seconds to milliseconds for 64 MB); load-sensitive tests made reliable; four doc links fixed |
 | 1.9.10 | 2026-11-12 | The wait while Automa on the phone starts shows the step Automa is on, its time and "step x of y", tells a stopped start from a slow one (and asks Termux once to start it again), and no longer gives up while Automa still answers; Automa reaches "ready" sooner (network checks and inbox tidying after ready) and one failing startup step no longer ends the start; `automa run` follows a background start until ready, `automa status` shows the step, stale pid and PostgreSQL lock files no longer block a start; no more "Failed to fetch": the board keeps its page during an outage and reloads by itself when Wi-Fi or the server is back, and a dropped connection no longer signs you out. |
 | 1.9.9 | 2026-11-09 | Scan fixes: Automa waits out the free AI service's own rate limit (once, for all agents) instead of four quick retries and a failed reply that blamed the model; Home shows no "Task unavailable" cards for deleted chats and tasks; deleting a chat or task cancels the retries still waiting for it, so its agent can be removed; the bring-your-own and Vercel connect pages no longer open as a connection named "byo"; a web search without a query asks for one. |
 | 1.9.8 | 2026-11-08 | Fixes under the hood: Automa on the phone starts even when an old queued run is poisoned (the run is cancelled, the others start), cancelling a queued run no longer stalls the scheduler for 30 seconds, web search falls back to Bing when DuckDuckGo refuses, a failed search names what each source answered, free-model agents hand tasks back for review and drop a tool that keeps failing, and the privacy policy is rewritten for the APKPure build. |
