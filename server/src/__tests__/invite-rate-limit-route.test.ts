@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInviteRateLimiter } from "../services/invite-rate-limit.js";
 
 function createSelectChain(rows: unknown[]) {
@@ -65,6 +65,14 @@ async function createApp(db: Record<string, unknown>) {
 }
 
 describe("invite-token endpoint rate limiting", () => {
+  // The access route module is very large. Its one-time compile (over 20 s
+  // on a busy 4-core machine) is paid here, within the hook time limit
+  // (vitest.config.ts), instead of inside the first test's 20 s. Tests still
+  // import it themselves; after this it is ready.
+  beforeAll(async () => {
+    await Promise.all([import("../routes/access.js"), import("../middleware/index.js")]);
+  });
+
   beforeEach(() => {
     vi.resetModules();
   });
