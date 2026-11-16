@@ -189,17 +189,43 @@ function collectTextFiles(root: string, current: string, files: Record<string, s
   }
 }
 
+/**
+ * Stops the whole `pnpm paperclipai run` tree: pnpm starts tsx, which starts
+ * the server. The child is spawned detached as the leader of its own process
+ * group, so the group is signalled. Signalling only pnpm left tsx and the
+ * server (about 800 MB) running after every run of this test, and that server
+ * does not stop on SIGTERM once its database is gone, hence the SIGKILL.
+ */
 async function stopServerProcess(child: ServerProcess | null) {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-    setTimeout(() => {
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-    }, 5_000);
-  });
+  const pid = child?.pid;
+  if (pid === undefined) return;
+  const groupAlive = () => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const signalGroup = (signal: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      // Already gone.
+    }
+  };
+  const waitForGroupExit = async (ms: number) => {
+    const deadline = Date.now() + ms;
+    while (groupAlive() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+  signalGroup("SIGTERM");
+  await waitForGroupExit(5_000);
+  if (groupAlive()) {
+    signalGroup("SIGKILL");
+    await waitForGroupExit(5_000);
+  }
 }
 
 async function api<T>(baseUrl: string, pathname: string, init?: RequestInit): Promise<T> {
@@ -319,6 +345,8 @@ describeEmbeddedPostgres("paperclipai company import/export e2e", () => {
           shellHome: cliShellHome,
         }),
         stdio: ["ignore", "pipe", "pipe"],
+        // Its own process group, so afterAll can stop pnpm, tsx and the server together.
+        detached: true,
       },
     );
     serverProcess = child;

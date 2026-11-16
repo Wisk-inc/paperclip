@@ -19,11 +19,15 @@ export default defineConfig({
     // Each server suite boots + tears down its own embedded Postgres in
     // beforeAll/afterAll. Under the loaded serial shard (maxWorkers=1) the
     // graceful shutdown can occasionally cross vitest's default 10s hookTimeout,
-    // producing flaky "Hook timed out in 10000ms" afterAll failures on CI. Give
-    // the boot/teardown hooks generous headroom; 30s is far above the observed
-    // worst-case teardown yet still catches a genuinely hung hook. teardownTimeout
-    // mirrors it for the same reason.
-    hookTimeout: 30000,
+    // producing flaky "Hook timed out in 10000ms" afterAll failures on CI.
+    // Route suites also load their very large route modules in a hook on
+    // purpose, so the one-time transform is paid there rather than inside a
+    // test (see testTimeout below). On a 4-core container with every core busy
+    // that transform measured 26-30s for src/routes/issues.ts and
+    // src/routes/agents.ts (2026-11), and hooks failed at the old 30s. 120s
+    // gives that room and still ends a genuinely hung hook. teardownTimeout
+    // stays at 30s: Postgres teardown is far below it.
+    hookTimeout: 120000,
     teardownTimeout: 30000,
     // The route/authz suites import very large modules (for example
     // src/routes/issues.ts and its dependency graph). The first test in each

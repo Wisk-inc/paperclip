@@ -135,11 +135,11 @@ async function deleteAgent() {
 
 describe("DELETE /agents/:id removes the agent's chats", () => {
   // The agents route module is very large. Its one-time compile (12-30 s on a
-  // busy 4-core machine) happens here, with its own time limit, instead of
-  // inside the first test's.
+  // busy 4-core machine) happens here, within the hook time limit
+  // (vitest.config.ts), instead of inside the first test's.
   beforeAll(async () => {
     await createApp();
-  }, 120_000);
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
