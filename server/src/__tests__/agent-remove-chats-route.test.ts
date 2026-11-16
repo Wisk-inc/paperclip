@@ -1,7 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { issues } from "@paperclipai/db";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.unmock("http");
 vi.unmock("node:http");
@@ -134,6 +134,13 @@ async function deleteAgent() {
 }
 
 describe("DELETE /agents/:id removes the agent's chats", () => {
+  // The agents route module is very large. Its one-time compile (12-30 s on a
+  // busy 4-core machine) happens here, with its own time limit, instead of
+  // inside the first test's.
+  beforeAll(async () => {
+    await createApp();
+  }, 120_000);
+
   beforeEach(() => {
     vi.clearAllMocks();
     order.length = 0;

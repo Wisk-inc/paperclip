@@ -245,6 +245,9 @@ function makeAgent(adapterType: string) {
 }
 
 describe.sequential("agent skill routes", () => {
+  // Each test imports the agents route module afresh below; the first import
+  // pays its one-time compile (12-30 s on a busy 4-core machine) inside this
+  // hook, so the hook gets room for it.
   beforeEach(async () => {
     vi.resetModules();
     vi.doUnmock("../routes/agents.js");
@@ -375,7 +378,7 @@ describe.sequential("agent skill routes", () => {
       vi.importActual<typeof import("../routes/agents.js")>("../routes/agents.js"),
       vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
     ]);
-  });
+  }, 120_000);
 
   it("skips runtime materialization when listing Claude skills", async () => {
     mockAgentService.getById.mockResolvedValue(makeAgent("claude_local"));

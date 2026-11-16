@@ -207,6 +207,18 @@ if (!embeddedPostgresSupport.supported) {
   );
 }
 
+/**
+ * `vi.waitFor` with room for this suite's background drains. A drain stores
+ * deliveries, conversations and comments one Postgres transaction at a time;
+ * on a busy machine (the whole suite, or a build, running alongside) that can
+ * take longer than `vi.waitFor`'s 1 s default, and tests failed while the
+ * drain was still finishing. A wait that holds still returns at once. Waits
+ * that pass their own options keep them.
+ */
+function waitForDrain<T>(callback: () => T | Promise<T>): Promise<T> {
+  return vi.waitFor(callback, { timeout: 10_000 });
+}
+
 type TestDb = ReturnType<typeof createDb>;
 
 class FakeEndpointRuntime {
@@ -1406,7 +1418,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     if (action) {
       await service.processPendingGitHubWebhookIngress(1, action.id);
     }
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const setup = await db
         .select({ setup: chatEndpoints.setup })
         .from(chatEndpoints)
@@ -1500,7 +1512,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
   ) {
     const endpoint = await service.get(endpointId);
     let conversation: typeof chatConversations.$inferSelect | undefined;
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       conversation = await db
         .select()
         .from(chatConversations)
@@ -4529,7 +4541,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     holdExchange = true; exchangeStarted = false;
     const late = oauth.complete(new URL(again.url).searchParams.get("state")!, "second-code", "owner-user");
     const rejected = expect(late).rejects.toThrow("disconnected or expired");
-    await vi.waitFor(() => expect(exchangeStarted).toBe(true));
+    await waitForDrain(() => expect(exchangeStarted).toBe(true));
     await oauth.disconnect(fixture.companyId, endpoint.id, "owner-user");
     releaseExchange!();
     await rejected;
@@ -5029,7 +5041,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           [{ id: context.resource.id, enabled: false }],
           "owner-user",
         );
-        await vi.waitFor(async () => {
+        await waitForDrain(async () => {
           const [row] = (await db.execute(sql`select exists (
             select 1 from pg_stat_activity where datname = current_database()
               and ${pid} = any(pg_blocking_pids(pid))
@@ -7668,7 +7680,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(deferred).toHaveLength(1);
 
     deferred.shift()?.();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const rows = await db
         .select()
         .from(chatConversations)
@@ -7679,7 +7691,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       .select()
       .from(chatConversations)
       .where(eq(chatConversations.endpointId, endpoint.id));
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const rows = await db
         .select({ body: issueComments.body })
         .from(issueComments)
@@ -8835,7 +8847,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       );
 
     const requests = [send("github-cold-1"), send("github-cold-2")];
-    await vi.waitFor(() => {
+    await waitForDrain(() => {
       expect(runtime.replaceCount).toBe(replacementsBeforeBurst + 1);
     });
     releaseInitialization();
@@ -8891,7 +8903,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // race before the background processor reaches replaceEndpoint, so wait
     // for the explicit initialization boundary instead of assuming same-tick
     // scheduling.
-    await vi.waitFor(() => {
+    await waitForDrain(() => {
       expect(runtime.replaceCount).toBe(replacementsBeforeRequest + 1);
     });
     expect(deferred).toHaveLength(0);
@@ -8920,7 +8932,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
       { timeout: 2_000 },
     );
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const action = await db
         .select()
         .from(chatActions)
@@ -9014,7 +9026,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
       { timeout: 2_000 },
     );
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const action = await db
         .select()
         .from(chatActions)
@@ -11304,7 +11316,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
             ),
           ),
       ).resolves.toEqual([]);
-      await vi.waitFor(() => {
+      await waitForDrain(() => {
         expect(staleRuntime.shutdown).toHaveBeenCalledOnce();
       });
 
@@ -11812,7 +11824,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       0,
     );
     await service.processPendingDeliveries(25, admittedRoot!.id);
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       await expect(
         db
           .select({
@@ -13677,7 +13689,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       availability: "available",
       enabled: true,
     });
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       await expect(service.listResources(endpoint.id)).resolves.toEqual([
         expect.objectContaining({ label: "#c-lifecycle" }),
       ]);
@@ -15959,7 +15971,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       .set({ executionRunId: promotedRunId, updatedAt: new Date() })
       .where(eq(issues.id, conversation.issueId));
     deferred.shift()?.();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const settled = await db
         .select({ status: chatActions.status, result: chatActions.result })
         .from(chatActions)
@@ -16155,7 +16167,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // Comment admission commits before the durable wake. Wait for this
     // company's last wake too, not merely its already-visible last comment.
     // The competing sweep may legitimately reconcile another fixture company.
-    await vi.waitFor(() => {
+    await waitForDrain(() => {
       const calls = wakeup.mock.calls.filter(
         (call) => call[0] === fixture.assignedAgentId,
       );
@@ -16168,7 +16180,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // load the assertions above can observe those effects one microtask before
     // the deferred owner's `finally` deletes its lease. Require prompt eventual
     // release; a real leak would remain for the much longer lease TTL.
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       expect(
         await db
           .select()
@@ -19779,7 +19791,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
               ).catch((error: unknown) => error);
               // The authenticated service callback records before waiting for
               // this turn's drain. Observe that durable pending source event.
-              await vi.waitFor(async () => {
+              await waitForDrain(async () => {
                 const rows = await db
                   .select({ state: chatDeliveries.state })
                   .from(chatDeliveries)
@@ -21278,7 +21290,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
                 // The issue barrier is after the initial action read; the
                 // identity barrier is after the initial delivery read. Observe
                 // the real blocked query before mutating its stale snapshot.
-                await vi.waitFor(async () => {
+                await waitForDrain(async () => {
                   const [state] = (await db.execute(sql`select exists (
                   select 1 from pg_stat_activity where ${backend!.pid} = any(pg_blocking_pids(pid))
                 ) as waiting`)) as unknown as Array<{ waiting: boolean }>;
@@ -22384,7 +22396,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         acceptedRedelivery = await observedRequest(true);
       }
       expect(acceptedRedelivery.status).toBe(200);
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         const [delivery] = await db
           .select()
           .from(chatDeliveries)
@@ -22525,7 +22537,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       const first = outcome(deliver());
       let duplicate: ReturnType<typeof outcome> | undefined;
       try {
-        await vi.waitFor(() => expect(settlementPid).not.toBeNull());
+        await waitForDrain(() => expect(settlementPid).not.toBeNull());
         expect(channel.post).toHaveBeenCalledTimes(1);
         const [uncommitted] = await db
           .select({ state: chatDeliveries.state })
@@ -22534,7 +22546,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         expect(uncommitted?.state).toBe("processing");
         duplicate = outcome(deliver());
         let blockedQuery: string | null = null;
-        await vi.waitFor(async () => {
+        await waitForDrain(async () => {
           const rows = (await db.execute(sql`
             select query from pg_stat_activity
             where datname = current_database()
@@ -23023,7 +23035,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       trigger: "mention",
     });
     await service.processPendingDeliveries();
-    await vi.waitFor(() => expect(wakeup).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(wakeup).toHaveBeenCalledTimes(1));
     expect(
       await db
         .select()
@@ -23765,7 +23777,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           await ready;
           const finalWork = publish();
           inFlight.push(finalWork);
-          await vi.waitFor(async () => {
+          await waitForDrain(async () => {
             const rows = await db
               .select({ state: chatPublications.state })
               .from(chatPublications)
@@ -27399,7 +27411,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(removal.providerActionId).toBe(
       `receipt_reaction_remove:${removal.deliveryId}`,
     );
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       await expect(
         db
           .select({ status: chatActions.status })
@@ -27623,7 +27635,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       try {
         const close = await f.stageClose();
         await f.service.processPendingPublications();
-        await vi.waitFor(() => expect(removalStarted).toBe(true));
+        await waitForDrain(() => expect(removalStarted).toBe(true));
         const removals = await db
           .select({ id: chatActions.id, status: chatActions.status })
           .from(chatActions)
@@ -29031,7 +29043,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       await addSelectedChatFinal({ companyId: fixture.companyId, agentId: fixture.assignedAgentId,
         issueId, runId, body: index === 0 ? "Yes, I'm here." : "I'm Maya." });
       await service.processPendingPublications();
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         const issue = await issueService(db).getById(issueId!);
         expect(issue?.status).toBe("in_review");
         expect(issue?.externalConversationState).toBe("waiting");
@@ -29909,7 +29921,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       const scheduled = service.schedulePendingPublications(4).then(() => {
         scheduledReturned = true;
       });
-      await vi.waitFor(() => {
+      await waitForDrain(() => {
         expect(scheduledReturned).toBe(true);
         expect(entered).toEqual(new Set([0, 1, 2, 3]));
       });
@@ -29928,7 +29940,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       ).toEqual([{ state: "pending", attempts: 0 }]);
 
       releases[1]!();
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         expect(
           await db
             .select({ state: chatPublications.state })
@@ -30078,7 +30090,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       }
       const ready = await enqueue(1, "Unrelated final", 200);
       await service.schedulePendingPublications(25);
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         expect(entered).toBe(true);
         expect(
           await db
@@ -30142,7 +30154,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     try {
       const live = await enqueue(0, "Long running provider send");
       await service.schedulePendingPublications(1);
-      await vi.waitFor(() => expect(entered).toBe(true));
+      await waitForDrain(() => expect(entered).toBe(true));
       const staleAt = new Date(Date.now() - 61_000);
       await db
         .update(chatPublications)
@@ -30160,7 +30172,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       // Advance the renewal clock, not wall time. Both the first claim and
       // its stale updatedAt now exceed 60s, while exact ownership renews.
       await vi.advanceTimersByTimeAsync(31_000);
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         const [renewed] = await db
           .select()
           .from(chatEndpointLeases)
@@ -30170,7 +30182,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         );
       });
       await vi.advanceTimersByTimeAsync(31_000);
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         const [renewed] = await db
           .select()
           .from(chatEndpointLeases)
@@ -30266,7 +30278,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     try {
       const publication = await enqueue(0, "Accepted without lease authority");
       await service.schedulePendingPublications(1);
-      await vi.waitFor(() => expect(entered).toBe(true));
+      await waitForDrain(() => expect(entered).toBe(true));
       await db
         .update(chatEndpointLeases)
         .set({ expiresAt: new Date(Date.now() - 1_000) })
@@ -30335,7 +30347,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         "Accepted while receipt ownership waits",
       );
       await service.schedulePendingPublications(1);
-      await vi.waitFor(() => expect(entered).toBe(true));
+      await waitForDrain(() => expect(entered).toBe(true));
       const leaseKey = `publication:${publication.id}:1`;
       await db
         .update(chatEndpointLeases)
@@ -30354,7 +30366,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         drain = service.processPendingPublications();
         // Observe the real blocker; advancing a clock before the ownership
         // query starts would not distinguish a stale pre-lock decision clock.
-        await vi.waitFor(async () => {
+        await waitForDrain(async () => {
           const [state] = (await db.execute(sql`select exists (
             select 1 from pg_stat_activity where ${backend!.pid} = any(pg_blocking_pids(pid))
           ) as waiting`)) as unknown as Array<{ waiting: boolean }>;
@@ -32997,7 +33009,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(deferred).toHaveLength(1);
       for (const task of deferred.splice(0)) task();
       let removal: typeof chatActions.$inferSelect | undefined;
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         removal = await db
           .select()
           .from(chatActions)
@@ -33397,7 +33409,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       });
       let resolutionPublication:
         typeof chatPublications.$inferSelect | undefined;
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         resolutionPublication = await db
           .select()
           .from(chatPublications)
@@ -33435,7 +33447,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       ]);
       expect(providerRuntime?.edits[0]?.text).toContain("Answered: High.");
 
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         await expect(
           db
             .select({ id: heartbeatRuns.id })
@@ -34027,7 +34039,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
             ],
           },
         });
-        await vi.waitFor(async () => {
+        await waitForDrain(async () => {
           const [response] = await db
             .select()
             .from(issueQuestionResponseDeliveries)
@@ -34370,7 +34382,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           )) as unknown as Array<{ pid: number }>;
           expect(modalQuery.pid).not.toBe(backend!.pid);
           releaseModalQuery();
-          await vi.waitFor(async () => {
+          await waitForDrain(async () => {
             const [state] = (await db.execute(sql`select exists (
                 select 1 from pg_stat_activity where pid = ${modalQuery.pid}
                   and datname = current_database()
@@ -36326,7 +36338,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     });
     await callbacks.onAction(unlinkedAction);
     await callbacks.onAction(unlinkedAction);
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(channel.postEphemeral).toHaveBeenCalledTimes(1),
     );
     expect(channel.postEphemeral).toHaveBeenCalledWith(
@@ -36383,7 +36395,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     await callbacks.onAction(
       actionEvent({ userId: `U-UNLINKED-FALLBACK-${randomUUID()}` }),
     );
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(channel.post).toHaveBeenCalledWith(
         "This Paperclip action is no longer available.",
       ),
@@ -36474,7 +36486,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     ]);
     await service.processPendingPublications();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       await expect(
         db
           .select({ state: chatPublications.state })
@@ -36545,7 +36557,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // durable, while the actual ephemeral send runs asynchronously. Drain those
     // already-staged notices before using the transport call count to prove that
     // the exact redelivery below does not send another notice.
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const providerEffects = await db
         .select({ status: chatActions.status })
         .from(chatActions)
@@ -37343,7 +37355,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       );
       expect(corrected.status).toBe(200);
       expect(await corrected.json()).toEqual({ response_action: "clear" });
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         expect(wakeup).toHaveBeenCalledTimes(wakeupsBefore + 1);
         expect((await submissionState()).deliveries).toEqual([
           expect.objectContaining({
@@ -37719,7 +37731,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           NonNullable<typeof callbacks.onAction>
         >[0],
       );
-      await vi.waitFor(() =>
+      await waitForDrain(() =>
         expect(channel.postEphemeral).toHaveBeenCalledWith(
           modalUser.userId,
           "This action is no longer available. Open the linked Paperclip task or ask an operator to link this account.",
@@ -37778,7 +37790,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
             NonNullable<typeof callbacks.onAction>
           >[0],
         );
-        await vi.waitFor(() =>
+        await waitForDrain(() =>
           expect(providerOpenEntered).toHaveBeenCalledTimes(1),
         );
         const membershipUpdate = db
@@ -37829,7 +37841,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           failedOpen as Parameters<NonNullable<typeof callbacks.onAction>>[0],
         );
         expect(failedOpen.event.openModal).toHaveBeenCalledTimes(1);
-        await vi.waitFor(() =>
+        await waitForDrain(() =>
           expect(channel.postEphemeral).toHaveBeenCalledWith(
             modalUser.userId,
             "Paperclip could not open this form. Try the action again or open the linked Paperclip task.",
@@ -38128,9 +38140,9 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         replaySubmit,
       ]);
       try {
-        await vi.waitFor(() => expect(tokenLoads).toBe(2));
+        await waitForDrain(() => expect(tokenLoads).toBe(2));
         releaseFirstSubmit();
-        await vi.waitFor(async () => {
+        await waitForDrain(async () => {
           const [current] = await db
             .select({ status: issueThreadInteractions.status })
             .from(issueThreadInteractions)
@@ -39100,12 +39112,12 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       );
       expect(providerRetry.status).toBe(200);
       await expect(providerRetry.text()).resolves.toBe("OK");
-      await vi.waitFor(() => {
+      await waitForDrain(() => {
         expect(
           apiCalls.filter(({ method }) => method === "sendMessage"),
         ).toHaveLength(1);
       });
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         const effects = await db
           .select({ status: chatActions.status })
           .from(chatActions)
@@ -39304,7 +39316,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       // published state instead of treating that in-flight claim as failure.
       await service.processPendingPublications(1_000);
       let publication: typeof chatPublications.$inferSelect | undefined;
-      await vi.waitFor(async () => {
+      await waitForDrain(async () => {
         publication = await db
           .select()
           .from(chatPublications)
@@ -39927,7 +39939,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     );
     await recovery.service.processPendingPublications();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       await expect(
         db
           .select({ state: chatPublications.state })
@@ -40826,7 +40838,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         } as never,
       }).deliver(interaction.id);
       await service.processPendingPublications();
-      await vi.waitFor(() =>
+      await waitForDrain(() =>
         expect(
           wakeup.mock.calls.some(
             ([, options]) =>
@@ -48420,7 +48432,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     };
     await callbacks.onSlashCommand!(event);
     await callbacks.onSlashCommand!(event);
-    await vi.waitFor(() => expect(postEphemeral).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(postEphemeral).toHaveBeenCalledTimes(1));
     const [identity] = await service.listPrincipals(endpoint.id);
     expect(identity).toMatchObject({ externalLabel: "Connect Person", status: "pending", paperclipUserId: null, lastConnectAt: expect.any(String) });
     expect(await service.listConversations(endpoint.id)).toHaveLength(0);
@@ -48458,7 +48470,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     const confirmationNotice = vi.fn(async () => ({ id: "linked-notice", threadId: "C-CONNECT" }));
     providerRuntime.thread = (id: string) => ({ ...originalThread(id), postEphemeral: confirmationNotice });
     await service.confirmIdentityLink(token, "owner-user");
-    await vi.waitFor(() => expect(confirmationNotice).toHaveBeenCalledWith("U-CONNECT", expect.stringContaining("account is connected"), { fallbackToDM: false }));
+    await waitForDrain(() => expect(confirmationNotice).toHaveBeenCalledWith("U-CONNECT", expect.stringContaining("account is connected"), { fallbackToDM: false }));
     expect((await service.listPrincipals(endpoint.id))[0]).toMatchObject({ status: "linked", paperclipUserId: "owner-user" });
     await expect(service.test(endpoint.id)).rejects.toMatchObject({ details: { code: "chat_test_follow_up_missing" } });
     await expect(service.confirmIdentityLink(token, "owner-user")).rejects.toMatchObject({ status: 422 });
@@ -48552,14 +48564,14 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     });
 
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(runtime.endpoints.get(endpoint.id)?.posts).toContainEqual({
         threadId: "slack:C-COMMANDS:",
         text: "Starting a task…",
       }),
     );
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(async () =>
+    await waitForDrain(async () =>
       expect(await service.listConversations(endpoint.id)).toHaveLength(1),
     );
     const [conversation] = await service.listConversations(endpoint.id);
@@ -48575,7 +48587,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       "investigate the command path",
     ]);
     expect(runtime.endpoints.get(endpoint.id)?.reactions).toEqual([]);
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       expect(
         await db
           .select({
@@ -48670,7 +48682,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         ),
       ]),
     ).resolves.toBe("acknowledged");
-    await vi.waitFor(() => expect(postEntered).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(postEntered).toHaveBeenCalledTimes(1));
     const concurrentRetry = callbacks.onSlashCommand(slashEvent);
     releasePost();
     await Promise.all([first, concurrentRetry]);
@@ -48687,7 +48699,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         text: "Starting a task…",
       },
     ]);
-    await vi.waitFor(() => expect(wakeup).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(wakeup).toHaveBeenCalledTimes(1));
     const conversations = await service.listConversations(endpoint.id);
     expect(conversations).toEqual([
       expect.objectContaining({
@@ -48704,7 +48716,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // The wake callback runs before slash admission commits its terminal
     // receipt. Observe that exact durable receipt before simulating an
     // operator resolution, rather than racing the final admission write.
-    const [action] = await vi.waitFor(async () => {
+    const [action] = await waitForDrain(async () => {
       const actions = await db
         .select()
         .from(chatActions)
@@ -48809,7 +48821,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       });
     };
     const processing = service.processPendingDeliveries(1_000);
-    await vi.waitFor(() => expect(postEntered).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(postEntered).toHaveBeenCalledTimes(1));
 
     const resourceUpdate = db
       .update(chatEndpointResources)
@@ -49933,7 +49945,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         openModal: async () => undefined,
       },
     });
-    await vi.waitFor(async () =>
+    await waitForDrain(async () =>
       expect(
         await db
           .select({ status: chatActions.status })
@@ -49947,7 +49959,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       ).toEqual([{ status: "delivery_unknown" }]),
     );
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(async () =>
+    await waitForDrain(async () =>
       expect(
         await db
           .select({ status: chatActions.status })
@@ -50005,7 +50017,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       .post(`/api/chat-endpoints/${endpoint.id}/actions/${action!.id}/resolve`)
       .send({ action: "retry_anyway" })
       .then((response) => response);
-    await vi.waitFor(() => expect(retryPostEntered).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(retryPostEntered).toHaveBeenCalledTimes(1));
     const concurrentRetry = request(app)
       .post(`/api/chat-endpoints/${endpoint.id}/actions/${action!.id}/resolve`)
       .send({ action: "retry_anyway" })
@@ -50171,14 +50183,14 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       });
 
     await invoke("Start a task from this DM slash command");
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(runtime.endpoints.get(endpoint.id)?.posts).toContainEqual({
         threadId: "slack:D09SLASHTASK:",
         text: "Starting a task…",
       }),
     );
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(async () =>
+    await waitForDrain(async () =>
       expect(await service.listConversations(endpoint.id)).toHaveLength(1),
     );
     const [conversation] = await service.listConversations(endpoint.id);
@@ -50286,7 +50298,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     await owner;
     expect(scheduledWork).toHaveLength(1);
     scheduledWork.shift()!();
-    await vi.waitFor(() => expect(postEntered).toHaveBeenCalledTimes(1));
+    await waitForDrain(() => expect(postEntered).toHaveBeenCalledTimes(1));
     await expect(
       Promise.race([
         callbacks
@@ -50359,7 +50371,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(revocationSettled).toBe(true);
     providerRuntime.postHook = undefined;
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const [action] = await db
         .select({ status: chatActions.status })
         .from(chatActions)
@@ -50752,7 +50764,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       });
     }
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(postEphemeral).toHaveBeenCalledTimes(3));
+    await waitForDrain(() => expect(postEphemeral).toHaveBeenCalledTimes(3));
     for (const call of postEphemeral.mock.calls) {
       expect(call[1]).toBe(
         "Use status, new, and close in a direct message with this agent. In a channel, open the Paperclip task from its Slack thread.",
@@ -50771,7 +50783,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     // mid-settlement when the mock resolves (drew a not-yet-processed row
     // in CI on 2026-09-10). Wait for the bookkeeping, bounded, like the
     // durable-receipt paths above do.
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       expect(
         await db
           .select()
@@ -51495,7 +51507,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(scheduled).toHaveLength(1);
     expect(channel.postEphemeral).not.toHaveBeenCalled();
     scheduled.shift()!();
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const removal = await db
         .select({ status: chatActions.status })
         .from(chatActions)
@@ -51551,7 +51563,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect(channel.postEphemeral).not.toHaveBeenCalled();
     expect(scheduled).toHaveLength(1);
     scheduled.shift()!();
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(channel.postEphemeral).toHaveBeenCalledTimes(1),
     );
     await expect(callbacks.onAction(deniedAction)).resolves.toBeUndefined();
@@ -52181,7 +52193,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     });
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(postEphemeral).toHaveBeenCalledWith(
         "U-COMMANDER",
         `This connection only accepts ${command}.`,
@@ -52242,7 +52254,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     });
     expect(post).not.toHaveBeenCalled();
-    await vi.waitFor(() =>
+    await waitForDrain(() =>
       expect(postEphemeral).toHaveBeenCalledWith(
         "U-COMMANDER",
         "This channel or account is not allowed to start Paperclip work.",
@@ -62168,7 +62180,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     };
     await sendLifecycle(sameSecondEdit);
     await sendLifecycle(sameSecondEdit);
-    await vi.waitFor(async () => {
+    await waitForDrain(async () => {
       const lifecycle = await db
         .select()
         .from(chatDeliveries)
@@ -63397,7 +63409,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           "1 external attachment was omitted",
         ),
       });
-      await vi.waitFor(() =>
+      await waitForDrain(() =>
         expect(dm.post).toHaveBeenCalledWith(visibleFailure),
       );
       await expect(

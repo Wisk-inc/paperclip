@@ -1,3 +1,5 @@
+import { crc32 as zlibCrc32 } from "node:zlib";
+
 function writeUint16(target: Uint8Array, offset: number, value: number) {
   target[offset] = value & 0xff;
   target[offset + 1] = (value >>> 8) & 0xff;
@@ -10,15 +12,10 @@ function writeUint32(target: Uint8Array, offset: number, value: number) {
   target[offset + 3] = (value >>> 24) & 0xff;
 }
 
+// Node's own CRC-32 (the zip checksum): a bit-at-a-time loop in JavaScript
+// took seconds on a package of tens of megabytes, and far longer on a phone.
 function crc32(bytes: Uint8Array) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc & 1) === 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
+  return zlibCrc32(bytes) >>> 0;
 }
 
 export function createStoredZipArchive(files: Record<string, string | Uint8Array>, rootPath: string) {

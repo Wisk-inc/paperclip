@@ -117,9 +117,15 @@ async function flushReact() {
   });
 }
 
-async function waitForAssertion(assertion: () => void) {
+/**
+ * Retries `assertion` until it passes or `timeoutMs` runs out. Time-based, not
+ * a fixed number of ticks: on a busy machine (the whole UI suite running at
+ * once) a query answer and the render after it can take many event-loop turns.
+ */
+async function waitForAssertion(assertion: () => void, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
-  for (let i = 0; i < 20; i += 1) {
+  do {
     await flushReact();
     try {
       assertion();
@@ -127,8 +133,27 @@ async function waitForAssertion(assertion: () => void) {
     } catch (error) {
       lastError = error;
     }
-  }
+  } while (Date.now() < deadline);
   throw lastError;
+}
+
+function findDriverSelect(): HTMLSelectElement | undefined {
+  return Array.from(getEnvironmentFormPage()?.querySelectorAll("select") ?? [])
+    .find((select) => Array.from(select.options).some((option) => option.value === "ssh")) as
+    | HTMLSelectElement
+    | undefined;
+}
+
+function driverOptionValues(): string[] {
+  return Array.from(findDriverSelect()?.options ?? []).map((option) => option.value);
+}
+
+/** Waits until the sandbox capabilities answer is in and the page has rendered with it. */
+async function waitForCapabilities(queryClient: QueryClient) {
+  await waitForAssertion(() =>
+    expect(queryClient.getQueryState(["environment-capabilities", "company-1"])?.status).toBe("success"),
+  );
+  await flushReact();
 }
 
 const ENVIRONMENTS_PATH = "/company/settings/instance/environments";
@@ -201,14 +226,21 @@ describe("CompanyEnvironments", () => {
     await act(async () => {
       root.render(renderCompanyEnvironments(queryClient));
     });
-    await flushReact();
-    await flushReact();
+    await waitForAssertion(() => expect(container.querySelector('[aria-label="Add environment"]')).toBeTruthy());
+    await waitForCapabilities(queryClient);
 
     const optionLabels = Array.from(container.querySelectorAll("option")).map((option) => option.textContent?.trim());
 
     expect(optionLabels).not.toContain("Sandbox");
     expect(container.textContent).not.toContain("Fake sandbox");
     expect(container.textContent).not.toContain("Fake is the deterministic test provider");
+
+    // The create form offers SSH only: no sandbox provider can run work.
+    await act(async () => {
+      click(container.querySelector('[aria-label="Add environment"]'));
+    });
+    await waitForAssertion(() => expect(driverOptionValues()).toEqual(["ssh"]));
+    expect(getEnvironmentFormPage()?.textContent).not.toContain("Fake sandbox");
 
     await act(async () => {
       root.unmount();
@@ -239,28 +271,15 @@ describe("CompanyEnvironments", () => {
     await act(async () => {
       root.render(renderCompanyEnvironments(queryClient));
     });
-    await flushReact();
-    await flushReact();
-
-    const addEnvironmentButton = container.querySelector('[aria-label="Add environment"]');
-    expect(addEnvironmentButton).toBeTruthy();
+    await waitForAssertion(() => expect(container.querySelector('[aria-label="Add environment"]')).toBeTruthy());
 
     await act(async () => {
-      click(addEnvironmentButton);
+      click(container.querySelector('[aria-label="Add environment"]'));
     });
 
-    await waitForAssertion(() => expect(getEnvironmentFormPage()).toBeTruthy());
-    const dialog = getEnvironmentFormPage();
-
-    const driverSelect = Array.from(dialog?.querySelectorAll("select") ?? [])
-      .find((select) => Array.from(select.options).some((option) => option.value === "ssh")) as
-      | HTMLSelectElement
-      | undefined;
-    expect(driverSelect).toBeTruthy();
-
-    const driverOptionValues = Array.from(driverSelect!.options).map((option) => option.value);
-    expect(driverOptionValues).not.toContain("local");
-    expect(driverOptionValues).toEqual(["sandbox", "ssh"]);
+    // The form shows at once; Sandbox joins the choices when the capabilities answer arrives.
+    await waitForAssertion(() => expect(driverOptionValues()).toEqual(["sandbox", "ssh"]));
+    expect(driverOptionValues()).not.toContain("local");
 
     await act(async () => {
       root.unmount();
@@ -290,28 +309,17 @@ describe("CompanyEnvironments", () => {
     await act(async () => {
       root.render(renderCompanyEnvironments(queryClient));
     });
-    await flushReact();
-    await flushReact();
-
-    const editButton = findAction(container, "Edit");
-    expect(editButton).toBeTruthy();
+    await waitForAssertion(() => expect(findAction(container, "Edit")).toBeTruthy());
 
     await act(async () => {
-      click(editButton);
+      click(findAction(container, "Edit"));
     });
 
-    await waitForAssertion(() => expect(getEnvironmentFormPage()).toBeTruthy());
-    const dialog = getEnvironmentFormPage();
-
-    const driverSelect = Array.from(dialog?.querySelectorAll("select") ?? [])
-      .find((select) => Array.from(select.options).some((option) => option.value === "ssh")) as
-      | HTMLSelectElement
-      | undefined;
-    expect(driverSelect).toBeTruthy();
-
-    const driverOptionValues = Array.from(driverSelect!.options).map((option) => option.value);
-    expect(driverOptionValues).toContain("local");
-    expect(driverSelect!.value).toBe("local");
+    // The form shows first, then fills in from the saved environment.
+    await waitForAssertion(() => {
+      expect(driverOptionValues()).toContain("local");
+      expect(findDriverSelect()?.value).toBe("local");
+    });
 
     await act(async () => {
       root.unmount();
@@ -364,35 +372,36 @@ describe("CompanyEnvironments", () => {
     await act(async () => {
       root.render(renderCompanyEnvironments(queryClient));
     });
-    await flushReact();
-    await flushReact();
-
-    expect(container.textContent).toContain("Secure Sandbox");
-
-    const editButton = findAction(container, "Edit");
-    expect(editButton).toBeTruthy();
+    await waitForAssertion(() => expect(container.textContent).toContain("Secure Sandbox"));
+    await waitForAssertion(() => expect(findAction(container, "Edit")).toBeTruthy());
 
     await act(async () => {
-      click(editButton);
+      click(findAction(container, "Edit"));
     });
 
-    await waitForAssertion(() => expect(getEnvironmentFormPage()).toBeTruthy());
-    const dialog = getEnvironmentFormPage();
+    const findProviderSelect = () =>
+      Array.from(getEnvironmentFormPage()?.querySelectorAll("select") ?? []).find((select) =>
+        Array.from(select.options).some((option) => option.value === "secure-plugin"),
+      ) as HTMLSelectElement | undefined;
+    const findTemplateInput = () =>
+      Array.from(getEnvironmentFormPage()?.querySelectorAll("input") ?? [])
+        .find((input) => (input as HTMLInputElement).value === "saved-template") as HTMLInputElement | undefined;
 
-    const providerSelect = Array.from(dialog?.querySelectorAll("select") ?? []).find((select) =>
-      Array.from(select.options).some((option) => option.value === "secure-plugin"),
-    ) as HTMLSelectElement | undefined;
-    expect(providerSelect).toBeTruthy();
+    // The provider list comes with the capabilities answer, the saved template
+    // with the form filling in from the environment: wait for both.
+    await waitForAssertion(() => {
+      expect(findProviderSelect()).toBeTruthy();
+      expect(findTemplateInput()?.value).toBe("saved-template");
+    });
 
+    const providerSelect = findProviderSelect()!;
     await act(async () => {
-      providerSelect!.value = "secure-plugin";
-      providerSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      providerSelect.value = "secure-plugin";
+      providerSelect.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await flushReact();
 
-    const templateInput = Array.from(dialog?.querySelectorAll("input") ?? [])
-      .find((input) => (input as HTMLInputElement).value === "saved-template") as HTMLInputElement | undefined;
-    expect(templateInput?.value).toBe("saved-template");
+    expect(findTemplateInput()?.value).toBe("saved-template");
 
     await act(async () => {
       root.unmount();

@@ -157,6 +157,8 @@ function createServerEnv(
   env.HEARTBEAT_SCHEDULER_ENABLED = "false";
   env.PAPERCLIP_MIGRATION_AUTO_APPLY = "true";
   env.PAPERCLIP_UI_DEV_MIDDLEWARE = "false";
+  // No npm registry call on the way up: the test does not depend on the network.
+  env.PAPERCLIP_UPDATE_CHECK = "0";
 
   return env;
 }
@@ -244,13 +246,18 @@ async function runCliJson<T>(
   return JSON.parse(stdout.slice(jsonStart)) as T;
 }
 
+// `paperclipai run` here compiles the CLI and the whole server from TypeScript
+// as it loads them. On a busy machine (the full suite, or a build, running
+// alongside) that took longer than 30 seconds before the server answered.
+const SERVER_START_TIMEOUT_MS = 120_000;
+
 async function waitForServer(
   apiBase: string,
   child: ServerProcess,
   output: { stdout: string[]; stderr: string[] },
 ) {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 30_000) {
+  while (Date.now() - startedAt < SERVER_START_TIMEOUT_MS) {
     if (child.exitCode !== null) {
       throw new Error(
         `paperclipai run exited before healthcheck succeeded.\nstdout:\n${output.stdout.join("")}\nstderr:\n${output.stderr.join("")}`,
@@ -323,7 +330,7 @@ describeEmbeddedPostgres("paperclipai company import/export e2e", () => {
     });
 
     await waitForServer(apiBase, child, output);
-  }, 60_000);
+  }, SERVER_START_TIMEOUT_MS + 60_000);
 
   afterAll(async () => {
     await stopServerProcess(serverProcess);

@@ -152,5 +152,7 @@ process.stdout.write(JSON.stringify({identity, token:process.env.GH_TOKEN ?? nul
     expect(await git("status", "--porcelain")).toBe(""); // unrelated public/local Git still works
     expect(env.GH_TOKEN).toBe("");
     expect(env.GIT_AUTHOR_NAME).toBe("");
-  });
+    // About twenty launcher runs, each its own Node process (~80 ms) plus Git:
+    // over four seconds on a quiet machine, so the default five is too tight.
+  }, 30_000);
 });
