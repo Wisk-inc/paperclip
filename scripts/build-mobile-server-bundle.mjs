@@ -195,6 +195,10 @@ try {
 
   rmSync(assetsDir, { recursive: true, force: true });
   mkdirSync(assetsDir, { recursive: true });
+  // The free-model token ships masked; refuse to pack a bundle where a build
+  // step left it readable (the old tar is already gone, so none can ship).
+  console.log("==> Checking the bundle for the free-model token");
+  run(process.execPath, [path.join(repoRoot, "scripts", "check-free-model-token.mjs"), bundleDir]);
   const output = path.join(assetsDir, "automa-server.tar.xz");
   run("tar", ["-cJf", output, "-C", staging, "automa-server"], { env: { XZ_OPT: "-9 -T0" } });
   const megabytes = (statSync(output).size / 1024 / 1024).toFixed(1);

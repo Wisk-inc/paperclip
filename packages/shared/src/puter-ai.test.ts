@@ -505,3 +505,56 @@ describe("freeModelAllowance", () => {
     await expect(freeModelAllowance()).rejects.toThrow(/no allowance/);
   });
 });
+
+describe("the built-in free-model token at rest", () => {
+  beforeEach(() => resetFreeModelAllowance());
+  afterEach(() => vi.unstubAllEnvs());
+
+  // The token is only ever seen the way the service sees it: in a request's
+  // Authorization header. Nothing here prints it.
+  async function tokenAsSent(): Promise<string> {
+    vi.stubEnv("PUTER_AUTH_TOKEN", "");
+    let header = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      header = init.headers.Authorization;
+      return new Response(JSON.stringify({ usage: {}, allowanceInfo: { remaining: 1, monthUsageAllowance: 1 } }), { status: 200 });
+    }));
+    await freeModelAllowance();
+    expect(header.startsWith("Bearer ")).toBe(true);
+    return header.slice("Bearer ".length);
+  }
+
+  it("unmasks to a well-formed token when a request is made", async () => {
+    const token = await tokenAsSent();
+    // Three base64url parts: a wrong mask would give bytes, not this shape.
+    expect(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)).toBe(true);
+    expect(token.length).toBeGreaterThan(100);
+  });
+
+  it("is not in the source, whole or in pieces", async () => {
+    const token = await tokenAsSent();
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("./puter-ai.ts", import.meta.url), "utf8");
+    expect(source.includes(token)).toBe(false);
+    // An earlier build split the token into short strings joined at run time:
+    // no 12-character run of it may appear anywhere in the file.
+    const [, payload, signature] = token.split(".");
+    const pieces: string[] = [];
+    for (const part of [payload!, signature!]) {
+      for (let at = 0; at + 12 <= part.length; at += 1) pieces.push(part.slice(at, at + 12));
+    }
+    expect(pieces.length).toBeGreaterThan(50);
+    expect(pieces.filter((piece) => source.includes(piece)).length).toBe(0);
+  });
+
+  it("an operator's own token wins over the built-in one", async () => {
+    vi.stubEnv("PUTER_AUTH_TOKEN", "operator-token-for-this-test");
+    let header = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      header = init.headers.Authorization;
+      return new Response(JSON.stringify({ usage: {}, allowanceInfo: { remaining: 1, monthUsageAllowance: 1 } }), { status: 200 });
+    }));
+    await freeModelAllowance();
+    expect(header).toBe("Bearer operator-token-for-this-test");
+  });
+});

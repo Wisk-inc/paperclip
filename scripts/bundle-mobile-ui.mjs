@@ -50,5 +50,15 @@ try {
 }
 
 writeFileSync(path.join(target, "ui-manifest.json"), `${JSON.stringify({ commit, files }, null, 2)}\n`);
+
+// The free-model token is server-only; the board UI must not carry it in any
+// readable form. On a hit, leave no UI behind for the app to pack.
+try {
+  execFileSync(process.execPath, [path.join(repoRoot, "scripts", "check-free-model-token.mjs"), target], { stdio: "inherit" });
+} catch {
+  rmSync(target, { recursive: true, force: true });
+  console.error(`Removed ${path.relative(repoRoot, target)}: the free-model token is readable in the board UI.`);
+  process.exit(1);
+}
 const bytes = files.reduce((sum, file) => sum + statSync(path.join(target, file)).size, 0);
 console.log(`Bundled ${files.length} UI files (${(bytes / 1048576).toFixed(1)} MB) into ${path.relative(repoRoot, target)}`);

@@ -5,20 +5,27 @@
 import type { FreeModelHealthEntry, FreeModelState } from './free-models.js';
 import { queTurn, type QueRelease } from './que-queue.js';
 
-const _P = [
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik',
-  'pXVCIsImtpZCI6InYyIn0.eyJ0Ijoi',
-  'YXUiLCJ2IjoiMiIsInV1IjoiKzhRaU',
-  'wrRkFUb3ltbFgxdUkvM2Urdz09Iiwi',
-  'YXUiOiJFTG9sTEZJRFdGRzJWN05adF',
-  'NVRitRPT0iLCJzdSI6IlhFNVB6OEhB',
-  'UVFDNjlFcXpMZGtkQnc9PSIsImFpIj',
-  'oiKzhRaUwrRkFUb3ltbFgxdUkvM2Ur',
-  'dz09IiwiaWF0IjoxNzkyOTkzOTEzfQ',
-  '.BDd0t_So16lMJykP-ERM3-Pcj7g3G',
-  '63BgkHJ_DREHGk',
-];
-const EMBEDDED_TOKEN = _P.join('');
+// The free-model token at rest. It is XOR-masked and base64'd so a plain
+// `strings` or `grep` over the server bundle never yields it — the lazy "rip
+// it out of the disassembled build" path finds only opaque blobs. This is NOT
+// unbreakable: the server runs on the user's own phone, so the mask sits on the
+// device too and a determined reverse-engineer can run this same decode. The
+// token never ships in the web bundle (server-only import);
+// scripts/check-free-model-token.mjs stops the phone server bundle and the
+// board UI from being packed if a build leaves it readable (whole, in pieces or
+// base64'd); and `hideToken` keeps it out of error messages.
+const _M = 'hlPbSSXfP9UhH7glUxBaaOEtB5BXvIp6';
+const _E = '4yqRIUeYXLxudvJsBmoTWa9ETuMe0thP5RCSf2y0T413XPFWGn0uGLtuTqYe0tMDzz3rZ0CmdeVodddMCkgPAa1uTaIe1uUTyzqSOmyxaeRodddMGGoyOoB4cOIF18wv5GC3PUeZWK1FStNTHiIPGoVXN6ke1f0T3wuOIGq2dZN1WIFWB1UAIrNrY9cFxsAtyGPuKEGZcYNzdsx3A0RqAa1uTeoz78NMzz+zD2uJfeNuWtBnBkYcLK9Ha9Y05Po33BSvInSxXOxxTPFWGn0cGKhHaPkcxuIo5wasO3e0eYBDLNRRMVY9EIV4bOYajt8I4inrcGy2SLxASP4VGno1EK9XbOkY6OEAyQeeM0OOEZdle4hRDEM1WddBStou19pXwwGWegiPXL8WeItiZSMYD4plTc8T7s8ywTg=';
+function _decodeEmbeddedToken(): string {
+  const mask = atob(_M);
+  const data = atob(_E);
+  let out = '';
+  for (let i = 0; i < data.length; i += 1) {
+    out += String.fromCharCode(data.charCodeAt(i) ^ mask.charCodeAt(i % mask.length));
+  }
+  return out;
+}
+const EMBEDDED_TOKEN = _decodeEmbeddedToken();
 
 export const PUTER_MODELS = {
   'nemotron-ultra':          'nvidia/nemotron-3-ultra-550b-a55b:free',

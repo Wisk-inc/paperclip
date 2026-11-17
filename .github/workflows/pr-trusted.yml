@@ -312,6 +312,9 @@ jobs:
       - name: Test no-git-push check
         run: node --test ./scripts/check-no-git-push.test.mjs
 
+      - name: Test free-model token check
+        run: node --test ./scripts/check-free-model-token.test.mjs
+
       - name: Validate feature module boundaries
         run: pnpm check:module-boundaries
 
