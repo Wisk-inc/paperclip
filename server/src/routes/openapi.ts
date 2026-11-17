@@ -1446,6 +1446,7 @@ const BOARD_ONLY_OPERATIONS = new Set([
   "GET /api/secrets/{id}/usage",
   "GET /api/secrets/{id}/access-events",
   "POST /api/health/dev-server/restart",
+  "POST /api/health/safe-mode/restart",
   "POST /api/studio/workspaces/{id}/assistant",
   "POST /api/issues/{issueId}/file-resources/availability",
   "GET /api/issues/{issueId}/file-resources/content",
@@ -1679,6 +1680,7 @@ const ACCEPTED_OPERATIONS = new Set([
   "POST /api/companies/{companyId}/email/send",
   "POST /api/companies/import",
   "POST /api/health/dev-server/restart",
+  "POST /api/health/safe-mode/restart",
   "POST /api/invites/{token}/accept",
 ]);
 
@@ -9841,6 +9843,18 @@ registerCurrentRoute({
     403: r.forbidden,
     404: r.notFound,
     409: { description: "Restart is not required" },
+  },
+});
+
+registerCurrentRoute({
+  method: "post",
+  path: "/api/health/safe-mode/restart",
+  tags: ["health"],
+  summary: "Leave safe mode: stop, and have the automa launcher start the server again normally",
+  responses: {
+    202: r.ok(),
+    403: r.forbidden,
+    409: { description: "Not in safe mode, or not started by the automa launcher (nothing would start it again)" },
   },
 });
 
