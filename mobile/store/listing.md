@@ -19,9 +19,10 @@ Automa turns your phone into a company run by AI agents. Hire agents, give them 
 It runs on free AI models with no key, no account and no card, or on your own API keys and subscriptions (Claude, GPT, Gemini, DeepSeek, Grok and more). The agents work on an Automa server you control: the phone itself (inside the free Termux app), your computer, or a server you rent. There is no Automa cloud account, no ads and no tracking.
 
 FREE AI, NO KEY NEEDED
-• Pick from more than 20 free models: DeepSeek V4.1 Flash, Nemotron 3 Ultra, Gemma 4, Qwen 3.8 and others. Switch models mid-chat.
+• Pick from more than 20 free models: Nemotron 3 Ultra, Gemma 4, Qwen 3.8, Ling 3.2 Flash and others. Switch models mid-chat.
 • The Costs page shows your free usage per model, with the limits and when they reset, and what the same work would have cost on paid plans.
 • Add your own keys when you want a paid model, and set budgets that stop spending on their own.
+• Model lists keep themselves current: new Claude, GPT, Gemini and other models show up as soon as they come out.
 
 CHAT WITH YOUR AGENTS
 • Every agent has a role and instructions, and remembers the chat. Type /new to start fresh.
@@ -71,7 +72,7 @@ Support: https://discord.gg/NfnSrFK7YM
 Privacy policy URL: the public URL of `website/PRIVACY.md` (or `website/privacy.html` once the website is hosted)
 Terms of service URL: the public URL of `TERMS.md` in this folder
 
-## Data safety answers (for the APKPure build, 1.9.12, built without Firebase)
+## Data safety answers (for the APKPure build, 1.9.13, built without Firebase)
 
 - Data collected by the developer: none. The app has no Google sign-in and no
   push service in this build, and the server's usage reporting is off.

@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.12** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.13** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.12](#2-whats-new-in-1912)
+2. [What's new in 1.9.13](#2-whats-new-in-1913)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,98 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.12
+## 2. What's new in 1.9.13
+
+Model lists that update themselves as new models come out, with Claude Fable
+5.2 and Gemini 4 added; tighter security for accounts, sign-in and the free
+models' key; fewer processes on the phone; new free models; and fixes from a
+review of everything 1.9.12 added (the repository's checks, its full build and
+every page of the board opened again).
+
+**Troubleshoot and Safe start always show their own answer**
+- The app asks Termux to start Automa, to start it in safe mode, or to run the
+  troubleshooter, and Termux answers each request. All the requests listened
+  for those answers in one place, so when two were waiting at once (Automa
+  being started while you tapped Troubleshoot, for example), the first answer
+  went to both: Troubleshoot could show what `automa start` said as its
+  report, and its own report then reached nothing. Each request now has its
+  own answer.
+- On the connect screen, Troubleshoot now waits while a Safe start runs (Safe
+  start already waited for Troubleshoot). Together, Troubleshoot's own start
+  could start Automa normally while Safe start was stopping it to start it in
+  safe mode.
+
+**The safe mode banner sees a slow return**
+- After Restart normally, the banner checks on Automa every 2 seconds and, after
+  3 minutes, says Automa hasn't come back yet. It then stopped checking, and
+  nothing else in the phone's board asks for that information: an Automa that
+  came back later (a first start after an update can take that long) left the
+  banner saying it hadn't, until the app was reopened or Refresh was tapped. It
+  now keeps checking every 10 seconds, goes away when Automa is back normally,
+  and says so when Automa came back in safe mode again.
+
+**Security**
+- The key Automa uses for the free models is stored scrambled. Up to 1.9.12 the
+  phone server kept it as eleven short readable pieces, which anyone who opened
+  the APK could put back together. Every build now checks the board, the phone
+  server and the whole APK, and refuses to ship the key in any readable form:
+  whole, in pieces or base64-encoded. On a phone you control, someone determined
+  can still recover it, since the server has to unscramble it to use it; this
+  stops the quick ways.
+- The database password and the app key on your phone are locked to Termux
+  alone every time Automa installs or updates, including ones an older
+  installer left readable.
+- Sign-in on a server you share: every caller gets three password tries every
+  ten seconds. A caller could get around that by making up a new network
+  address for each try (a header anyone can set), and requests without one all
+  shared a single limit that anyone could use up. Automa now counts the address
+  the connection really comes from, or what a proxy you trust says, and a new
+  session records that real address too.
+- Only the board itself can show the board's page inside a frame, so another
+  website cannot load it hidden and trick you into clicking. API answers tell
+  the browser not to guess what they contain, and the server no longer
+  announces what software it runs.
+
+**Fewer processes on the phone**
+- With PostgreSQL 18, Termux's current version, the database runs three fewer
+  processes: its three I/O helpers are off (4 helpers instead of 7, measured).
+  Android counts every process against Termux. A database started by 1.9.12
+  is restarted with this setting the next time Automa starts. Older PostgreSQL
+  keeps its settings, since it would refuse this one.
+- The server no longer runs `git` three times every few seconds (on every health
+  check, and every 30 seconds) on a phone, where there is no git checkout to
+  read.
+
+**Free models**
+- New: Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, each with a 1M
+  context and tools, each checked live before release.
+- A free agent with no model picked now runs on Nemotron 3 Ultra, as intended.
+  It was trying DeepSeek V4.1 Flash, whose free version its provider has taken
+  offline, so it could not answer at all.
+- Ten free versions are offline at their providers today, DeepSeek V4.1 Flash
+  among them (see [section 9](#9-free-models)). They stay listed, say so in the
+  chat, and answer again as soon as the free version is back. Automa never
+  answers on a different model than the one you picked.
+
+**Model lists update themselves**
+- Every model list follows a public model catalog (every major maker's models,
+  with their release dates), so a model that comes out after this version
+  shows up without an Automa update: an agent's model choice (Gemini CLI and
+  Grok, and Claude Code and Codex when no key reaches the maker's own list),
+  App Studio's Anthropic, OpenAI, OpenRouter, Google, Kimi and xAI lists, the
+  Terminals model menus (Claude Code, Codex, Gemini CLI), and the chat's model
+  switcher, whose **Newest models** section is now the catalog's newest.
+- Automa fetches a fresh catalog at most twice a day, in the background, and
+  keeps a copy, so the lists stay complete offline and after a restart. Lists
+  read newest first: a model out tomorrow lands on top, an older one Automa
+  didn't list goes among the models of its time, and App Studio marks the last
+  30 days' models **New**. Only models that can use tools are added, since
+  every one of these lists works through tools.
+- Added now: **Claude Fable 5.2**, **Gemini 4 Carbon** and **Gemini 4
+  Hydrogen** (Gemini CLI, App Studio, Terminals), and on OpenRouter Claude
+  Fable 5.2, Gemini 4 Carbon and **Qwen 4 Max**. Default models are unchanged.
+
+### From 1.9.12
 
 Automa keeps running on the phone, and gets back up by itself when it can't.
 
@@ -724,6 +815,8 @@ Talk to an agent like a teammate.
 **The model switcher** (in the chat header)
 - Every provider with its key status: Claude, GPT, Gemini, DeepSeek, Llama,
   Qwen, Kimi, Grok and more, with each maker's logo.
+- **Newest models** at the top: the major makers' newest models, which update
+  by themselves as new ones come out.
 - A **Free** filter and a "Free models · no key needed" section
   ([section 9](#9-free-models)).
 - **What this agent can do** switches for free-model agents: Web search &
@@ -808,14 +901,27 @@ were.
 | LFM 2.5 2.6B | 65k |
 | Xing 4.0 29B A4B | 262k |
 | Ternary Bonsai 27B | 262k |
+| Ling 3.2 Flash (new in 1.9.13) | 1M |
+| ERNIE 5.5 Flash Preview (new in 1.9.13) | 1M |
+| Particle 1 (new in 1.9.13) | 1M |
 | Free Router (routes each question to an available free model) | 200k |
+
+A free agent with no model chosen runs on Nemotron 3 Ultra 550B.
 
 **Image models:** SDXL Lightning (fast; the default pairing for every free chat
 model) and SDXL Base 1.0.
 
 **Every model stays listed** and says how it is doing: ready, busy, at today's
 free limit (and when it is back), or closed by its provider. Broken models are
-never hidden; they fail gracefully.
+never hidden; they fail gracefully, and Automa never answers on a different
+model than the one you picked.
+
+As of 17 November 2026 the providers of ten of these have taken their free
+versions offline: Nemotron 3 Super 120B, Nemotron 3.5 Content Safety, DeepSeek
+V4.1 Flash, Qwen 3.8 27B Abliterated Cyber, Inkling, Inkling Small, Atria Dawn
+Preview, Apodex 1.1 Mini, LFM 2.5 2.6B and Xing 4.0 29B A4B (only paid versions
+remain). Each says so in the chat, Automa checks again every few minutes, and
+it answers again as soon as the free version is back.
 
 **What a free agent can do** (each group has its own switch)
 - **Web search & reading:** search the web across many results (paged), read
@@ -1057,7 +1163,9 @@ Team**. On a wider screen the files, editor and a side panel sit together.
   (Moonshot), DeepSeek, xAI (Grok), Groq, Mistral, and any OpenAI-compatible
   endpoint. One sheet picks the provider (with its key status) and the model.
   Keys are encrypted on your server; the organization's key is used when none
-  is saved in Studio.
+  is saved in Studio. The Anthropic, OpenAI, OpenRouter, Google, Kimi and xAI
+  model lists add new models by themselves, newest first, marked **New** for
+  their first 30 days.
 - **Thinking depth** per model.
 - **What it does on its own:** reads and searches the files, writes and edits
   code, deletes what is no longer needed, runs commands and tests, starts and
@@ -1136,7 +1244,8 @@ A real coding terminal on the device: **Claude Code, Codex, Gemini CLI,
 OpenCode** and others in their full terminal UI, over a PTY relay, on a
 proot-distro Debian layer the page sets up for you.
 - Wire a terminal to an agent so it works with that agent's key, and **pick a
-  model per tool**.
+  model per tool** (Claude Code's, Codex's and Gemini CLI's menus add new models
+  by themselves).
 - A **Free models chat** with nothing to install.
 - Terminals run where Automa runs (on the phone when Automa runs in Termux). If
   the server is older than the app, the page offers the update.
@@ -1304,7 +1413,17 @@ agent exactly these commands.
 - Keys you save in App Studio are encrypted on your server; Studio shows only
   their last four characters.
 - The free models' access token lives only on the server, never in the app's
-  web pages.
+  web pages, and is stored scrambled; every build checks the app, the board
+  and the phone server for it in any readable form and refuses to ship it.
+  The server has to unscramble it to use it, so someone with your phone and
+  time can still recover it; this stops the quick ways.
+- On the phone, the database password and the app key are readable by Termux
+  alone, checked again on every install and update.
+- Sign-in tries are limited per caller (three every ten seconds). The caller is
+  the address the connection really comes from, or what a proxy you trust
+  says; a made-up address in a header changes nothing.
+- Only the board itself can show the board's page in a frame, so another
+  website can't load it hidden to steer your clicks.
 
 **Agents and App Studio**
 - Free agents' web tools never reach private or local network addresses.
@@ -1325,8 +1444,9 @@ agent exactly these commands.
 server (your computer, a VM, or your phone). The app talks to the server you
 connect it to, and to Google only for Continue with Google and push
 notifications when those are set up. Free-model requests go from your server to
-the free AI service Automa uses. Moan's knowledge index holds only public
-Jamaican web pages.
+the free AI service Automa uses. The model lists' catalog is a public list your
+server downloads (nothing about you is sent). Moan's knowledge index holds only
+public Jamaican web pages.
 
 The full threat model is in `doc/AUTOMA-SECURITY.md`.
 
@@ -1423,6 +1543,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.13 | 2026-11-17 | Model lists update themselves (agents, App Studio, Terminals, the chat's Newest models), newest first; Claude Fable 5.2, Gemini 4 Carbon and Hydrogen, Qwen 4 Max; security: the free models' key stored scrambled and checked out of every build, phone secrets locked to Termux, sign-in limits per real caller, no framing of the board; PostgreSQL 18 runs three fewer processes and the server stops running git every few seconds; free models Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, and no-model agents on Nemotron 3 Ultra; review fixes: Troubleshoot, Safe start and Start each get their own answer from Termux, Troubleshoot waits during a Safe start, the safe mode banner sees a slow return |
 | 1.9.12 | 2026-11-17 | Keeps running: a lighter database and fewer connections, `automa keep-alive` lifts Android's background process limit, Termux says why Automa stopped (`automa logs`); safe start (by itself after three quick stops, or on purpose) with a banner offering Restart normally and Troubleshoot; `automa troubleshoot` checks and repairs, also from the app with its report shown there; Refresh in the header, Reload app, Refresh and Reload page on the connection screens; `automa restart` |
 | 1.9.11 | 2026-11-16 | Wide-scan fixes: saving your name or photo and the App Studio guest page say "Can't reach…" instead of "Failed to fetch"; an agent's settings page loads its extra AI-connection settings by itself once Automa answers (they used to stay missing until the app was reopened); pages you left stop asking the server after a reconnect; company folders pack with Node's own zip checksum (seconds to milliseconds for 64 MB); load-sensitive tests made reliable; four doc links fixed |
 | 1.9.10 | 2026-11-12 | The wait while Automa on the phone starts shows the step Automa is on, its time and "step x of y", tells a stopped start from a slow one (and asks Termux once to start it again), and no longer gives up while Automa still answers; Automa reaches "ready" sooner (network checks and inbox tidying after ready) and one failing startup step no longer ends the start; `automa run` follows a background start until ready, `automa status` shows the step, stale pid and PostgreSQL lock files no longer block a start; no more "Failed to fetch": the board keeps its page during an outage and reloads by itself when Wi-Fi or the server is back, and a dropped connection no longer signs you out. |

@@ -164,6 +164,36 @@ key the caller may use). It never reads another member's personal key.
 - Agent API keys and collaborator tokens are stored as SHA-256 hashes; secrets
   and Studio AI keys are encrypted at rest with the instance master key.
 - Push tokens never leave the server: the API only says `pushEnabled`.
+- Sign-in tries are limited per caller (Better Auth: three per ten seconds on
+  sign-in, sign-up, password and email change). The caller is `req.ip`, which
+  follows the operator's `TRUST_PROXY` policy (no proxy trusted unless named):
+  `createBetterAuthHandler` stamps it into `x-paperclip-auth-client-ip` after
+  dropping any copy the caller sent, and Better Auth reads only that header.
+  A made-up `X-Forwarded-For` neither escapes the limit nor lands every
+  header-less caller in one shared bucket, and sessions record the real
+  address (1.9.13; before, Better Auth trusted `X-Forwarded-For`).
+- The board's page answers with `X-Frame-Options: SAMEORIGIN` and
+  `frame-ancestors 'self'`, so another site cannot frame it to steer clicks;
+  `/api` answers carry `X-Content-Type-Options: nosniff`; Express is not
+  announced (`middleware/security-headers.ts`).
+- The free models' built-in token is stored masked (XOR with a random 24-byte
+  mask, both halves base64) in `packages/shared/src/puter-ai.ts`, and every
+  build checks the board bundle, the phone server bundle and the whole APK for
+  it whole, in pieces of ten or more characters of its signature, or
+  base64'd (`scripts/check-free-model-token.mjs`), refusing to ship on a hit.
+  The server must unmask it to call the service, so someone with the phone
+  and time can recover it; the mask stops `strings` and casual copying, not a
+  determined reverse engineer. APKs up to 1.9.12 and the repository's history
+  hold it readable: only rotating the token removes those. An operator's
+  `PUTER_AUTH_TOKEN` replaces it.
+- On the phone, `install.sh` sets the database password and the app key to
+  0600 on every install and update, also when an older installer left one
+  readable. Android gives each app its own user id, so this keeps other apps
+  out; the phone's owner can always read their own files.
+- The model lists download OpenRouter's public model catalog (`/api/v1/models`,
+  no credentials, nothing sent but the request) at most every 12 hours; the
+  server already fetched it for free-model price estimates and OpenCode's
+  list, which now read the same copy.
 - The direct API engine is the one new outbound path. When a Claude agent
   answers through the Anthropic API (on a phone, with that engine chosen, or
   when Claude Code's engine can't start on a local target), the server
@@ -203,6 +233,15 @@ key the caller may use). It never reads another member's personal key.
 - `packages/adapters/claude-local/src/server/direct-api.test.ts`: a blank
   key in the agent's env is respected, no host bearer token is sent, usage
   is kept on refusal and stop, and thinking matches the model.
+- `server/src/__tests__/better-auth-rate-limit.integration.test.ts`: the
+  sign-in limit holds against a made-up `X-Forwarded-For` per guess and behind
+  a trusted proxy, and sessions record the real address.
+  `server/src/__tests__/security-headers.test.ts`: the board and API headers.
+- `scripts/check-free-model-token.test.mjs` and
+  `packages/shared/src/puter-ai.test.ts`: the token check finds whole, split,
+  base64'd and binary copies and never prints the token; the source holds no
+  12-character run of it. `server/src/__tests__/termux-pkg-script.test.ts`:
+  both phone secrets are 0600 after an install over a readable one.
 - `server/src/__tests__/assets.test.ts`: photos and logos must really be
   images. `server/src/__tests__/error-handler.test.ts`: oversized bodies and
   bad ids answer 413 and 400, not 500.

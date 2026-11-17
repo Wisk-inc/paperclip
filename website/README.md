@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.12
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.13
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -138,7 +138,8 @@ for a fresh take.
 <p align="center"><em>A drawn logo · The model switcher and tool switches · Free models with live status</em></p>
 
 **The model switcher** (in the chat header) lists every provider with its key
-status and the maker's logo, a **Free** filter, **thinking depth** (Auto, Quick,
+status and the maker's logo, the **newest models** (they update by themselves as
+new ones come out), a **Free** filter, **thinking depth** (Auto, Quick,
 Balanced, Deep, Deeper, Max), and switches for what a free agent may do: **Web
 search & reading, Files & commands, Teammates & tasks, Connected apps**. A
 **paired image model** gives a chat model the power to draw; a small "Bonded"
@@ -170,12 +171,17 @@ Lightning · Nemotron 3.5 Super VL · Nemotron 3.5 Content Safety · DeepSeek V4
 Flash · Gemma 4 31B · Gemma 4 26B A4B · Qwen 3.8 27B · Qwen 3.8 27B Abliterated
 Cyber · Inkling · Inkling Small · Flint v1.0 · North Mini Code · Atria Dawn
 Preview · Apodex 1.1 Mini · LFM 2.5 2.6B · Xing 4.0 29B A4B · Ternary Bonsai 27B
-· Free Router (sends each question to an available free model).
+· Ling 3.2 Flash · ERNIE 5.5 Flash Preview · Particle 1 · Free Router (sends each
+question to an available free model). A free agent with no model chosen runs on
+Nemotron 3 Ultra.
 
 **Image models:** SDXL Lightning (fast, the default pairing) and SDXL Base 1.0.
 
 Every model stays listed and says how it is doing: ready, busy, at today's free
-limit (and when it is back), or closed by its provider. Nothing is hidden.
+limit (and when it is back), or closed by its provider. Nothing is hidden, and a
+reply never comes from a different model than the one picked. As of 17 November
+2026, ten providers have taken their free versions offline (among them DeepSeek
+V4.1 Flash); those models say so and answer again when the free version is back.
 
 **What a free agent can do:** search the web across many results, read pages,
 crawl a site, download files; read, write, edit and search files and run commands
@@ -377,8 +383,8 @@ the rest of Automa.
 **Terminals** give you a real coding terminal on the device: Claude Code, Codex,
 Gemini CLI, OpenCode and others in their full terminal UI, on a Debian layer the
 page sets up for you. Wire a terminal to an agent so it works with that agent's
-key, pick a model per tool, or open the **free models chat** with nothing to
-install.
+key, pick a model per tool (new models appear in the menus by themselves), or
+open the **free models chat** with nothing to install.
 
 **App Inspector** takes an app on your phone (or any APK) apart: it decodes the
 manifest, resources and code, shows the code as Java, lets you search, edit and
@@ -510,7 +516,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.12.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.13.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -527,6 +533,27 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.13** (17 November 2026) — Model lists update themselves: an agent's
+model choice, App Studio's providers, the Terminals menus and the chat's
+**Newest models** follow a public catalog of every major maker's models, so a
+model released after this version shows up without an update, newest first
+(App Studio marks the last 30 days' **New**). Added now: Claude Fable 5.2,
+Gemini 4 Carbon and Gemini 4 Hydrogen, and Qwen 4 Max on OpenRouter. Fixes from
+a review of 1.9.12: Troubleshoot and Safe start in the app always show their
+own answer: when two requests to Termux
+were waiting at once, the first answer went to both, so Troubleshoot could show
+what starting Automa said instead of its report. On the connect screen,
+Troubleshoot waits while a Safe start runs. After Restart normally, the safe
+mode banner keeps checking past its 3-minute wait, so it sees Automa come back
+after a long start instead of saying it hasn't. Security: the free models' key
+is stored scrambled and every build refuses to ship it readable; the phone's
+database password and app key are locked to Termux on every install; sign-in
+tries are counted per real caller (a made-up address no longer gets around the
+limit); and other websites can no longer show the board inside a frame. On the
+phone, PostgreSQL 18 runs three fewer processes and the server stops running
+git every few seconds. New free models: Ling 3.2 Flash, ERNIE 5.5 Flash Preview
+and Particle 1; a free agent with no model picked runs on Nemotron 3 Ultra.
 
 **1.9.12** (17 November 2026) — Automa keeps running, and gets back up when it
 can't. Termux closing while you use it is Android ending apps that run too
