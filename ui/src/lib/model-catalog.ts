@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { newCatalogModels, type CatalogModel, type CatalogTarget } from "@paperclipai/shared/model-catalog";
+import { catalogReleaseDates, newCatalogModels, placeCatalogModels, type CatalogModel, type CatalogTarget, type ModelCatalogSnapshot } from "@paperclipai/shared/model-catalog";
 import type { StudioAiProvider, TerminalToolId } from "@paperclipai/shared";
 import { modelCatalogApi } from "@/api/modelCatalog";
 import { queryKeys } from "@/lib/queryKeys";
@@ -33,24 +33,54 @@ const TERMINAL_TARGETS: Partial<Record<TerminalToolId, CatalogTarget>> = {
 };
 
 export interface ModelsWithCatalog {
-  /** The catalog's newer models first (newest first), then the list as it was. */
+  /** The list as it was with the catalog's models it lacked placed by release date (newest models on top). */
   models: string[];
   /** The ones the catalog added. */
   added: ReadonlySet<string>;
+  /** Of those, the ones released in the last 30 days: shown as New. */
+  fresh: ReadonlySet<string>;
 }
+
+const FRESH_SECONDS = 30 * 86_400;
 
 function withCatalog(target: CatalogTarget | undefined, models: readonly string[], catalog: readonly CatalogModel[] | undefined): ModelsWithCatalog {
-  if (!target || !catalog?.length) return { models: [...models], added: new Set() };
+  if (!target || !catalog?.length) return { models: [...models], added: new Set(), fresh: new Set() };
   const added = newCatalogModels(target, models, catalog);
-  return { models: [...added.map((model) => model.id), ...models], added: new Set(added.map((model) => model.id)) };
+  const since = Date.now() / 1000 - FRESH_SECONDS;
+  return {
+    models: placeCatalogModels(models, added, { id: (id) => id, entry: (model) => model.id, released: catalogReleaseDates(target, catalog) }),
+    added: new Set(added.map((model) => model.id)),
+    fresh: new Set(added.filter((model) => model.created >= since).map((model) => model.id)),
+  };
 }
 
-/** An App Studio provider's models with the catalog's newer ones in front. */
+/** An App Studio provider's models with the catalog's ones it lacked, placed by release date. */
 export function studioModelsWithCatalog(provider: StudioAiProvider, models: readonly string[], catalog: readonly CatalogModel[] | undefined): ModelsWithCatalog {
   return withCatalog(STUDIO_TARGETS[provider], models, catalog);
 }
 
-/** A terminal tool's models with the catalog's newer ones in front. */
+/** A terminal tool's models with the catalog's ones it lacked, placed by release date. */
 export function terminalModelsWithCatalog(tool: TerminalToolId, models: readonly string[], catalog: readonly CatalogModel[] | undefined): ModelsWithCatalog {
   return withCatalog(TERMINAL_TARGETS[tool], models, catalog);
+}
+
+/** How far back the chat model picker's Newest models section looks, and how many it lists. */
+const NEWEST_DAYS = 60;
+const NEWEST_LIMIT = 16;
+
+/**
+ * The catalog's newest chat models from the major makers that take tools, as
+ * OpenRouter ids ("maker/model"), newest first: the chat model picker's Newest
+ * models. Counted back from when the catalog was downloaded, so a server that
+ * has been offline for months still lists the newest it knows. Null without a
+ * catalog (a server before 1.9.13 has none), so the picker keeps its own list.
+ */
+export function newestCatalogModelIds(snapshot: Pick<ModelCatalogSnapshot, "fetchedAt" | "models"> | undefined): string[] | null {
+  if (!snapshot?.models.length) return null;
+  const fetchedAt = Date.parse(snapshot.fetchedAt ?? "");
+  return newCatalogModels("openrouter", [], snapshot.models, {
+    now: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
+    days: NEWEST_DAYS,
+    limit: NEWEST_LIMIT,
+  }).map((model) => model.id);
 }

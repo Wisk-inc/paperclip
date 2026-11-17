@@ -13,10 +13,12 @@ const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn(
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockPushToast = vi.hoisted(() => vi.fn());
 const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), queStats: vi.fn(), moanStatus: vi.fn(), moanRefresh: vi.fn() }));
+const mockModelCatalogApi = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("@/api/ai-connections", () => ({ aiConnectionsApi: mockAiConnectionsApi }));
 vi.mock("@/api/free-models", () => ({ freeModelsApi: mockFreeModelsApi }));
+vi.mock("@/api/modelCatalog", () => ({ modelCatalogApi: mockModelCatalogApi }));
 vi.mock("@/context/ToastContext", () => ({ useToastActions: () => ({ pushToast: mockPushToast }), useOptionalToastActions: () => ({ pushToast: mockPushToast }) }));
 vi.mock("@/lib/router", () => ({
   Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => <a href={to} {...rest}>{children}</a>,
@@ -110,7 +112,17 @@ beforeEach(() => {
   mockFreeModelsApi.queStats.mockResolvedValue({ maxInFlight: 10, inFlight: 0, waiting: 0, started: 0, peakInFlight: 0, cachedAnswers: 3, cacheHits: 0, conversations: 0 });
   mockFreeModelsApi.resetUsage.mockResolvedValue({ ...USAGE, since: "2026-10-26T00:00:00.000Z", replies: 0, images: 0, inputTokens: 0, outputTokens: 0, equivalentUsd: 0 });
   mockAiConnectionsApi.list.mockResolvedValue({ currentUserId: "user-1", connections: [] });
+  mockModelCatalogApi.get.mockResolvedValue({ source: "built-in", fetchedAt: null, models: [] });
 });
+
+/** A catalog model released `daysAgo` days before now. */
+function released(id: string, daysAgo: number) {
+  return { id, name: id, created: Math.floor(Date.now() / 1000) - daysAgo * 86_400, context: null, tools: true, input: ["text"], output: ["text"], price: null };
+}
+
+function newestRows() {
+  return [...document.querySelectorAll('[data-testid="newest-models"] [data-slot="model-row"]')].map((node) => node.getAttribute("data-model-id"));
+}
 
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -159,7 +171,40 @@ describe("ModelPickerSheet", () => {
     expect(row("claude-sonnet-4-5-20250929")?.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("shows the newest Claude and GPT models first, only when the catalog has them", async () => {
+  it("lists the model catalog's newest models from the major makers first, newest first", async () => {
+    mockModelCatalogApi.get.mockResolvedValue({
+      source: "live",
+      fetchedAt: new Date().toISOString(),
+      models: [
+        released("x-ai/grok-5", 1),
+        released("google/gemini-5-pro", 2),
+        released("anthropic/claude-fable-5.2", 8),
+        released("someone/obscure-1", 9),
+        released("anthropic/claude-opus-5.5", 120),
+      ],
+    });
+    mockAgentsApi.adapterModels.mockImplementation((_company: string, type: string, options?: { provider?: string }) =>
+      Promise.resolve(type === "opencode_local" && options?.provider === "openrouter"
+        ? [
+            ...OPENROUTER_MODELS,
+            { id: "openrouter/anthropic/claude-opus-5.5", label: "Anthropic: Claude Opus 5.5" },
+            { id: "openrouter/anthropic/claude-fable-5.2", label: "Anthropic: Claude Fable 5.2" },
+            { id: "openrouter/google/gemini-5-pro", label: "Google: Gemini 5 Pro" },
+            { id: "openrouter/someone/obscure-1", label: "Someone: Obscure 1" },
+          ]
+        : CLAUDE_MODELS));
+    await render(<ModelPickerSheet agent={agent()} open onOpenChange={() => {}} />);
+    await settle(() => expect(newestRows()).toEqual(["openrouter/google/gemini-5-pro", "openrouter/anthropic/claude-fable-5.2"]));
+    expect(document.querySelector('[data-testid="newest-models"]')!.textContent).toContain("Gemini 5 Pro");
+    // Opus 5.5 is on the board's own list but came out four months ago; the
+    // catalog's Grok 5 is not on the OpenRouter list (yet), and a little-known
+    // maker's model stays in its own group.
+    expect(row("openrouter/anthropic/claude-opus-5.5")).not.toBeNull();
+    expect(row("openrouter/someone/obscure-1")).not.toBeNull();
+  });
+
+  it("without the server's model catalog (before 1.9.13), shows the board's own newest list, only models the OpenRouter list has", async () => {
+    mockModelCatalogApi.get.mockRejectedValue(new ApiError("API route not found", 404, { error: "API route not found" }));
     mockAgentsApi.adapterModels.mockImplementation((_company: string, type: string, options?: { provider?: string }) =>
       Promise.resolve(type === "opencode_local" && options?.provider === "openrouter"
         ? [

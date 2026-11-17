@@ -220,6 +220,8 @@ const WORD_OVERRIDES: Record<string, string> = {
   sonnet: "Sonnet",
   haiku: "Haiku",
   flash: "Flash",
+  flashx: "FlashX",
+  vl: "VL",
   lite: "Lite",
   turbo: "Turbo",
   latest: "(latest)",
@@ -263,12 +265,17 @@ export function modelDisplayName(modelId: string | null | undefined, label?: str
 }
 
 /**
- * The newest Claude and GPT models (OpenRouter ids), shown first in the model
- * picker. Only ids the live catalog actually lists are shown, so this never
- * offers a model that does not exist.
+ * The newest models (OpenRouter ids) as of this board's release, for the chat
+ * model picker's Newest models section when the server has no model catalog
+ * (before 1.9.13); with one, the picker lists the catalog's newest instead
+ * (`newestCatalogModelIds`). Only ids the OpenRouter list actually has are
+ * shown, so this never offers a model that does not exist.
  */
 export const NEWEST_MODEL_IDS: readonly string[] = [
-  "anthropic/claude-fable-5.1",
+  "qwen/qwen4-max",
+  "google/gemini-4-hydrogen",
+  "google/gemini-4-carbon",
+  "anthropic/claude-fable-5.2",
   "anthropic/claude-opus-5.5",
   "anthropic/claude-sonnet-5.5",
   "anthropic/claude-haiku-5.5",

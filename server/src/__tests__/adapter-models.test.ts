@@ -227,6 +227,22 @@ describe("adapter model listing", () => {
       expect((await listAdapterModels("gemini_local"))[1]).toEqual({ id: "gemini-5-pro", label: "Gemini 5 Pro" });
     });
 
+    it("places a model the list lacks by its release date, so the newest stay on top", async () => {
+      const listed = (await listAdapterModels("gemini_local")).map((model) => model.id).filter((id) => id !== "auto");
+      // Every listed model dated: Carbon 9 days old, Hydrogen 10, Argon 35, the others a year.
+      const ages: Record<string, number> = { "gemini-4-carbon": 9, "gemini-4-hydrogen": 10, "gemini-4-argon": 35 };
+      useCatalog([
+        ...listed.map((id) => catalogModel(`google/${id}`, id, ages[id] ?? 365)),
+        catalogModel("google/gemini-5-pro", "Google: Gemini 5 Pro", 5),
+        catalogModel("google/gemini-3.9-pro", "Google: Gemini 3.9 Pro", 40),
+      ]);
+      const ids = (await listAdapterModels("gemini_local")).map((model) => model.id);
+      expect(ids.slice(0, 2)).toEqual(["auto", "gemini-5-pro"]);
+      // Out before Argon's month-old release and after the year-old models: just below Argon.
+      expect(ids[ids.indexOf("gemini-4-argon") + 1]).toBe("gemini-3.9-pro");
+      expect(ids).toHaveLength(listed.length + 3);
+    });
+
     it("lists new Grok models after the default, and not old ones", async () => {
       useCatalog(CATALOG);
       const ids = (await listAdapterModels("grok_local")).map((model) => model.id);

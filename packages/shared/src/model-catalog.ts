@@ -179,12 +179,60 @@ export function newCatalogModels(
   return found.sort((a, b) => b.created - a.created);
 }
 
-/** `known` with the catalog's newer models for `target` in front, newest first. */
+/** When each model came out (seconds since 1970), by its id in `target`'s form. */
+export function catalogReleaseDates(target: CatalogTarget, catalog: readonly CatalogModel[]): Map<string, number> {
+  const dates = new Map<string, number>();
+  for (const model of catalog) {
+    const id = catalogNativeId(target, model.id);
+    if (id && !dates.has(id)) dates.set(id, model.created);
+  }
+  return dates;
+}
+
+/**
+ * `list` with the catalog's models it lacks placed by release date, so it
+ * reads newest first where it can without reordering what it has: each goes
+ * just above the first model on the list (after the first `keepFirst`, an
+ * "Auto" or default entry) that came out before it, or that the catalog does
+ * not date; one older than every dated model on the list goes at the end. A
+ * model out tomorrow lands on top.
+ */
+export function placeCatalogModels<T>(
+  list: readonly T[],
+  added: readonly NewCatalogModel[],
+  how: { id: (item: T) => string; entry: (model: NewCatalogModel) => T; released: ReadonlyMap<string, number>; keepFirst?: number },
+): T[] {
+  const keepFirst = how.keepFirst ?? 0;
+  const rest = list.slice(keepFirst);
+  const above = new Map<number, NewCatalogModel[]>();
+  const atEnd: NewCatalogModel[] = [];
+  for (const model of [...added].sort((a, b) => b.created - a.created)) {
+    const index = rest.findIndex((item) => {
+      const released = how.released.get(how.id(item));
+      return released === undefined || released < model.created;
+    });
+    if (index < 0) atEnd.push(model);
+    else above.set(index, [...(above.get(index) ?? []), model]);
+  }
+  const placed = list.slice(0, keepFirst);
+  rest.forEach((item, index) => {
+    for (const model of above.get(index) ?? []) placed.push(how.entry(model));
+    placed.push(item);
+  });
+  for (const model of atEnd) placed.push(how.entry(model));
+  return placed;
+}
+
+/** `known` with the catalog's models for `target` it lacks, placed by release date (`placeCatalogModels`). */
 export function withNewCatalogModels(
   target: CatalogTarget,
   known: readonly string[],
   catalog: readonly CatalogModel[],
   options: { now?: number; days?: number; limit?: number } = {},
 ): string[] {
-  return [...newCatalogModels(target, known, catalog, options).map((model) => model.id), ...known];
+  return placeCatalogModels(known, newCatalogModels(target, known, catalog, options), {
+    id: (id) => id,
+    entry: (model) => model.id,
+    released: catalogReleaseDates(target, catalog),
+  });
 }

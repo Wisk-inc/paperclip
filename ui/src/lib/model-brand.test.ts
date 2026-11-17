@@ -8,6 +8,9 @@ describe("modelDisplayName", () => {
     expect(modelDisplayName("claude-sonnet-4-5-20250929")).toBe("Claude Sonnet 4.5");
     expect(modelDisplayName("claude-opus-4-1")).toBe("Claude Opus 4.1");
     expect(modelDisplayName("gpt-5-codex")).toBe("GPT-5 Codex");
+    // Catalog models App Studio names from their ids.
+    expect(modelDisplayName("nvidia/nemotron-3.5-super-vl")).toBe("Nemotron 3.5 Super VL");
+    expect(modelDisplayName("z-ai/glm-5.3-flashx-legal")).toBe("GLM 5.3 FlashX Legal");
     expect(modelDisplayName("gpt-5-mini")).toBe("GPT-5 mini");
     expect(modelDisplayName("gemini-2.5-pro")).toBe("Gemini 2.5 Pro");
     expect(modelDisplayName("x-ai/grok-4")).toBe("Grok 4");

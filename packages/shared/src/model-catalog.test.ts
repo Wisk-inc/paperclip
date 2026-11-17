@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   catalogLabel,
   catalogNativeId,
+  catalogReleaseDates,
   isCatalogChatModel,
   newCatalogModels,
   parseCatalogModels,
+  placeCatalogModels,
   withNewCatalogModels,
   type CatalogModel,
 } from "./model-catalog.js";
@@ -148,5 +150,59 @@ describe("newCatalogModels and withNewCatalogModels", () => {
     ]);
     // Nothing new: the list as it was.
     expect(withNewCatalogModels("xai", ["grok-4.7"], catalog, { now: NOW * 1000 })).toEqual(["grok-4.7"]);
+  });
+
+  it("places each model above the first listed one that came out before it, and older ones at the end", () => {
+    // Hydrogen (5 days) came out after Carbon (7 days); Omni (12) and Argon (35) before it.
+    expect(withNewCatalogModels("google", ["gemini-4-carbon"], catalog, { now: NOW * 1000 })).toEqual([
+      "gemini-4-hydrogen",
+      "gemini-4-carbon",
+      "gemini-omni-1.2-flash",
+      "gemini-4-argon",
+    ]);
+    // Between Hydrogen (5) and Argon (35): Carbon (7) and Omni (12).
+    expect(withNewCatalogModels("google", ["gemini-4-hydrogen", "gemini-4-argon"], catalog, { now: NOW * 1000 })).toEqual([
+      "gemini-4-hydrogen",
+      "gemini-4-carbon",
+      "gemini-omni-1.2-flash",
+      "gemini-4-argon",
+    ]);
+  });
+
+  it("counts a listed model the catalog does not date as older, so a new model still lands on top", () => {
+    expect(withNewCatalogModels("google", ["gemini-4-custom", "gemini-4-argon"], catalog, { now: NOW * 1000 })).toEqual([
+      "gemini-4-hydrogen",
+      "gemini-4-carbon",
+      "gemini-omni-1.2-flash",
+      "gemini-4-custom",
+      "gemini-4-argon",
+    ]);
+  });
+});
+
+describe("catalogReleaseDates", () => {
+  it("dates each model by its id in the list's own form", () => {
+    const dates = catalogReleaseDates("anthropic", [model("anthropic/claude-fable-5.2", 8), model("google/gemini-4-argon", 35)]);
+    expect([...dates]).toEqual([["claude-fable-5-2", NOW - 8 * DAY]]);
+  });
+});
+
+describe("placeCatalogModels", () => {
+  const added = [
+    { id: "older", label: "Older", created: NOW - 90 * DAY },
+    { id: "newest", label: "Newest", created: NOW - DAY },
+  ];
+  const released = new Map([["auto", NOW], ["listed", NOW - 30 * DAY]]);
+
+  it("keeps the first entries on top and places the rest by release date, newest first", () => {
+    expect(placeCatalogModels(["auto", "listed"], added, { id: (id) => id, entry: (m) => m.id, released, keepFirst: 1 })).toEqual(["auto", "newest", "listed", "older"]);
+    expect(placeCatalogModels([{ id: "listed" }], added, { id: (item) => item.id, entry: (m) => ({ id: m.id }), released })).toEqual([{ id: "newest" }, { id: "listed" }, { id: "older" }]);
+  });
+
+  it("leaves the list as it was when nothing is added", () => {
+    const list = ["auto", "listed"];
+    const placed = placeCatalogModels(list, [], { id: (id) => id, entry: (m) => m.id, released, keepFirst: 1 });
+    expect(placed).toEqual(list);
+    expect(placed).not.toBe(list);
   });
 });

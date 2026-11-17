@@ -278,7 +278,7 @@ export function StudioModelSheet({
                           <span className="truncate text-sm font-medium">{modelDisplayName(id)}</span>
                           <span className="truncate font-mono text-xs text-muted-foreground">{id}</span>
                         </span>
-                        {listed.added.has(id) ? (
+                        {listed.fresh.has(id) ? (
                           <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary" data-testid="studio-model-new">New</span>
                         ) : null}
                         {selected ? <Check className="size-4 shrink-0" aria-label="Selected" /> : null}

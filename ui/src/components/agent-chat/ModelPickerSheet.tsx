@@ -21,6 +21,7 @@ import { patchAgentCache } from "@/lib/optimistic-agent";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { MODEL_PROVIDERS, NEWEST_MODEL_IDS, modelDisplayName, modelProvider, providerBrand, type ModelProvider } from "@/lib/model-brand";
+import { newestCatalogModelIds, useModelCatalog } from "@/lib/model-catalog";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
@@ -477,6 +478,8 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     staleTime: 5 * 60_000,
     retry: 1,
   });
+  // Release dates for the Newest models section.
+  const modelCatalog = useModelCatalog(open);
   const connections = useQuery({
     queryKey: ["ai-connections", companyId, agent.id],
     queryFn: () => aiConnectionsApi.list(companyId, agent.id),
@@ -506,10 +509,12 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
     () => toEntries(catalog.data, "openrouter", "opencode_local").sort(byRecency),
     [catalog.data],
   );
-  const newest = useMemo(
-    () => NEWEST_MODEL_IDS.flatMap((id) => catalogEntries.filter((entry) => entry.id.replace(/^openrouter\//, "") === id)),
-    [catalogEntries],
-  );
+  const newest = useMemo(() => {
+    // The catalog's newest models; a server without the catalog (before 1.9.13) gets the board's own list.
+    const ids = newestCatalogModelIds(modelCatalog.data) ?? NEWEST_MODEL_IDS;
+    const listed = new Map(catalogEntries.map((entry) => [entry.id.replace(/^openrouter\//, ""), entry]));
+    return ids.flatMap((id) => listed.get(id) ?? []);
+  }, [catalogEntries, modelCatalog.data]);
   const groups = useMemo(() => {
     const byProvider = new Map<ModelProvider, ModelEntry[]>();
     for (const entry of catalogEntries) {

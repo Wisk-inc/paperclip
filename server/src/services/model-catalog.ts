@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AdapterModel } from "@paperclipai/adapter-utils";
-import { newCatalogModels, parseCatalogModels, type CatalogModel, type CatalogTarget, type ModelCatalogSnapshot } from "@paperclipai/shared/model-catalog";
+import { catalogReleaseDates, newCatalogModels, parseCatalogModels, placeCatalogModels, type CatalogModel, type CatalogTarget, type ModelCatalogSnapshot } from "@paperclipai/shared/model-catalog";
 import { MODEL_CATALOG_SNAPSHOT, MODEL_CATALOG_SNAPSHOT_FETCHED_AT } from "@paperclipai/shared/model-catalog-snapshot";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 import { logger } from "../middleware/logger.js";
@@ -134,15 +134,22 @@ export function refreshModelCatalog(): Promise<ModelCatalogSnapshot> {
 }
 
 /**
- * An adapter's model list with the catalog's newer models for `target` added:
- * released in the last 180 days, not on the list yet, newest first, after the
- * first `keepFirst` entries (an "Auto" or default entry stays on top).
+ * An adapter's model list with the catalog's models for `target` it lacks
+ * (released in the last 180 days), placed by release date after the first
+ * `keepFirst` entries (an "Auto" or default entry stays on top): a model out
+ * after everything on the list lands right below those, an older one by the
+ * models of its time (`placeCatalogModels`).
  */
 export function withCatalogModels(target: CatalogTarget, models: AdapterModel[], keepFirst = 0): AdapterModel[] {
-  const added = newCatalogModels(target, models.map((model) => model.id), getModelCatalog().models)
-    .map(({ id, label }) => ({ id, label }));
+  const catalog = getModelCatalog().models;
+  const added = newCatalogModels(target, models.map((model) => model.id), catalog);
   if (added.length === 0) return models;
-  return [...models.slice(0, keepFirst), ...added, ...models.slice(keepFirst)];
+  return placeCatalogModels(models, added, {
+    id: (model) => model.id,
+    entry: ({ id, label }) => ({ id, label }),
+    released: catalogReleaseDates(target, catalog),
+    keepFirst,
+  });
 }
 
 /** Tests: replace any of the catalog's dependencies and forget what it knew. */
