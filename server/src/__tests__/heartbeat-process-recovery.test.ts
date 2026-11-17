@@ -18,6 +18,7 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
 } from "vitest";
 import {
@@ -478,6 +479,11 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
 
   afterEach(async () => {
     vi.clearAllMocks();
+    // Put back every vi.spyOn spy (db.update, db.transaction, the lease
+    // watcher). A test that fails or times out before its own `finally`
+    // would otherwise leave its one-shot failure installed on the shared db
+    // for every later test. Module mocks (vi.fn) are not affected.
+    vi.restoreAllMocks();
     // A recovery policy can stop before adapter dispatch; do not leak an
     // unused one-shot failure into the next test's otherwise healthy run.
     mockAdapterExecute.mockReset();
@@ -490,9 +496,14 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const localServiceSupervisor = await vi.importActual<
       typeof import("../services/local-service-supervisor.js")
     >("../services/local-service-supervisor.js");
-    mockTerminateLocalService.mockImplementation(
-      localServiceSupervisor.terminateLocalService,
-    );
+    // Reset, not just re-implement: mockImplementation keeps queued one-shot
+    // implementations. A Stop test that fails before its process is stopped
+    // leaves its one-shot (which waits on that test's release gate) queued,
+    // and every later Stop would run it and wait forever, so each later test
+    // ran into its 30 s timeout instead of one test failing.
+    mockTerminateLocalService
+      .mockReset()
+      .mockImplementation(localServiceSupervisor.terminateLocalService);
     mockAdapterExecute.mockImplementation(async () => ({
       exitCode: 0,
       signal: null,
@@ -7608,6 +7619,13 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       let releaseResult!: () => void;
       const resultRelease = new Promise<void>((resolve) => {
         releaseResult = resolve;
+      });
+      // The `finally` below opens both gates, but a test that fails before
+      // its `try` (or times out inside it) never gets there, and a Stop that
+      // already ran the one-shot below would wait on its gate forever.
+      onTestFinished(() => {
+        releaseTermination();
+        releaseResult();
       });
       let observedResult:
         Awaited<ReturnType<typeof actualProcess.execute>> | undefined;
