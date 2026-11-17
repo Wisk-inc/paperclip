@@ -35,6 +35,8 @@ interface Page {
   /** What the page asked of the app beyond connecting: safe starts, troubleshooter runs, copies, Termux opened. */
   asked: string[];
   click: (id: string) => void;
+  /** Whether a button is off (a click on it does nothing). */
+  disabled: (id: string) => boolean;
   text: (id: string) => string;
   hidden: (id: string) => boolean;
   stepState: (name: string) => string | null;
@@ -43,16 +45,16 @@ interface Page {
 function load(
   replies: Reply[] | ((n: number) => Reply),
   state: Reply = {},
-  /** The app's answers to Safe start and Troubleshoot (1.9.12 on). */
-  tools: { safeStart?: Reply; troubleshoot?: Reply } = {},
+  /** The app's answers to Safe start and Troubleshoot (1.9.12 on), and how long Safe start takes. */
+  tools: { safeStart?: Reply; troubleshoot?: Reply; safeStartMs?: number } = {},
 ): Page {
   document.documentElement.innerHTML = html.replace(/^<!doctype html>/i, "");
   window.history.replaceState(null, "", "/assets/connect/index.html?wait=1");
   let connects = 0;
   let termuxStarts = 0;
   const asked: string[] = [];
-  const answer = (callId: string, reply: Reply) => {
-    setTimeout(() => (window as any).__automaNative.resolve(callId, JSON.stringify(reply)), 10);
+  const answer = (callId: string, reply: Reply, afterMs = 10) => {
+    setTimeout(() => (window as any).__automaNative.resolve(callId, JSON.stringify(reply)), afterMs);
   };
   const next = (n: number): Reply => {
     if (typeof replies === "function") return replies(n);
@@ -83,7 +85,7 @@ function load(
     },
     safeStartAutomaInTermux: (_key: string, callId: string) => {
       asked.push("safe start");
-      answer(callId, tools.safeStart ?? { ok: true, output: "Automa is starting in safe mode (log: ~/.automa/server.log)." });
+      answer(callId, tools.safeStart ?? { ok: true, output: "Automa is starting in safe mode (log: ~/.automa/server.log)." }, tools.safeStartMs);
     },
     runTroubleshooter: (_key: string, callId: string) => {
       asked.push("troubleshoot");
@@ -102,6 +104,7 @@ function load(
     termuxStarts: () => termuxStarts,
     asked,
     click: (id) => el(id).click(),
+    disabled: (id) => (el(id) as HTMLButtonElement).disabled,
     text: (id) => el(id).textContent ?? "",
     hidden: (id) => el(id).hidden,
     stepState: (name) => document.querySelector(`[data-step="${name}"]`)!.getAttribute("data-state"),
@@ -295,6 +298,23 @@ describe("the connect screen waiting for Automa on this phone", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(page.hidden("connected")).toBe(false);
       expect(page.hidden("phone-tools")).toBe(true);
+    });
+
+    it("keeps Troubleshoot off while a Safe start runs, as Safe start is off while Troubleshoot runs", async () => {
+      // Termux takes a while to stop Automa and start it in safe mode.
+      const page = load(quietThenReady(), {}, { safeStartMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      page.click("phone-safe");
+      expect(page.disabled("phone-safe")).toBe(true);
+      expect(page.disabled("phone-troubleshoot")).toBe(true);
+      // Its own start would race the safe one.
+      page.click("phone-troubleshoot");
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(page.asked).toEqual(["safe start"]);
+      expect(page.disabled("phone-safe")).toBe(false);
+      expect(page.disabled("phone-troubleshoot")).toBe(false);
     });
 
     it("Troubleshoot shows the report in the app, then waits for the Automa it started", async () => {

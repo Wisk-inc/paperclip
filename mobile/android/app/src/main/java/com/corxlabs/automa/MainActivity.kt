@@ -353,7 +353,6 @@ class MainActivity : ComponentActivity() {
 
     /** What waits on Android's "Allow Automa to run commands in Termux?" answer. */
     private var termuxAfterPermission: MutableList<Pair<TermuxTask, (JSONObject) -> Unit>>? = null
-    private var termuxRequestCode = 0
     private val termuxRunPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val waiting = termuxAfterPermission ?: return@registerForActivityResult
         termuxAfterPermission = null
@@ -1298,7 +1297,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchInTermux(task: TermuxTask, done: (JSONObject) -> Unit) {
-        val action = "$packageName.TERMUX_RESULT"
+        // Its own reply action: another request in flight never takes this answer.
+        val request = TermuxReplies.newRequest(packageName)
+        val action = request.action
         var finished = false
         lateinit var receiver: BroadcastReceiver
         val finish = { reply: JSONObject ->
@@ -1346,7 +1347,7 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(this, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
         val flags = PendingIntent.FLAG_ONE_SHOT or
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
-        val reply = PendingIntent.getBroadcast(this, termuxRequestCode++, Intent(action).setPackage(packageName), flags)
+        val reply = PendingIntent.getBroadcast(this, request.code, Intent(action).setPackage(packageName), flags)
         val run = Intent(TERMUX_RUN_COMMAND_ACTION)
             .setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE)
             .putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_AUTOMA_PATH)

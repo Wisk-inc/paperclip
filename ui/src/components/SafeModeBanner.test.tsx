@@ -8,7 +8,7 @@ import { queryKeys } from "../lib/queryKeys";
 
 const mockHealthApi = vi.hoisted(() => ({ restartNormally: vi.fn() }));
 vi.mock("../api/health", () => ({ healthApi: mockHealthApi }));
-import { SAFE_MODE_RESTART_PATIENCE_MS, SAFE_MODE_RESTART_POLL_MS, SafeModeBanner } from "./SafeModeBanner";
+import { SAFE_MODE_RESTART_PATIENCE_MS, SAFE_MODE_RESTART_POLL_MS, SAFE_MODE_SLOW_POLL_MS, SafeModeBanner } from "./SafeModeBanner";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -120,6 +120,30 @@ describe("SafeModeBanner", () => {
     await act(async () => button("safe-mode-restart").click());
     await act(async () => vi.advanceTimersByTimeAsync(SAFE_MODE_RESTART_PATIENCE_MS));
     expect(banner()?.textContent).toContain("Automa hasn't come back yet.");
+  });
+
+  it("keeps asking after that, so an Automa that comes back later is seen (health is not polled otherwise)", async () => {
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await show(safeHealth());
+    await act(async () => button("safe-mode-restart").click());
+    await act(async () => vi.advanceTimersByTimeAsync(SAFE_MODE_RESTART_PATIENCE_MS));
+    expect(banner()?.textContent).toContain("Automa hasn't come back yet.");
+    const asked = invalidate.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(SAFE_MODE_SLOW_POLL_MS * 2));
+    expect(invalidate.mock.calls.length).toBeGreaterThanOrEqual(asked + 2);
+    expect(invalidate).toHaveBeenLastCalledWith({ queryKey: queryKeys.health });
+
+    // Back after a long start, in safe mode again: said as such, not "hasn't come back".
+    await show(safeHealth({ serverInfo: serverInfo("2026-11-17T01:09:00.000Z") }));
+    expect(banner()?.textContent).toContain("Automa stopped again while starting normally, so it's back in safe mode.");
+  });
+
+  it("goes away when Automa comes back normally after the long wait", async () => {
+    await show(safeHealth());
+    await act(async () => button("safe-mode-restart").click());
+    await act(async () => vi.advanceTimersByTimeAsync(SAFE_MODE_RESTART_PATIENCE_MS));
+    await show({ status: "ok", serverInfo: serverInfo("2026-11-17T01:09:00.000Z") });
+    expect(banner()).toBeNull();
   });
 
   it("shows why the server refused, and stays as it was", async () => {

@@ -105,6 +105,9 @@ dependencies {
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
+    // Plain JVM unit tests (src/test) for the app's Android-free logic: ./gradlew testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Release builds must carry the board UI (see BundledUi.kt). Debug builds may

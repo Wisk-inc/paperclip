@@ -11,6 +11,12 @@ import { TroubleshootDialog } from "./TroubleshootDialog";
 export const SAFE_MODE_RESTART_POLL_MS = 2_000;
 /** How long it waits for Automa to come back before saying so. */
 export const SAFE_MODE_RESTART_PATIENCE_MS = 3 * 60_000;
+/**
+ * How often it still asks after that. Nothing else asks for health in the
+ * phone's board (live updates never refetch it), and a first start after an
+ * update can take longer than the patience above.
+ */
+export const SAFE_MODE_SLOW_POLL_MS = 10_000;
 
 type Phase =
   /** In safe mode; nothing asked yet. */
@@ -58,23 +64,28 @@ export function SafeModeBanner({ health }: { health?: HealthStatus }) {
     setError(null);
   }, [safeMode]);
 
+  // Waiting for Automa to come back: asking often at first, then less often
+  // once it is slow (it never stops asking, or a late return goes unseen).
+  const waiting = phase === "restarting" || phase === "slow";
   useEffect(() => {
-    if (phase !== "restarting") return;
+    if (!waiting) return;
     const poll = window.setInterval(() => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.health });
-    }, SAFE_MODE_RESTART_POLL_MS);
-    const patience = window.setTimeout(() => setPhase("slow"), SAFE_MODE_RESTART_PATIENCE_MS);
+    }, phase === "slow" ? SAFE_MODE_SLOW_POLL_MS : SAFE_MODE_RESTART_POLL_MS);
+    const patience = phase === "restarting"
+      ? window.setTimeout(() => setPhase("slow"), SAFE_MODE_RESTART_PATIENCE_MS)
+      : null;
     return () => {
       window.clearInterval(poll);
-      window.clearTimeout(patience);
+      if (patience !== null) window.clearTimeout(patience);
     };
-  }, [phase, queryClient]);
+  }, [waiting, phase, queryClient]);
 
   const startedAt = health?.serverInfo?.processStartedAt ?? null;
   useEffect(() => {
-    if (phase !== "restarting" || !safeMode) return;
+    if (!waiting || !safeMode) return;
     if (restartedFrom.current && startedAt && startedAt !== restartedFrom.current) setPhase("again");
-  }, [phase, safeMode, startedAt]);
+  }, [waiting, safeMode, startedAt]);
 
   if (!health || !safeMode) return null;
 

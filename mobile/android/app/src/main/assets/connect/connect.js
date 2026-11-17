@@ -590,10 +590,15 @@
     haptic("tick");
     if (!canUsePhoneTools()) return;
     var address = lastWaitAddress;
+    // Troubleshoot waits too: its own start (automa troubleshoot --start)
+    // could otherwise start Automa normally while this one is stopping it to
+    // start it in safe mode, and Safe start would then find it running.
     phoneSafe.disabled = true;
+    phoneTroubleshoot.disabled = true;
     waitAgain(address, "Asking Termux to start Automa in safe mode…");
     bridge.safeStartAutomaInTermux(KEY, nextCall("termux-safe", function (reply) {
       phoneSafe.disabled = false;
+      phoneTroubleshoot.disabled = false;
       if (reply && reply.ok !== false) {
         setStep("answer", "Automa is starting in safe mode. Waiting for it to answer…", true);
       } else if (reply && reply.reason === "not_allowed") {
