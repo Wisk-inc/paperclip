@@ -258,7 +258,7 @@ describe("the automa command's backup and restore", () => {
   const calls = () => readFile(path.join(root, "calls.log"), "utf8").catch(() => "");
 
   /** Runs the real installer in the fake phone, with stand-ins for Node, PostgreSQL and npm. */
-  async function installAutoma({ nodeMissing = false } = {}) {
+  async function installAutoma({ nodeMissing = false, pgMajor = 17 } = {}) {
     const bundle = path.join(root, "bundle");
     await mkdir(path.join(bundle, "packages", "server", "package"), { recursive: true });
     await writeFile(path.join(bundle, "packages", "server", "package", "package.json"), "{}\n");
@@ -268,7 +268,7 @@ describe("the automa command's backup and restore", () => {
     }
     await mkdir(path.join(root, "pgdata"), { recursive: true });
     await mkdir(path.join(root, "tmp"), { recursive: true });
-    await writeFile(path.join(root, "pgdata", "PG_VERSION"), "17\n");
+    await writeFile(path.join(root, "pgdata", "PG_VERSION"), `${pgMajor}\n`);
     await writeFile(path.join(root, "pgdata", "pg_hba.conf"), "host all all 127.0.0.1/32 scram-sha-256\n");
     await writeFile(path.join(root, "pkg-works"), "");
     await symlink("/bin/bash", path.join(prefix, "bin", "bash"));
@@ -294,17 +294,19 @@ describe("the automa command's backup and restore", () => {
     // pg_ctl logs what it is asked (status checks aside); a database that
     // won't start is pg-start-fails.
     await fake("pg_ctl", [
-      `[ "$1" = --version ] && { echo "pg_ctl (PostgreSQL) 17.6"; exit 0; }`,
+      `[ "$1" = --version ] && { echo "pg_ctl (PostgreSQL) ${pgMajor}.6"; exit 0; }`,
       `case " $* " in *" status "*) [ -f "${root}/pg-down" ] && exit 3; exit 0;; esac`,
       `echo "pg_ctl $*" >> "${root}/calls.log"`,
       `case " $* " in *" start "*|*" restart "*) [ -f "${root}/pg-start-fails" ] && exit 1; rm -f "${root}/pg-down";; esac`,
       `exit 0`,
     ].join("\n"));
     // max_parallel_workers: 0 once the phone settings apply (pg-untuned: 8, as PostgreSQL's own).
+    // io_method (PostgreSQL 18 on): whatever pg-io-method holds, else none (17 and older).
     await fake("psql", [
       `echo "psql $*" >> "${root}/calls.log"`,
       `case "$*" in`,
       `  *--quiet*) cat > "${root}/restored.sql";;`,
+      `  *io_method*) if [ -f "${root}/pg-untuned" ]; then w=8; else w=0; fi; echo "$w|$(cat "${root}/pg-io-method" 2>/dev/null)";;`,
       `  *max_parallel_workers*) if [ -f "${root}/pg-untuned" ]; then echo 8; else echo 0; fi;;`,
       `  *) echo 1;;`,
       `esac`,
@@ -784,6 +786,45 @@ describe("the automa command's backup and restore", () => {
       const tuned = await runFile(automa(), ["run"]);
       expect(tuned.out).toContain("Restarting the database with the settings for a phone");
       expect((await calls()).split("\n").some((line) => line.startsWith("pg_ctl") && line.includes("-m fast -o -c max_connections=30") && line.endsWith(" restart"))).toBe(true);
+    }, 60_000);
+
+    it("on PostgreSQL 18, starts it without its three io workers, and gives one started with them the setting", async () => {
+      await installAutoma({ pgMajor: 18 });
+      const optsLine = (await readFile(automa(), "utf8")).split("\n").find((line) => line.startsWith("pg_phone_opts="));
+      expect(optsLine).toContain("-c autovacuum_max_workers=1 -c io_method=sync");
+
+      await writeFile(path.join(root, "pg-down"), "");
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      const started = (await calls()).split("\n").filter((line) => line.startsWith("pg_ctl") && / start$/.test(line));
+      expect(started[0]).toContain("-c io_method=sync");
+
+      // Already running with them (started by Automa 1.9.12, whose settings
+      // did not have it): restarted with the phone's settings.
+      await writeFile(path.join(root, "pg-io-method"), "worker\n");
+      const tuned = await runFile(automa(), ["run"]);
+      expect(tuned.out).toContain("Restarting the database with the settings for a phone");
+      expect((await calls()).split("\n").some((line) => line.startsWith("pg_ctl") && line.includes("-c io_method=sync") && line.endsWith(" restart"))).toBe(true);
+
+      // Running with the setting already: left alone.
+      await writeFile(path.join(root, "pg-io-method"), "sync\n");
+      await writeFile(path.join(root, "calls.log"), "");
+      const settled = await runFile(automa(), ["run"]);
+      expect(settled.out).not.toContain("Restarting the database");
+      expect(await calls()).not.toMatch(/pg_ctl .* restart/);
+    }, 60_000);
+
+    it("never gives PostgreSQL 17 the io_method setting, which it would refuse", async () => {
+      await installAutoma({ pgMajor: 17 });
+      const optsLine = (await readFile(automa(), "utf8")).split("\n").find((line) => line.startsWith("pg_phone_opts="));
+      expect(optsLine).toContain("-c autovacuum_max_workers=1");
+      expect(optsLine).not.toContain("io_method");
+      await writeFile(path.join(root, "pg-down"), "");
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      const pgCtl = (await calls()).split("\n").filter((line) => line.startsWith("pg_ctl"));
+      expect(pgCtl.some((line) => / start$/.test(line))).toBe(true);
+      expect(pgCtl.filter((line) => line.includes("io_method"))).toEqual([]);
     }, 60_000);
 
     it("starts the database with its own settings when it refuses the phone ones", async () => {

@@ -111,6 +111,8 @@ function readGitInfo(
   gitStatusCommand: GitCommand = defaultGitStatusCommand,
   gitBranchCommand: GitCommand = defaultGitBranchCommand,
   buildCommitCommand: BuildCommitCommand = readBuildCommit,
+  /** Set to true when git itself answered (the server runs from a checkout). */
+  source?: { fromCheckout: boolean },
 ): ServerGitInfo {
   try {
     const output = gitCommand();
@@ -121,7 +123,9 @@ function readGitInfo(
     } catch {
       branchName = null;
     }
-    return parseGitInfo(output, branchName, localChanges);
+    const info = parseGitInfo(output, branchName, localChanges);
+    if (source) source.fromCheckout = true;
+    return info;
   } catch {
     const buildCommit = parseBuildCommit(buildCommitCommand());
     if (!buildCommit) {
@@ -169,6 +173,12 @@ export function createServerInfoSnapshot(
 // stale. Re-read git HEAD on demand, throttled by a short TTL so frequent health
 // polls don't spawn git on every request.
 const GIT_INFO_CACHE_TTL_MS = 3000;
+// Without a checkout (an installed package, such as the server on an Automa
+// phone) git cannot answer and the build commit cannot change until the server
+// restarts, yet each read still runs the three git commands: each one a
+// process that blocks the server while it runs, and on a phone a process
+// Android counts against Termux. The health check asks every few seconds.
+const NO_CHECKOUT_CACHE_TTL_MS = 10 * 60_000;
 const processStartedAt = new Date().toISOString();
 let gitInfoCache: { value: ServerGitInfo; expiresAt: number } | null = null;
 
@@ -183,17 +193,25 @@ export function getServerInfoSnapshot(
 ): ServerInfoSnapshot {
   const now = opts.now ?? Date.now();
   if (!gitInfoCache || now >= gitInfoCache.expiresAt) {
+    const source = { fromCheckout: false };
+    const value = readGitInfo(
+      opts.gitCommand,
+      opts.gitStatusCommand,
+      opts.gitBranchCommand,
+      opts.buildCommitCommand,
+      source,
+    );
     gitInfoCache = {
-      value: readGitInfo(
-        opts.gitCommand,
-        opts.gitStatusCommand,
-        opts.gitBranchCommand,
-        opts.buildCommitCommand,
-      ),
-      expiresAt: now + GIT_INFO_CACHE_TTL_MS,
+      value,
+      expiresAt: now + (source.fromCheckout ? GIT_INFO_CACHE_TTL_MS : NO_CHECKOUT_CACHE_TTL_MS),
     };
   }
   return { processStartedAt, git: gitInfoCache.value };
+}
+
+/** When this server process started (when this module loaded); never runs git. */
+export function getServerProcessStartedAt(): Date {
+  return new Date(processStartedAt);
 }
 
 export function resetServerInfoCacheForTests(): void {

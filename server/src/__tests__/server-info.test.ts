@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createServerInfoSnapshot,
   getServerInfoSnapshot,
+  getServerProcessStartedAt,
   resetServerInfoCacheForTests,
 } from "../server-info.js";
 
@@ -199,5 +200,39 @@ describe("getServerInfoSnapshot", () => {
     const first = getServerInfoSnapshot({ now: 0, gitCommand: gitCommandFor("aaaaaaa", "a") });
     const second = getServerInfoSnapshot({ now: 5000, gitCommand: gitCommandFor("bbbbbbb", "b") });
     expect(second.processStartedAt).toBe(first.processStartedAt);
+  });
+
+  it("without a checkout (an installed server, as on a phone), asks git again only every ten minutes", () => {
+    let gitRuns = 0;
+    const notARepository = () => {
+      gitRuns += 1;
+      throw new Error("fatal: not a git repository");
+    };
+    const buildCommit = () => "0123456789abcdef0123456789abcdef01234567";
+    const read = (now: number) =>
+      getServerInfoSnapshot({ now, gitCommand: notARepository, buildCommitCommand: buildCommit });
+
+    expect(read(0).git).toMatchObject({ available: true, shortSha: "0123456", subject: "Source build" });
+    // A health check every few seconds for nine minutes runs no git at all.
+    for (let now = 3_000; now < 600_000; now += 3_000) read(now);
+    expect(gitRuns).toBe(1);
+    read(600_000);
+    expect(gitRuns).toBe(2);
+  });
+
+  it("with a checkout, still picks up a new commit within seconds", () => {
+    let gitRuns = 0;
+    const counted = (sha: string) => () => {
+      gitRuns += 1;
+      return gitCommandFor(sha, sha)();
+    };
+    getServerInfoSnapshot({ now: 0, gitCommand: counted("aaaaaaa") });
+    expect(getServerInfoSnapshot({ now: 3_000, gitCommand: counted("bbbbbbb") }).git).toMatchObject({ shortSha: "bbbbbbb" });
+    expect(gitRuns).toBe(2);
+  });
+
+  it("gives the boot time on its own, the same one the snapshot reports", () => {
+    const snapshot = getServerInfoSnapshot({ now: 0, gitCommand: gitCommandFor("aaaaaaa", "a") });
+    expect(getServerProcessStartedAt().toISOString()).toBe(snapshot.processStartedAt);
   });
 });

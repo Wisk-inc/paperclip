@@ -162,6 +162,14 @@ fi
 chmod 600 "$db_password_file"
 db_user="$(id -un)"
 pg_major="$(pg_ctl --version | grep -oE '[0-9]+' | head -n 1)"
+# PostgreSQL 18 reads and writes through three helper processes ("io worker")
+# by default, three more for Android to count against Termux; io_method=sync is
+# the way PostgreSQL 17 and older work, without them, and plenty for one
+# person's board. Older PostgreSQL does not know the setting and would refuse
+# to start with it, so only 18 and newer get it.
+if [ "${pg_major:-0}" -ge 18 ] 2>/dev/null; then
+  pg_phone_opts="$pg_phone_opts -c io_method=sync"
+fi
 if [ -f "$pgdata/PG_VERSION" ] && [ "$(cat "$pgdata/PG_VERSION")" != "$pg_major" ]; then
   # Termux upgraded PostgreSQL across a major version (pkg upgrade). The new
   # server cannot open the old files, and this installer never replaces them:
@@ -387,9 +395,16 @@ start_db() {
   clear_stale_pg_lock
   if pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
     [ "\${1:-}" = tune ] || return 0
-    local workers
-    workers="\$(PGPASSWORD="\$(cat "$db_password_file")" psql -h 127.0.0.1 -d postgres -tAc 'show max_parallel_workers' 2>/dev/null | tr -dc '0-9')"
-    { [ -n "\$workers" ] && [ "\$workers" != 0 ]; } || return 0
+    local now workers io needs=""
+    # What the running database uses: parallel workers, and (PostgreSQL 18 on;
+    # empty before) how it reads and writes. One query, one process.
+    now="\$(PGPASSWORD="\$(cat "$db_password_file")" psql -h 127.0.0.1 -d postgres -tAc "select current_setting('max_parallel_workers') || '|' || coalesce(current_setting('io_method', true), '')" 2>/dev/null)"
+    workers="\$(printf '%s' "\${now%%|*}" | tr -dc '0-9')"
+    case "\$now" in *"|"*) io="\$(printf '%s' "\${now#*|}" | tr -dc 'a-z_')" ;; *) io="" ;; esac
+    { [ -n "\$workers" ] && [ "\$workers" != 0 ]; } && needs=1
+    # Started by an Automa from before io_method=sync was among the settings.
+    case "\$pg_phone_opts" in *io_method=sync*) { [ -n "\$io" ] && [ "\$io" != sync ]; } && needs=1 ;; esac
+    [ -n "\$needs" ] || return 0
     echo "Restarting the database with the settings for a phone (fewer processes, less memory)." >&2
     pg_ctl -D "$pgdata" -l "$pgdata/server.log" -m fast -o "\$pg_phone_opts" -w restart >/dev/null 2>&1 && return 0
   fi

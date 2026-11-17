@@ -11,7 +11,7 @@ import {
   nativeRunFinalizations,
 } from "@paperclipai/db";
 import { readProcessStartedAt } from "../hot-restart.js";
-import { getServerInfoSnapshot } from "../../server-info.js";
+import { getServerProcessStartedAt } from "../../server-info.js";
 import { redactSensitiveText } from "../../redaction.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { reportRunFailure } from "../run-failure-report.js";
@@ -131,12 +131,13 @@ async function observedProcessStart(pid: number): Promise<Date | null> {
 
 export async function currentNativeControllerIdentity(): Promise<NativeControllerIdentity> {
   const observed = await observedProcessStart(process.pid);
-  const fallback = new Date(getServerInfoSnapshot().processStartedAt);
   return {
     bootId: controllerBootId,
     pid: process.pid,
-    processStartedAt:
-      observed ?? (Number.isNaN(fallback.getTime()) ? new Date() : fallback),
+    // Where the system cannot report it (Termux's Node says "android"), the
+    // server's own boot time. Read directly: the full server snapshot also
+    // runs three git commands, and this runs every 30 seconds.
+    processStartedAt: observed ?? getServerProcessStartedAt(),
   };
 }
 
