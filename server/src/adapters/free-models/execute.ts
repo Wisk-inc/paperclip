@@ -14,6 +14,7 @@ import {
   puterComplete,
   puterImage,
   puterStream,
+  PUTER_DEFAULT_MODEL,
   PUTER_IMAGE_MODELS,
   PUTER_MODELS,
   PUTER_MODEL_META,
@@ -190,7 +191,8 @@ function sumUsage(spent: TurnTotals[]): PuterUsage {
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { config, context, authToken, onLog } = ctx;
-  const model = asString(config.model, PUTER_MODELS["deepseek-flash"]);
+  // No model set: the catalog's default (Nemotron 3 Ultra), as the adapter's docs say.
+  const model = asString(config.model, PUTER_DEFAULT_MODEL);
   // Moan is Nemotron 3 Ultra under a Jamaican persona; everything else is itself.
   const resolved = resolveFreeModel(model);
   const issueId = readId(context.issueId) ?? readId(context.taskId);

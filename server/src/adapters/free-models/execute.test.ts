@@ -190,6 +190,14 @@ describe("free models engine", () => {
     return { calls, sent, posted };
   }
 
+  it("answers an agent with no model set on the catalog's default, Nemotron 3 Ultra (as the adapter's docs say)", async () => {
+    // It used to be DeepSeek V4.1 Flash, whose free version its provider has since taken offline.
+    const net = stubPuter([() => ndjson([{ type: "text", text: "Hello." }, { type: "usage", usageDetails: { inputTokens: 5, outputTokens: 2 } }])]);
+    await execute(context({ ...NO_TOOLS }));
+    expect(net.puterModels()).toEqual([NEMOTRON]);
+    expect(net.posted()).toBe("Hello.");
+  });
+
   it("keeps the chosen model and retries it when the provider is busy", async () => {
     const net = stubPuter([
       refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited" }),

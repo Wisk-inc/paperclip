@@ -202,6 +202,9 @@ export const STUDIO_FREE_MODELS = [
   "thinkingmachines/inkling:free",
   "thinkingmachines/inkling-small:free",
   "nvidia/nemotron-3.5-content-safety:free",
+  "inclusionai/ling-3.2-flash:free",
+  "baidu/ernie-5.5-flash-preview:free",
+  "particle-ai/particle-1:free",
 ] as const;
 
 export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {

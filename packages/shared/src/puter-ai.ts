@@ -48,6 +48,9 @@ export const PUTER_MODELS = {
   'lfm-tiny':                'liquid/lfm-2.5-2.6b:free',
   'xing4':                   'xingchen-agi/xing4.0-29b-a4b:free',
   'bonsai-27b':              'prism-ml/ternary-bonsai-27b:free',
+  'ling-flash':              'inclusionai/ling-3.2-flash:free',
+  'ernie-flash':             'baidu/ernie-5.5-flash-preview:free',
+  'particle-1':              'particle-ai/particle-1:free',
   'free-router':             'openrouter/free',
 } as const;
 
@@ -77,6 +80,9 @@ export const PUTER_MODEL_META: Record<PuterModelKey, { label: string; context: n
   'lfm-tiny':                { label: 'LFM 2.5 2.6B', context: 65_000, tags: ['tiny', 'fast'] },
   'xing4':                   { label: 'Xing 4.0 29B A4B', context: 262_000, tags: [] },
   'bonsai-27b':              { label: 'Ternary Bonsai 27B', context: 262_000, tags: [] },
+  'ling-flash':              { label: 'Ling 3.2 Flash', context: 1_048_000, tags: ['fast'] },
+  'ernie-flash':             { label: 'ERNIE 5.5 Flash Preview', context: 1_024_000, tags: ['fast'] },
+  'particle-1':              { label: 'Particle 1', context: 1_048_000, tags: [] },
   'free-router':             { label: 'Free Router', context: 200_000, tags: ['router'] },
 };
 
