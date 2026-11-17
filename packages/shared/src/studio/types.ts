@@ -214,7 +214,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: null,
     defaultModel: "claude-opus-5-5",
     completionModel: "claude-haiku-5-5",
-    models: ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
+    models: ["claude-opus-5-5", "claude-fable-5-2", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
     keyUrl: "https://console.anthropic.com/settings/keys",
   },
   free: {
@@ -241,7 +241,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "anthropic/claude-opus-5.5",
     completionModel: "anthropic/claude-haiku-5.5",
-    models: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-terra", "openai/gpt-6.1-sol", "google/gemini-4-argon", "moonshotai/kimi-k3.1-pro", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7", "minimax/minimax-m3.1-flash", "mistralai/mistral-large-4-0", "qwen/qwen3.8-max-prime", "z-ai/glm-5.3-prime", "meta/muse-spark-open"],
+    models: ["anthropic/claude-opus-5.5", "anthropic/claude-fable-5.2", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-terra", "openai/gpt-6.1-sol", "google/gemini-4-carbon", "google/gemini-4-argon", "moonshotai/kimi-k3.1-pro", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "x-ai/grok-4.7", "minimax/minimax-m3.1-flash", "mistralai/mistral-large-4-0", "qwen/qwen4-max", "qwen/qwen3.8-max-prime", "z-ai/glm-5.3-prime", "meta/muse-spark-open"],
     keyUrl: "https://openrouter.ai/keys",
   },
   google: {
@@ -250,7 +250,7 @@ export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAi
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-4-argon",
     completionModel: "gemini-3.8-flash",
-    models: ["gemini-4-argon", "gemini-3.8-flash"],
+    models: ["gemini-4-carbon", "gemini-4-hydrogen", "gemini-4-argon", "gemini-3.8-flash"],
     keyUrl: "https://aistudio.google.com/apikey",
   },
   moonshot: {

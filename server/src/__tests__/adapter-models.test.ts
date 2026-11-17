@@ -8,6 +8,22 @@ import { resetOpenCodeModelsCacheForTests } from "@paperclipai/adapter-opencode-
 import { listAdapterModels, listServerAdapters, refreshAdapterModels } from "../adapters/index.js";
 import { resetCodexModelsCacheForTests } from "../adapters/codex-models.js";
 import { resetCursorModelsCacheForTests, setCursorModelsRunnerForTests } from "../adapters/cursor-models.js";
+import { configureModelCatalogForTests, resetModelCatalogForTests } from "../services/model-catalog.js";
+import type { CatalogModel } from "@paperclipai/shared/model-catalog";
+
+/** A model the public catalog lists, released `daysAgo` days ago. */
+function catalogModel(id: string, name: string, daysAgo: number): CatalogModel {
+  return { id, name, created: Math.floor(Date.now() / 1000) - daysAgo * 86_400, context: null, tools: true, input: ["text"], output: ["text"], price: null };
+}
+
+/** The catalog the lists see: fresh (no download), holding `models`. */
+function useCatalog(models: CatalogModel[] = [], fetch: (...args: unknown[]) => unknown = () => { throw new Error("no catalog download expected"); }) {
+  configureModelCatalogForTests({
+    fetch: fetch as never,
+    savedFile: () => null,
+    builtIn: () => ({ source: "built-in", fetchedAt: new Date().toISOString(), models: [...models].sort((a, b) => b.created - a.created) }),
+  });
+}
 
 vi.mock("acpx/runtime", () => ({
   createAcpRuntime: vi.fn(),
@@ -30,7 +46,10 @@ describe("adapter model listing", () => {
     setCursorModelsRunnerForTests(null);
     resetOpenCodeModelsCacheForTests();
     vi.restoreAllMocks();
+    // An empty, fresh catalog: the lists are the adapters' own unless a test adds models.
+    useCatalog();
   });
+  afterEach(() => resetModelCatalogForTests());
 
   it("returns an empty list for unknown adapters", async () => {
     const models = await listAdapterModels("unknown_adapter");
@@ -184,6 +203,74 @@ describe("adapter model listing", () => {
     if (adapter === "kimi_local") {
       expect(models).toContainEqual({ id: "kimi-code/kimi-for-coding", label: "K2.8 Preview" });
     }
+  });
+
+  describe("with the public model catalog's newer models", () => {
+    // Models from after this Automa was built: none of them is on a built-in list.
+    const CATALOG = [
+      catalogModel("google/gemini-5-pro", "Google: Gemini 5 Pro", 5),
+      catalogModel("google/gemini-5-flash", "Google: Gemini 5 Flash", 7),
+      catalogModel("google/gemini-nano-banana-3", "Google: Nano Banana 3", 6),
+      catalogModel("google/gemini-4-argon", "Google: Gemini 4 Argon", 35),
+      catalogModel("anthropic/claude-opus-6", "Anthropic: Claude Opus 6", 8),
+      catalogModel("openai/gpt-7", "OpenAI: GPT-7", 22),
+      catalogModel("x-ai/grok-4.8", "xAI: Grok 4.8", 3),
+      catalogModel("x-ai/grok-2", "xAI: Grok 2", 700),
+    ];
+
+    it("lists new Gemini models after Auto, newest first, without picture models or ones it has", async () => {
+      useCatalog(CATALOG);
+      const ids = (await listAdapterModels("gemini_local")).map((model) => model.id);
+      expect(ids.slice(0, 3)).toEqual(["auto", "gemini-5-pro", "gemini-5-flash"]);
+      expect(ids.filter((id) => id === "gemini-4-argon")).toHaveLength(1);
+      expect(ids).not.toContain("gemini-nano-banana-3");
+      expect((await listAdapterModels("gemini_local"))[1]).toEqual({ id: "gemini-5-pro", label: "Gemini 5 Pro" });
+    });
+
+    it("lists new Grok models after the default, and not old ones", async () => {
+      useCatalog(CATALOG);
+      const ids = (await listAdapterModels("grok_local")).map((model) => model.id);
+      expect(ids.slice(0, 2)).toEqual(["grok-build", "grok-4.8"]);
+      expect(ids).not.toContain("grok-2");
+    });
+
+    it("adds new Claude and OpenAI models after the default when no key reaches the provider's own list", async () => {
+      useCatalog(CATALOG);
+      const claude = (await listAdapterModels("claude_local")).map((model) => model.id);
+      expect(claude.slice(0, 2)).toEqual(["claude-opus-4-8", "claude-opus-6"]);
+      const codex = (await listAdapterModels("codex_local")).map((model) => model.id);
+      expect(codex[0]).toBe(codexFallbackModels[0]!.id);
+      expect(codex[1]).toBe("gpt-7");
+    });
+
+    it("leaves Anthropic's own list (a key reaches it) and Bedrock's ids as they are", async () => {
+      useCatalog(CATALOG);
+      process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ id: "claude-opus-5-5", display_name: "Claude Opus 5.5" }] }),
+      } as Response);
+      expect((await listAdapterModels("claude_local")).some((model) => model.id === "claude-opus-6")).toBe(false);
+
+      delete process.env.ANTHROPIC_API_KEY;
+      resetClaudeModelsCacheForTests();
+      process.env.CLAUDE_CODE_USE_BEDROCK = "1";
+      const bedrock = (await listAdapterModels("claude_local")).map((model) => model.id);
+      expect(bedrock.every((id) => id.startsWith("us.anthropic."))).toBe(true);
+    });
+
+    it("downloads the catalog when the models are refreshed", async () => {
+      const download = vi.fn(async () => Response.json({
+        data: Array.from({ length: 60 }, (_, i) => i === 0
+          ? { id: "google/gemini-5-ultra", name: "Google: Gemini 5 Ultra", created: Math.floor(Date.now() / 1000), architecture: { output_modalities: ["text"] }, supported_parameters: ["tools"] }
+          : { id: `maker/model-${i}`, name: `Model ${i}`, created: Math.floor(Date.now() / 1000) - 400 * 86_400 }),
+      }));
+      useCatalog(CATALOG, download);
+      expect((await listAdapterModels("gemini_local")).map((model) => model.id)).not.toContain("gemini-5-ultra");
+      const refreshed = (await refreshAdapterModels("gemini_local")).map((model) => model.id);
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(refreshed.slice(0, 2)).toEqual(["auto", "gemini-5-ultra"]);
+    });
   });
 
   it("includes current Cursor fallbacks when runtime discovery is unavailable", async () => {

@@ -50,6 +50,8 @@
     "check:module-boundaries": "node scripts/check-module-boundaries.mjs",
     "test:check-no-git-push": "node --test scripts/check-no-git-push.test.mjs",
     "test:check-free-model-token": "node --test scripts/check-free-model-token.test.mjs",
+    "models:update": "node scripts/update-model-catalog.mjs",
+    "test:update-model-catalog": "node --test scripts/update-model-catalog.test.mjs",
     "test:install-sh-docker": "./scripts/test-install-sh-docker.sh",
     "test:hermes-gateway-smoke": "node --test scripts/smoke/hermes-gateway-smoke.test.mjs",
     "docs:dev": "cd docs && npx mintlify dev",

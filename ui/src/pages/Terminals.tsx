@@ -13,6 +13,7 @@ import { useSearchParams } from "@/lib/router";
 import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
+import { terminalModelsWithCatalog, useModelCatalog } from "@/lib/model-catalog";
 import { cn } from "@/lib/utils";
 
 /** The server's own rule for a model name passed to a tool's flag. */
@@ -94,6 +95,16 @@ export function Terminals() {
   });
 
   const installed = useMemo(() => new Map((status.data?.tools ?? []).map((tool) => [tool.id, tool.installed])), [status.data]);
+  // Each tool's models with the newer ones of the catalog the server keeps in
+  // front (Claude Code, Codex, Gemini CLI), so a model released after this
+  // Automa can be picked too.
+  const modelCatalog = useModelCatalog();
+  const tools = useMemo(
+    () => TERMINAL_TOOLS.map((tool) => (tool.models?.length
+      ? { ...tool, models: terminalModelsWithCatalog(tool.id, tool.models, modelCatalog.data?.models).models }
+      : tool)),
+    [modelCatalog.data],
+  );
   const running = sessions.data?.sessions ?? [];
   const phone = status.data?.kind === "phone";
   const linuxReady = status.data?.linuxReady ?? true;
@@ -265,7 +276,7 @@ export function Terminals() {
           ) : null}
 
           <section aria-label="Tools" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {TERMINAL_TOOLS.map((tool) => {
+            {tools.map((tool) => {
               const isInstalled = tool.id === "shell" || installed.get(tool.id);
               return (
                 <button

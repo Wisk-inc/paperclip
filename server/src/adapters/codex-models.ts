@@ -1,6 +1,7 @@
 import type { AdapterModel } from "./types.js";
 import { models as codexFallbackModels } from "@paperclipai/adapter-codex-local";
 import { readConfigFile } from "../config-file.js";
+import { withCatalogModels } from "../services/model-catalog.js";
 
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_MODELS_TIMEOUT_MS = 5000;
@@ -73,7 +74,9 @@ async function fetchOpenAiModels(apiKey: string): Promise<AdapterModel[]> {
 async function loadCodexModels(options?: { forceRefresh?: boolean }): Promise<AdapterModel[]> {
   const forceRefresh = options?.forceRefresh === true;
   const apiKey = resolveOpenAiApiKey();
-  const fallback = dedupeModels(codexFallbackModels);
+  // Without a key OpenAI's own list is out of reach: the built-in list, with
+  // the public catalog's newer OpenAI models after its first (default) entry.
+  const fallback = withCatalogModels("openai", dedupeModels(codexFallbackModels), 1);
   if (!apiKey) return fallback;
 
   const now = Date.now();

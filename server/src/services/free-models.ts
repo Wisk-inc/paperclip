@@ -2,6 +2,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { activityLog, costEvents, heartbeatRuns, type Db } from "@paperclipai/db";
 import type { AdapterModel } from "@paperclipai/adapter-utils";
 import { MOAN_LABEL, MOAN_MODEL_ID, resolveFreeModel, type FreeModelUsageSummary } from "@paperclipai/shared";
+import type { ModelCatalogSnapshot } from "@paperclipai/shared/model-catalog";
 import {
   PUTER_IMAGE_MODEL_META,
   PUTER_IMAGE_MODELS,
@@ -11,6 +12,7 @@ import {
   type PuterModelKey,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
+import { getModelCatalog } from "./model-catalog.js";
 
 export const FREE_MODELS_RESET_ACTION = "free_models.usage_reset";
 
@@ -35,54 +37,38 @@ const FALLBACK_PRICE: Price = { input: 0.1 / 1e6, output: 0.4 / 1e6 };
 // Hosted SDXL-class generation commonly lists around $0.002 per image.
 const IMAGE_REFERENCE_USD = 0.002;
 
-let priceCache: { until: number; prices: Map<string, Price> } | undefined;
-let pricePending: Promise<Map<string, Price>> | undefined;
+let priceCache: { catalog: ModelCatalogSnapshot; prices: Map<string, Price> } | undefined;
 
-/** Paid list prices (USD per token) from OpenRouter's public catalog; no credentials involved. */
-async function paidPrices(): Promise<Map<string, Price>> {
-  if (priceCache && priceCache.until > Date.now()) return priceCache.prices;
-  pricePending ??= (async () => {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) throw new Error(`catalog answered ${response.status}`);
-      const body = await response.json() as { data?: Array<{ id?: unknown; pricing?: { prompt?: unknown; completion?: unknown } }> };
-      const prices = new Map<string, Price>();
-      for (const model of body.data ?? []) {
-        if (typeof model.id !== "string") continue;
-        const input = Number(model.pricing?.prompt);
-        const output = Number(model.pricing?.completion);
-        if (Number.isFinite(input) && Number.isFinite(output) && (input > 0 || output > 0)) prices.set(model.id, { input, output });
-      }
-      priceCache = { until: Date.now() + 6 * 60 * 60_000, prices };
-    } catch {
-      // Offline or blocked: keep any earlier prices and fall back for the rest; retry in ten minutes.
-      priceCache = { until: Date.now() + 10 * 60_000, prices: priceCache?.prices ?? new Map() };
-    }
-    return priceCache.prices;
-  })().finally(() => {
-    pricePending = undefined;
-  });
-  return pricePending;
+/**
+ * Paid list prices (USD per token) from the model catalog (services/model-catalog.ts:
+ * the public catalog, kept up to date in the background; no credentials involved).
+ */
+function paidPrices(): Map<string, Price> {
+  const catalog = getModelCatalog();
+  if (priceCache?.catalog !== catalog) {
+    const prices = new Map<string, Price>();
+    for (const model of catalog.models) if (model.price) prices.set(model.id, model.price);
+    priceCache = { catalog, prices };
+  }
+  return priceCache.prices;
 }
 
 /** What `usage` on `model` would cost at the paid version's list price. */
 export async function equivalentTokenCostUsd(model: string, usage: PuterUsage): Promise<number> {
-  const price = (await paidPrices()).get(model.replace(/:free$/, "")) ?? FALLBACK_PRICE;
-  return usage.inputTokens * price.input + usage.outputTokens * price.output;
+  return equivalentTokenCostUsdNow(model, usage);
 }
 
-/** Starts loading the paid list prices, so the live pricer below has them by the first reply. */
+/** Loads the prices (and starts a catalog download when the one it has is old). */
 export function warmPaidPrices(): void {
-  void paidPrices();
+  paidPrices();
 }
 
 /**
- * The same as equivalentTokenCostUsd, from the prices already loaded (a
- * typical small-model rate until the catalog answers), for live counters.
+ * The same as equivalentTokenCostUsd, for live counters. A model with no paid
+ * listing is priced at a typical small open-model rate.
  */
 export function equivalentTokenCostUsdNow(model: string, usage: PuterUsage): number {
-  if (!priceCache || priceCache.until <= Date.now()) void paidPrices();
-  const price = priceCache?.prices.get(model.replace(/:free$/, "")) ?? FALLBACK_PRICE;
+  const price = paidPrices().get(model.replace(/:free$/, "")) ?? FALLBACK_PRICE;
   return usage.inputTokens * price.input + usage.outputTokens * price.output;
 }
 

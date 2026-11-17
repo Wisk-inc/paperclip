@@ -108,10 +108,16 @@ async function fetchAnthropicModels(apiKey: string, baseUrl: string): Promise<Ad
   }
 }
 
-async function loadClaudeModels(options?: { forceRefresh?: boolean }): Promise<AdapterModel[]> {
-  if (isBedrockEnv()) return dedupeModels(BEDROCK_MODELS);
+/**
+ * Where a Claude model list came from: Anthropic's own (a key reached it),
+ * the built-in list (no key, or the listing failed), or Bedrock's ids.
+ */
+export type ClaudeModelsSource = "anthropic" | "built-in" | "bedrock";
 
-  const fallback = dedupeModels(DIRECT_MODELS);
+async function loadClaudeModels(options?: { forceRefresh?: boolean }): Promise<{ models: AdapterModel[]; source: ClaudeModelsSource }> {
+  if (isBedrockEnv()) return { models: dedupeModels(BEDROCK_MODELS), source: "bedrock" };
+
+  const fallback = { models: dedupeModels(DIRECT_MODELS), source: "built-in" as const };
   const apiKey = resolveAnthropicApiKey();
   if (!apiKey) return fallback;
 
@@ -125,7 +131,7 @@ async function loadClaudeModels(options?: { forceRefresh?: boolean }): Promise<A
     cached.baseUrl === baseUrl &&
     cached.expiresAt > now
   ) {
-    return cached.models;
+    return { models: cached.models, source: "anthropic" };
   }
 
   const fetched = await fetchAnthropicModels(apiKey, baseUrl);
@@ -137,11 +143,11 @@ async function loadClaudeModels(options?: { forceRefresh?: boolean }): Promise<A
       expiresAt: now + ANTHROPIC_MODELS_CACHE_TTL_MS,
       models: merged,
     };
-    return merged;
+    return { models: merged, source: "anthropic" };
   }
 
   if (cached && cached.keyFingerprint === keyFingerprint && cached.baseUrl === baseUrl && cached.models.length > 0) {
-    return cached.models;
+    return { models: cached.models, source: "anthropic" };
   }
 
   return fallback;
@@ -153,10 +159,20 @@ async function loadClaudeModels(options?: { forceRefresh?: boolean }): Promise<A
  * otherwise returns standard Anthropic API model IDs.
  */
 export async function listClaudeModels(): Promise<AdapterModel[]> {
-  return loadClaudeModels();
+  return (await loadClaudeModels()).models;
 }
 
 export async function refreshClaudeModels(): Promise<AdapterModel[]> {
+  return (await loadClaudeModels({ forceRefresh: true })).models;
+}
+
+/** listClaudeModels, saying where the list came from. */
+export function listClaudeModelsWithSource(): Promise<{ models: AdapterModel[]; source: ClaudeModelsSource }> {
+  return loadClaudeModels();
+}
+
+/** refreshClaudeModels, saying where the list came from. */
+export function refreshClaudeModelsWithSource(): Promise<{ models: AdapterModel[]; source: ClaudeModelsSource }> {
   return loadClaudeModels({ forceRefresh: true });
 }
 

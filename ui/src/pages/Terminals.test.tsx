@@ -20,6 +20,9 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/terminals", () => ({ terminalsApi: api }));
+// The model catalog the server keeps; empty unless a test fills it.
+const catalogApi = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/api/modelCatalog", () => ({ modelCatalogApi: catalogApi }));
 vi.mock("@/context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: company.id }) }));
 vi.mock("@/context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }) }));
 vi.mock("@/context/ToastContext", () => ({ useToastActions: () => ({ pushToast: vi.fn() }) }));
@@ -58,6 +61,7 @@ beforeEach(() => {
   window.localStorage.clear();
   api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ claude: true }) });
   api.sessions.mockResolvedValue({ sessions: [] });
+  catalogApi.get.mockResolvedValue({ source: "built-in", fetchedAt: null, models: [] });
   api.start.mockResolvedValue({
     session: { id: "s1", companyId: "company-1", toolId: "claude", title: "Claude Code", cwd: "/", status: "running", exitCode: null, createdAt: "2026-11-02T00:00:00.000Z", agentId: null },
   });
@@ -73,6 +77,20 @@ afterEach(() => {
 });
 
 describe("Terminals page", () => {
+  it("offers models released after this Automa in Gemini CLI's list, from the catalog the server keeps", async () => {
+    const created = Math.floor(Date.now() / 1000) - 5 * 86_400;
+    catalogApi.get.mockResolvedValue({
+      source: "live",
+      fetchedAt: new Date().toISOString(),
+      models: [{ id: "google/gemini-5-pro", name: "Google: Gemini 5 Pro", created, context: 1_000_000, tools: true, input: ["text"], output: ["text"], price: null }],
+    });
+    await render();
+    await vi.waitFor(() => {
+      const select = host.querySelector<HTMLSelectElement>('select[aria-label="Model for Gemini CLI"]');
+      expect([...(select?.options ?? [])].map((option) => option.value).slice(0, 2)).toEqual(["", "gemini-5-pro"]);
+    });
+  });
+
   it("survives a cold load that renders before an organization is chosen", async () => {
     company.id = null;
     await render();

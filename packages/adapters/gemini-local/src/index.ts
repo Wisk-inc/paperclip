@@ -11,6 +11,8 @@ export const DEFAULT_GEMINI_LOCAL_MODEL = "auto";
 
 export const models = [
   { id: DEFAULT_GEMINI_LOCAL_MODEL, label: "Auto" },
+  { id: "gemini-4-carbon", label: "Gemini 4 Carbon" },
+  { id: "gemini-4-hydrogen", label: "Gemini 4 Hydrogen" },
   { id: "gemini-4-argon", label: "Gemini 4 Argon" },
   { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { id: "gemini-3.1-pro-preview-customtools", label: "Gemini 3.1 Pro Preview (Custom Tools)" },

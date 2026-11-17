@@ -24,6 +24,14 @@ describe("claudeModelPrice", () => {
     expect(claudeModelPrice("opus")).toEqual(claudeModelPrice("claude-opus-5-5"));
     expect(claudeModelPrice("sonnet")).toEqual(claudeModelPrice("claude-sonnet-5-5"));
     expect(claudeModelPrice("haiku")).toEqual(claudeModelPrice("claude-haiku-5-5"));
+    expect(claudeModelPrice("fable")).toEqual(claudeModelPrice("claude-fable-5-2"));
+  });
+
+  it("prices Claude Fable 5.2 at its own rate, not Fable 5.1's or Fable 5's", () => {
+    expect(claudeModelPrice("claude-fable-5-2")).toEqual({ input: 8, output: 40, cacheRead: 0.2 });
+    expect(claudeModelPrice("anthropic/claude-fable-5.2")).toEqual({ input: 8, output: 40, cacheRead: 0.2 });
+    expect(claudeModelPrice("claude-fable-5-1")).toEqual({ input: 10, output: 50, cacheRead: 0.25 });
+    expect(claudeModelPrice("claude-fable-5")).toEqual({ input: 10, output: 50, cacheRead: 1 });
   });
 
   it("returns null for models it doesn't know", () => {

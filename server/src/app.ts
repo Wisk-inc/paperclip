@@ -31,6 +31,7 @@ import { shutdownStudio, studioPublicRoutes, studioRoutes } from "./routes/studi
 import { terminalsRoutes } from "./routes/terminals.js";
 import { appInspectorRoutes } from "./routes/app-inspector.js";
 import { freeModelRoutes } from "./routes/free-models.js";
+import { modelCatalogRoutes } from "./routes/model-catalog.js";
 import { queRoutes } from "./routes/que.js";
 import {
   privateHostnameGuard,
@@ -846,6 +847,7 @@ export async function createApp(
   api.use(terminalsRoutes(db, { deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure }));
   api.use(appInspectorRoutes(db, { deploymentMode: opts.deploymentMode, deploymentExposure: opts.deploymentExposure }));
   api.use(freeModelRoutes(db));
+  api.use(modelCatalogRoutes());
   api.use(queRoutes(db));
   if (opts.databaseBackupService) {
     api.use(instanceDatabaseBackupRoutes(opts.databaseBackupService));

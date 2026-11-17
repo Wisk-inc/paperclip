@@ -14,6 +14,7 @@ export interface ClaudeModelPrice {
 }
 
 const PRICES: Array<[RegExp, ClaudeModelPrice]> = [
+  [/^claude-(?:fable|mythos)-5-2/, { input: 8, output: 40, cacheRead: 0.2 }],
   [/^claude-(?:fable|mythos)-5-1/, { input: 10, output: 50, cacheRead: 0.25 }],
   [/^claude-(?:fable|mythos)-5/, { input: 10, output: 50, cacheRead: 1 }],
   [/^claude-opus-5-5/, { input: 4, output: 20, cacheRead: 0.2 }],
@@ -42,7 +43,7 @@ const MODEL_ALIASES: Record<string, string> = {
   opus: "claude-opus-5-5",
   sonnet: "claude-sonnet-5-5",
   haiku: "claude-haiku-5-5",
-  fable: "claude-fable-5-1",
+  fable: "claude-fable-5-2",
 };
 
 /**

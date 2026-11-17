@@ -1,4 +1,4 @@
-import type { AdapterRuntimeCommandSpec, ServerAdapterModule } from "./types.js";
+import type { AdapterModel, AdapterRuntimeCommandSpec, ServerAdapterModule } from "./types.js";
 import { parseAdapterModelsEnv } from "../services/adapter-models-env.js";
 import { stampClaudeAgentIdHeader } from "./claude-agent-id-header.js";
 import {
@@ -12,8 +12,9 @@ import {
   execute as claudeExecute,
   listClaudeSkills,
   syncClaudeSkills,
-  listClaudeModels,
-  refreshClaudeModels,
+  listClaudeModelsWithSource,
+  refreshClaudeModelsWithSource,
+  type ClaudeModelsSource,
   testEnvironment as claudeTestEnvironment,
   sessionCodec as claudeSessionCodec,
   getQuotaWindows as claudeGetQuotaWindows,
@@ -120,6 +121,7 @@ import {
   models as openclawGatewayModels,
 } from "@paperclipai/adapter-openclaw-gateway";
 import { listCodexModels, refreshCodexModels } from "./codex-models.js";
+import { refreshModelCatalog, withCatalogModels } from "../services/model-catalog.js";
 import { listCursorModels } from "./cursor-models.js";
 import {
   execute as piExecute,
@@ -252,6 +254,16 @@ const grokLoginCapability: AdapterLoginCapability = {
   },
 };
 
+/**
+ * Claude's models: Anthropic's own list when a key reaches it, and Bedrock's
+ * ids in Bedrock mode, as they are; the built-in list (no key, or the listing
+ * failed) with the public catalog's newer Claude models after its first entry,
+ * the default (Opus 4.8).
+ */
+function claudeWithCatalog({ models, source }: { models: AdapterModel[]; source: ClaudeModelsSource }): AdapterModel[] {
+  return source === "built-in" ? withCatalogModels("anthropic", models, 1) : models;
+}
+
 const claudeLocalAdapter: ServerAdapterModule = {
   type: "claude_local",
   runtimeToolDelivery: "native_mcp",
@@ -270,8 +282,12 @@ const claudeLocalAdapter: ServerAdapterModule = {
   sessionCodec: claudeSessionCodec,
   sessionManagement: getAdapterSessionManagement("claude_local") ?? undefined,
   models: claudeModels,
-  listModels: listClaudeModels,
-  refreshModels: refreshClaudeModels,
+  listModels: async () => claudeWithCatalog(await listClaudeModelsWithSource()),
+  refreshModels: async () => {
+    const listed = await refreshClaudeModelsWithSource();
+    if (listed.source === "built-in") await refreshModelCatalog();
+    return claudeWithCatalog(listed);
+  },
   supportsLocalAgentJwt: true,
   supportsInstructionsBundle: true,
   instructionsPathKey: "instructionsFilePath",
@@ -765,6 +781,13 @@ const geminiLocalAdapter: ServerAdapterModule = {
   sessionCodec: geminiSessionCodec,
   sessionManagement: getAdapterSessionManagement("gemini_local") ?? undefined,
   models: geminiModels,
+  // The Gemini CLI has no model listing of its own: the built-in list, with the
+  // public catalog's newer Gemini models after "Auto".
+  listModels: async () => withCatalogModels("google", geminiModels, 1),
+  refreshModels: async () => {
+    await refreshModelCatalog();
+    return withCatalogModels("google", geminiModels, 1);
+  },
   supportsLocalAgentJwt: true,
   supportsInstructionsBundle: true,
   instructionsPathKey: "instructionsFilePath",
@@ -785,6 +808,11 @@ const grokLocalAdapter: ServerAdapterModule = {
   sessionCodec: grokSessionCodec,
   sessionManagement: getAdapterSessionManagement("grok_local") ?? undefined,
   models: grokModels,
+  listModels: async () => withCatalogModels("xai", grokModels, 1),
+  refreshModels: async () => {
+    await refreshModelCatalog();
+    return withCatalogModels("xai", grokModels, 1);
+  },
   supportsLocalAgentJwt: true,
   supportsInstructionsBundle: true,
   instructionsPathKey: "instructionsFilePath",

@@ -315,6 +315,9 @@ jobs:
       - name: Test free-model token check
         run: node --test ./scripts/check-free-model-token.test.mjs
 
+      - name: Test model catalog refresh script
+        run: node --test ./scripts/update-model-catalog.test.mjs
+
       - name: Validate feature module boundaries
         run: pnpm check:module-boundaries
 

@@ -2,6 +2,7 @@ import { probeAcpxClaudeInstallation } from "@paperclipai/paperclip-runner/live"
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { buildSandboxNpmInstallCommand } from "@paperclipai/adapter-utils";
 import type { ServerAdapterModule } from "../adapters/index.js";
+import { configureModelCatalogForTests, resetModelCatalogForTests } from "../services/model-catalog.js";
 
 import {
   detectAdapterModel,
@@ -38,6 +39,8 @@ const externalAdapter: ServerAdapterModule = {
 
 describe("server adapter registry", () => {
   beforeEach(() => {
+    // An empty, fresh model catalog: the built-in Claude list is compared as it is.
+    configureModelCatalogForTests({ savedFile: () => null, builtIn: () => ({ source: "built-in", fetchedAt: new Date().toISOString(), models: [] }) });
     unregisterServerAdapter("external_test");
     unregisterServerAdapter("hermes_local");
     unregisterServerAdapter("hermes_gateway");
@@ -46,6 +49,7 @@ describe("server adapter registry", () => {
   });
 
   afterEach(() => {
+    resetModelCatalogForTests();
     unregisterServerAdapter("external_test");
     unregisterServerAdapter("hermes_local");
     unregisterServerAdapter("hermes_gateway");

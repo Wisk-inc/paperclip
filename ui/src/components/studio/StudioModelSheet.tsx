@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName, type ModelProvider } from "@/lib/model-brand";
+import { studioModelsWithCatalog, useModelCatalog } from "@/lib/model-catalog";
 import { handleRadioGroupKeyDown, radioTabIndex } from "@/lib/radio-group-keys";
 import { cn } from "@/lib/utils";
 
@@ -89,17 +90,24 @@ export function StudioModelSheet({
     staleTime: 5 * 60_000,
     retry: 1,
   });
+  // The provider's list with the newer models of the catalog the server keeps
+  // in front, so a model released after this Automa still shows (marked New).
+  const modelCatalog = useModelCatalog(open);
+  const listed = useMemo(
+    () => studioModelsWithCatalog(provider, info.models, modelCatalog.data?.models),
+    [provider, info.models, modelCatalog.data],
+  );
   const catalogIds = useMemo(
-    () => (catalog.data ?? []).map((entry) => entry.id.replace(/^openrouter\//, "")).filter((id) => !info.models.includes(id)),
-    [catalog.data, info.models],
+    () => (catalog.data ?? []).map((entry) => entry.id.replace(/^openrouter\//, "")).filter((id) => !listed.models.includes(id)),
+    [catalog.data, listed.models],
   );
   const needle = search.trim().toLowerCase();
   const models = useMemo(() => {
-    const base = info.models.includes(model) || !model ? [...info.models] : [model, ...info.models];
+    const base = listed.models.includes(model) || !model ? [...listed.models] : [model, ...listed.models];
     const extra = provider === "openrouter" ? catalogIds : [];
     const all = needle ? [...base, ...extra].filter((id) => id.toLowerCase().includes(needle)) : needle === "" && provider === "openrouter" ? base : base;
     return all.slice(0, 80);
-  }, [info.models, model, provider, catalogIds, needle]);
+  }, [listed.models, model, provider, catalogIds, needle]);
   const status = keys.find((key) => key.provider === provider);
   const inTeam = (id: string) => team.some((mate) => mate.provider === provider && mate.model === id);
   const addToTeam = (id: string) => {
@@ -228,16 +236,16 @@ export function StudioModelSheet({
             ) : null}
 
             <h3 className="pt-4 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model</h3>
-            {info.models.length ? (
+            {listed.models.length ? (
               <Input
                 aria-label="Search models"
-                placeholder={provider === "openrouter" ? (catalog.isPending ? "Search models (loading the catalog…)" : `Search ${info.models.length + catalogIds.length} models`) : "Search models"}
+                placeholder={provider === "openrouter" ? (catalog.isPending ? "Search models (loading the catalog…)" : `Search ${listed.models.length + catalogIds.length} models`) : "Search models"}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="mb-2 h-10 text-sm"
               />
             ) : null}
-            {info.models.length ? (
+            {listed.models.length ? (
               // A div, not a list: a radiogroup's children must be radios.
               <div
                 className="flex flex-col divide-y divide-border rounded-lg border border-border"
@@ -270,6 +278,9 @@ export function StudioModelSheet({
                           <span className="truncate text-sm font-medium">{modelDisplayName(id)}</span>
                           <span className="truncate font-mono text-xs text-muted-foreground">{id}</span>
                         </span>
+                        {listed.added.has(id) ? (
+                          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary" data-testid="studio-model-new">New</span>
+                        ) : null}
                         {selected ? <Check className="size-4 shrink-0" aria-label="Selected" /> : null}
                       </button>
                       {onTeamChange && !selected ? (

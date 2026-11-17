@@ -207,6 +207,8 @@ export const queryKeys = {
     installed: (companyId: string) =>
       ["team-catalog", "installed", companyId] as const,
   },
+  /** The public model catalog the server keeps; instance-level. */
+  modelCatalog: () => ["model-catalog"] as const,
   freeModels: {
     usage: (companyId: string) => ["free-models", "usage", companyId] as const,
     moan: () => ["free-models", "moan"] as const,
