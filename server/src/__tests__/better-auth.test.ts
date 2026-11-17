@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { BetterAuthOptions } from "better-auth";
 import { getCookies } from "better-auth/cookies";
 import {
+  AUTH_CLIENT_IP_HEADER,
   buildBetterAuthAdvancedOptions,
   buildBetterAuthRateLimitOptions,
   deriveAuthCookiePrefix,
   deriveAuthTrustedOrigins,
   shouldDisableSecureAuthCookies,
+  stampAuthClientIp,
 } from "../auth/better-auth.js";
 
 const ORIGINAL_INSTANCE_ID = process.env.PAPERCLIP_INSTANCE_ID;
@@ -32,6 +34,7 @@ describe("Better Auth cookie scoping", () => {
 
     expect(advanced).toEqual({
       cookiePrefix: "paperclip-sat-worktree",
+      ipAddress: { ipAddressHeaders: [AUTH_CLIENT_IP_HEADER] },
     });
     expect(getCookies({ advanced } as BetterAuthOptions).sessionToken.name).toMatch(
       /paperclip-sat-worktree\.session_token$/,
@@ -43,6 +46,7 @@ describe("Better Auth cookie scoping", () => {
 
     expect(buildBetterAuthAdvancedOptions({ disableSecureCookies: true })).toEqual({
       cookiePrefix: "paperclip-pap-worktree",
+      ipAddress: { ipAddressHeaders: [AUTH_CLIENT_IP_HEADER] },
       useSecureCookies: false,
     });
     expect(getCookies({
@@ -240,5 +244,39 @@ describe("Better Auth cookie scoping", () => {
     ]));
     expect(trustedOrigins).not.toContain("https://board.example.test:3100");
     expect(trustedOrigins).not.toContain("http://board.example.test:3100");
+  });
+});
+
+describe("the caller's address Better Auth sees", () => {
+  type Stampable = Parameters<typeof stampAuthClientIp>[0];
+  const requestWith = (input: { ip?: string; remoteAddress?: string; headers?: Record<string, string | string[]> }) =>
+    ({ ip: input.ip, socket: { remoteAddress: input.remoteAddress }, headers: { ...input.headers } }) as unknown as Stampable;
+
+  it("reads it from Paperclip's own header, never X-Forwarded-For", () => {
+    const advanced = buildBetterAuthAdvancedOptions({ disableSecureCookies: false });
+    expect(advanced.ipAddress.ipAddressHeaders).toEqual([AUTH_CLIENT_IP_HEADER]);
+    expect(advanced.ipAddress.ipAddressHeaders).not.toContain("x-forwarded-for");
+  });
+
+  it("is the address Express derived for the request", () => {
+    const req = requestWith({ ip: "::ffff:192.0.2.10", remoteAddress: "::ffff:127.0.0.1" });
+    stampAuthClientIp(req);
+    expect(req.headers[AUTH_CLIENT_IP_HEADER]).toBe("::ffff:192.0.2.10");
+  });
+
+  it("replaces whatever the caller sent under that header", () => {
+    const req = requestWith({ ip: "198.51.100.4", headers: { [AUTH_CLIENT_IP_HEADER]: ["203.0.113.1", "203.0.113.2"] } });
+    stampAuthClientIp(req);
+    expect(req.headers[AUTH_CLIENT_IP_HEADER]).toBe("198.51.100.4");
+  });
+
+  it("falls back to the connection's address, and sets none when there is no address at all", () => {
+    const fromSocket = requestWith({ remoteAddress: "127.0.0.1" });
+    stampAuthClientIp(fromSocket);
+    expect(fromSocket.headers[AUTH_CLIENT_IP_HEADER]).toBe("127.0.0.1");
+
+    const nowhere = requestWith({ headers: { [AUTH_CLIENT_IP_HEADER]: "203.0.113.9" } });
+    stampAuthClientIp(nowhere);
+    expect(nowhere.headers[AUTH_CLIENT_IP_HEADER]).toBeUndefined();
   });
 });

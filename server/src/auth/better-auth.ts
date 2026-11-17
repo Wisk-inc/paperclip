@@ -48,6 +48,13 @@ type BetterAuthSessionResolver = {
 
 type BetterAuthInstance = BetterAuthHandlerTarget & BetterAuthSessionResolver;
 
+/**
+ * The header Better Auth reads a caller's address from: for its sign-in rate
+ * limit (three attempts per ten seconds per address) and for the address it
+ * records on a new session. See `stampAuthClientIp`.
+ */
+export const AUTH_CLIENT_IP_HEADER = "x-paperclip-auth-client-ip";
+
 const AUTH_COOKIE_PREFIX_FALLBACK = "default";
 const AUTH_COOKIE_PREFIX_INVALID_SEGMENTS_RE = /[^a-zA-Z0-9_-]+/g;
 
@@ -62,8 +69,27 @@ export function deriveAuthCookiePrefix(instanceId = resolvePaperclipInstanceId()
 export function buildBetterAuthAdvancedOptions(input: { disableSecureCookies: boolean }) {
   return {
     cookiePrefix: deriveAuthCookiePrefix(),
+    // Never X-Forwarded-For, Better Auth's default: any caller can set it.
+    ipAddress: { ipAddressHeaders: [AUTH_CLIENT_IP_HEADER] },
     ...(input.disableSecureCookies ? { useSecureCookies: false } : {}),
   };
+}
+
+/**
+ * Puts the caller's address where Better Auth reads it, as Express derived it
+ * (`req.ip`): the connection's own address unless the operator trusts a proxy
+ * through TRUST_PROXY, and then the nearest address that proxy did not add.
+ * Any copy of the header the caller sent is dropped first.
+ *
+ * Left to itself, Better Auth takes the address from X-Forwarded-For. A caller
+ * reaching the server directly could then make up a new address for each
+ * password guess and get a fresh limit every time, and requests without the
+ * header would all share one limit that anyone could use up.
+ */
+export function stampAuthClientIp(req: Pick<Request, "headers" | "ip" | "socket">): void {
+  delete req.headers[AUTH_CLIENT_IP_HEADER];
+  const ip = req.ip ?? req.socket?.remoteAddress;
+  if (ip) req.headers[AUTH_CLIENT_IP_HEADER] = ip;
 }
 
 export function shouldEnableAuthRateLimit(input: {
@@ -374,6 +400,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
 export function createBetterAuthHandler(auth: BetterAuthHandlerTarget): RequestHandler {
   const handler = toNodeHandler(auth);
   return (req, res, next) => {
+    stampAuthClientIp(req);
     void Promise.resolve(handler(req, res)).catch(next);
   };
 }

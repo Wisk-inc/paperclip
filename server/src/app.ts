@@ -40,6 +40,7 @@ import {
   applyTrustProxy,
   parseTrustProxyEnv,
 } from "./middleware/trust-proxy.js";
+import { applyBaseSecurityHeaders, setBoardDocumentHeaders } from "./middleware/security-headers.js";
 import {
   IMPORT_TRANSFER_SPOOL_SWEEP_INTERVAL_MS,
   resolveDefaultImportTransferSpoolRoot,
@@ -535,6 +536,8 @@ export async function createApp(
   // Default is unset → Express trusts nothing, which is the only safe choice
   // when the server may be reachable without a known reverse proxy in front.
   applyTrustProxy(app, parseTrustProxyEnv(process.env.TRUST_PROXY));
+  // No X-Powered-By, and nosniff on every /api answer (middleware/security-headers.ts).
+  applyBaseSecurityHeaders(app);
 
   app.use(
     COMPANY_IMPORT_API_PATH,
@@ -1030,6 +1033,7 @@ export async function createApp(
       );
       // Serve root/index through the same runtime HTML transform as SPA routes.
       app.get(["/", "/index.html"], (_req, res) => {
+        setBoardDocumentHeaders(res);
         res.type("html").set("Cache-Control", "no-cache").send(readBrandedStaticIndexHtml(uiDist));
       });
       // Non-hashed static files (favicon.ico, manifest, robots.txt, etc.):
@@ -1058,6 +1062,7 @@ export async function createApp(
           res.status(404).end();
           return;
         }
+        setBoardDocumentHeaders(res);
         res
           .status(200)
           .set("Content-Type", "text/html")
@@ -1154,6 +1159,7 @@ export async function createApp(
       }
       try {
         const html = await renderViteHtml.render(req.originalUrl);
+        setBoardDocumentHeaders(res);
         res.status(200).set({ "Content-Type": "text/html" }).end(html);
       } catch (err) {
         next(err);
