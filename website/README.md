@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.11
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.12
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -465,6 +465,11 @@ each step with a progress bar and opens the board when the server answers.
 |---|---|
 | `automa run` | Run in the foreground, restarting the server if it stops |
 | `automa start` / `automa stop` / `automa status` | Run in the background, stop it, check it |
+| `automa restart` | Stop it and start it again in the background |
+| `automa start --safe` | Safe mode: the board opens with agents, schedules and plugins off |
+| `automa troubleshoot` | Check the phone, the database and Automa, fix what it safely can, say what to do about the rest |
+| `automa keep-alive` | Stop Android 12 and newer from ending Termux in the background |
+| `automa logs` | The end of the log, and when and why Automa last stopped |
 | `automa update` | Update the server (it backs up the database first) |
 | `automa backup` / `automa restore` | Save a database backup now / put one back |
 | `automa link` | Hand the app key to the Automa app again |
@@ -505,7 +510,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.11.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.12.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -522,6 +527,20 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.12** (17 November 2026) — Automa keeps running, and gets back up when it
+can't. Termux closing while you use it is Android ending apps that run too
+many processes or when memory runs low: Automa's database now runs lighter,
+the server keeps fewer connections, and `automa keep-alive` lifts Android's
+process limit for good. When Automa stops, Termux says why and keeps a record
+(`automa logs`). When it keeps stopping while it starts, it starts in safe
+mode by itself (your board opens with agents, schedules and plugins off) and a
+banner offers Restart normally and Troubleshoot. `automa troubleshoot` (or
+Troubleshoot in the app, which shows the report) checks the phone, the
+database and Automa and fixes what it safely can. A Refresh button in the
+header loads the page again and reconnects live updates; Reload app, Refresh
+on the connect screen and Reload page on the connection sheet are there for
+when something looks stuck.
 
 **1.9.11** (16 November 2026) — Fixes from another scan of every page, every
 test group, the build and every check. Saving your name or photo, and the App

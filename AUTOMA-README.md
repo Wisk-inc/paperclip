@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.11** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.12** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.11](#2-whats-new-in-1911)
+2. [What's new in 1.9.12](#2-whats-new-in-1912)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,76 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.11
+## 2. What's new in 1.9.12
+
+Automa keeps running on the phone, and gets back up by itself when it can't.
+
+**Termux no longer closes under you (as often), and says why when it does**
+- Termux closing while you use it ("[Process completed (signal 9) - press
+  Enter]") is Android: version 12 and newer end the background processes of
+  apps once all apps together run more than 32, and every Android ends apps
+  when memory runs low. Automa now runs lighter: its database starts fewer
+  processes (no parallel query workers, one autovacuum worker) and uses less
+  memory, and the server keeps 6 database connections at most (it was 10).
+  A database started before this update gets the lighter settings the next
+  time Automa starts.
+- **`automa keep-alive`** lifts Android's process limit for good: it uses
+  Wireless debugging once (it walks you through linking it, like
+  `automa adb link`), turns the limit off (`settings_enable_monitor_phantom_procs`
+  on Android 12L and newer, `max_phantom_processes` on Android 12), takes Termux
+  off battery optimisation, reads both back and remembers it. The settings stay
+  after the phone restarts. On Android 14 and newer you can also do it by hand:
+  Settings → Developer options → Disable child process restrictions.
+- When the server stops, Termux says why: Android ended it (signal 9), it
+  crashed for want of memory, or the error just above. A launcher that Android
+  ended without warning is noticed at the next start. `automa logs` shows the
+  end of the log and the record of starts and stops (`~/.automa/events.log`);
+  `automa status` shows the last one. `automa start` keeps the previous start's
+  log as `server.log.1`.
+
+**Safe start**
+- When Automa stops three times in a row within minutes of starting, the
+  launcher starts it in **safe mode**: the database, the API and your board,
+  with agents, schedules, plugins, runtime services, the Moan index and
+  message deliveries off (nothing is deleted or changed). A banner across the
+  top of the board says why, with **Restart normally** (Automa restarts at
+  once without safe mode, and the banner goes when it is back) and
+  **Troubleshoot**. Only when safe mode itself keeps stopping does it wait a
+  minute between tries.
+- On purpose: **Safe start** on the app's connect screen, `automa start --safe`,
+  `automa run --safe` or `automa restart --safe`.
+
+**Troubleshoot**
+- `automa troubleshoot` (also `automa fix`) checks Termux, Node.js and
+  PostgreSQL, storage and memory, Automa's server files, the database, Automa
+  itself, the recent starts and stops, what the last logs say went wrong, and
+  Android's process limit. It fixes what it safely can: a database lock left
+  when Android ended Termux, an update that stopped between two steps, a
+  database that isn't running, and (when storage is nearly full) leftovers of
+  updates, the previous log and npm's download cache. It never touches your
+  board's data or its backups, and says what to do about the rest.
+  `--start` starts Automa afterwards, in safe mode when it kept stopping.
+- In the app: **Troubleshoot** on the connect screen (when Automa on the phone
+  won't start), on the safe mode banner, and in your account sheet runs it in
+  Termux and shows its report in the app.
+
+**Refresh**
+- A **Refresh** button in the board's header loads everything on the page
+  again and reconnects live updates (a connection can look open after the
+  phone slept and bring nothing). What you typed stays.
+- Your account sheet adds **Reload app** (the whole board again) and
+  **Troubleshoot**. The connect screen adds **Refresh** (ask Automa now), and
+  the sheet shown when Automa can't be reached adds **Reload page**.
+- `automa restart` stops Automa and starts it again in the background.
+
+**What this release does not do**
+- It does not keep a copy of the previous server to fall back to: an update
+  removes the old one once the new one is in place, and the database is moved
+  forward by the update, so an older server could not open it. The fallbacks
+  are safe mode, the troubleshooter's repairs, and the backup Automa saves
+  before every update (`automa restore`).
+
+### From 1.9.11
 
 Fixes from another wide scan of the whole app: every page was opened and
 watched for errors, every test group was run on its own, the full build and
@@ -1169,8 +1238,13 @@ overspends. A run that fails before its model session says so and links here.
 | Command | What it does |
 |---|---|
 | `automa run` | Run in the foreground, restarting the server if it stops (with one already running in the background, it follows that start until it is ready) |
-| `automa start` | Run in the background (log in `~/.automa/server.log`) |
-| `automa stop` / `automa status` | Stop it / check it (a starting Automa says which step it is on) |
+| `automa start` | Run in the background (log in `~/.automa/server.log`, the previous one in `server.log.1`) |
+| `automa run --safe` / `automa start --safe` | The same in safe mode: the board opens with agents, schedules and plugins off (Automa also starts this way by itself after stopping three times in a row while starting) |
+| `automa restart` | Stop it and start it again in the background (`--safe`: in safe mode) |
+| `automa stop` / `automa status` | Stop it / check it (a starting Automa says which step it is on; also the last start or stop) |
+| `automa logs` | The end of the log, and when and why Automa last started and stopped |
+| `automa troubleshoot` | Check Termux, storage, memory, the server files, the database and Automa; fix what it safely can; say what to do about the rest (also `automa fix`; `--start` starts Automa afterwards) |
+| `automa keep-alive` | Stop Android 12 and newer from ending Termux in the background (uses Wireless debugging once; `--check` says whether it was done) |
 | `automa update` | Update the server (backs up the database first) |
 | `automa backup` | Save a database backup now |
 | `automa restore` | List backups and put the newest back (or `automa restore FILE`), keeping a copy of what it replaced |
@@ -1267,6 +1341,9 @@ The full threat model is in `doc/AUTOMA-SECURITY.md`.
 | Termux "RunCommandService requires allow-external-apps" | Termux hasn't let the app run commands yet. | Use the app's one-tap fix, or run the installer again. |
 | The connect screen keeps waiting | Automa is still starting (the screen shows its current step and time), it stopped (the screen says so), or the address is wrong. | `automa status` in Termux shows the step; `automa run` follows the start; check the address (not the Wireless debugging one). |
 | "Automa needs Node.js 24 or newer" in Termux | Termux packages are old. | `pkg upgrade -y`, then run the install command again. |
+| Termux shows "[Process completed (signal 9)]", or Automa stops while you use it | Android ended Termux's processes: Android 12 and newer limit how many processes apps run in the background, and every Android ends apps when memory runs low. | `automa keep-alive` (once); set Termux's battery use to Unrestricted; close apps you aren't using. `automa logs` shows when it happened. |
+| A **Safe mode** banner across the top of the board | Automa kept stopping while it started, so it started without agents, schedules and plugins (or you asked for a safe start). | **Troubleshoot** on the banner (or `automa troubleshoot`), fix what it says, then **Restart normally**. |
+| The board looks stuck or out of date | A page or the live updates missed something. | **Refresh** in the header; **Reload app** in your account sheet reloads everything. |
 | The board is empty after an update (onboarding again, chats gone) | The server isn't reading its old database (for example a PostgreSQL major upgrade); nothing was deleted. | `automa restore`. The message "Your Automa database was written by PostgreSQL N" gives the exact steps. |
 | "Connect a model" with no key | A first agent needs a model. | **Skip for now: start on the free models**; add a key later in Settings. |
 | Chat says Agent Chat is turned off | The experimental switch is off. | Settings → Experimental → Agent Chat. |
@@ -1346,6 +1423,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.12 | 2026-11-17 | Keeps running: a lighter database and fewer connections, `automa keep-alive` lifts Android's background process limit, Termux says why Automa stopped (`automa logs`); safe start (by itself after three quick stops, or on purpose) with a banner offering Restart normally and Troubleshoot; `automa troubleshoot` checks and repairs, also from the app with its report shown there; Refresh in the header, Reload app, Refresh and Reload page on the connection screens; `automa restart` |
 | 1.9.11 | 2026-11-16 | Wide-scan fixes: saving your name or photo and the App Studio guest page say "Can't reach…" instead of "Failed to fetch"; an agent's settings page loads its extra AI-connection settings by itself once Automa answers (they used to stay missing until the app was reopened); pages you left stop asking the server after a reconnect; company folders pack with Node's own zip checksum (seconds to milliseconds for 64 MB); load-sensitive tests made reliable; four doc links fixed |
 | 1.9.10 | 2026-11-12 | The wait while Automa on the phone starts shows the step Automa is on, its time and "step x of y", tells a stopped start from a slow one (and asks Termux once to start it again), and no longer gives up while Automa still answers; Automa reaches "ready" sooner (network checks and inbox tidying after ready) and one failing startup step no longer ends the start; `automa run` follows a background start until ready, `automa status` shows the step, stale pid and PostgreSQL lock files no longer block a start; no more "Failed to fetch": the board keeps its page during an outage and reloads by itself when Wi-Fi or the server is back, and a dropped connection no longer signs you out. |
 | 1.9.9 | 2026-11-09 | Scan fixes: Automa waits out the free AI service's own rate limit (once, for all agents) instead of four quick retries and a failed reply that blamed the model; Home shows no "Task unavailable" cards for deleted chats and tasks; deleting a chat or task cancels the retries still waiting for it, so its agent can be removed; the bring-your-own and Vercel connect pages no longer open as a connection named "byo"; a web search without a query asks for one. |

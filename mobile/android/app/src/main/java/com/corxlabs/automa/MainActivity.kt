@@ -139,7 +139,6 @@ class MainActivity : ComponentActivity() {
         /** The bundle Termux puts a command's result in, and its "no error" value. */
         private const val TERMUX_RESULT_BUNDLE = "result"
         private const val TERMUX_ERRNO_SUCCESS = -1
-        private const val TERMUX_REPLY_TIMEOUT_MS = 20_000L
         private const val TERMUX_DOWNLOAD_URL = "https://f-droid.org/packages/com.termux/"
 
         /** Gap between the two beats of the success haptic on Android 10 and older. */
@@ -352,21 +351,23 @@ class MainActivity : ComponentActivity() {
         if (granted) Push.refreshToken(this)
     }
 
-    /** Waiting on Android's "Allow Automa to run commands in Termux?" answer. */
-    private var termuxStartAfterPermission: ((JSONObject) -> Unit)? = null
+    /** What waits on Android's "Allow Automa to run commands in Termux?" answer. */
+    private var termuxAfterPermission: MutableList<Pair<TermuxTask, (JSONObject) -> Unit>>? = null
     private var termuxRequestCode = 0
     private val termuxRunPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val done = termuxStartAfterPermission ?: return@registerForActivityResult
-        termuxStartAfterPermission = null
-        if (granted) {
-            launchAutomaInTermux(done)
-        } else {
-            done(
-                termuxFailure(
-                    "denied",
-                    "Automa can't start it for you without that permission. Open Termux and run: automa run",
-                ),
-            )
+        val waiting = termuxAfterPermission ?: return@registerForActivityResult
+        termuxAfterPermission = null
+        for ((task, done) in waiting) {
+            if (granted) {
+                launchInTermux(task, done)
+            } else {
+                done(
+                    termuxFailure(
+                        "denied",
+                        "Automa can't do that for you without that permission. Open Termux and run: automa ${task.arguments.joinToString(" ")}",
+                    ),
+                )
+            }
         }
     }
 
@@ -868,6 +869,21 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * "Reload page" on the connection sheet: the board loaded again from the
+     * server, whatever state the page was in. If the server still does not
+     * answer, the failed load brings the sheet back.
+     */
+    private fun reloadServerPage() {
+        val url = config.serverUrl ?: return showConnect(null)
+        if (keyAwaitsProof(url)) return proveThenLoad(url)
+        hideOffline()
+        installPageKey()
+        applyServerCookie()
+        val current = webView.url?.let(Uri::parse)
+        if (current != null && config.isServerUrl(current)) webView.reload() else webView.loadUrl(lastPageUrl() ?: url)
+    }
+
+    /**
      * The board ships inside the app, so its page always loads, even with the
      * server down; then it showed only "Failed to fetch". After each board
      * page load the server is checked, and an unreachable one gets the same
@@ -997,7 +1013,7 @@ class MainActivity : ComponentActivity() {
         val overlay = offlineOverlay ?: ConnectionOverlay(this, onRetry = { retryServer() }, onOtherServer = {
             hideOffline()
             showConnect(null)
-        }).also {
+        }, onReload = { reloadServerPage() }).also {
             offlineOverlay = it
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
@@ -1227,26 +1243,61 @@ class MainActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(this, TERMUX_RUN_COMMAND_PERMISSION) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     /**
+     * What the app asks Termux to run: the `automa` launcher with these
+     * arguments, in the background, and how long Termux may take to answer.
+     */
+    enum class TermuxTask(val arguments: Array<String>, val replyTimeoutMs: Long) {
+        /** `automa start`: starts Automa unless it already runs. */
+        START(arrayOf("start"), 20_000L),
+
+        /**
+         * `automa restart --safe`: Automa again, in safe mode (the board opens,
+         * agents, schedules and plugins stay off). Waits for a running one to
+         * stop first, which can take a minute.
+         */
+        SAFE_START(arrayOf("restart", "--safe"), 100_000L),
+
+        /**
+         * `automa troubleshoot --start --no-follow`: checks Termux, storage, the
+         * server files and the database, fixes what it safely can, and starts
+         * Automa (in safe mode when it kept stopping). Its report comes back to
+         * the app, which shows it; the app waits for Automa itself.
+         */
+        TROUBLESHOOT(arrayOf("troubleshoot", "--start", "--no-follow"), 90_000L),
+    }
+
+    /**
      * Starts Automa in Termux in the background (`automa start`) through
      * Termux's RUN_COMMAND, asking Android for that permission the first
      * time. Replies {ok, output} once Termux confirms, {ok, pending} when it
      * has not answered in a while, or {ok:false, reason, error}.
      */
-    fun startAutomaInTermux(force: Boolean = false, done: (JSONObject) -> Unit) {
+    fun startAutomaInTermux(force: Boolean = false, done: (JSONObject) -> Unit) = runInTermux(TermuxTask.START, force, done)
+
+    /**
+     * Runs [task] in Termux (see [startAutomaInTermux] for the permission and
+     * the replies). The troubleshooter's reply also carries its report
+     * (`output`) and whether it found problems.
+     */
+    fun runInTermux(task: TermuxTask, force: Boolean = false, done: (JSONObject) -> Unit) {
         if (!isTermuxInstalled()) return done(termuxFailure("not_installed", "Install Termux first (from F-Droid), then set up Automa in it."))
         // Termux refused before (allow-external-apps is off). Asking again only
         // makes Termux show its error report; wait for "Try again" instead.
         if (!force && termuxRefusedExternalApps()) {
             return done(termuxNotAllowed().put("skipped", true))
         }
-        if (hasTermuxRunPermission()) return launchAutomaInTermux(done)
+        if (hasTermuxRunPermission()) return launchInTermux(task, done)
         // A second request while Android's dialog is up waits for the same answer.
-        val earlier = termuxStartAfterPermission
-        termuxStartAfterPermission = if (earlier == null) done else { reply -> earlier(reply); done(reply) }
-        if (earlier == null) termuxRunPermission.launch(TERMUX_RUN_COMMAND_PERMISSION)
+        val waiting = termuxAfterPermission
+        if (waiting != null) {
+            waiting += task to done
+            return
+        }
+        termuxAfterPermission = mutableListOf(task to done)
+        termuxRunPermission.launch(TERMUX_RUN_COMMAND_PERMISSION)
     }
 
-    private fun launchAutomaInTermux(done: (JSONObject) -> Unit) {
+    private fun launchInTermux(task: TermuxTask, done: (JSONObject) -> Unit) {
         val action = "$packageName.TERMUX_RESULT"
         var finished = false
         lateinit var receiver: BroadcastReceiver
@@ -1274,6 +1325,18 @@ class MainActivity : ComponentActivity() {
                 finish(
                     when {
                         err != TERMUX_ERRNO_SUCCESS || errmsg.isNotEmpty() -> explainTermuxError(errmsg)
+                        // A Termux server from before 1.9.12 hands these to the server's
+                        // own command line, which does not know them.
+                        task != TermuxTask.START && Regex("unknown command|unknown option", RegexOption.IGNORE_CASE)
+                            .containsMatchIn("$stdout\n$stderr") -> termuxFailure(
+                            "old_server",
+                            "Automa in Termux is older than this app. In the setup screen tap Send to Termux, then run automa update in Termux.",
+                        )
+                        // The troubleshooter ends with 1 when it found problems: its report is the answer.
+                        task == TermuxTask.TROUBLESHOOT && stdout.isNotEmpty() -> JSONObject()
+                            .put("ok", true)
+                            .put("output", listOf(stdout, stderr).filter { it.isNotEmpty() }.joinToString("\n"))
+                            .put("problems", exitCode != 0)
                         exitCode != 0 -> explainTermuxError(stderr.ifEmpty { stdout })
                         else -> JSONObject().put("ok", true).put("output", stdout)
                     },
@@ -1287,13 +1350,13 @@ class MainActivity : ComponentActivity() {
         val run = Intent(TERMUX_RUN_COMMAND_ACTION)
             .setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE)
             .putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_AUTOMA_PATH)
-            .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("start"))
+            .putExtra("com.termux.RUN_COMMAND_ARGUMENTS", task.arguments)
             .putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME)
             .putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
             .putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", reply)
         try {
             startForegroundService(run)
-            root.postDelayed(timeout, TERMUX_REPLY_TIMEOUT_MS)
+            root.postDelayed(timeout, task.replyTimeoutMs)
         } catch (error: Exception) {
             finish(termuxFailure("blocked", "Android did not let Automa reach Termux. Open Termux and run: automa run"))
         }

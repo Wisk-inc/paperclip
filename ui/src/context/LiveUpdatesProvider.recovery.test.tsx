@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "../lib/queryKeys";
+import { BOARD_REFRESH_EVENT } from "../lib/board-refresh";
 
 const { pushToast } = vi.hoisted(() => ({ pushToast: vi.fn() }));
 vi.mock("./CompanyContext", () => ({
@@ -137,5 +138,26 @@ describe("LiveUpdatesProvider connection recovery", () => {
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(read).toHaveBeenCalledTimes(readsAtUnmount);
     expect(construct).toHaveBeenCalledTimes(attemptsAtUnmount);
+  });
+
+  it("Refresh replaces a connection that looks open, and catches up on what it missed", async () => {
+    vi.stubGlobal("WebSocket", Socket);
+    await render();
+    await act(async () => Socket.instances[0].onopen?.());
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    // The phone slept: the socket still says open, but nothing arrives on it.
+    read.mockResolvedValue("reply saved while the phone slept");
+
+    await act(async () => window.dispatchEvent(new Event(BOARD_REFRESH_EVENT)));
+    expect(Socket.instances).toHaveLength(2);
+    expect(Socket.instances[0].readyState).toBe(3);
+    await act(async () => Socket.instances[1].onopen?.());
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(container.textContent).toBe("reply saved while the phone slept");
+
+    // The old socket closing late does not start a third connection.
+    await act(async () => Socket.instances[0].onclose?.());
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(Socket.instances).toHaveLength(2);
   });
 });

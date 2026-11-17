@@ -267,6 +267,8 @@
     waitHelp.hidden = !text;
     waitTermux.hidden = !offerTermux;
     silenceHelp = false;
+    // Something is wrong: Safe start and Troubleshoot come with the help.
+    showPhoneTools(!!text && !!offerTermux);
   }
   function setSilenceHelp(text) {
     setHelp(text, true);
@@ -400,6 +402,7 @@
       if (waitBox.hidden) return;
       if (reply && reply.ok !== false) {
         setStep("open", "Connected. " + nextStepText(reply));
+        showPhoneTools(false);
         haptic("success");
         setPose("success");
         window.setTimeout(function () {
@@ -443,7 +446,7 @@
           if (silentTries >= SILENT_TRIES_BEFORE_HELP) {
             setStep("answer", "Automa stopped answering while it was starting up. Waiting for it to come back…", true);
             if (!silenceHelp) {
-              setSilenceHelp("Android may have closed Termux, or Automa ran into an error. Open Termux to see what it says; automa run starts it again. Setting Termux's battery use to Unrestricted keeps it running.");
+              setSilenceHelp("Android may have closed Termux, or Automa ran into an error. Open Termux to see what it says; automa run starts it again. Running automa keep-alive once stops Android 12 and newer from closing Termux, and setting its battery use to Unrestricted helps on every Android.");
             }
             // `automa start` starts it only if it is not running: once per silence.
             if (!askedRestart && canAskTermuxQuietly()) {
@@ -455,7 +458,7 @@
         } else {
           setStep("answer", startedTermux ? "Waiting for Automa to answer…" : "Waiting for Automa on this phone to answer…");
           if (Date.now() - waitStarted > 45000 && waitHelp.hidden) {
-            setSilenceHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Setting Termux's battery use to Unrestricted keeps it running.");
+            setSilenceHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Running automa keep-alive once stops Android 12 and newer from closing Termux, and setting its battery use to Unrestricted helps on every Android.");
           }
         }
         if (Date.now() - silentSince < GIVE_UP_SILENT_MS) {
@@ -471,6 +474,7 @@
       haptic("warning");
       showError(message);
       if (silent && isThisPhone(address)) openThisPhone();
+      showPhoneTools(isThisPhone(address));
     });
   }
   // Termux's automa run (or automa link) asked the app to connect while this
@@ -515,6 +519,133 @@
     haptic("tick");
     stopWaiting();
     setPose("listening");
+  });
+  // Refresh: asks Automa now instead of at the next try.
+  document.getElementById("wait-refresh").addEventListener("click", function () {
+    haptic("tick");
+    if (!lastWaitAddress || inFlight || waitBox.hidden) return;
+    if (waitTimer) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
+    tries += 1;
+    tryOnce(lastWaitAddress);
+  });
+
+  // ─── When Automa on this phone won't start: Safe start and Troubleshoot ───
+  // Both run the automa command in Termux (Automa 1.9.12 on). Safe start is
+  // `automa restart --safe`: the board opens with agents, schedules and
+  // plugins off. Troubleshoot is `automa troubleshoot --start --no-follow`: its
+  // report comes back here, and it starts Automa, which this page waits for.
+  var phoneSafe = document.getElementById("phone-safe");
+  var phoneTroubleshoot = document.getElementById("phone-troubleshoot");
+  var report = document.getElementById("troubleshoot-report");
+  var reportTitle = document.getElementById("troubleshoot-title");
+  var reportText = document.getElementById("troubleshoot-text");
+  // What "Open Termux" under the report copies first (Termux's one-line fix).
+  var reportCopy = "";
+  function canUsePhoneTools() {
+    return !!(bridge && bridge.safeStartAutomaInTermux && bridge.runTroubleshooter &&
+      bridge.isTermuxInstalled && bridge.isTermuxInstalled(KEY) && isThisPhone(lastWaitAddress));
+  }
+  // Looked up each time: the wait can show help before this part of the script has run.
+  function showPhoneTools(show) {
+    var tools = document.getElementById("phone-tools");
+    if (tools) tools.hidden = !(show && canUsePhoneTools());
+  }
+  // A fresh wait for an Automa that was just asked to start: the clock and the
+  // silence count start over, and Termux isn't asked to start it on top.
+  function waitAgain(address, status) {
+    showError("");
+    if (waitBox.hidden) {
+      lastWaitAddress = address;
+      beginWaiting(false);
+      setBusy(true, "Waiting for Automa…");
+    } else {
+      resetWaitState();
+      waitStarted = Date.now();
+      stepStarted = waitStarted;
+      waitFix.hidden = true;
+    }
+    startedTermux = true;
+    setPose("thinking");
+    setStep("answer", status, true);
+    if (!inFlight) tryLater(address);
+  }
+  var reportTermux = document.getElementById("troubleshoot-termux");
+  function showReport(title, text, copy) {
+    reportTitle.textContent = title;
+    reportText.textContent = text;
+    reportCopy = copy || "";
+    // Say what the button copies, so pasting it in Termux is the next step.
+    // (A non-breaking hyphen, so the label never splits the command's name.)
+    reportTermux.textContent = reportCopy === KEEP_ALIVE_COMMAND ? "Copy automa keep\u2011alive and open Termux" : "Open Termux";
+    report.hidden = false;
+    if (report.scrollIntoView) report.scrollIntoView({ block: "nearest" });
+  }
+  // The one fix the report asks for that only a person in Termux can run
+  // (it links Wireless debugging the first time).
+  var KEEP_ALIVE_COMMAND = "automa keep-alive";
+  phoneSafe.addEventListener("click", function () {
+    haptic("tick");
+    if (!canUsePhoneTools()) return;
+    var address = lastWaitAddress;
+    phoneSafe.disabled = true;
+    waitAgain(address, "Asking Termux to start Automa in safe mode…");
+    bridge.safeStartAutomaInTermux(KEY, nextCall("termux-safe", function (reply) {
+      phoneSafe.disabled = false;
+      if (reply && reply.ok !== false) {
+        setStep("answer", "Automa is starting in safe mode. Waiting for it to answer…", true);
+      } else if (reply && reply.reason === "not_allowed") {
+        showAllowFix(reply.fix);
+      } else {
+        setHelp((reply && reply.error) || "Termux couldn't start Automa in safe mode.", true);
+      }
+    }));
+  });
+  phoneTroubleshoot.addEventListener("click", function () {
+    haptic("tick");
+    if (!canUsePhoneTools()) return;
+    var address = lastWaitAddress;
+    phoneTroubleshoot.disabled = true;
+    phoneSafe.disabled = true;
+    showReport("Troubleshooting…", "Checking Termux, storage, Automa's files, the database and Automa itself. This takes a few seconds.");
+    bridge.runTroubleshooter(KEY, nextCall("troubleshoot", function (reply) {
+      phoneTroubleshoot.disabled = false;
+      phoneSafe.disabled = false;
+      if (reply && reply.ok !== false && !reply.pending) {
+        haptic(reply.problems ? "warning" : "success");
+        var output = reply.output || "";
+        showReport(
+          reply.problems ? "Found problems: what to do is in the report" : "No problems found",
+          output,
+          output.indexOf("Run: " + KEEP_ALIVE_COMMAND) >= 0 ? KEEP_ALIVE_COMMAND : "",
+        );
+        // It starts Automa unless it already runs (in safe mode when it kept stopping).
+        waitAgain(address, "Waiting for Automa to answer…");
+      } else if (reply && reply.pending) {
+        showReport("The troubleshooter is taking a while", "It is still running in Termux, and starts Automa when it is done. To see its report there, open Termux and run: automa troubleshoot");
+        waitAgain(address, "Waiting for Automa to answer…");
+      } else if (reply && reply.reason === "not_allowed") {
+        showReport(
+          "Termux needs one setting first",
+          "Termux only lets other apps run Automa's commands once allow-external-apps is on. Tap Open Termux (it copies the fix), long-press in Termux, tap Paste, press Enter, then come back and tap Troubleshoot again.\n\n" + (reply.fix || ""),
+          reply.fix,
+        );
+      } else {
+        haptic("warning");
+        showReport("Couldn't run the troubleshooter", (reply && reply.error) || "Termux didn't answer.");
+      }
+    }));
+  });
+  document.getElementById("troubleshoot-termux").addEventListener("click", function () {
+    haptic("tick");
+    if (reportCopy && bridge && bridge.copyText) bridge.copyText(KEY, reportCopy);
+    if (bridge && bridge.openTermux) bridge.openTermux(KEY);
+  });
+  document.getElementById("troubleshoot-close").addEventListener("click", function () {
+    haptic("tick");
+    report.hidden = true;
   });
   function renderRequested(request) {
     requested.hidden = !request;

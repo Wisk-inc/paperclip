@@ -6,6 +6,7 @@ import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
 import { usePanel } from "../context/PanelContext";
 import { InboxBell } from "./InboxBell";
+import { RefreshButton } from "./RefreshButton";
 import { AccountButton } from "./account/AccountSheet";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +85,7 @@ export function BreadcrumbBar({ taskDetailLayout = false }: { taskDetailLayout?:
         context={globalToolbarSlotContext}
         pageToolbar={isMobile ? null : breadcrumbToolbar}
       />
+      <RefreshButton className={isMobile ? "ml-1" : "size-9"} />
       {isMobile ? <InboxBell /> : null}
       {isMobile ? <AccountButton className="ml-1" /> : null}
     </>

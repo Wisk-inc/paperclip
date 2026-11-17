@@ -1,3 +1,4 @@
+import type { SafeModeReason } from "./safe-mode.js";
 import { answerLocalSecretChallenge } from "./auth/local-secret-proof.js";
 import { slackToolRoutes } from "./routes/slack-tools.js";
 import { agentAvatarRoutes } from "./routes/agent-avatars.js";
@@ -499,6 +500,12 @@ export async function createApp(
     pluginMigrationDb?: Db;
     pluginWorkerManager?: PluginWorkerManager;
     decisionServiceOptions: DecisionServiceOptions;
+    /**
+     * A safe start (safe-mode.ts): why it happened, and how to start normally
+     * again (null when nothing would start the server after it exits).
+     * Plugins are not started.
+     */
+    safeMode?: { reason: SafeModeReason; restartNormally: (() => void) | null } | null;
     betterAuthHandler?: express.RequestHandler;
     resolveSession?: (
       req: ExpressRequest,
@@ -677,6 +684,7 @@ export async function createApp(
       companyDeletionEnabled: opts.companyDeletionEnabled,
       signUpEnabled: opts.signUpEnabled,
       databaseBackupHealth: opts.databaseBackupHealth,
+      safeMode: opts.safeMode ?? null,
     }),
   );
   api.use(openApiRoutes());
@@ -1315,7 +1323,7 @@ export async function createApp(
   // that must not outrun plugin availability — managed sandbox environments
   // (`applyManagedEnvironments`) run before the heartbeat resumes queued
   // runs — can sequence on it. It never rejects.
-  const bundledPluginsStartup = ensureBundledPlugins(
+  const loadPluginsOnStartup = (): Promise<void> => ensureBundledPlugins(
     bundledPluginInstalls,
     { registry: pluginRegistry, loader, lifecycle, logger },
     // Managed mode reinstalls soft-uninstalled bundles (the control plane
@@ -1336,6 +1344,9 @@ export async function createApp(
     .catch((err) => {
       logger.error({ err }, "Failed to load ready plugins on startup");
     });
+  // A safe start loads no plugins: each runs as its own process, and one may be
+  // what stopped the last start. The next normal start loads them.
+  const bundledPluginsStartup = opts.safeMode ? Promise.resolve() : loadPluginsOnStartup();
   app.locals.bundledPluginsStartup = bundledPluginsStartup;
   // The shutdown hook runs at most once. It caches the in-flight promise, so a
   // second caller (for example the `exit` handler) awaits the same completion

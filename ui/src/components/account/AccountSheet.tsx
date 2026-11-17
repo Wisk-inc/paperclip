@@ -9,8 +9,10 @@ import {
   Network,
   Package,
   Plus,
+  RotateCw,
   Server,
   Settings,
+  Stethoscope,
   Trash2,
   type LucideIcon,
   Compass,
@@ -36,11 +38,13 @@ import { useAccountProfile } from "@/hooks/useAccountProfile";
 import { useSignOut } from "@/hooks/useSignOut";
 import { automaNative, isAutomaApp } from "@/lib/automa-native";
 import { haptic } from "@/lib/haptics";
+import { reloadApp } from "@/lib/reload-app";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { AUTOMA_RELEASES } from "@/lib/release-history";
 import { AboutAutomaSheet } from "./AboutAutomaSheet";
+import { TroubleshootDialog } from "../TroubleshootDialog";
 import { AccountBalanceCard } from "./AccountBalanceCard";
 import { AutomaCredit } from "./AutomaCredit";
 
@@ -132,6 +136,9 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const user = session.data?.user ?? null;
   const localBoard = !user || user.id === "local-board";
   const inApp = isAutomaApp();
+  // The troubleshooter runs in Termux, so only for Automa on this phone (1.9.12 on).
+  const canTroubleshoot = inApp && automaNative.canTroubleshoot();
+  const [troubleshootOpen, setTroubleshootOpen] = useState(false);
   const appVersion = inApp ? automaNative.info()?.appVersion ?? null : null;
   const googleSignedIn = profile.source === "google";
 
@@ -427,6 +434,17 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </section>
 
           <section aria-label="Account" className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+            {canTroubleshoot ? (
+              <ActionRow icon={Stethoscope} label="Troubleshoot" hint="Checks this phone, the database and Automa; fixes what it can" onClick={() => {
+                haptic("tick");
+                onOpenChange(false);
+                setTroubleshootOpen(true);
+              }} />
+            ) : null}
+            <ActionRow icon={RotateCw} label="Reload app" hint="Loads the board again, when something looks stuck" onClick={() => {
+              haptic("tick");
+              reloadApp();
+            }} />
             {inApp ? (
               <ActionRow icon={Server} label="Change server" hint="Connect to another Automa, or this phone" onClick={() => {
                 haptic("tick");
@@ -461,6 +479,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         </div>
       </SheetContent>
       <AboutAutomaSheet open={aboutOpen} onOpenChange={setAboutOpen} />
+      <TroubleshootDialog open={troubleshootOpen} onOpenChange={setTroubleshootOpen} />
     </Sheet>
   );
 }

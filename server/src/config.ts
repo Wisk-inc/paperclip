@@ -8,6 +8,7 @@ import { config as loadDotenv } from "dotenv";
 import { resolvePaperclipEnvPath } from "./paths.js";
 import { maybeRepairLegacyWorktreeConfigAndEnvFiles } from "./worktree-config.js";
 import { shouldLoadWorkingDirectoryEnv } from "./env-file-policy.js";
+import { safeModeFromEnv } from "./safe-mode.js";
 import {
   AUTH_BASE_URL_MODES,
   BIND_MODES,
@@ -96,6 +97,11 @@ export interface Config {
   feedbackExportBackendToken: string | undefined;
   heartbeatSchedulerEnabled: boolean;
   heartbeatSchedulerIntervalMs: number;
+  /**
+   * Safe start (see safe-mode.ts): only what the board needs runs; the
+   * heartbeat scheduler, plugins and background upkeep wait for a normal start.
+   */
+  safeMode: boolean;
   companyDeletionEnabled: boolean;
   telemetryEnabled: boolean;
   announcementsEnabled: boolean;
@@ -367,8 +373,10 @@ export function loadConfig(): Config {
     storageS3ForcePathStyle,
     feedbackExportBackendUrl,
     feedbackExportBackendToken,
-    heartbeatSchedulerEnabled: process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
+    // A safe start runs no agents, schedules or startup recovery (safe-mode.ts).
+    heartbeatSchedulerEnabled: !safeModeFromEnv() && process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
+    safeMode: safeModeFromEnv(),
     companyDeletionEnabled,
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
     announcementsEnabled: process.env.PAPERCLIP_ANNOUNCEMENTS_ENABLED !== "false",

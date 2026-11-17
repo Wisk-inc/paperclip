@@ -105,6 +105,18 @@ interface AutomaNativeRaw {
   canNotify?(key: string): boolean;
   /** Android 13+: asks for the notification permission. */
   requestNotifications?(key: string): void;
+  /** 1.9.12+: runs `automa troubleshoot` in Termux; resolves `{ ok, output, problems }` or `{ ok, pending }`. */
+  runTroubleshooter?(key: string, callId: string): void;
+  /** 1.9.12+: whether this page may run the troubleshooter (Automa on this phone, Termux installed). */
+  canTroubleshoot?(key: string): boolean;
+}
+
+/** The troubleshooter's answer: its report, and whether it found problems that need the person. */
+export interface AutomaTroubleshootReport {
+  output: string;
+  problems: boolean;
+  /** Termux took too long to answer: it is still running there. */
+  pending: boolean;
 }
 
 export interface AutomaAppAccount {
@@ -321,6 +333,19 @@ export const automaNative = {
       if (!raw.listInstalledApps) throw new Error("Update the Automa app to pick apps from this phone");
       raw.listInstalledApps(key, callId);
     }).then((reply) => reply.apps ?? []);
+  },
+  /** Whether the troubleshooter can run from here: the Automa app (1.9.12+) on Automa on this phone. */
+  canTroubleshoot(): boolean {
+    const raw = rawBridge();
+    if (typeof raw?.runTroubleshooter !== "function" || typeof raw.canTroubleshoot !== "function") return false;
+    return raw.canTroubleshoot(pageKey()) === true;
+  },
+  /** Runs `automa troubleshoot` in Termux (it fixes what it safely can) and resolves its report. */
+  troubleshoot(): Promise<AutomaTroubleshootReport> {
+    return callAsync<{ output?: string; problems?: boolean; pending?: boolean }>((raw, key, callId) => {
+      if (!raw.runTroubleshooter) throw new Error("Update the Automa app to troubleshoot from here");
+      raw.runTroubleshooter(key, callId);
+    }).then((reply) => ({ output: reply.output ?? "", problems: reply.problems === true, pending: reply.pending === true }));
   },
   /** Returns false when the app build has no haptic bridge, so callers can fall back. */
   haptic(kind: string): boolean {

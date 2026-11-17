@@ -37,6 +37,14 @@ async function check() {
     silentSince = 0;
     if (res.ok && body && body.status === "ok") {
       say("Automa is running and ready on http://127.0.0.1:3100");
+      // Safe mode (Automa 1.9.12 on): the board works, the rest waits.
+      if (body.safeMode) {
+        say(
+          body.safeModeReason === "crashes"
+            ? "It is in safe mode because it kept stopping while it started: agents, schedules and plugins are off. automa troubleshoot looks for the cause; Restart normally on the board (or automa restart) turns them back on."
+            : "It is in safe mode: agents, schedules and plugins are off until Restart normally on the board (or automa restart).",
+        );
+      }
       process.exit(0);
     }
     if (res.ok) say(describe(body));

@@ -549,6 +549,39 @@ class AutomaBridge(
         activity.runOnUiThread { activity.startAutomaInTermux(force = true) { reply -> resolve(callId, reply.toString()) } }
     }
 
+    /**
+     * Safe start: `automa restart --safe` in Termux (it stops an Automa that
+     * keeps failing and starts it in safe mode: the board opens, while agents,
+     * schedules and plugins stay off). Replies like [startAutomaInTermux].
+     * Connect screen only.
+     */
+    @JavascriptInterface
+    fun safeStartAutomaInTermux(key: String?, callId: String) {
+        if (!onConnectPage(key)) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread { activity.runInTermux(MainActivity.TermuxTask.SAFE_START) { reply -> resolve(callId, reply.toString()) } }
+    }
+
+    /**
+     * Runs `automa troubleshoot --start --no-follow` in Termux and replies
+     * {ok, output, problems} with its report (or {ok, pending} when it takes
+     * too long, or {ok:false, reason, error}). The connect screen, and the board
+     * of Automa on this phone (its safe mode banner); never a remote server's
+     * board, whose problems this phone's Termux can't see.
+     */
+    @JavascriptInterface
+    fun runTroubleshooter(key: String?, callId: String) {
+        val phoneBoard = onServerPage(key) && config.serverUrl?.let { ServerConfig.isLoopback(it) } == true
+        if (!onConnectPage(key) && !phoneBoard) return resolve(callId, error("Not available on this page"))
+        activity.runOnUiThread { activity.runInTermux(MainActivity.TermuxTask.TROUBLESHOOT) { reply -> resolve(callId, reply.toString()) } }
+    }
+
+    /** Whether the troubleshooter can run from this page (see [runTroubleshooter]). */
+    @JavascriptInterface
+    fun canTroubleshoot(key: String?): Boolean {
+        val phoneBoard = onServerPage(key) && config.serverUrl?.let { ServerConfig.isLoopback(it) } == true
+        return (onConnectPage(key) || phoneBoard) && activity.isTermuxInstalled()
+    }
+
     /** Opens Termux, or its download page when it is not installed. Connect screen only. */
     @JavascriptInterface
     fun openTermux(key: String?) {

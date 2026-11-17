@@ -33,6 +33,11 @@ class ConnectionOverlay(
     private val onRetry: () -> Unit,
     /** The connect screen, for a server that is gone for good: retrying alone was a dead end. */
     private val onOtherServer: () -> Unit,
+    /**
+     * Loads the board again from the server, whatever state the page was in
+     * ("Try now" keeps a page that only lost its connection, and what was typed in it).
+     */
+    private val onReload: () -> Unit,
 ) : FrameLayout(context) {
     /** STARTING: Automa on this phone answered that it is still starting; it is checked again by itself. */
     enum class Reason { OFFLINE, UNREACHABLE, STARTING }
@@ -45,6 +50,7 @@ class ConnectionOverlay(
     private val countdown = TextView(context)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
     private val retry = Button(context)
+    private val reload = Button(context)
     private val otherServer = Button(context)
     private var timer: CountDownTimer? = null
 
@@ -86,6 +92,14 @@ class ConnectionOverlay(
             setOnClickListener { timer?.cancel(); onRetry() }
             setPadding(dp(24), dp(12), dp(24), dp(12))
         }
+        reload.apply {
+            text = context.getString(R.string.offline_reload)
+            setOnClickListener { timer?.cancel(); onReload() }
+            setPadding(dp(24), dp(12), dp(24), dp(12))
+            isAllCaps = false
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.WHITE)
+        }
         otherServer.apply {
             text = context.getString(R.string.offline_other_server)
             setOnClickListener { timer?.cancel(); onOtherServer() }
@@ -106,8 +120,12 @@ class ConnectionOverlay(
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) },
         )
         column.addView(
-            otherServer,
+            reload,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) },
+        )
+        column.addView(
+            otherServer,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) },
         )
         addView(column, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     }

@@ -38,6 +38,11 @@ vi.mock("./InboxBell", () => ({
   InboxBell: () => <a data-slot="inbox-bell" href="/inbox" aria-label="Inbox" />,
 }));
 
+// Refresh (RefreshButton.test.tsx covers what it does); here, only where it sits.
+vi.mock("./RefreshButton", () => ({
+  RefreshButton: () => <button type="button" data-slot="refresh-button" aria-label="Refresh" />,
+}));
+
 vi.mock("../context/PanelContext", () => ({
   usePanel: () => ({ panelVisible: true, togglePanelVisible: vi.fn() }),
 }));
@@ -167,6 +172,19 @@ describe("BreadcrumbBar", () => {
     expect(identifier?.previousElementSibling?.className).toContain("truncate");
     expect(container.querySelector('button[aria-label="Back"]')).not.toBeNull();
     expect(container.querySelector('button[aria-label="Open sidebar"]')).toBeNull();
+  });
+
+  it("has Refresh in the header: before the inbox on a phone, and on a computer too", async () => {
+    viewport.isMobile = true;
+    await act(async () => root.render(<BreadcrumbProvider><TaskBreadcrumbs /></BreadcrumbProvider>));
+    const refresh = container.querySelector('[data-slot="refresh-button"]');
+    expect(refresh).not.toBeNull();
+    expect(refresh?.nextElementSibling?.getAttribute("data-slot")).toBe("inbox-bell");
+
+    viewport.isMobile = false;
+    await act(async () => root.render(<BreadcrumbProvider><TaskBreadcrumbs /></BreadcrumbProvider>));
+    expect(container.querySelector('[data-slot="refresh-button"]')).not.toBeNull();
+    expect(container.querySelector('[data-slot="inbox-bell"]')).toBeNull();
   });
 
   it("renders a page toolbar in the same persistent row as the task breadcrumb", async () => {

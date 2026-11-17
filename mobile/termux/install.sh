@@ -21,6 +21,23 @@ file_version="$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | 
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
+# PostgreSQL settings for a phone, used whenever Automa starts it (here and in
+# the automa command). Android 12 and newer end apps whose processes add up to
+# too many ("[Process completed (signal 9)]" in Termux), and PostgreSQL runs a
+# process per connection plus helpers: parallel query workers and the logical
+# replication launcher are processes Automa never needs, and one autovacuum
+# worker is plenty for one person's board. A smaller buffer cache keeps
+# Termux's memory down, so Android is slower to end it when memory runs low.
+pg_phone_opts="-c max_connections=30 -c shared_buffers=32MB -c max_worker_processes=2 -c max_parallel_workers=0 -c max_parallel_workers_per_gather=0 -c max_parallel_maintenance_workers=0 -c max_logical_replication_workers=0 -c autovacuum_max_workers=1"
+# Starts PostgreSQL with those settings. If it still isn't up (a PostgreSQL
+# that refuses one of them), it starts with its own instead: Automa runs either way.
+start_pg() {
+  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -o "$pg_phone_opts" -w start >/dev/null && return 0
+  pg_ctl -D "$pgdata" status >/dev/null 2>&1 && return 0
+  echo "The database did not start with the settings for a phone; starting it with its own." >&2
+  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+}
+
 # The process number in automa.pid when it really is a running Automa: after
 # Android ends Termux the file stays behind, and its number can come back as
 # another process (which then got Automa's stop signal, or made `automa run`
@@ -162,7 +179,7 @@ if [ ! -f "$pgdata/PG_VERSION" ]; then
 fi
 clear_stale_pg_lock
 if ! pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
-  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+  start_pg
 fi
 export PGPASSWORD="$(cat "$db_password_file")"
 # A database made by an earlier installer trusted every local connection:
@@ -271,6 +288,11 @@ say "Adding the automa command"
 mkdir -p "$automa_home/bin"
 cp "$here/automa-adb-link.sh" "$automa_home/bin/automa-adb-link"
 chmod 700 "$automa_home/bin/automa-adb-link"
+# automa keep-alive (Android's background process limit) and automa
+# troubleshoot (checks and repairs): see each script.
+cp "$here/automa-keep-alive.sh" "$automa_home/bin/automa-keep-alive"
+cp "$here/automa-troubleshoot.sh" "$automa_home/bin/automa-troubleshoot"
+chmod 700 "$automa_home/bin/automa-keep-alive" "$automa_home/bin/automa-troubleshoot"
 # Follows a starting Automa until it is ready, printing each step it reports
 # (Automa 1.9.10 on). `automa run` uses it when Automa already runs in the
 # background (it used to say "already running" and end, while the app still
@@ -290,8 +312,19 @@ cat > "$PREFIX/bin/automa" <<LAUNCHER
 # Starts the Automa database when it is not running, then the Automa server CLI.
 # Usage: automa run        runs Automa here, and starts it again if it stops
 #        automa start      the same, in the background (the Automa app and Termux:Boot use this)
+#        automa run --safe, automa start --safe
+#                          safe mode: the board opens, while agents, schedules and plugins stay
+#                          off until a normal start (Automa falls back to it by itself when it
+#                          keeps stopping while it starts)
+#        automa restart    stops Automa and starts it again in the background (--safe: in safe mode)
 #        automa stop       stops Automa started with automa start
 #        automa status     says whether Automa is running
+#        automa logs       the end of Automa's log, and when and why it last stopped
+#        automa troubleshoot  checks the phone, the database and the server, fixes what it
+#                          safely can and says what to do about the rest (also: automa fix;
+#                          --start starts Automa afterwards)
+#        automa keep-alive stops Android 12 and newer from ending Termux in the background
+#                          (needs Wireless debugging once; the setting stays after restarts)
 #        automa update     installs the newer server the Automa app sent (~/downloads/automa-server.tar.xz)
 #        automa backup     saves a complete copy of the database (Automa also saves one every hour)
 #        automa restore    puts a backup back (lists them; pass a file to pick one)
@@ -335,10 +368,68 @@ clear_stale_pg_lock() {
   echo "Clearing PostgreSQL's lock file left from before (it was not shut down cleanly)." >&2
   rm -f "\$lock"
 }
-# Starts the database unless it is running.
+# PostgreSQL settings for a phone: fewer processes, less memory (see the installer).
+pg_phone_opts="$pg_phone_opts"
+# Starts the database unless it is running, with the settings for a phone; if
+# it still isn't up with them, with its own. tune: Automa is about to start
+# (nothing else uses the database then), so one started before those settings
+# existed (by an older Automa) is restarted with them.
 start_db() {
   clear_stale_pg_lock
-  pg_ctl -D "$pgdata" status >/dev/null 2>&1 || pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+  if pg_ctl -D "$pgdata" status >/dev/null 2>&1; then
+    [ "\${1:-}" = tune ] || return 0
+    local workers
+    workers="\$(PGPASSWORD="\$(cat "$db_password_file")" psql -h 127.0.0.1 -d postgres -tAc 'show max_parallel_workers' 2>/dev/null | tr -dc '0-9')"
+    { [ -n "\$workers" ] && [ "\$workers" != 0 ]; } || return 0
+    echo "Restarting the database with the settings for a phone (fewer processes, less memory)." >&2
+    pg_ctl -D "$pgdata" -l "$pgdata/server.log" -m fast -o "\$pg_phone_opts" -w restart >/dev/null 2>&1 && return 0
+  fi
+  pg_ctl -D "$pgdata" status >/dev/null 2>&1 && return 0
+  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -o "\$pg_phone_opts" -w start >/dev/null && return 0
+  pg_ctl -D "$pgdata" status >/dev/null 2>&1 && return 0
+  echo "The database did not start with the settings for a phone; starting it with its own." >&2
+  pg_ctl -D "$pgdata" -l "$pgdata/server.log" -w start >/dev/null
+}
+# One line in ~/.automa/events.log: when Automa started and stopped, and why
+# (automa logs and automa troubleshoot read it). Kept to its last 200 lines.
+log_event() {
+  local file="$automa_home/events.log"
+  printf '%s %s\n' "\$(date '+%Y-%m-%d %H:%M:%S')" "\$*" >> "\$file" 2>/dev/null || return 0
+  if [ "\$(wc -l < "\$file" 2>/dev/null || echo 0)" -gt 400 ]; then
+    if tail -n 200 "\$file" > "\$file.part" 2>/dev/null; then mv "\$file.part" "\$file"; else rm -f "\$file.part"; fi
+  fi
+  return 0
+}
+# Why the server stopped, in words: \$1 its exit code, \$2 how many seconds it ran.
+explain_stop() {
+  case "\$1" in
+    137) echo "Android ended it (signal 9) after \$2 seconds. Android 12 and newer end apps that run too many processes in the background, and every Android ends apps when memory runs low: automa keep-alive lifts the process limit, and automa troubleshoot checks memory and storage." ;;
+    134) echo "it crashed (signal 6) after \$2 seconds, most often because the phone ran out of memory. Closing other apps helps; automa troubleshoot checks." ;;
+    139) echo "it crashed (signal 11) after \$2 seconds." ;;
+    143) echo "something outside Automa stopped it (signal 15) after \$2 seconds." ;;
+    *) echo "it ended with exit code \$1 after \$2 seconds (the error is just above)." ;;
+  esac
+}
+# automa run keeps automa.running (its own pid) while it runs, and removes it
+# when it ends however it is asked to (automa stop, Ctrl+C, a clean exit). One
+# left behind means the launcher was ended without warning: signal 9 (Android
+# closing Termux) or the phone switching off. Said once, when Automa starts
+# again. (Not automa.pid: the first install's server leaves that behind too.)
+note_unclean_end() {
+  local marker="$automa_home/automa.running" pid written up
+  [ -f "\$marker" ] || return 0
+  pid="\$(cat "\$marker" 2>/dev/null)"
+  # Still finishing (automa stop was just asked): not ended without warning.
+  if [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null && { tr '\\0' ' ' < "/proc/\$pid/cmdline"; } 2>/dev/null | grep -q automa; then return 0; fi
+  written="\$(stat -c %Y "\$marker" 2>/dev/null)" || return 0
+  rm -f "\$marker"
+  up="\$(cut -d. -f1 /proc/uptime 2>/dev/null)" || up=""
+  if [ -n "\$up" ] && [ "\$written" -lt "\$((\$(date +%s) - up))" ]; then
+    log_event "the last Automa ended when the phone switched off or restarted"
+    return 0
+  fi
+  log_event "the last Automa was ended without warning (Android closed Termux, signal 9)"
+  echo "The last Automa was ended without warning: Android closed Termux or ended its processes. automa keep-alive stops Android 12 and newer from doing that; setting Termux's battery use to Unrestricted helps on every Android." >&2
 }
 # Follows the Automa that is already running until it is ready (printing the
 # startup steps it reports), then has the app open the board.
@@ -365,6 +456,17 @@ backup_ok() {
   end="\$(set -o pipefail; gunzip -c "\$1" 2>/dev/null | tail -n 20)" || return 1
   printf '%s\n' "\$end" | grep -Eq '^(-- PostgreSQL database dump complete|COMMIT;)'
 }
+# --safe (automa run, start, restart): the launcher's own flag, never passed to the server.
+safe=""
+case "\${1:-}" in
+  run|start|restart)
+    kept=()
+    for arg in "\$@"; do
+      if [ "\$arg" = --safe ]; then safe=1; else kept+=("\$arg"); fi
+    done
+    set -- "\${kept[@]}"
+    ;;
+esac
 case "\${1:-}" in
   adb)
     shift
@@ -380,16 +482,67 @@ case "\${1:-}" in
     # Already up: nothing to do. Otherwise the supervisor below runs in the
     # background, its output in ~/.automa/server.log.
     if running_pid >/dev/null; then
-      echo "Automa is already running."
+      if [ -n "\$safe" ]; then echo "Automa is already running. To start it in safe mode instead: automa restart --safe"; else echo "Automa is already running."; fi
       exit 0
     fi
     if automa_answers; then
       echo "Automa is already running on http://127.0.0.1:3100 (started another way)."
       exit 0
     fi
-    AUTOMA_NO_APP=1 nohup "\$0" run >"$automa_home/server.log" 2>&1 </dev/null &
-    echo "Automa is starting (log: $automa_home/server.log)."
+    # The last start's output stays beside the new one (server.log.1): after a
+    # crash it holds the error, which automa troubleshoot and automa logs read.
+    [ ! -f "$automa_home/server.log" ] || mv -f "$automa_home/server.log" "$automa_home/server.log.1"
+    AUTOMA_NO_APP=1 nohup "\$0" run \${safe:+--safe} >"$automa_home/server.log" 2>&1 </dev/null &
+    echo "Automa is starting\${safe:+ in safe mode} (log: $automa_home/server.log)."
     exit 0
+    ;;
+  restart)
+    # Stops the Automa that automa start or automa run started (waiting for
+    # it to finish stopping), then starts it again in the background.
+    if pid="\$(running_pid)"; then
+      echo "Stopping Automa..."
+      kill -TERM "\$pid" 2>/dev/null || true
+      for _ in \$(seq 1 60); do kill -0 "\$pid" 2>/dev/null || break; sleep 1; done
+      if kill -0 "\$pid" 2>/dev/null; then
+        echo "Automa did not stop within a minute; ending it now." >&2
+        command -v pkill >/dev/null 2>&1 && pkill -KILL -P "\$pid" 2>/dev/null || true
+        kill -KILL "\$pid" 2>/dev/null || true
+      fi
+      rm -f "$automa_home/automa.pid"
+    fi
+    # Its port frees a moment after it stops.
+    for _ in \$(seq 1 15); do automa_answers || break; sleep 1; done
+    if automa_answers; then
+      echo "An Automa started another way is still running on http://127.0.0.1:3100. Stop it there (Ctrl+C in its Termux session), then run: automa start" >&2
+      exit 1
+    fi
+    exec "\$0" start \${safe:+--safe}
+    ;;
+  logs)
+    # Where the Automa app and automa start send the server's output, and the
+    # launcher's own record of starts and stops.
+    if [ -s "$automa_home/server.log" ]; then
+      echo "== The end of $automa_home/server.log"
+      tail -n "\${2:-60}" "$automa_home/server.log"
+    else
+      echo "No log yet: the Automa app and automa start write $automa_home/server.log (automa run shows the output in Termux instead)."
+    fi
+    if [ -s "$automa_home/events.log" ]; then
+      echo
+      echo "== Starts and stops ($automa_home/events.log)"
+      tail -n 15 "$automa_home/events.log"
+    fi
+    exit 0
+    ;;
+  troubleshoot|fix)
+    shift
+    exec env AUTOMA_HOME="$automa_home" AUTOMA_SERVER_DIR="$server_dir" AUTOMA_PGDATA="$pgdata" \\
+      AUTOMA_BACKUP_DIR="$backup_dir" AUTOMA_PG_OPTS="\$pg_phone_opts" AUTOMA_COMMAND="\$0" \\
+      bash "$automa_home/bin/automa-troubleshoot" "\$@"
+    ;;
+  keep-alive)
+    shift
+    exec env AUTOMA_HOME="$automa_home" bash "$automa_home/bin/automa-keep-alive" "\$@"
     ;;
   stop)
     if pid="\$(running_pid)"; then
@@ -405,9 +558,15 @@ case "\${1:-}" in
     exit 0
     ;;
   status)
-    # One line: ready, starting (and on which step), or not answering.
-    if node "$automa_home/bin/automa-follow-start.mjs" --once; then exit 0; fi
-    running_pid >/dev/null && echo "(Its output is in $automa_home/server.log when the Automa app started it.)"
+    # One line: ready (or in safe mode), starting (and on which step), or not
+    # answering; then the launcher's last record.
+    status=0
+    node "$automa_home/bin/automa-follow-start.mjs" --once || status=\$?
+    if [ "\$status" -ne 0 ]; then
+      running_pid >/dev/null && echo "(Its output is in $automa_home/server.log when the Automa app started it.)"
+    fi
+    [ ! -s "$automa_home/events.log" ] || echo "Last: \$(tail -n 1 "$automa_home/events.log")"
+    [ "\$status" -eq 0 ] && exit 0
     exit 1
     ;;
   update)
@@ -495,6 +654,12 @@ case "\${1:-}" in
 esac
 start_db
 export DATABASE_URL="\${DATABASE_URL:-postgres://\$(id -un):\$(cat "$db_password_file")@127.0.0.1:5432/automa}"
+# Each database connection is a PostgreSQL process, and Android 12 and newer
+# end apps that run too many: a few are plenty for one person's board (the
+# server's own default is 10). Idle ones close after a minute (the server's
+# default too, kept here so the phone keeps it).
+export DATABASE_POOL_MAX="\${DATABASE_POOL_MAX:-6}"
+export DATABASE_IDLE_TIMEOUT_SECONDS="\${DATABASE_IDLE_TIMEOUT_SECONDS:-60}"
 # Automa sends no usage data anywhere: the upstream telemetry endpoint belongs
 # to another company. Set PAPERCLIP_TELEMETRY_DISABLED=0 to opt back in.
 export PAPERCLIP_TELEMETRY_DISABLED="\${PAPERCLIP_TELEMETRY_DISABLED:-1}"
@@ -521,7 +686,11 @@ if [ "\${1:-}" = "run" ]; then
     follow_running
     exit 0
   fi
+  note_unclean_end
   echo "\$\$" > "$automa_home/automa.pid"
+  echo "\$\$" > "$automa_home/automa.running"
+  # Nothing uses the database yet: one started without the phone settings gets them now.
+  start_db tune || true
   # Keeps Automa up: when Android or a crash stops the server, it starts again.
   # Ctrl+C (or automa stop) ends it for good.
   child=""
@@ -532,33 +701,68 @@ if [ "\${1:-}" = "run" ]; then
       kill -TERM "\$child" 2>/dev/null || true
       wait "\$child" 2>/dev/null || true
     fi
+    log_event "stopped (automa stop, Ctrl+C, or Automa finished)"
     if [ "\$(cat "$automa_home/automa.pid" 2>/dev/null)" = "\$\$" ]; then rm -f "$automa_home/automa.pid"; fi
+    # Its own marker even when automa stop already took automa.pid away.
+    if [ "\$(cat "$automa_home/automa.running" 2>/dev/null)" = "\$\$" ]; then rm -f "$automa_home/automa.running"; fi
     exit 0
   }
   trap finish INT TERM HUP
   quick_stops=0
+  # Why this start is a safe one (safe-mode.ts in the server): asked for with
+  # --safe, or "crashes" once Automa kept stopping while it started. Empty: a
+  # normal start.
+  safe_reason=""
+  [ -z "\$safe" ] || safe_reason=asked
+  log_event "started\${safe_reason:+ in safe mode (asked for)}"
   while true; do
     started_at=\$(date +%s)
-    node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@" &
+    # AUTOMA_LAUNCHER: this loop starts the server again when it asks to
+    # (exit 75, "Restart normally" on the board's safe mode banner).
+    if [ -n "\$safe_reason" ]; then
+      echo "Starting Automa in safe mode: the board opens, while agents, schedules and plugins stay off until a normal start (Restart normally on the board, or automa restart)." >&2
+      PAPERCLIP_SAFE_MODE=1 AUTOMA_SAFE_REASON="\$safe_reason" AUTOMA_LAUNCHER=1 node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@" &
+    else
+      AUTOMA_LAUNCHER=1 node "$server_dir/node_modules/paperclipai/dist/index.js" "\$@" &
+    fi
     child=\$!
     code=0
     wait "\$child" || code=\$?
     child=""
     [ "\$code" -eq 0 ] && finish
+    ran=\$((\$(date +%s) - started_at))
+    # "Restart normally" on the board: at once, and normally.
+    if [ "\$code" -eq 75 ]; then
+      log_event "restarting normally, as asked on the board"
+      echo "Restarting Automa normally, as asked on the board..." >&2
+      safe_reason=""
+      quick_stops=0
+      start_db || true
+      continue
+    fi
     # Another Automa took the port meanwhile: starting again would only fail again.
     if automa_answers; then
       echo "Another Automa is answering on port 3100, so this one stops. Stop that one first, then run: automa run" >&2
       finish
     fi
+    log_event "the server stopped after \${ran}s with exit code \$code\${safe_reason:+ (safe mode)}"
+    echo "Automa stopped: \$(explain_stop "\$code" "\$ran")" >&2
     # Stopping again and again within minutes of starting is an error at start,
-    # not Android: it says so, and waits longer instead of looping every 3 s.
-    if [ \$((\$(date +%s) - started_at)) -lt 300 ]; then quick_stops=\$((quick_stops + 1)); else quick_stops=0; fi
-    if [ "\$quick_stops" -ge 3 ]; then
-      echo "Automa stopped \$quick_stops times in a row while starting (exit \$code). The error is above (or in $automa_home/server.log when the Automa app started it). Trying again in 60 seconds; Ctrl+C stops it." >&2
+    # not a one-off: after three, Automa starts in safe mode (the board opens
+    # without agents, schedules and plugins, one of which may be the cause);
+    # when even that keeps stopping, it waits longer instead of looping every 3 s.
+    if [ "\$ran" -lt 300 ]; then quick_stops=\$((quick_stops + 1)); else quick_stops=0; fi
+    wait_secs="\${AUTOMA_RESTART_WAIT:-3}"
+    if [ "\$quick_stops" -ge 3 ] && [ -z "\$safe_reason" ]; then
+      echo "Automa stopped \$quick_stops times in a row while starting (exit \$code). Starting it in safe mode in \$wait_secs seconds, so the board opens and shows what is wrong; automa troubleshoot looks for the cause." >&2
+      log_event "falling back to safe mode after \$quick_stops quick stops"
+      safe_reason=crashes
+      quick_stops=0
+    elif [ "\$quick_stops" -ge 3 ]; then
+      echo "Automa stopped \$quick_stops times in a row while starting, even in safe mode (exit \$code). The error is above (or in $automa_home/server.log when the Automa app started it); automa troubleshoot looks for the cause. Trying again in 60 seconds; Ctrl+C stops it." >&2
       wait_secs=60
     else
-      echo "Automa stopped (exit \$code). Starting it again in 3 seconds..." >&2
-      wait_secs=3
+      echo "Starting it again in \$wait_secs seconds..." >&2
     fi
     # In the background, so automa stop (or Ctrl+C) ends the wait at once.
     sleep "\$wait_secs" &

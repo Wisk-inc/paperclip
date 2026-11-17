@@ -263,7 +263,9 @@ describe("the automa command's backup and restore", () => {
     await mkdir(path.join(bundle, "packages", "server", "package"), { recursive: true });
     await writeFile(path.join(bundle, "packages", "server", "package", "package.json"), "{}\n");
     await writeFile(path.join(bundle, "VERSION"), "9.9.9\n");
-    for (const name of ["install.sh", "automa-adb-link.sh", "automa-follow-start.mjs"]) await copyFile(path.join(MOBILE_TERMUX, name), path.join(bundle, name));
+    for (const name of ["install.sh", "automa-adb-link.sh", "automa-follow-start.mjs", "automa-keep-alive.sh", "automa-troubleshoot.sh"]) {
+      await copyFile(path.join(MOBILE_TERMUX, name), path.join(bundle, name));
+    }
     await mkdir(path.join(root, "pgdata"), { recursive: true });
     await mkdir(path.join(root, "tmp"), { recursive: true });
     await writeFile(path.join(root, "pgdata", "PG_VERSION"), "17\n");
@@ -271,20 +273,42 @@ describe("the automa command's backup and restore", () => {
     await writeFile(path.join(root, "pkg-works"), "");
     await symlink("/bin/bash", path.join(prefix, "bin", "bash"));
     // Without Node, pkg installs it (the stand-in) when asked for nodejs-lts.
-    // The launcher's own follow script runs on the real Node; the server is a
-    // stand-in that logs its start and ends with the code in server-exit (0).
+    // The launcher's own follow script, and the troubleshooter's health check,
+    // run on the real Node. The server is a stand-in that logs its start (with
+    // what the launcher hands it) and ends with the next code in server-exits,
+    // else the one in server-exit (0); with server-blocks it runs until stopped.
     await fake("node", [
       `case "$*" in`,
-      `  *automa-follow-start.mjs*) exec "${process.execPath}" "$@";;`,
-      `  *dist/index.js*) echo "server $*" >> "${root}/calls.log"; exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
+      `  *automa-follow-start.mjs*|*AbortSignal.timeout*) exec "${process.execPath}" "$@";;`,
+      `  *dist/index.js*)`,
+      `    echo "server $* safe=\${PAPERCLIP_SAFE_MODE:-} reason=\${AUTOMA_SAFE_REASON:-} launcher=\${AUTOMA_LAUNCHER:-} pool=\${DATABASE_POOL_MAX:-} idle=\${DATABASE_IDLE_TIMEOUT_SECONDS:-}" >> "${root}/calls.log"`,
+      `    if [ -f "${root}/server-blocks" ]; then sleep 300 & nap=$!; trap 'kill $nap 2>/dev/null; exit 0' TERM; wait $nap; exit 0; fi`,
+      `    if [ -s "${root}/server-exits" ]; then code="$(head -n 1 "${root}/server-exits")"; sed -i 1d "${root}/server-exits"; exit "$code"; fi`,
+      `    exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
       `  *process.versions*) echo 24;;`,
       `  *process.platform*) echo linux;;`,
       `  *) [ -f "${root}/server-up" ];;`,
       `esac`,
     ].join("\n"), nodeMissing ? path.join(root, "pkg-files") : bin);
     if (nodeMissing) await fake("pkg", `echo "pkg $*" >> "${root}/calls.log"; case " $* " in *" nodejs-lts "*) cp "${root}/pkg-files/node" "${prefix}/bin/node";; esac`);
-    await fake("pg_ctl", `[ "$1" = --version ] && echo "pg_ctl (PostgreSQL) 17.6"; exit 0`);
-    await fake("psql", `echo "psql $*" >> "${root}/calls.log"; case "$*" in *--quiet*) cat > "${root}/restored.sql";; *) echo 1;; esac`);
+    // pg_ctl logs what it is asked (status checks aside); a database that
+    // won't start is pg-start-fails.
+    await fake("pg_ctl", [
+      `[ "$1" = --version ] && { echo "pg_ctl (PostgreSQL) 17.6"; exit 0; }`,
+      `case " $* " in *" status "*) [ -f "${root}/pg-down" ] && exit 3; exit 0;; esac`,
+      `echo "pg_ctl $*" >> "${root}/calls.log"`,
+      `case " $* " in *" start "*|*" restart "*) [ -f "${root}/pg-start-fails" ] && exit 1; rm -f "${root}/pg-down";; esac`,
+      `exit 0`,
+    ].join("\n"));
+    // max_parallel_workers: 0 once the phone settings apply (pg-untuned: 8, as PostgreSQL's own).
+    await fake("psql", [
+      `echo "psql $*" >> "${root}/calls.log"`,
+      `case "$*" in`,
+      `  *--quiet*) cat > "${root}/restored.sql";;`,
+      `  *max_parallel_workers*) if [ -f "${root}/pg-untuned" ]; then echo 8; else echo 0; fi;;`,
+      `  *) echo 1;;`,
+      `esac`,
+    ].join("\n"));
     await fake("createdb", `echo "createdb $*" >> "${root}/calls.log"`);
     await fake("dropdb", `echo "dropdb $*" >> "${root}/calls.log"`);
     await fake("pg_dump", [
@@ -473,8 +497,13 @@ describe("the automa command's backup and restore", () => {
     const started = await runFile(automa(), ["start"]);
     expect(started.code).toBe(0);
     expect(started.out).toContain("Automa is already running on http://127.0.0.1:3100 (started another way)");
-    const ran = await runFile(automa(), ["run"]);
-    expect(ran.code).toBe(0);
+    // automa run follows that one's start; nothing really answers here, so the
+    // follow gives up quickly instead of waiting a minute (or finding whatever
+    // else this machine runs on port 3100).
+    const ran = await runFile(automa(), ["run"], {
+      env: { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health", AUTOMA_FOLLOW_POLL_MS: "20", AUTOMA_FOLLOW_SILENT_MS: "300" },
+    });
+    expect(ran.code, ran.out).toBe(0);
     expect(ran.out).toContain("started another way");
     await expect(readFile(path.join(root, "home", ".automa", "automa.pid"), "utf8")).rejects.toThrow();
   }, 60_000);
@@ -600,26 +629,418 @@ describe("the automa command's backup and restore", () => {
       expect(await readFile(lock, "utf8")).toContain(String(postgres.pid));
     }, 60_000);
 
-    it("slows down when Automa keeps stopping while it starts, and automa stop ends the wait at once", async () => {
+    /** `automa <args>` running in the background, with what it prints so far. */
+    function supervise(args: string[], env: Record<string, string> = {}) {
+      const child = spawn("bash", [automa(), ...args], { env: phoneEnv(env), cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      processes.push(child);
+      const output = { text: "" };
+      child.stdout!.on("data", (chunk) => { output.text += String(chunk); });
+      child.stderr!.on("data", (chunk) => { output.text += String(chunk); });
+      const ended = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+      return { child, output, ended };
+    }
+    const serverStarts = async () => (await calls()).split("\n").filter((line) => line.startsWith("server "));
+    const events = () => readFile(path.join(root, "home", ".automa", "events.log"), "utf8").catch(() => "");
+
+    it("starts in safe mode after three quick stops, slows down only when even that keeps stopping, and automa stop ends the wait at once", async () => {
       await installAutoma();
       await writeFile(path.join(root, "server-exit"), "1");
-      const supervisor = spawn("bash", [automa(), "run"], { env: phoneEnv(), cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-      processes.push(supervisor);
-      let out = "";
-      supervisor.stdout!.on("data", (chunk) => { out += String(chunk); });
-      supervisor.stderr!.on("data", (chunk) => { out += String(chunk); });
+      const { output, ended } = supervise(["run"], { AUTOMA_RESTART_WAIT: "0" });
 
-      await vi.waitFor(() => expect(out).toContain("Automa stopped 3 times in a row while starting (exit 1)"), { timeout: 30_000, interval: 100 });
-      expect(out).toContain("Trying again in 60 seconds");
-      expect((await calls()).match(/^server /gm)).toHaveLength(3);
+      await vi.waitFor(() => expect(output.text).toContain("Trying again in 60 seconds"), { timeout: 30_000, interval: 100 });
+      expect(output.text).toContain("Automa stopped 3 times in a row while starting (exit 1). Starting it in safe mode");
+      expect(output.text).toContain("Automa stopped 3 times in a row while starting, even in safe mode (exit 1)");
+      const starts = await serverStarts();
+      expect(starts).toHaveLength(6);
+      // Three normal starts, then three safe ones that say why; --safe is never the server's.
+      for (const line of starts.slice(0, 3)) expect(line).toContain("safe= reason= launcher=1");
+      for (const line of starts.slice(3)) expect(line).toContain("safe=1 reason=crashes launcher=1");
+      expect(await events()).toContain("falling back to safe mode after 3 quick stops");
 
-      const ended = new Promise<number | null>((resolve) => supervisor.on("exit", (code) => resolve(code)));
       const stop = await runFile(automa(), ["stop"]);
       expect(stop.out).toContain("Automa stopped.");
       const started = Date.now();
       expect(await ended).toBe(0);
       expect(Date.now() - started).toBeLessThan(10_000);
-      expect((await calls()).match(/^server /gm)).toHaveLength(3);
+      expect(await serverStarts()).toHaveLength(6);
     }, 60_000);
+
+    it("starts normally again at once when the board asks (exit 75), and stays normal", async () => {
+      await installAutoma();
+      // Three quick stops, the fallback safe start, then Restart normally on the board.
+      await writeFile(path.join(root, "server-exits"), "1\n1\n1\n75\n0\n");
+      const { output, ended } = supervise(["run"], { AUTOMA_RESTART_WAIT: "0" });
+      expect(await ended).toBe(0);
+      const starts = await serverStarts();
+      expect(starts).toHaveLength(5);
+      expect(starts[3]).toContain("safe=1 reason=crashes");
+      expect(starts[4]).toContain("safe= reason= launcher=1");
+      expect(output.text).toContain("Restarting Automa normally, as asked on the board");
+      expect(await events()).toContain("restarting normally, as asked on the board");
+    }, 60_000);
+
+    it("automa run --safe and automa start --safe start in safe mode, and the server never sees --safe", async () => {
+      await installAutoma();
+      const ran = await runFile(automa(), ["run", "--safe"]);
+      expect(ran.code, ran.out).toBe(0);
+      expect(ran.out).toContain("Starting Automa in safe mode");
+      let starts = await serverStarts();
+      expect(starts).toHaveLength(1);
+      expect(starts[0]).toContain("safe=1 reason=asked launcher=1");
+      expect(starts[0]).not.toContain("--safe");
+      expect(starts[0]).toMatch(/^server \S*dist\/index\.js run safe=/);
+
+      const started = await runFile(automa(), ["start", "--safe"]);
+      expect(started.out).toContain("Automa is starting in safe mode");
+      await vi.waitFor(async () => expect(await serverStarts()).toHaveLength(2), { timeout: 20_000, interval: 100 });
+      starts = await serverStarts();
+      expect(starts[1]).toContain("safe=1 reason=asked launcher=1");
+      expect(starts[1]).not.toContain("--safe");
+    }, 60_000);
+
+    it("says Android ended the server (signal 9) and what stops that, and keeps a record", async () => {
+      await installAutoma();
+      await writeFile(path.join(root, "server-exits"), "137\n0\n");
+      const { output, ended } = supervise(["run"], { AUTOMA_RESTART_WAIT: "0" });
+      expect(await ended).toBe(0);
+      expect(output.text).toContain("Automa stopped: Android ended it (signal 9)");
+      expect(output.text).toContain("automa keep-alive");
+      expect(await events()).toMatch(/the server stopped after \d+s with exit code 137/);
+      const logs = await runFile(automa(), ["logs"]);
+      expect(logs.out).toContain("Starts and stops");
+      expect(logs.out).toContain("exit code 137");
+    }, 60_000);
+
+    it("notices when the last Automa was ended without warning", async () => {
+      await installAutoma();
+      // Android ended Termux: the launcher had no chance to remove its marker.
+      const gone = spawn("true");
+      await new Promise((resolve) => gone.on("exit", resolve));
+      await writeFile(path.join(root, "home", ".automa", "automa.running"), `${gone.pid}\n`);
+      await writeFile(pidFile(), `${gone.pid}\n`);
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      expect(ran.out).toContain("The last Automa was ended without warning");
+      expect(await events()).toContain("the last Automa was ended without warning");
+      // A clean stop leaves nothing to report next time.
+      await expect(stat(path.join(root, "home", ".automa", "automa.running"))).rejects.toThrow();
+      const again = await runFile(automa(), ["run"]);
+      expect(again.out).not.toContain("ended without warning");
+    }, 60_000);
+
+    it("never calls the first install's server, or one stopped with automa stop, ended without warning", async () => {
+      await installAutoma();
+      // The first install's server (automa onboard) leaves its pid file behind when it ends.
+      await runFile(automa(), ["onboard", "--yes"]);
+      expect((await readFile(pidFile(), "utf8")).trim()).toMatch(/^\d+$/);
+      const first = await runFile(automa(), ["run"]);
+      expect(first.out).not.toContain("ended without warning");
+
+      await writeFile(path.join(root, "server-blocks"), "");
+      const running = supervise(["run"]);
+      // Onboard and the first run each started the server once; this is the third.
+      await vi.waitFor(async () => expect(await serverStarts()).toHaveLength(3), { timeout: 20_000, interval: 100 });
+      const stop = await runFile(automa(), ["stop"]);
+      expect(stop.out).toContain("Automa stopped.");
+      expect(await running.ended).toBe(0);
+      await rm(path.join(root, "server-blocks"));
+      const after = await runFile(automa(), ["run"]);
+      expect(after.out).not.toContain("ended without warning");
+      expect(await events()).not.toContain("without warning");
+    }, 60_000);
+
+    it("starts PostgreSQL with the settings for a phone, gives one started without them those settings, and hands the server a small pool", async () => {
+      await installAutoma();
+      const installStarts = (await calls()).split("\n").filter((line) => line.startsWith("pg_ctl") && line.includes(" start"));
+      // The fake database reports running, so the installer had nothing to start.
+      expect(installStarts).toHaveLength(0);
+
+      await writeFile(path.join(root, "pg-down"), "");
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      const started = (await calls()).split("\n").filter((line) => line.startsWith("pg_ctl") && / start$/.test(line));
+      expect(started[0]).toContain("-o -c max_connections=30 -c shared_buffers=32MB -c max_worker_processes=2 -c max_parallel_workers=0");
+      expect(started[0]).toContain("-c max_logical_replication_workers=0 -c autovacuum_max_workers=1");
+      expect((await serverStarts())[0]).toContain("pool=6 idle=60");
+
+      // An older Automa started it with PostgreSQL's own settings: restarted with the phone's.
+      await writeFile(path.join(root, "pg-untuned"), "");
+      const tuned = await runFile(automa(), ["run"]);
+      expect(tuned.out).toContain("Restarting the database with the settings for a phone");
+      expect((await calls()).split("\n").some((line) => line.startsWith("pg_ctl") && line.includes("-m fast -o -c max_connections=30") && line.endsWith(" restart"))).toBe(true);
+    }, 60_000);
+
+    it("starts the database with its own settings when it refuses the phone ones", async () => {
+      await installAutoma();
+      await writeFile(path.join(root, "pg-down"), "");
+      // Fails once (the phone settings), then starts plainly.
+      await fake("pg_ctl", [
+        `[ "$1" = --version ] && { echo "pg_ctl (PostgreSQL) 17.6"; exit 0; }`,
+        `case " $* " in *" status "*) [ -f "${root}/pg-down" ] && exit 3; exit 0;; esac`,
+        `echo "pg_ctl $*" >> "${root}/calls.log"`,
+        `case " $* " in *" -o "*) exit 1;; esac`,
+        `rm -f "${root}/pg-down"; exit 0`,
+      ].join("\n"));
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      expect(ran.out).toContain("The database did not start with the settings for a phone; starting it with its own.");
+      expect(await serverStarts()).toHaveLength(1);
+    }, 60_000);
+
+    it("automa restart stops the running Automa, waits for it, and starts it again in the background", async () => {
+      await installAutoma();
+      await writeFile(path.join(root, "server-blocks"), "");
+      const first = supervise(["run"]);
+      await vi.waitFor(async () => expect(await serverStarts()).toHaveLength(1), { timeout: 20_000, interval: 100 });
+      await vi.waitFor(async () => expect((await readFile(pidFile(), "utf8")).trim()).toBe(String(first.child.pid)), { timeout: 10_000, interval: 100 });
+
+      const restarted = await runFile(automa(), ["restart", "--safe"]);
+      expect(restarted.code, restarted.out).toBe(0);
+      expect(restarted.out).toContain("Stopping Automa...");
+      expect(restarted.out).toContain("Automa is starting in safe mode");
+      expect(await first.ended).toBe(0);
+      await vi.waitFor(async () => expect(await serverStarts()).toHaveLength(2), { timeout: 20_000, interval: 100 });
+      expect((await serverStarts())[1]).toContain("safe=1 reason=asked");
+      // The new one is the one on record, so automa stop reaches it.
+      const newPid = Number((await readFile(pidFile(), "utf8")).trim());
+      expect(newPid).not.toBe(first.child.pid);
+      expect(alive(newPid)).toBe(true);
+      const stop = await runFile(automa(), ["stop"]);
+      expect(stop.out).toContain("Automa stopped.");
+      await vi.waitFor(() => expect(alive(newPid)).toBe(false), { timeout: 20_000, interval: 100 });
+    }, 90_000);
+
+    describe("automa troubleshoot", () => {
+      const automaHome = () => path.join(root, "home", ".automa");
+      /** A phone with `sdkInt`, `availableKb` of storage and plenty of memory. */
+      async function phone({ sdkInt = 34, availableKb = 50_000_000 } = {}) {
+        await fake("getprop", `case "$1" in ro.build.version.sdk) echo ${sdkInt};; ro.build.version.release) echo ${sdkInt - 20};; esac`);
+        await fake("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted"; echo "/dev/data 120000000 1000 $(cat "${root}/df-available" 2>/dev/null || echo ${availableKb}) 1% /data"`);
+        await writeFile(path.join(root, "meminfo"), "MemTotal: 8000000 kB\nMemAvailable: 3000000 kB\n");
+        await fake("am", `echo "am $*" >> "${root}/calls.log"`);
+      }
+      const troubleshoot = (args: string[] = [], env: Record<string, string> = {}) =>
+        runFile(automa(), ["troubleshoot", ...args], { env: { AUTOMA_MEMINFO: path.join(root, "meminfo"), ...env } });
+      /** A health endpoint that first refuses (nothing running), then answers with `body`. */
+      async function healthAfterRefusal(body: unknown) {
+        const http = await import("node:http");
+        let calls = 0;
+        health = http.createServer((req, res) => {
+          calls += 1;
+          if (calls === 1) {
+            req.socket.destroy();
+            return;
+          }
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(body));
+        });
+        await new Promise<void>((resolve) => health!.listen(0, "127.0.0.1", () => resolve()));
+        return `http://127.0.0.1:${(health.address() as { port: number }).port}/api/health`;
+      }
+
+      it("repairs what Automa left behind: the database lock, an update cut short, a stopped database", async () => {
+        await installAutoma();
+        await phone();
+        await writeFile(path.join(automaHome(), "keep-alive"), "android=14 sdk=34\n");
+        // Android ended Termux: PostgreSQL's lock names a process that is gone,
+        // and the update stopped between taking the old server away and putting the new one in.
+        const gone = spawn("true");
+        await new Promise((resolve) => gone.on("exit", resolve));
+        await writeFile(path.join(root, "pgdata", "postmaster.pid"), `${gone.pid}\n`);
+        await writeFile(path.join(root, "pg-down"), "");
+        const server = path.join(automaHome(), "server");
+        await rm(`${server}.next`, { recursive: true, force: true });
+        await (await import("node:fs/promises")).rename(server, `${server}.next`);
+        const url = await healthAnswers([{ status: "ok" }]);
+
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: url });
+
+        expect(result.out).toContain("Fixed: Cleared PostgreSQL's lock file from before");
+        expect(result.out).toContain("Fixed: An update stopped just before it finished; Automa 9.9.9 is now in place.");
+        expect(result.out).toContain("Fixed: The database wasn't running; it is now.");
+        expect(result.out).toContain("Automa is running and ready");
+        expect(result.out).toContain("lifted (automa keep-alive)");
+        expect(result.out).toContain("No problems found. Fixed 3 thing(s) along the way.");
+        expect(result.code, result.out).toBe(0);
+        await expect(readFile(path.join(server, "node_modules", "paperclipai", "dist", "index.js"), "utf8")).resolves.toBe("");
+        await expect(stat(`${server}.next`)).rejects.toThrow();
+        await expect(stat(path.join(root, "pgdata", "postmaster.pid"))).rejects.toThrow();
+        expect(await calls()).toMatch(/pg_ctl -D \S+ -l \S+ -o -c max_connections=30 .* -w start/);
+      }, 60_000);
+
+      it("says when Android ended Automa, and how to stop it", async () => {
+        await installAutoma();
+        await phone({ sdkInt: 34 });
+        await writeFile(
+          path.join(automaHome(), "events.log"),
+          [
+            "2026-11-16 20:00:00 started",
+            "2026-11-16 20:41:10 the server stopped after 2470s with exit code 137",
+            "2026-11-16 20:41:13 the last Automa was ended without warning (Android closed Termux, signal 9)",
+          ].join("\n") + "\n",
+        );
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(result.code).toBe(1);
+        expect(result.out).toContain("Android ended Automa without warning 2 time(s) recently");
+        expect(result.out).toContain("Android 14 ends Termux's processes when apps together run too many");
+        expect(result.out).toContain("Run: automa keep-alive");
+        expect(result.out).toContain("Settings → Developer options → Disable child process restrictions");
+        expect(result.out).toContain("exit code 137");
+      }, 60_000);
+
+      it("reads the logs before freeing space, and never touches backups", async () => {
+        await installAutoma();
+        await phone({ availableKb: 100_000 });
+        await writeFile(path.join(automaHome(), "server.log.1"), "<--- Last few GCs --->\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n");
+        const backup = await writeBackup("automa-hourly-20261116-200000.sql.gz", COMPLETE_DUMP, 60);
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(result.out).toContain("Only 97 MB of storage is free.");
+        expect(result.out).toContain("Fixed: Removed the previous start's log.");
+        expect(result.out).toContain("The log says: Automa ran out of memory.");
+        expect(result.out).toContain("Newest backup: automa-hourly-20261116-200000.sql.gz");
+        expect(result.code).toBe(1);
+        await expect(stat(backup)).resolves.toBeTruthy();
+      }, 60_000);
+
+      it("changes nothing about a database another PostgreSQL version wrote, and says how to keep it", async () => {
+        await installAutoma();
+        await phone();
+        await writeFile(path.join(root, "pgdata", "PG_VERSION"), "16\n");
+        await writeFile(path.join(root, "pg-down"), "");
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(result.code).toBe(1);
+        expect(result.out).toContain("The database was written by PostgreSQL 16, but Termux now has PostgreSQL 17");
+        expect(result.out).toContain("pkg install postgresql=16*");
+        expect(await calls()).not.toMatch(/pg_ctl .* start/);
+      }, 60_000);
+
+      it("--start starts Automa in safe mode when it had fallen back to it, and follows it until it is ready", async () => {
+        await installAutoma();
+        await phone();
+        await writeFile(
+          path.join(automaHome(), "events.log"),
+          ["2026-11-16 20:00:00 started", "2026-11-16 20:00:40 falling back to safe mode after 3 quick stops"].join("\n") + "\n",
+        );
+        const url = await healthAfterRefusal({ status: "ok", safeMode: true, safeModeReason: "asked" });
+        const result = await troubleshoot(["--start"], { AUTOMA_HEALTH_URL: url, AUTOMA_FOLLOW_POLL_MS: "20" });
+        expect(result.out).toContain("Automa kept stopping while it started, so it starts in safe mode.");
+        expect(result.out).toContain("Automa is starting in safe mode");
+        expect(result.out).toContain("It is in safe mode");
+        expect(result.out).toContain("Switch back to the Automa app");
+        expect(await calls()).toContain("am start -n com.corxlabs.automa/.MainActivity");
+        await vi.waitFor(async () => expect((await calls()).split("\n").filter((line) => line.startsWith("server "))[0]).toContain("safe=1 reason=asked"), {
+          timeout: 20_000,
+          interval: 100,
+        });
+      }, 60_000);
+
+      it("--start --no-follow (the app's Troubleshoot button) starts Automa and leaves the waiting to the app", async () => {
+        await installAutoma();
+        await phone();
+        const result = await troubleshoot(["--start", "--no-follow"], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(result.out).toContain("Automa is starting (log:");
+        expect(result.out).not.toContain("Switch back to the Automa app");
+        expect(await calls()).not.toContain("am start");
+        await vi.waitFor(async () => expect((await calls()).split("\n").filter((line) => line.startsWith("server "))).toHaveLength(1), {
+          timeout: 20_000,
+          interval: 100,
+        });
+      }, 60_000);
+
+      it("--start starts Automa normally when it was not in a crash loop", async () => {
+        await installAutoma();
+        await phone();
+        await writeFile(path.join(automaHome(), "events.log"), ["2026-11-16 20:00:40 falling back to safe mode after 3 quick stops", "2026-11-16 20:05:00 restarting normally, as asked on the board"].join("\n") + "\n");
+        const url = await healthAfterRefusal({ status: "ok" });
+        const result = await troubleshoot(["--start"], { AUTOMA_HEALTH_URL: url, AUTOMA_FOLLOW_POLL_MS: "20" });
+        expect(result.out).not.toContain("starts in safe mode");
+        expect(result.out).toContain("Automa is starting (log:");
+        await vi.waitFor(async () => expect((await calls()).split("\n").filter((line) => line.startsWith("server "))[0]).toContain("safe= reason="), {
+          timeout: 20_000,
+          interval: 100,
+        });
+      }, 60_000);
+    });
+
+    describe("automa keep-alive", () => {
+      const marker = () => path.join(root, "home", ".automa", "keep-alive");
+      async function phone(sdkInt: number, { linked = true, settingIgnored = false } = {}) {
+        await fake("getprop", `case "$1" in ro.build.version.sdk) echo ${sdkInt};; ro.build.version.release) echo ${sdkInt - 20};; esac`);
+        if (linked) await writeFile(path.join(root, "adb-linked"), "");
+        if (settingIgnored) await writeFile(path.join(root, "setting-ignored"), "");
+        await fake("adb", [
+          `echo "adb $*" >> "${root}/calls.log"`,
+          `if [ "$1" = devices ]; then echo "List of devices attached"; [ -f "${root}/adb-linked" ] && printf '127.0.0.1:37123\\tdevice\\n'; exit 0; fi`,
+          `[ "$1" = -s ] && shift 2`,
+          `[ "$1" = shell ] && shift`,
+          `case "$*" in`,
+          `  "settings put global settings_enable_monitor_phantom_procs false") [ -f "${root}/setting-ignored" ] || touch "${root}/phantom-off";;`,
+          `  "settings get global settings_enable_monitor_phantom_procs") if [ -f "${root}/phantom-off" ]; then echo false; else echo null; fi;;`,
+          `  "/system/bin/device_config put activity_manager max_phantom_processes 2147483647") touch "${root}/max-phantom";;`,
+          `  "/system/bin/device_config get activity_manager max_phantom_processes") if [ -f "${root}/max-phantom" ]; then echo 2147483647; else echo null; fi;;`,
+          `  "dumpsys deviceidle whitelist +com.termux") touch "${root}/termux-allowed"; echo "Added: com.termux";;`,
+          `  "dumpsys deviceidle whitelist") echo "system-excidle,com.android.shell,2000"; [ -f "${root}/termux-allowed" ] && echo "user,com.termux,10234";;`,
+          `esac`,
+          `exit 0`,
+        ].join("\n"));
+      }
+      const adbCalls = async () => (await calls()).split("\n").filter((line) => line.startsWith("adb "));
+
+      it("lifts Android 12L-and-newer's process limit and battery optimisation for Termux, checks both, and remembers it", async () => {
+        await installAutoma();
+        await phone(34);
+        const before = await runFile(automa(), ["keep-alive", "--check"]);
+        expect(before.code).toBe(1);
+        expect(before.out).toContain("Not done yet on this phone");
+
+        const result = await runFile(automa(), ["keep-alive"]);
+        expect(result.code, result.out).toBe(0);
+        expect(result.out).toContain("Android no longer ends Termux for running too many processes");
+        expect(result.out).toContain("Battery optimisation is off for Termux");
+        const sent = await adbCalls();
+        expect(sent).toContain("adb -s 127.0.0.1:37123 shell settings put global settings_enable_monitor_phantom_procs false");
+        expect(sent).toContain("adb -s 127.0.0.1:37123 shell dumpsys deviceidle whitelist +com.termux");
+        expect(sent).toContain("adb -s 127.0.0.1:37123 shell cmd appops set com.termux RUN_ANY_IN_BACKGROUND allow");
+        // 12L and newer have the switch: Google's flag sync is left alone.
+        expect(sent.join("\n")).not.toContain("set_sync_disabled_for_tests");
+        expect(await readFile(marker(), "utf8")).toContain("process_limit=settings_enable_monitor_phantom_procs=false");
+
+        const after = await runFile(automa(), ["keep-alive", "--check"]);
+        expect(after.code).toBe(0);
+        expect(after.out).toContain("Done before:");
+      }, 60_000);
+
+      it("uses device_config on Android 12, which has no switch", async () => {
+        await installAutoma();
+        await phone(31);
+        const result = await runFile(automa(), ["keep-alive"]);
+        expect(result.code, result.out).toBe(0);
+        const sent = (await adbCalls()).join("\n");
+        expect(sent).toContain("shell /system/bin/device_config set_sync_disabled_for_tests persistent");
+        expect(sent).toContain("shell /system/bin/device_config put activity_manager max_phantom_processes 2147483647");
+        expect(sent).not.toContain("settings put global");
+        expect(await readFile(marker(), "utf8")).toContain("process_limit=max_phantom_processes=2147483647");
+      }, 60_000);
+
+      it("falls back to device_config when Android ignores the switch", async () => {
+        await installAutoma();
+        await phone(33, { settingIgnored: true });
+        const result = await runFile(automa(), ["keep-alive"]);
+        expect(result.code, result.out).toBe(0);
+        expect(result.out).toContain("(through device_config)");
+        expect(await readFile(marker(), "utf8")).toContain("process_limit=max_phantom_processes=2147483647");
+      }, 60_000);
+
+      it("changes nothing and says what to do when Wireless debugging isn't linked and there is no terminal to link it", async () => {
+        await installAutoma();
+        await phone(34, { linked: false });
+        const result = await runFile(automa(), ["keep-alive"], { command: ["setsid", "-w", "timeout", "-s", "KILL", "20", "bash"] });
+        expect(result.code).toBe(1);
+        expect(result.out).toContain("Wireless debugging is not linked, so nothing changed.");
+        expect(result.out).toContain("Settings → Developer options → Disable child process restrictions");
+        await expect(stat(marker())).rejects.toThrow();
+        expect((await adbCalls()).join("\n")).not.toContain("shell settings put");
+      }, 60_000);
+    });
   });
 });

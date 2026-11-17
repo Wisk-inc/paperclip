@@ -118,8 +118,27 @@
         </div>
       </div>
       <div class="row">
+        <button type="button" id="wait-refresh" class="secondary">Refresh</button>
         <button type="button" id="wait-termux" class="secondary" hidden>Open Termux</button>
         <button type="button" id="wait-stop" class="secondary">Stop waiting</button>
+      </div>
+    </div>
+
+    <!-- When Automa on this phone won't start: a safe start, or the troubleshooter. -->
+    <div id="phone-tools" class="note phone-tools" hidden>
+      <strong>Still not starting?</strong>
+      <span><b>Safe start</b> opens your board with agents, schedules and plugins off, so you can see what's wrong. <b>Troubleshoot</b> checks this phone, the database and Automa, fixes what it can, and starts Automa.</span>
+      <div class="row">
+        <button type="button" id="phone-safe" class="secondary">Safe start</button>
+        <button type="button" id="phone-troubleshoot" class="primary">Troubleshoot</button>
+      </div>
+    </div>
+    <div id="troubleshoot-report" class="note troubleshoot-report" role="status" aria-live="polite" hidden>
+      <strong id="troubleshoot-title">Troubleshooting…</strong>
+      <pre id="troubleshoot-text"></pre>
+      <div class="row">
+        <button type="button" id="troubleshoot-termux" class="secondary">Open Termux</button>
+        <button type="button" id="troubleshoot-close" class="secondary">Close</button>
       </div>
     </div>
 

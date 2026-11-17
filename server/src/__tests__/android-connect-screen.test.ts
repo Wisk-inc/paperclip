@@ -32,16 +32,25 @@ const READY: Reply = { ok: true, url: "http://127.0.0.1:3100", version: "1.9.10"
 interface Page {
   connects: () => number;
   termuxStarts: () => number;
+  /** What the page asked of the app beyond connecting: safe starts, troubleshooter runs, copies, Termux opened. */
+  asked: string[];
+  click: (id: string) => void;
   text: (id: string) => string;
   hidden: (id: string) => boolean;
   stepState: (name: string) => string | null;
 }
 
-function load(replies: Reply[] | ((n: number) => Reply), state: Reply = {}): Page {
+function load(
+  replies: Reply[] | ((n: number) => Reply),
+  state: Reply = {},
+  /** The app's answers to Safe start and Troubleshoot (1.9.12 on). */
+  tools: { safeStart?: Reply; troubleshoot?: Reply } = {},
+): Page {
   document.documentElement.innerHTML = html.replace(/^<!doctype html>/i, "");
   window.history.replaceState(null, "", "/assets/connect/index.html?wait=1");
   let connects = 0;
   let termuxStarts = 0;
+  const asked: string[] = [];
   const answer = (callId: string, reply: Reply) => {
     setTimeout(() => (window as any).__automaNative.resolve(callId, JSON.stringify(reply)), 10);
   };
@@ -72,17 +81,27 @@ function load(replies: Reply[] | ((n: number) => Reply), state: Reply = {}): Pag
       termuxStarts += 1;
       answer(callId, { ok: true, output: "Automa is starting (log: ~/.automa/server.log)." });
     },
+    safeStartAutomaInTermux: (_key: string, callId: string) => {
+      asked.push("safe start");
+      answer(callId, tools.safeStart ?? { ok: true, output: "Automa is starting in safe mode (log: ~/.automa/server.log)." });
+    },
+    runTroubleshooter: (_key: string, callId: string) => {
+      asked.push("troubleshoot");
+      answer(callId, tools.troubleshoot ?? { ok: true, output: "Summary\nNo problems found.", problems: false });
+    },
     hasServerBundle: () => true,
     getAuthState: () => JSON.stringify({ enabled: false, user: null }),
     haptic: () => undefined,
-    copyText: () => undefined,
-    openTermux: () => undefined,
+    copyText: (_key: string, text: string) => asked.push(`copy ${text}`),
+    openTermux: () => asked.push("open termux"),
   };
   new Function(script)();
   const el = (id: string) => document.getElementById(id)!;
   return {
     connects: () => connects,
     termuxStarts: () => termuxStarts,
+    asked,
+    click: (id) => el(id).click(),
     text: (id) => el(id).textContent ?? "",
     hidden: (id) => el(id).hidden,
     stepState: (name) => document.querySelector(`[data-step="${name}"]`)!.getAttribute("data-state"),
@@ -239,5 +258,124 @@ describe("the connect screen waiting for Automa on this phone", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(page.hidden("connected")).toBe(false);
     expect(page.termuxStarts()).toBe(0);
+  });
+
+  describe("when Automa on this phone won't start", () => {
+    /** Answers that it is starting, then goes quiet, then (from try `readyFrom` on) is ready. */
+    const quietThenReady = (readyFrom = Number.POSITIVE_INFINITY) => {
+      let n = 0;
+      return () => {
+        n += 1;
+        if (n === 1) return starting({ step: "Starting plugins", stepNumber: 5, stepTotal: 23 });
+        return n >= readyFrom ? READY : SILENT;
+      };
+    };
+
+    it("offers Safe start and Troubleshoot only once something is wrong", async () => {
+      const page = load(quietThenReady());
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.hidden("phone-tools")).toBe(true);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.text("wait-help")).toContain("Android may have closed Termux");
+      expect(page.hidden("phone-tools")).toBe(false);
+    });
+
+    it("Safe start asks Termux for a safe start and waits for Automa again, with a fresh clock", async () => {
+      const page = load(quietThenReady(9));
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      page.click("phone-safe");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.asked).toEqual(["safe start"]);
+      expect(page.text("wait-status")).toBe("Automa is starting in safe mode. Waiting for it to answer…");
+      expect(page.text("wait-time")).toMatch(/^Waiting [0-9] s$/);
+      await tries(5);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(page.hidden("connected")).toBe(false);
+      expect(page.hidden("phone-tools")).toBe(true);
+    });
+
+    it("Troubleshoot shows the report in the app, then waits for the Automa it started", async () => {
+      const report = "Database\n  ✓ Fixed: Cleared PostgreSQL's lock file from before.\nSummary\n1 problem(s) need you (marked ✗ above).";
+      const page = load(quietThenReady(9), {}, { troubleshoot: { ok: true, output: report, problems: true } });
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      page.click("phone-troubleshoot");
+      expect(page.hidden("troubleshoot-report")).toBe(false);
+      expect(page.text("troubleshoot-title")).toBe("Troubleshooting…");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.asked).toEqual(["troubleshoot"]);
+      expect(page.text("troubleshoot-title")).toBe("Found problems: what to do is in the report");
+      expect(page.text("troubleshoot-text")).toBe(report);
+      expect(page.text("wait-status")).toBe("Waiting for Automa to answer…");
+      await tries(5);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(page.hidden("connected")).toBe(false);
+      // The report stays until it is closed.
+      expect(page.hidden("troubleshoot-report")).toBe(false);
+      page.click("troubleshoot-close");
+      expect(page.hidden("troubleshoot-report")).toBe(true);
+    });
+
+    it("copies automa keep-alive for Termux when the report asks for it", async () => {
+      const report = "Android\n  ✗ Android 14 ends Termux's processes when apps together run too many.\n      Run: automa keep-alive (it uses Wireless debugging once; the setting stays after restarts)";
+      const page = load(quietThenReady(), {}, { troubleshoot: { ok: true, output: report, problems: true } });
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      page.click("phone-troubleshoot");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.text("troubleshoot-termux")).toBe("Copy automa keep\u2011alive and open Termux");
+      page.click("troubleshoot-termux");
+      expect(page.asked).toEqual(["troubleshoot", "copy automa keep-alive", "open termux"]);
+    });
+
+    it("says what Termux needs when it refuses to run the troubleshooter, and copies the fix", async () => {
+      const fix = "sed -i 's/^# *allow-external-apps.*/allow-external-apps = true/' ~/.termux/termux.properties";
+      const page = load(quietThenReady(), {}, {
+        troubleshoot: { ok: false, reason: "not_allowed", error: "Termux needs one setting before Automa can start it: allow-external-apps.", fix },
+      });
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(3);
+      await vi.advanceTimersByTimeAsync(20);
+      page.click("phone-troubleshoot");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.text("troubleshoot-title")).toBe("Termux needs one setting first");
+      expect(page.text("troubleshoot-text")).toContain(fix);
+      page.click("troubleshoot-termux");
+      expect(page.asked).toEqual(["troubleshoot", `copy ${fix}`, "open termux"]);
+    });
+
+    it("keeps Safe start and Troubleshoot once the page stops waiting, and Safe start waits again", async () => {
+      const page = load(() => SILENT);
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(110);
+      expect(page.hidden("wait")).toBe(true);
+      expect(page.hidden("phone-tools")).toBe(false);
+      page.click("phone-safe");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.hidden("wait")).toBe(false);
+      expect(page.text("error")).toBe("");
+      expect(page.text("wait-status")).toBe("Automa is starting in safe mode. Waiting for it to answer…");
+    });
+
+    it("never offers them for a server on another computer", async () => {
+      const page = load(() => SILENT, { serverUrl: "http://192.168.1.20:3100", waitFor: "http://192.168.1.20:3100" });
+      await vi.advanceTimersByTimeAsync(20);
+      await tries(110);
+      expect(page.hidden("phone-tools")).toBe(true);
+    });
+
+    it("Refresh asks Automa at once instead of at the next try", async () => {
+      const page = load(() => SILENT);
+      await vi.advanceTimersByTimeAsync(20);
+      const before = page.connects();
+      page.click("wait-refresh");
+      await vi.advanceTimersByTimeAsync(20);
+      expect(page.connects()).toBe(before + 1);
+    });
   });
 });

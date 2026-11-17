@@ -61,6 +61,22 @@ export type HealthStatus = {
    * settings-visibility registry). Absent when nothing is hidden.
    */
   hiddenSettings?: string[];
+  /**
+   * Automa started in safe mode (server/src/safe-mode.ts, Automa 1.9.12 on):
+   * the board works, while agents, schedules and plugins wait for a normal start.
+   */
+  safeMode?: boolean;
+  /** Why: it kept stopping while it started, or someone asked for a safe start. */
+  safeModeReason?: "crashes" | "asked";
+  /** Whether "Restart normally" works here (the automa launcher started this server). */
+  safeModeRestartAvailable?: boolean;
+};
+
+/** What each refusal of "Restart normally" means, in words. */
+const RESTART_NORMALLY_ERRORS: Record<string, string> = {
+  instance_admin_required: "Only the owner of this Automa can restart it.",
+  not_in_safe_mode: "Automa is not in safe mode any more.",
+  not_started_by_automa: "This Automa wasn't started by the automa command, so nothing would start it again. In Termux, stop it and run: automa start",
 };
 
 export const healthApi = {
@@ -77,6 +93,19 @@ export const healthApi = {
       throw new ApiError(payload?.error ?? `Failed to load health (${res.status})`, res.status, payload);
     }
     return res.json();
+  },
+  /** Safe mode's "Restart normally": the server stops, and the automa launcher starts it again, normally. */
+  restartNormally: async (): Promise<void> => {
+    const res = await fetchApi("/api/health/safe-mode/restart", {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null;
+      const code = payload?.error ?? "";
+      throw new ApiError(RESTART_NORMALLY_ERRORS[code] ?? `Couldn't restart Automa (${res.status})`, res.status, payload);
+    }
   },
   requestDevServerRestart: async (): Promise<void> => {
     const res = await fetchApi("/api/health/dev-server/restart", {

@@ -121,9 +121,24 @@ Termux app with no computer:
    in Termux with `automa run`.
 
 **Keeping it running.** `automa run` starts the server again by itself when
-it stops (a crash, or Android ending it), until Ctrl+C; one that keeps
-stopping while it starts is tried again every minute instead of every 3
-seconds, with a note of where the error is. `automa start` does the same in
+it stops (a crash, or Android ending it), until Ctrl+C, and says why it
+stopped (signal 9: Android ended it; signal 6: most often out of memory).
+After three stops in a row within five minutes of starting, it starts the
+server in safe mode (`PAPERCLIP_SAFE_MODE=1`): the board and the API, with
+agents, schedules, plugins and background work off, and a banner on the board
+with Restart normally (the server exits with code 75 and the launcher starts
+it again at once, normally) and Troubleshoot. Only when safe mode also keeps
+stopping is it tried again every minute instead of every few seconds.
+`--safe` on `automa run`, `automa start` or `automa restart` asks for a safe
+start. Starts and stops are recorded in `~/.automa/events.log` (`automa logs`
+shows it with the end of the server log). The database runs with settings for
+a phone (fewer processes, `shared_buffers=32MB`) and the server with 6
+connections at most, since Android 12 and newer end apps that run more than 32
+processes between them; `automa keep-alive` lifts that limit over Wireless
+debugging (once, it stays after restarts) and takes Termux off battery
+optimisation. `automa troubleshoot` checks the phone, the server files, the
+database and Automa, repairs what Automa itself left behind and says what to
+do about the rest; the app runs it too and shows the report. `automa start` does the same in
 the background (log in `~/.automa/server.log`), `automa stop` ends it, and
 `automa status` says whether it answers and, while it starts, which step it is
 on; only one runs at a time. `automa run` while one already runs in the

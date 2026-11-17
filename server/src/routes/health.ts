@@ -1,3 +1,4 @@
+import type { SafeModeReason } from "../safe-mode.js";
 import { LOCAL_SECRET_PROOF_HEADER, LOCAL_SECRET_PROOF_NONCE_HEADER } from "../auth/local-secret-proof.js";
 import { supportsLocalAiLogin } from "../services/local-ai-login-policy.js";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -138,6 +139,8 @@ export function healthRoutes(
     serverInfo?: ServerInfoSnapshot;
     databaseBackupHealth?: InspectDatabaseBackupHealthOptions;
     runtimeEnv?: CloudInstanceEnv;
+    /** A safe start: why, and how to start normally again (null: nothing would start the server after it exits). */
+    safeMode?: { reason: SafeModeReason; restartNormally: (() => void) | null } | null;
   } = {
     deploymentMode: "local_trusted",
     deploymentExposure: "private",
@@ -146,6 +149,32 @@ export function healthRoutes(
   },
 ) {
   const router = Router();
+
+  // "Restart normally" on a safe start's banner. The server stops cleanly and
+  // the automa launcher starts it again at once, without safe mode. The board's
+  // instance admin only (on a phone: the Automa app, which holds the app key).
+  router.post("/safe-mode/restart", (req, res) => {
+    const actor = "actor" in req ? req.actor : undefined;
+    if (actor?.type !== "board" || actor.isInstanceAdmin !== true) {
+      res.status(403).json({ error: "instance_admin_required" });
+      return;
+    }
+    if (!opts.safeMode) {
+      res.status(409).json({ error: "not_in_safe_mode" });
+      return;
+    }
+    const restartNormally = opts.safeMode.restartNormally;
+    if (!restartNormally) {
+      // Started some other way: nothing would start it again after it stops.
+      res.status(409).json({ error: "not_started_by_automa" });
+      return;
+    }
+    logger.warn({ userId: actor.userId ?? null }, "Normal start requested from the safe start banner; Automa restarts now");
+    // Stop only after the answer has gone out, so the board hears "restarting"
+    // and waits for the server to come back instead of showing an error.
+    res.once("finish", () => setImmediate(restartNormally));
+    res.status(202).json({ status: "restarting" });
+  });
 
   router.post("/dev-server/restart", async (req, res) => {
     const actorType = "actor" in req ? req.actor?.type : null;
@@ -263,6 +292,17 @@ export function healthRoutes(
     const startup = startupRecovery.phase === "ready"
       ? null
       : { phase: startupRecovery.phase, seconds: startupRecovery.seconds, step: startupRecovery.step };
+    // A safe start (safe-mode.ts) says so on every answer, so the board can
+    // show it and offer a normal start. A flag and a fixed word only: anyone on
+    // the phone can read this answer. What went wrong stays in Termux
+    // (`automa troubleshoot`).
+    const safeModeFields = opts.safeMode
+      ? {
+          safeMode: true,
+          safeModeReason: opts.safeMode.reason,
+          safeModeRestartAvailable: opts.safeMode.restartNormally !== null,
+        }
+      : {};
     const cloud = getCloudHealthStatus(runtimeEnv);
     // Operator-hidden settings ride every response (like `cloud`): the list
     // holds UI surface names only, and the settings nav needs it before any
@@ -304,6 +344,7 @@ export function healthRoutes(
               commit,
               serverInfo,
               ...(startup ? { startup } : {}),
+              ...safeModeFields,
               ...(cloud ? { cloud } : {}),
               ...(hiddenSettings.length ? { hiddenSettings } : {}),
             }
@@ -312,6 +353,7 @@ export function healthRoutes(
               deploymentMode: opts.deploymentMode,
               commit,
               ...(startup ? { startup } : {}),
+              ...safeModeFields,
               ...(cloud ? { cloud } : {}),
               ...(hiddenSettings.length ? { hiddenSettings } : {}),
             },
@@ -429,6 +471,7 @@ export function healthRoutes(
         localAiLoginSupported: supportsLocalAiLogin(opts),
         commit,
         ...(startup ? { startup } : {}),
+        ...safeModeFields,
         bootstrapStatus,
         bootstrapInviteActive,
         ...(opts.deploymentMode === "authenticated" ? { features: signInFeatures } : {}),
@@ -464,6 +507,7 @@ export function healthRoutes(
       serverInfo,
       startupRecovery,
       ...(startup ? { startup } : {}),
+      ...safeModeFields,
       nativeRecovery,
       ...(databaseBackup ? { databaseBackup } : {}),
       ...(warnings ? { warnings } : {}),

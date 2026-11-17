@@ -47,6 +47,7 @@ import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { moanKnowledge } from "./services/moan/index.js";
 import { runStartupStep, setStartupRecoveryPhase } from "./startup-recovery-state.js";
+import { NORMAL_RESTART_EXIT_CODE, restartOnce, safeModeReasonFromEnv, startedByAutomaLauncher } from "./safe-mode.js";
 import {
   assertListenPortKeepsAppKeySafe,
   StartupRefusalError,
@@ -896,6 +897,14 @@ async function startServerWithDatabaseTeardown(
   // document parsed fail-closed above (`plugins.autoInstall`). Absent env means
   // self-hosted: createApp falls back to its built-in kubernetes-only default.
   const managedPluginAutoInstall = managedConfig?.plugins.autoInstall ?? null;
+  // Set once `shutdown` exists (below): a safe start's "Restart normally".
+  let requestNormalRestartNow: (() => void) | null = null;
+  if (config.safeMode) {
+    logger.warn(
+      { reason: safeModeReasonFromEnv() },
+      "Automa is starting in safe mode: agents, schedules, plugins and background upkeep are paused until a normal start",
+    );
+  }
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,
@@ -936,6 +945,13 @@ async function startServerWithDatabaseTeardown(
     pluginWorkerManager,
     decisionServiceOptions,
     managedPluginAutoInstall,
+    safeMode: config.safeMode
+      ? {
+          reason: safeModeReasonFromEnv(),
+          // Only the automa launcher starts the server again after it exits.
+          restartNormally: startedByAutomaLauncher() ? () => requestNormalRestartNow?.() : null,
+        }
+      : null,
   });
   const server = createServer(app as unknown as Parameters<typeof createServer>[0]);
 
@@ -1046,32 +1062,36 @@ async function startServerWithDatabaseTeardown(
     logger.error({ err }, "startup reconciliation of managed runtime control operations failed");
   }
 
-  void reconcilePersistedRuntimeServicesOnStartup(db as any)
-    .then((result) => {
-      if (
-        result.reconciled > 0
-        || result.restarted > 0
-        || result.restartFailed > 0
-        || result.backfilled > 0
-      ) {
-        logger.warn(
-          {
-            reconciled: result.reconciled,
-            adopted: result.adopted,
-            stopped: result.stopped,
-            // Managed HTTP-only services taken down so they come back on a
-            // verified HTTPS origin (PAP-17158).
-            httpsBackfilled: result.backfilled,
-            restarted: result.restarted,
-            restartFailed: result.restartFailed,
-          },
-          "reconciled persisted runtime services from a previous server process",
-        );
-      }
-    })
-    .catch((err) => {
-      logger.error({ err }, "startup reconciliation of persisted runtime services failed");
-    });
+  // A safe start brings back no runtime services (they are processes, and one
+  // of them may be what stopped the last start); a normal start does.
+  if (!config.safeMode) {
+    void reconcilePersistedRuntimeServicesOnStartup(db as any)
+      .then((result) => {
+        if (
+          result.reconciled > 0
+          || result.restarted > 0
+          || result.restartFailed > 0
+          || result.backfilled > 0
+        ) {
+          logger.warn(
+            {
+              reconciled: result.reconciled,
+              adopted: result.adopted,
+              stopped: result.stopped,
+              // Managed HTTP-only services taken down so they come back on a
+              // verified HTTPS origin (PAP-17158).
+              httpsBackfilled: result.backfilled,
+              restarted: result.restarted,
+              restartFailed: result.restartFailed,
+            },
+            "reconciled persisted runtime services from a previous server process",
+          );
+        }
+      })
+      .catch((err) => {
+        logger.error({ err }, "startup reconciliation of persisted runtime services failed");
+      });
+  }
 
   // Backfill auth.json into any already-isolated codex_local managed home that
   // was created by the #8272 isolation guard before the Phase 1 seeding fix.
@@ -1179,7 +1199,9 @@ async function startServerWithDatabaseTeardown(
     skipDrain: boolean;
     drainRunIds?: string[];
   }>) | null = null;
-  let heartbeatSchedulerStopped = false;
+  // A safe start (safe-mode.ts) begins with the background upkeep stopped: the
+  // sweeps and polls below check this flag and do nothing until a normal start.
+  let heartbeatSchedulerStopped = config.safeMode;
   let heartbeatSchedulerInterval: ReturnType<typeof setInterval> | null = null;
   const heartbeatSchedulerInFlight = new Set<Promise<void>>();
   const trackHeartbeatSchedulerWork = (work: Promise<unknown>) => {
@@ -1230,7 +1252,7 @@ async function startServerWithDatabaseTeardown(
   });
   // Moan's Jamaican knowledge index refreshes itself while a Moan agent exists.
   const moanIndex = moanKnowledge(db);
-  moanIndex.start();
+  if (!config.safeMode) moanIndex.start();
   const scheduleExternalObjectRefreshSweep = (now = new Date()) => {
     if (heartbeatSchedulerStopped) return;
     trackHeartbeatSchedulerWork(externalObjects
@@ -1338,18 +1360,21 @@ async function startServerWithDatabaseTeardown(
   // is logged and retried there, instead of ending the whole start (the
   // connection sweep's failure used to: a phone's Automa then restarted over
   // and over while the app waited on it).
-  await runStartupStep("deliveries", "Delivering messages that were waiting", logger, async () => {
-    await connectionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup connection continuation delivery failed"));
-    await app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "startup tool review recovery failed"));
-    await app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup tool review delivery sweep failed"));
-    await questionResponseDeliveries.sweepPending().then((result) => {
-      if (result.scanned > 0) {
-        logger.info(result, "startup question-response delivery sweep completed");
-      }
-    }).catch((err) => {
-      logger.error({ err }, "startup question-response delivery sweep failed");
+  // A safe start delivers nothing that was waiting: a normal start does.
+  if (!config.safeMode) {
+    await runStartupStep("deliveries", "Delivering messages that were waiting", logger, async () => {
+      await connectionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup connection continuation delivery failed"));
+      await app.locals.toolGateway.sweepActionReviews().catch((err: unknown) => logger.error({ err }, "startup tool review recovery failed"));
+      await app.locals.toolActionDeliveries.sweepPending().catch((err: unknown) => logger.error({ err }, "startup tool review delivery sweep failed"));
+      await questionResponseDeliveries.sweepPending().then((result) => {
+        if (result.scanned > 0) {
+          logger.info(result, "startup question-response delivery sweep completed");
+        }
+      }).catch((err) => {
+        logger.error({ err }, "startup question-response delivery sweep failed");
+      });
     });
-  });
+  }
   scheduleGitHubConnectionEventPoll();
   scheduleGitHubConnectionContinuitySweep();
 
@@ -2085,6 +2110,8 @@ async function startServerWithDatabaseTeardown(
   const shutdown = async (
     signal: "SIGINT" | "SIGTERM",
     exitProcess: boolean,
+    /** NORMAL_RESTART_EXIT_CODE asks the automa launcher to start the server again, normally. */
+    exitCode = 0,
   ) => {
     await systemdNotify(["--stopping", `--status=Stopping after ${signal}`]);
     heartbeatSchedulerStopped = true;
@@ -2189,8 +2216,13 @@ async function startServerWithDatabaseTeardown(
       });
     }
 
-    if (exitProcess) process.exit(0);
+    if (exitProcess) process.exit(exitCode);
   };
+  // "Restart normally" on a safe start's banner: the same clean stop as a
+  // signal, ending with the code the automa launcher starts it again on (once).
+  requestNormalRestartNow = restartOnce(() => {
+    void shutdown("SIGTERM", true, NORMAL_RESTART_EXIT_CODE);
+  });
 
   process.once("SIGINT", () => {
     void shutdown("SIGINT", true);

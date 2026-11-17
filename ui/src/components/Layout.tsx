@@ -27,6 +27,7 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { DeviceFilesSync } from "./DeviceFilesSync";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { DevRestartBanner } from "./DevRestartBanner";
+import { SafeModeBanner } from "./SafeModeBanner";
 import { StandaloneBrowserControls } from "./StandaloneBrowserControls";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { SidebarShell } from "./SidebarShell";
@@ -775,6 +776,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
       </a>
       <WorktreeBanner />
       <DevRestartBanner devServer={health?.devServer} />
+      <SafeModeBanner health={health} />
       <div className={cn("min-h-0 flex-1", isMobile ? "w-full" : "flex overflow-clip")}>
         {isMobile ? (
           // Covers the notch strip so the page does not show through above

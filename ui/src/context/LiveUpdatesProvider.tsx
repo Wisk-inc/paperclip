@@ -1,5 +1,6 @@
 import { getPageVisibility, usePageVisibility } from "../lib/page-visibility";
 import { SERVER_BACK_EVENT } from "../lib/connection-recovery";
+import { BOARD_REFRESH_EVENT } from "../lib/board-refresh";
 import { hasWatchedIssues, noteRunOutcomeSeen, startAwayReplyWatch } from "../lib/background-notify";
 import {
   createContext,
@@ -2173,6 +2174,19 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     window.addEventListener("online", reconnectNow);
     window.addEventListener(SERVER_BACK_EVENT, reconnectNow);
 
+    // Refresh in the header: a connection that looks open can be dead after
+    // the phone slept (no events, and no close either), so it is replaced
+    // instead of trusted.
+    const refreshNow = () => {
+      if (closed) return;
+      const previous = socket;
+      socket = null;
+      if (previous) closeSocketQuietly(previous, "refresh");
+      clearReconnect();
+      connect();
+    };
+    window.addEventListener(BOARD_REFRESH_EVENT, refreshNow);
+
     // Delay initial connect slightly so React StrictMode's double-invoke
     // cleanup fires before the WebSocket is created, avoiding the
     // "WebSocket closed before connection established" dev-mode error.
@@ -2182,6 +2196,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
       closed = true;
       window.removeEventListener("online", reconnectNow);
       window.removeEventListener(SERVER_BACK_EVENT, reconnectNow);
+      window.removeEventListener(BOARD_REFRESH_EVENT, refreshNow);
       window.clearTimeout(connectTimer);
       clearReconnect();
       stopPolling();
