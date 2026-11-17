@@ -154,6 +154,12 @@ mkdir -p "$automa_home"
 if [ ! -s "$db_password_file" ]; then
   (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$db_password_file")
 fi
+# Owner-only, every run: umask already makes a new file 0600, and this locks
+# down one left world-readable by an older installer (or a changed umask) when
+# a phone updates. Android gives each app its own user id, so 0600 keeps every
+# other app off the database password; the phone's own owner can always read
+# their own files, which no on-device scheme can change.
+chmod 600 "$db_password_file"
 db_user="$(id -un)"
 pg_major="$(pg_ctl --version | grep -oE '[0-9]+' | head -n 1)"
 if [ -f "$pgdata/PG_VERSION" ] && [ "$(cat "$pgdata/PG_VERSION")" != "$pg_major" ]; then
@@ -307,6 +313,9 @@ secret_file="$automa_home/app-secret"
 if [ ! -s "$secret_file" ]; then
   (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$secret_file")
 fi
+# Owner-only, every run (as for db-password above): locks down the app key even
+# when an older installer left it world-readable.
+chmod 600 "$secret_file"
 cat > "$PREFIX/bin/automa" <<LAUNCHER
 #!$PREFIX/bin/bash
 # Starts the Automa database when it is not running, then the Automa server CLI.

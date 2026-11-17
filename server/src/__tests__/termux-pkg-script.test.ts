@@ -347,6 +347,22 @@ describe("the automa command's backup and restore", () => {
     expect(await calls()).toMatch(/am start -a android\.intent\.action\.MAIN -n com\.corxlabs\.automa\/\.MainActivity --es com\.corxlabs\.automa\.CONNECT http:\/\/127\.0\.0\.1:3100 --es com\.corxlabs\.automa\.SECRET [0-9a-f]{48}\n/);
   }, 60_000);
 
+  it("keeps the database password and the app key owner-only (0600), even if an older install left one readable", async () => {
+    const dbPassword = path.join(root, "home", ".automa", "db-password");
+    const appSecret = path.join(root, "home", ".automa", "app-secret");
+    // An older installer left the app key world-readable; a secret file from
+    // before this install exists with loose perms.
+    await mkdir(path.join(root, "home", ".automa"), { recursive: true });
+    await writeFile(appSecret, "0".repeat(48));
+    await chmod(appSecret, 0o644);
+    await installAutoma();
+    // Both secrets exist, hold a 48-hex value, and are mode 0600 (no group/other bits).
+    for (const file of [dbPassword, appSecret]) {
+      expect((await readFile(file, "utf8")).trim()).toMatch(/^[0-9a-f]{48}$/);
+      expect((await stat(file)).mode & 0o077).toBe(0);
+    }
+  }, 60_000);
+
   it("automa backup fails loudly and leaves no half backup when the dump fails", async () => {
     await installAutoma();
     await writeFile(path.join(root, "pg_dump-fails"), "");
