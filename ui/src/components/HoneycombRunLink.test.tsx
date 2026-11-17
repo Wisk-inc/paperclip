@@ -45,7 +45,11 @@ describe("HoneycombRunLink", () => {
     flushSync(() => {
       root.render(<HoneycombRunLink runId="abc" enabled />);
     });
-    await flushReact();
+    // The link appears once the run id is hashed (crypto.subtle, finished on
+    // another thread): a busy machine needs more than a few turns of the event loop.
+    await vi.waitFor(() => {
+      expect(container.querySelector("a")).not.toBeNull();
+    }, { timeout: 5_000 });
 
     const link = container.querySelector<HTMLAnchorElement>("a");
     expect(link?.textContent).toContain("View in Honeycomb");
