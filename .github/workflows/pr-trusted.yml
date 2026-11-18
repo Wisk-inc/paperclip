@@ -945,6 +945,9 @@ jobs:
       - name: Test the board string extractor
         run: node --test ./ui/scripts/extract-ui-strings.test.mjs
 
+      - name: Check no Vitest project collects a node --test file
+        run: node --test ./scripts/__tests__/vitest-skips-node-test-files.test.mjs
+
       - name: Check the app's translations are up to date
         run: pnpm i18n:android:check
 
