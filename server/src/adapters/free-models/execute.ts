@@ -324,7 +324,8 @@ async function reply(
     const knowledge = await moanKnowledge(api, question, onLog);
     persona = moanSystemPrompt({ agentName: agent.name, ...knowledge });
   }
-  const messages = buildMessages({ agentId: agent.id, agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles, unseenPictures, persona });
+  const languageNote = replyLanguageNoteFor(ctx.context.paperclipReplyLanguage, resolved.persona === "moan");
+  const messages = buildMessages({ agentId: agent.id, agentName: agent.name, issue, comments, lastUser, level, pictures, hasTools: tools.length > 0, canDraw: tools.some((tool) => tool.function.name === "GenerateImage"), profile, attachedFiles, unseenPictures, persona, languageNote });
   if (messages.length <= 1) throw new Error("Nothing to answer: the conversation is empty");
 
   await onLog("stdout", logLine({ type: "acpx.session", agent: "free-models", mode: model, permissionMode: tools.length ? "free, with tools" : "free", sessionId: runId }));
@@ -413,9 +414,28 @@ interface BuildInput {
   unseenPictures?: number;
   /** A wrapper persona's own prompt (Moan), placed before the agent prompt. */
   persona?: string;
+  /** The language the person reads Automa in, from the run (see replyLanguageNoteFor). */
+  languageNote?: string;
 }
 
-function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = [], persona?: string, unseenPictures = 0): string {
+/**
+ * The language note the server put in the run (the person's language and
+ * country), as the system prompt says it. Moan speaks Jamaican Patois first:
+ * an English reader keeps that; anyone else is answered in their language
+ * with Moan's own warmth.
+ */
+export function replyLanguageNoteFor(value: unknown, moan: boolean): string {
+  const reply = value && typeof value === "object" ? (value as { language?: unknown; note?: unknown }) : null;
+  const note = typeof reply?.note === "string" ? reply.note.trim() : "";
+  if (!note) return "";
+  if (moan) {
+    if (reply?.language === "en") return "";
+    return `${note} You are still Moan: keep your Jamaican warmth and humour, and switch to Patois only when they ask for it.`;
+  }
+  return note;
+}
+
+function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, level: ReturnType<typeof readThinkingLevel>, profile: Profile, attachedFiles: string[] = [], persona?: string, unseenPictures = 0, languageNote = ""): string {
   const who = [profile.title, profile.role].filter(Boolean).join(", ");
   return [
     persona ?? "",
@@ -440,12 +460,13 @@ function systemPrompt(agentName: string, hasTools: boolean, canDraw: boolean, le
       ? `The person attached ${unseenPictures === 1 ? "a picture" : `${unseenPictures} pictures`} to their last message, and you cannot see pictures. Say so plainly instead of guessing what ${unseenPictures === 1 ? "it shows" : "they show"}, and tell them ${modelLabel(VISION_MODEL)} in the model switcher can read pictures.`
       : "",
     "Write the way you would to a teammate: answer first, then the detail that matters, in Markdown.",
+    languageNote,
     level ? thinkingInstruction(level) : "",
   ].filter(Boolean).join("\n\n");
 }
 
 function buildMessages(input: BuildInput): PuterMessage[] {
-  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles, input.persona, input.unseenPictures) }];
+  const messages: PuterMessage[] = [{ role: "system", content: systemPrompt(input.agentName, input.hasTools, input.canDraw, input.level, input.profile, input.attachedFiles, input.persona, input.unseenPictures, input.languageNote) }];
   if (!input.issue.conversationAgentId) {
     const task = `Task: ${input.issue.title ?? ""}\n\n${input.issue.description ?? ""}`.trim();
     if (task) messages.push({ role: "user", content: task });

@@ -145,6 +145,7 @@ import {
   resolveBudgetIncidentSchema,
   // Sidebar
   upsertSidebarOrderPreferenceSchema,
+  updateLanguagePreferenceSchema,
   // Announcements
   announcementIdSchema,
   announcementSchema,
@@ -6060,6 +6061,23 @@ registry.registerPath({
   summary: "Update current user sidebar preferences",
   request: { body: jsonBody(upsertSidebarOrderPreferenceSchema) },
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/language-preferences/me",
+  tags: ["languages"],
+  summary: "Get the current user's language (Auto or a chosen one) and what Auto detected on their device",
+  responses: { 200: r.ok(), 401: r.unauthorized, 403: r.forbidden },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/language-preferences/me",
+  tags: ["languages"],
+  summary: "Save the current user's language choice or what Auto detected on their device",
+  request: { body: jsonBody(updateLanguagePreferenceSchema) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
 });
 
 registry.registerPath({

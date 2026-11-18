@@ -335,6 +335,7 @@ export {
 export { APP_DEFINITIONS } from "./app-definitions.generated.js";
 export * from "./google-workspace-connectors.js";
 export * from "./github-connectors.js";
+export * from "./app-languages.js";
 export {
   BLOCKED_MCP_PROVIDERS,
   SELF_SERVE_MCP_CANDIDATES,
@@ -1300,6 +1301,7 @@ export type {
   UserProfileWindowStats,
   SidebarBadges,
   SidebarOrderPreference,
+  LanguagePreference,
   InboxDismissal,
   InboxDismissalKind,
   AccessUserProfile,
@@ -1710,6 +1712,11 @@ export {
   upsertSidebarOrderPreferenceSchema,
   type UpsertSidebarOrderPreference,
 } from "./validators/sidebar-preferences.js";
+export {
+  languagePreferenceSchema,
+  updateLanguagePreferenceSchema,
+  type UpdateLanguagePreference,
+} from "./validators/language-preferences.js";
 export {
   resourceMembershipStateSchema,
   updateDocumentResourceMembershipSchema,

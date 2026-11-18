@@ -132,6 +132,11 @@ export {
   type UpsertSidebarOrderPreference,
 } from "./sidebar-preferences.js";
 export {
+  languagePreferenceSchema,
+  updateLanguagePreferenceSchema,
+  type UpdateLanguagePreference,
+} from "./language-preferences.js";
+export {
   resourceMembershipStateSchema,
   updateDocumentResourceMembershipSchema,
   updateResourceMembershipSchema,

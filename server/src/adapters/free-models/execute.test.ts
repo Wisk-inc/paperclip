@@ -10,7 +10,7 @@ vi.mock("../../services/free-models.js", () => ({
   equivalentImageCostUsd: (images: number) => images * 0.002,
 }));
 
-const { execute } = await import("./execute.js");
+const { execute, replyLanguageNoteFor } = await import("./execute.js");
 
 /** The document tools every chat model gets, after whatever its toggles allow. */
 const OFFICE_TOOL_NAMES = ["CreateSpreadsheet", "CreatePresentation", "CreateDocument", "ReadDocument"];
@@ -85,6 +85,31 @@ function postedBody(calls: Call[]): string {
 }
 
 describe("free models engine", () => {
+  it("writes to the person in their Automa language, with their country, as the server says", async () => {
+    const net = stubNetwork();
+    const ctx = context({ model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false });
+    const note = "The person you are answering uses Automa in Spanish (Español), in Mexico. Write what you say to them in Spanish (Español).";
+    ctx.context = { ...ctx.context, paperclipReplyLanguage: { language: "es", country: "MX", timeZone: "America/Mexico_City", note } };
+    await execute(ctx);
+    const sent = net.puterBodies()[0]!.args as { messages: Array<{ role: string; content: string }> };
+    expect(sent.messages[0]!.content).toContain(note);
+
+    // Without a language from the server, no note.
+    const plain = stubNetwork();
+    await execute(context({ model: "deepseek/deepseek-v4.1-flash:free", freeFiles: false, freeTeammates: false, freeWeb: false, freeConnections: false }));
+    expect((plain.puterBodies()[0]!.args as { messages: Array<{ content: string }> }).messages[0]!.content).not.toContain("uses Automa in");
+  });
+
+  it("keeps Moan's Patois for an English reader and answers anyone else in their language, as Moan", () => {
+    const english = { language: "en", note: "The person you are answering uses Automa in English, in Jamaica." };
+    const spanish = { language: "es", note: "The person you are answering uses Automa in Spanish (Español), in Mexico." };
+    expect(replyLanguageNoteFor(english, true)).toBe("");
+    expect(replyLanguageNoteFor(english, false)).toBe(english.note);
+    expect(replyLanguageNoteFor(spanish, true)).toBe(`${spanish.note} You are still Moan: keep your Jamaican warmth and humour, and switch to Patois only when they ask for it.`);
+    expect(replyLanguageNoteFor(undefined, false)).toBe("");
+    expect(replyLanguageNoteFor({ language: "es", note: 42 }, false)).toBe("");
+  });
+
   it("streams a reply, shows thinking at a set level, and records free usage", async () => {
     const net = stubNetwork({ chatTurns: [[
       { type: "reasoning", reasoning: "3 x 12 = 36; 36 - 7 = 29." },

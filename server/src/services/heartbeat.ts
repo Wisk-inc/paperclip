@@ -388,6 +388,7 @@ import {
   WORKTREE_INSTANCE_ROOT_METADATA_KEY,
 } from "./workspace-instance-cleanup.js";
 import { issueService } from "./issues.js";
+import { languagePreferenceService, replyLanguageNote } from "./language-preferences.js";
 import {
   blockRunnerGoalRecovery,
   failRunnerGoalAction,
@@ -9484,6 +9485,7 @@ export function heartbeatService(
   const secretsSvc = secretService(db);
   const companySkills = companySkillService(db);
   const issuesSvc = issueService(db);
+  const languagePrefs = languagePreferenceService(db);
   const treeControlSvc = issueTreeControlService(db);
   const executionWorkspacesSvc = executionWorkspaceService(db);
   const environmentsSvc = environmentService(db);
@@ -20994,11 +20996,32 @@ export function heartbeatService(
       } else {
         delete context.paperclipCommentHistory;
       }
-      const taskMarkdownCompact = buildPaperclipTaskMarkdown({
+      let taskMarkdownCompact = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
         taskPlan,
         includeDescription: false,
       });
+      // The person this run answers (who wrote the waking comment, else who
+      // the task is for) reads what the agent writes in their own language.
+      const replyLanguage = issueRef
+        ? await languagePrefs
+            .replyLanguage(
+              wakeCommentContext?.authorUserId ??
+                issueContext?.responsibleUserId ??
+                issueContext?.createdByUserId ??
+                null,
+            )
+            .catch(() => null)
+        : null;
+      if (replyLanguage) {
+        const note = replyLanguageNote(replyLanguage);
+        const section = `## Language\n\n${note}`;
+        if (taskMarkdown) taskMarkdown += `\n\n${section}`;
+        if (taskMarkdownCompact) taskMarkdownCompact += `\n\n${section}`;
+        context.paperclipReplyLanguage = { ...replyLanguage, note };
+      } else {
+        delete context.paperclipReplyLanguage;
+      }
       if (issueRef) {
         context.paperclipIssue = {
           id: issueRef.id,
