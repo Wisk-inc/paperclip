@@ -9,6 +9,8 @@ import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } fro
 import { errorHandler } from "../middleware/index.js";
 import { freeModelRoutes } from "../routes/free-models.js";
 import { FREE_MODELS_RESET_ACTION } from "../services/free-models.js";
+import { configureModelCatalogForTests, resetModelCatalogForTests } from "../services/model-catalog.js";
+import type { CatalogModel } from "@paperclipai/shared/model-catalog";
 
 const moan = vi.hoisted(() => ({
   refresh: vi.fn(async () => ({ started: true, sources: 3 })),
@@ -75,18 +77,34 @@ describeEmbeddedPostgres("free-model usage routes", () => {
     db = createDb(tempDb.connectionString);
   }, 20_000);
 
+  // Paid list prices, per token: Studio's free usage is priced from them as each run's is. They come
+  // from the model catalog, so the test gives it its own: a fresh one, never this machine's saved
+  // copy (the dev server keeps today's prices there) nor the network.
+  const priced = (id: string, input: number, output: number): CatalogModel => ({
+    id, name: id, created: 0, context: null, tools: true, input: ["text"], output: ["text"], price: { input, output },
+  });
+  const catalogFetch = vi.fn(async () => {
+    throw new Error("the catalog must not be downloaded in this test");
+  });
+
   beforeEach(() => {
-    // Paid list prices, per token: Studio's free usage is priced from them as each run's is.
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      data: [
-        { id: "deepseek/deepseek-v4.1-flash", pricing: { prompt: "0.0000002", completion: "0.0000008" } },
-        { id: "nvidia/nemotron-3-ultra-550b-a55b", pricing: { prompt: "0.0000005", completion: "0.000002" } },
-      ],
-    })));
+    catalogFetch.mockClear();
+    configureModelCatalogForTests({
+      savedFile: () => null,
+      fetch: catalogFetch,
+      builtIn: () => ({
+        source: "built-in",
+        fetchedAt: new Date().toISOString(),
+        models: [
+          priced("deepseek/deepseek-v4.1-flash", 0.0000002, 0.0000008),
+          priced("nvidia/nemotron-3-ultra-550b-a55b", 0.0000005, 0.000002),
+        ],
+      }),
+    });
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
+    resetModelCatalogForTests();
     await db.delete(activityLog);
     await db.delete(costEvents);
     await db.delete(heartbeatRuns);
@@ -145,6 +163,7 @@ describeEmbeddedPostgres("free-model usage routes", () => {
     const before = await request(board).get(path);
     expect(before.body).toMatchObject({ since: null, replies: 4, images: 2, inputTokens: 1_001_110, outputTokens: 555 });
     expect(before.body.equivalentUsd).toBeCloseTo(0.75 + 0.0006 + 0.5, 10);
+    expect(catalogFetch).not.toHaveBeenCalled();
     expect((await request(board).get(`/api/companies/${theirs}/free-models/usage`)).status).toBe(403);
 
     const agent = appAs({ type: "agent", source: "agent_key", agentId: myAgent, companyId: mine });
