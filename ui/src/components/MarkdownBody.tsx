@@ -1019,8 +1019,10 @@ function MarkdownBodyImpl({
 
   return (
     <div
-      // People's and agents' own words: the on-screen translator leaves them as written.
+      // People's and agents' own words: the on-screen translator leaves them as
+      // written, and in a right-to-left language each paragraph keeps its own direction.
       translate="no"
+      data-own-words=""
       className={cn(
         "paperclip-markdown prose prose-sm min-w-0 max-w-full break-words overflow-hidden",
         theme === "dark" && "prose-invert",

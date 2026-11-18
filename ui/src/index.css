@@ -1553,6 +1553,39 @@
   }
 }
 
+/* Right-to-left languages (Arabic, Hebrew, Persian, Urdu). Unlayered, so they
+   win over the utilities they adjust. */
+/* Arrows that mean forward or back point the other way. `scale` composes with
+   an icon's own rotate (an open disclosure chevron still points down). */
+[dir="rtl"] :is(
+  .lucide-chevron-right, .lucide-chevron-left, .lucide-chevrons-right, .lucide-chevrons-left,
+  .lucide-arrow-right, .lucide-arrow-left, .lucide-arrow-big-right, .lucide-arrow-big-left,
+  .lucide-move-right, .lucide-move-left, .lucide-send, .lucide-send-horizontal,
+  .lucide-undo, .lucide-undo-2, .lucide-redo, .lucide-redo-2,
+  .lucide-reply, .lucide-reply-all, .lucide-forward, .lucide-log-in, .lucide-log-out
+) {
+  scale: -1 1;
+}
+/* Text the board aligns to the left or right sits on the start or end side. */
+[dir="rtl"] .text-left {
+  text-align: right;
+}
+[dir="rtl"] .text-right {
+  text-align: left;
+}
+/* People's and agents' own words (chats, notes, an agent's thinking and run
+   output, marked data-own-words) take their direction from their first
+   letters, so an English message reads left to right on an Arabic screen. */
+[dir="rtl"] [data-own-words],
+[dir="rtl"] [data-own-words] :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd) {
+  unicode-bidi: plaintext;
+}
+/* Code is written left to right in every language. */
+[dir="rtl"] :is(pre, code, kbd, samp) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 /* Chat input "perceived thinking": while a message is sending or an agent
    is answering, a soft sheen sweeps across the input box. It is a
    background-image layer, so it never changes layout or stacking. */

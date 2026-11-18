@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LiveTranslator, MAX_BOARD_TEXT } from "./live-translator";
+import { FSI, LiveTranslator, MAX_BOARD_TEXT, PDI } from "./live-translator";
 import { buildUiStringIndex } from "./ui-string-index";
 
 const SPANISH: Record<string, string> = {
@@ -169,6 +169,61 @@ describe("LiveTranslator", () => {
     expect(root.querySelector("input")!.getAttribute("placeholder")).toBe("Search languages");
     expect(p.textContent).toBe("Delete 3 files?");
     expect(Array.from(p.childNodes).map((node) => node.nodeValue)).toEqual(["Delete ", "3", " files?"]);
+  });
+
+  describe("right to left (isolate)", () => {
+    const startIsolated = () => {
+      translator = new LiveTranslator({
+        root,
+        index,
+        lookup: (source) => translations[source],
+        onMissing: (sources) => missing.push(...sources),
+        isolate: true,
+      });
+      translator.start();
+      return translator;
+    };
+
+    it("keeps a value's own direction inside a translation", () => {
+      translations["Delete {0} files?"] = "حذف {0} ملفات؟";
+      const p = document.createElement("p");
+      p.append("Delete ", "Español (México)", " files?");
+      root.append(p);
+      startIsolated();
+      expect(p.textContent).toBe(`حذف ${FSI}Español (México)${PDI} ملفات؟`);
+    });
+
+    it("keeps board text that is still English in its own direction until the translation comes", () => {
+      root.innerHTML = `<p> Settings </p><p>Buy milk.</p>`;
+      startIsolated();
+      const [settings, personal] = Array.from(root.querySelectorAll("p"));
+      expect(settings!.textContent).toBe(` ${FSI}Settings${PDI} `);
+      // A person's words are never touched, isolated or not.
+      expect(personal!.textContent).toBe("Buy milk.");
+      expect(missing).toEqual(["Settings"]);
+      translations.Settings = "الإعدادات";
+      translator!.refresh();
+      expect(settings!.textContent).toBe(" الإعدادات ");
+    });
+
+    it("puts the plain originals back when stopped", () => {
+      root.innerHTML = `<p>Settings</p><button title="Settings">x</button>`;
+      const p = document.createElement("p");
+      p.append("Delete ", "3", " files?");
+      root.append(p);
+      const stopped = startIsolated();
+      stopped.stop();
+      translator = null;
+      expect(root.querySelector("p")!.textContent).toBe("Settings");
+      expect(root.querySelector("button")!.getAttribute("title")).toBe("Settings");
+      expect(Array.from(p.childNodes).map((node) => node.nodeValue)).toEqual(["Delete ", "3", " files?"]);
+    });
+
+    it("left to right languages get no isolates", () => {
+      root.innerHTML = `<p>Settings</p>`;
+      start();
+      expect(root.querySelector("p")!.textContent).toBe("Settings");
+    });
   });
 
   it("does not loop on its own writes", async () => {

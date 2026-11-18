@@ -277,6 +277,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
           index,
           lookup: (source) => next.lookup(source),
           onMissing: (sources) => next.request(sources),
+          isolate: appLanguage(language).rtl,
         });
         translator.start();
       })

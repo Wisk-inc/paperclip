@@ -1426,6 +1426,7 @@ function IssueChatVerboseLiveReasoningPart({ text }: { text: string }) {
           <p
             key={index}
             translate="no"
+            data-own-words=""
             className="whitespace-pre-wrap break-words text-(length:--text-compact) italic leading-5 text-muted-foreground/70"
           >
             {line}

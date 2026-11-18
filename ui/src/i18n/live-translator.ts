@@ -40,6 +40,10 @@ const LETTER = /\p{L}/u;
  */
 export const MAX_BOARD_TEXT = 600;
 
+/** Unicode first-strong isolate and pop: the text between keeps its own direction. */
+export const FSI = "\u2068";
+export const PDI = "\u2069";
+
 export interface LiveTranslatorOptions {
   /** What to watch: the whole page in the app. */
   root: Element;
@@ -48,6 +52,13 @@ export interface LiveTranslatorOptions {
   lookup: (source: string) => string | undefined;
   /** Board strings seen on screen that have no translation yet. */
   onMissing?: (sources: string[]) => void;
+  /**
+   * A right-to-left language: values put into a translation ("Español
+   * (México)" in an Arabic sentence) and board text still waiting for its
+   * translation are wrapped in Unicode isolates, so Latin words keep their
+   * own order and an English sentence keeps its full stop at its end.
+   */
+  isolate?: boolean;
 }
 
 interface Tracked {
@@ -247,10 +258,14 @@ export class LiveTranslator {
     if (text.length > MAX_BOARD_TEXT || !LETTER.test(text)) return null;
     const match = this.options.index.match(text, pieced);
     if (!match) return null;
+    const lead = text.match(/^\s*/)?.[0] ?? "";
+    const trail = text.match(/\s*$/)?.[0] ?? "";
     const translation = this.options.lookup(match.source);
     if (translation === undefined) {
       this.missing.add(match.source);
-      return null;
+      if (!this.options.isolate) return null;
+      // Still English for now: kept in its own direction until the translation comes.
+      return `${lead}${FSI}${text.slice(lead.length, text.length - trail.length)}${PDI}${trail}`;
     }
     // A value that is itself a board string ("Done" in "Status: {0}") is translated too.
     const values = match.values.map((value) => {
@@ -263,8 +278,7 @@ export class LiveTranslator {
       }
       return translated;
     });
-    const lead = text.match(/^\s*/)?.[0] ?? "";
-    const trail = text.match(/\s*$/)?.[0] ?? "";
-    return `${lead}${fillTemplate(translation, values)}${trail}`;
+    const filled = this.options.isolate ? values.map((value) => `${FSI}${value}${PDI}`) : values;
+    return `${lead}${fillTemplate(translation, filled)}${trail}`;
   }
 }

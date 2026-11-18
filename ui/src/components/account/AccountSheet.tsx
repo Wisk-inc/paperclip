@@ -108,7 +108,7 @@ function ActionRow({ icon: Icon, label, hint, to, onClick, tone, chevron }: {
         <span className={cn("block text-sm font-medium", tone === "danger" ? "text-destructive" : "text-foreground")}>{label}</span>
         {hint ? <span className="block truncate text-xs text-muted-foreground">{hint}</span> : null}
       </span>
-      {to || chevron ? <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" /> : null}
+      {to || chevron ? <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
     </>
   );
   const className = "flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/60 active:bg-accent";

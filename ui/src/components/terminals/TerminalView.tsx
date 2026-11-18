@@ -163,7 +163,7 @@ export function TerminalView({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)} data-testid="terminal-view">
-      <div ref={elementRef} translate="no" className="min-h-0 flex-1 overflow-hidden bg-(--terminal-surface) p-1.5" data-testid="terminal-screen" />
+      <div ref={elementRef} translate="no" dir="ltr" className="min-h-0 flex-1 overflow-hidden bg-(--terminal-surface) p-1.5" data-testid="terminal-screen" />
       {exitCode !== null ? (
         <p className="shrink-0 border-t border-border bg-card px-3 py-1.5 text-xs text-muted-foreground" aria-live="polite">
           The program exited{exitCode ? ` (code ${exitCode})` : ""}. Close this terminal or open it again.

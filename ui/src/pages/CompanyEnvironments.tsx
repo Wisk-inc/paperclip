@@ -760,6 +760,7 @@ function EnvironmentCustomImageBrowserTerminal({
         <div
           ref={terminalElementRef}
           translate="no"
+          dir="ltr"
           data-testid={`custom-image-terminal-screen-${sessionId}`}
           aria-label="Custom image browser terminal"
           role="application"
