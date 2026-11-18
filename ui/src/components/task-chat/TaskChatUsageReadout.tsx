@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Gauge } from "lucide-react";
 import type { TaskChatUsageItem } from "./task-chat-model";
+import { formatLocale } from "@/i18n/format-locale";
 
 /**
  * Second-tier live token/cost readout (ACP UsageUpdate). Concrete progress —
@@ -18,12 +19,12 @@ export function TaskChatUsageReadout({ item }: { item: TaskChatUsageItem }) {
         {item.label ? <span className="font-medium">{item.label}</span> : null}
         {contextWindowSize ? (
           <span>
-            {used.toLocaleString()}/{contextWindowSize.toLocaleString()} ctx ({pct}%)
+            {used.toLocaleString(formatLocale())}/{contextWindowSize.toLocaleString(formatLocale())} ctx ({pct}%)
           </span>
         ) : null}
         {inputTokens != null || outputTokens != null ? (
           <span>
-            · ↑{(inputTokens ?? 0).toLocaleString()} ↓{(outputTokens ?? 0).toLocaleString()}
+            · ↑{(inputTokens ?? 0).toLocaleString(formatLocale())} ↓{(outputTokens ?? 0).toLocaleString(formatLocale())}
           </span>
         ) : null}
         {costUsd != null ? <span>· ${costUsd.toFixed(4)}</span> : null}

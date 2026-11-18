@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ja.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>前回の実行後の後片付け</item>
+        <item>実行設定の適用</item>
+        <item>プラグインの起動</item>
+        <item>待機中のメッセージの配信</item>
+        <item>Automa の停止時に実行中だった作業の確認</item>
+        <item>Automa とともに止まった実行の終了</item>
+        <item>待機中の作業の再開</item>
+        <item>エージェントの目標の再開</item>
+        <item>割り当てられたタスクの確認</item>
+        <item>他の担当者を待っているタスクの確認</item>
+        <item>タスク ウォッチドッグの確認</item>
+        <item>応答が途絶えた実行の確認</item>
+        <item>古いタスクロックの解除</item>
+        <item>期限切れのセットアップ セッションの終了</item>
+        <item>古い決定の期限切れ処理</item>
+        <item>古いログイン セッションの終了</item>
+        <item>残ったサンドボックスの解放</item>
+        <item>エージェント アダプターの読み込み</item>
+    </string-array>
+</resources>

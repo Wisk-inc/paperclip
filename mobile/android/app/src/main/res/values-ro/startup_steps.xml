@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ro.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>se face curat după ultima rulare</item>
+        <item>se aplică setările de execuție</item>
+        <item>se pornesc pluginurile</item>
+        <item>se livrează mesajele în așteptare</item>
+        <item>se verifică munca în curs când Automa s-a oprit</item>
+        <item>se închid rulările oprite odată cu Automa</item>
+        <item>se reia munca în așteptare</item>
+        <item>se reiau obiectivele agenților</item>
+        <item>se verifică sarcinile atribuite</item>
+        <item>se verifică sarcinile care le așteptau pe altele</item>
+        <item>se verifică supraveghetorii sarcinilor</item>
+        <item>se verifică rulările care au amuțit</item>
+        <item>se eliberează blocările vechi ale sarcinilor</item>
+        <item>se închid sesiunile de configurare expirate</item>
+        <item>se expiră deciziile vechi</item>
+        <item>se închid sesiunile de conectare vechi</item>
+        <item>se eliberează mediile izolate rămase</item>
+        <item>se încarcă adaptoarele agenților</item>
+    </string-array>
+</resources>

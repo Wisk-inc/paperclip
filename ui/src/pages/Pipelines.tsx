@@ -128,6 +128,7 @@ import { extractIssueTimelineEvents } from "../lib/issue-timeline-events";
 import { applyLocalQueuedIssueCommentState, isQueuedIssueComment } from "../lib/optimistic-issue-comments";
 import type { IssueChatComment } from "../lib/issue-chat-messages";
 import { Badge } from "@/components/ui/badge";
+import { formatLocale } from "@/i18n/format-locale";
 
 type PipelineConversationActionableInteraction =
   | SuggestTasksInteraction
@@ -4174,7 +4175,7 @@ function BuiltFromTree({
 }
 
 function formatShortDate(value: Date | string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(formatLocale(), {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -5245,7 +5246,7 @@ export function Learnings() {
                         forcedMove && "border-l-2 border-l-amber-400 bg-amber-50/50 dark:bg-amber-400/10",
                       )}
                     >
-                      <span className="text-xs text-muted-foreground" title={new Date(event.createdAt).toLocaleString()}>
+                      <span className="text-xs text-muted-foreground" title={new Date(event.createdAt).toLocaleString(formatLocale())}>
                         {relativeTime(event.createdAt)}
                       </span>
                       <div className="min-w-0">

@@ -11,11 +11,21 @@ import { Mascot } from "./mascot/Mascot";
 import { useAccountProfile } from "../hooks/useAccountProfile";
 import { AccountButton } from "./account/AccountSheet";
 
-function greetingFor(hour: number): string {
-  if (hour < 5) return "Working late";
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+/**
+ * The greeting as one sentence with the name in it ("Good morning, {0}"), so
+ * the on-screen translator finds it whole and each language words it its own
+ * way, instead of a greeting and a name glued into text it cannot match.
+ */
+function greetingFor(hour: number, name: string | null | undefined): string {
+  if (hour < 5) return name ? `Working late, ${name}` : "Working late";
+  if (hour < 12) return name ? `Good morning, ${name}` : "Good morning";
+  if (hour < 18) return name ? `Good afternoon, ${name}` : "Good afternoon";
+  return name ? `Good evening, ${name}` : "Good evening";
+}
+
+/** How many things wait, as one whole sentence for each count (a language's grammar needs the whole). */
+function waitingLine(waiting: number): string {
+  return waiting === 1 ? "1 thing needs you. Start at the top." : `${waiting} things need you. Start at the top.`;
 }
 
 interface NeedsYouListProps {
@@ -50,7 +60,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
   const lastTask = recentTasks[0] ?? null;
   const profile = useAccountProfile();
   const firstName = profile.firstName;
-  const greeting = `${greetingFor(new Date().getHours())}${firstName ? `, ${firstName}` : ""}`;
+  const greeting = greetingFor(new Date().getHours(), firstName);
 
   return (
     <section aria-labelledby="needs-you-heading" className="flex flex-col gap-4 md:hidden">
@@ -60,9 +70,7 @@ export function NeedsYouList({ companyId, pendingApprovals }: NeedsYouListProps)
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="font-display text-lg font-semibold leading-tight tracking-tight">{greeting}</p>
           <p className="text-sm text-muted-foreground">
-            {waiting > 0
-              ? `${waiting} ${waiting === 1 ? "thing needs" : "things need"} you. Start at the top.`
-              : "You're all caught up. Your agents are on it."}
+            {waiting > 0 ? waitingLine(waiting) : "You're all caught up. Your agents are on it."}
           </p>
           {lastTask ? (
             <Link

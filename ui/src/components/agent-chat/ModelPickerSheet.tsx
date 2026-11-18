@@ -25,6 +25,7 @@ import { newestCatalogModelIds, useModelCatalog } from "@/lib/model-catalog";
 import { queryKeys } from "@/lib/queryKeys";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
+import { formatLocale } from "@/i18n/format-locale";
 
 /** Models shown per maker before "Show all"; searching or filtering shows every match. */
 const COLLAPSED_ROWS = 4;
@@ -210,11 +211,28 @@ function FreeUsageCard({ companyId }: { companyId: string }) {
   return (
     <div data-testid="free-usage" className="mx-1 mb-2 flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
       <div className="min-w-0 flex-1 text-xs">
+        {/* Phrase by phrase, each whole in its own element with its value as a piece of its own, so
+            each shows in the person's language and a date keeps its own order in a right-to-left one
+            (glued, they stayed in English). */}
         <p className="font-medium text-foreground">
-          {tokens.toLocaleString()} tokens{images ? ` · ${images} ${images === 1 ? "image" : "images"}` : ""} · $0.00 charged
+          <span>{tokens.toLocaleString(formatLocale())} tokens</span>
+          {images ? (
+            <>
+              {" · "}
+              {images === 1 ? <span>1 image</span> : <span>{images.toLocaleString(formatLocale())} images</span>}
+            </>
+          ) : null}
+          {" · "}
+          <span>$0.00 charged</span>
         </p>
         <p className="text-muted-foreground">
-          Would have cost {usd(equivalentUsd)} at paid prices{since ? ` · since ${new Date(since).toLocaleDateString()}` : ""}
+          <span>Would have cost {usd(equivalentUsd)} at paid prices</span>
+          {since ? (
+            <>
+              {" · "}
+              <span>since {new Date(since).toLocaleDateString(formatLocale())}</span>
+            </>
+          ) : null}
         </p>
       </div>
       <Button variant="outline" size="sm" disabled={reset.isPending || (tokens === 0 && images === 0)} onClick={() => reset.mutate()}>
@@ -293,7 +311,7 @@ function MoanKnowledgeCard() {
       <ModelLogo modelId={MOAN_MODEL_ID} size="md" />
       <div className="min-w-0 flex-1 text-xs">
         <p className="font-medium text-foreground">
-          Jamaica knowledge · {data.pages.toLocaleString()} {data.pages === 1 ? "page" : "pages"} from {okSources} {okSources === 1 ? "source" : "sources"}
+          Jamaica knowledge · {data.pages.toLocaleString(formatLocale())} {data.pages === 1 ? "page" : "pages"} from {okSources} {okSources === 1 ? "source" : "sources"}
         </p>
         <p className="text-muted-foreground">
           {data.running

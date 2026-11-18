@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/mr.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>मागील रननंतरची साफसफाई</item>
+        <item>रन सेटिंग्ज लागू करणे</item>
+        <item>प्लगइन सुरू करणे</item>
+        <item>प्रतीक्षेतील संदेश पोहोचवणे</item>
+        <item>Automa थांबले तेव्हा चालू असलेले काम तपासणे</item>
+        <item>Automa सोबत थांबलेले रन बंद करणे</item>
+        <item>प्रतीक्षेतील काम पुन्हा सुरू करणे</item>
+        <item>एजंटची उद्दिष्टे पुन्हा सुरू करणे</item>
+        <item>नेमून दिलेली कामे तपासणे</item>
+        <item>इतरांची वाट पाहणारी कामे तपासणे</item>
+        <item>कामांचे वॉचडॉग तपासणे</item>
+        <item>शांत झालेले रन तपासणे</item>
+        <item>जुने टास्क लॉक सोडणे</item>
+        <item>कालबाह्य सेटअप सत्रे बंद करणे</item>
+        <item>जुन्या निर्णयांची मुदत संपवणे</item>
+        <item>जुनी साइन-इन सत्रे बंद करणे</item>
+        <item>उरलेले सँडबॉक्स मोकळे करणे</item>
+        <item>एजंट अडॅप्टर लोड करणे</item>
+    </string-array>
+</resources>

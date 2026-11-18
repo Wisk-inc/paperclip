@@ -44,6 +44,7 @@ import {
   readRecoveryRetryLineage,
   type RecoveryRetryLineage,
 } from "@/lib/recovery-lineage";
+import { formatLocale } from "@/i18n/format-locale";
 
 export type RecoveryCardCardState = RecoveryDisplayState;
 export const deriveRecoveryCardState = deriveRecoveryDisplayState;
@@ -786,7 +787,7 @@ function formatTimeShort(value: string | Date | null | undefined): string | null
     if (absMin < 60) {
       return diffMs >= 0 ? `in ${absMin}m` : `${absMin}m ago`;
     }
-    return date.toLocaleString(undefined, {
+    return date.toLocaleString(formatLocale(), {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -889,7 +890,7 @@ function formatTimeAbsolute(value: string | Date | null | undefined): string | n
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(formatLocale(), {
     month: "short",
     day: "numeric",
     hour: "numeric",

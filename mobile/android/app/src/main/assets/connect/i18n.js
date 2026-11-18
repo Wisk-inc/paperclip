@@ -71,33 +71,93 @@
   var exact = {};
   var templates = [];
   var applied = typeof WeakMap === "function" ? new WeakMap() : null;
+  var rebuilt = typeof WeakSet === "function" ? new WeakSet() : null;
   var isolate = !!RTL[language];
 
-  function translate(text) {
-    var core = normalize(text);
-    if (!core || core.length > 400) return null;
-    var lead = text.match(/^\s*/)[0];
-    var trail = text.match(/\s*$/)[0];
-    if (Object.prototype.hasOwnProperty.call(exact, core)) return lead + exact[core] + trail;
+  function own(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
+  }
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  /**
+   * A listed sentence with values in it ("Could not find {0}. Check…"): a
+   * pattern whose groups are the values. A value may be empty (an optional
+   * part the app adds or not), and one used twice must be the same both times.
+   */
+  function compile(source) {
+    var parts = source.split(/\{(\d+)\}/);
+    var pattern = "^";
+    var groups = [];
+    var group = {};
+    for (var i = 0; i < parts.length; i += 1) {
+      if (i % 2 === 0) {
+        pattern += escapeRegExp(parts[i]);
+      } else if (own(group, parts[i])) {
+        pattern += "\\" + group[parts[i]];
+      } else {
+        groups.push(Number(parts[i]));
+        group[parts[i]] = groups.length;
+        pattern += "([\\s\\S]*?)";
+      }
+    }
+    return { pattern: new RegExp(pattern + "$"), groups: groups };
+  }
+
+  /** {0}, {1}… in a translation, each replaced by its value. */
+  function fill(translation, values) {
+    return translation.replace(/\{(\d+)\}/g, function (whole, index) {
+      return own(values, index) ? values[index] : whole;
+    });
+  }
+
+  /** The translation of a whole text, or null. `nested`: a value inside another sentence. */
+  function translateCore(core, nested) {
+    if (own(exact, core)) return exact[core];
     for (var i = 0; i < templates.length; i += 1) {
       var found = templates[i].pattern.exec(core);
-      if (found) {
-        var value = isolate ? FSI + found[1] + PDI : found[1];
-        return lead + templates[i].translation.replace("{0}", value) + trail;
+      if (!found) continue;
+      var values = {};
+      for (var g = 0; g < templates[i].groups.length; g += 1) {
+        var value = found[g + 1];
+        // A value that is itself one of the screen's sentences (an optional
+        // part, " (its database is not answering yet)") is translated too.
+        if (!nested) value = translateValue(value);
+        values[templates[i].groups[g]] = isolate && normalize(value) ? FSI + value + PDI : value;
       }
+      return fill(templates[i].translation, values);
     }
     return null;
   }
 
+  function translateValue(value) {
+    var core = normalize(value);
+    if (!core) return value;
+    var translated = translateCore(core, true);
+    return translated === null ? value : value.match(/^\s*/)[0] + translated + value.match(/\s*$/)[0];
+  }
+
+  function translate(text) {
+    var core = normalize(text);
+    if (!core || core.length > 600) return null;
+    var translated = translateCore(core, false);
+    return translated === null ? null : text.match(/^\s*/)[0] + translated + text.match(/\s*$/)[0];
+  }
+
+  function originalOf(node) {
+    return applied && applied.has(node) && applied.get(node).text === node.data ? applied.get(node).original : node.data;
+  }
+
   function translateNode(node) {
-    var original = applied && applied.has(node) && applied.get(node).text === node.data ? applied.get(node).original : node.data;
+    var original = originalOf(node);
     var result = translate(original);
     if (result === null || result === node.data) return;
     if (applied) applied.set(node, { original: original, text: result });
     node.data = result;
   }
 
-  function translateElement(element) {
+  function translateAttributes(element) {
     for (var i = 0; i < ATTRIBUTES.length; i += 1) {
       var value = element.getAttribute && element.getAttribute(ATTRIBUTES[i]);
       if (value) {
@@ -105,6 +165,54 @@
         if (result !== null && result !== value) element.setAttribute(ATTRIBUTES[i], result);
       }
     }
+  }
+
+  /**
+   * A sentence with words in bold or a command inside ("Tap <b>Paste</b>,
+   * then press Enter."): listed whole, the inner elements as {0}, {1}…, so a
+   * language can put them where its own word order needs them. The elements
+   * themselves are moved into place, never copied (the page keeps its hold
+   * on them), and their own words are translated on their own.
+   */
+  function translateSentence(element) {
+    if (rebuilt ? rebuilt.has(element) : element.__automaRebuilt) return;
+    var source = "";
+    var inner = [];
+    var words = false;
+    for (var child = element.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3) {
+        var text = originalOf(child);
+        source += text;
+        if (/[A-Za-z]{2,}/.test(text)) words = true;
+      } else if (child.nodeType === 1) {
+        source += "{" + inner.length + "}";
+        inner.push(child);
+      }
+    }
+    if (!inner.length || !words) return;
+    source = normalize(source);
+    if (!own(exact, source)) return;
+    var pieces = exact[source].split(/\{(\d+)\}/);
+    var used = {};
+    for (var i = 1; i < pieces.length; i += 2) {
+      if (used[pieces[i]] || !inner[Number(pieces[i])]) return;
+      used[pieces[i]] = true;
+    }
+    if (Object.keys(used).length !== inner.length) return;
+    var fragment = document.createDocumentFragment();
+    for (var j = 0; j < pieces.length; j += 1) {
+      if (j % 2 === 1) fragment.appendChild(inner[Number(pieces[j])]);
+      else if (pieces[j]) fragment.appendChild(document.createTextNode(pieces[j]));
+    }
+    while (element.firstChild) element.removeChild(element.firstChild);
+    element.appendChild(fragment);
+    if (rebuilt) rebuilt.add(element);
+    else element.__automaRebuilt = true;
+  }
+
+  function translateElement(element) {
+    translateAttributes(element);
+    translateSentence(element);
   }
 
   function skipped(element) {
@@ -133,20 +241,27 @@
     Object.keys(dictionary).forEach(function (source) {
       var translation = dictionary[source];
       if (typeof translation !== "string" || !translation) return;
-      if (source.indexOf("{0}") >= 0) {
-        var parts = source.split("{0}");
-        var escape = function (s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); };
-        templates.push({ pattern: new RegExp("^" + escape(parts[0]) + "(.+?)" + escape(parts[1]) + "$"), translation: translation });
-      } else {
-        exact[source] = translation;
+      // Every entry is looked up whole (a sentence with bold words or commands
+      // inside is found this way); one with values is also a pattern for text.
+      exact[source] = translation;
+      if (/\{\d+\}/.test(source)) {
+        var compiled = compile(source);
+        templates.push({ pattern: compiled.pattern, groups: compiled.groups, translation: translation, fixed: source.replace(/\{\d+\}/g, "").length });
       }
     });
+    // The most specific sentence first: "Waiting {0} · step {1} of {2}" before "Waiting {0}",
+    // which would otherwise take the rest of the line as its value.
+    templates.sort(function (a, b) { return b.fixed - a.fixed; });
     walk(document.body);
     new MutationObserver(function (records) {
       records.forEach(function (record) {
-        if (record.type === "characterData") translateNode(record.target);
-        else if (record.type === "attributes") translateElement(record.target);
-        else record.addedNodes.forEach(function (node) { walk(node); });
+        if (record.type === "characterData") {
+          if (!skipped(record.target.parentElement)) translateNode(record.target);
+        } else if (record.type === "attributes") {
+          translateAttributes(record.target);
+        } else {
+          record.addedNodes.forEach(function (node) { walk(node); });
+        }
       });
     }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRIBUTES });
   }

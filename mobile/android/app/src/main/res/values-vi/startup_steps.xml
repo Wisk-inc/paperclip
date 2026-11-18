@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/vi.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>đang dọn dẹp sau lần chạy trước</item>
+        <item>đang áp dụng cài đặt thực thi</item>
+        <item>đang khởi động trình bổ trợ</item>
+        <item>đang gửi các tin nhắn đang chờ</item>
+        <item>đang kiểm tra công việc đang chạy khi Automa dừng</item>
+        <item>đang đóng các lần chạy đã dừng cùng Automa</item>
+        <item>đang tiếp tục công việc đang chờ</item>
+        <item>đang tiếp tục mục tiêu của tác tử</item>
+        <item>đang kiểm tra các nhiệm vụ được giao</item>
+        <item>đang kiểm tra các nhiệm vụ chờ nhiệm vụ khác</item>
+        <item>đang kiểm tra trình giám sát nhiệm vụ</item>
+        <item>đang kiểm tra các lần chạy đã im lặng</item>
+        <item>đang giải phóng khóa nhiệm vụ cũ</item>
+        <item>đang đóng các phiên thiết lập đã hết hạn</item>
+        <item>đang cho hết hạn các quyết định cũ</item>
+        <item>đang đóng các phiên đăng nhập cũ</item>
+        <item>đang giải phóng các sandbox còn sót</item>
+        <item>đang tải bộ điều hợp tác tử</item>
+    </string-array>
+</resources>

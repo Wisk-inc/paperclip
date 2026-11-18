@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { StudioFileNode } from "@paperclipai/shared";
 import { studioLanguageLogoUrl } from "@/lib/studio-language-logos";
+import { formatLocale } from "@/i18n/format-locale";
 
 /** What a file is, from its name: a language logo when there is one, otherwise a matching icon. */
 export interface FileKind {
@@ -134,5 +135,5 @@ export function changedAgo(iso: string | undefined, now = Date.now()): string | 
   if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
   if (seconds < 86_400) return `${Math.round(seconds / 3600)} h ago`;
   if (seconds < 7 * 86_400) return `${Math.round(seconds / 86_400)} d ago`;
-  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(at).toLocaleDateString(formatLocale(), { month: "short", day: "numeric" });
 }

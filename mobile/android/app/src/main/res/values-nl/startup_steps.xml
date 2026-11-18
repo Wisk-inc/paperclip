@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/nl.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>opruimen na de vorige run</item>
+        <item>uitvoeringsinstellingen toepassen</item>
+        <item>plug-ins starten</item>
+        <item>wachtende berichten bezorgen</item>
+        <item>werk controleren dat liep toen Automa stopte</item>
+        <item>runs sluiten die met Automa zijn gestopt</item>
+        <item>wachtend werk hervatten</item>
+        <item>doelen van agents hervatten</item>
+        <item>toegewezen taken controleren</item>
+        <item>taken controleren die op andere wachtten</item>
+        <item>taakbewakers controleren</item>
+        <item>runs controleren die stil zijn gevallen</item>
+        <item>verouderde taakvergrendelingen vrijgeven</item>
+        <item>verlopen installatiesessies sluiten</item>
+        <item>oude beslissingen laten verlopen</item>
+        <item>oude inlogsessies sluiten</item>
+        <item>overgebleven sandboxes vrijgeven</item>
+        <item>agentadapters laden</item>
+    </string-array>
+</resources>

@@ -19,6 +19,7 @@ import { agentDetailHref } from "@/pages/agent-detail-navigation";
 import { AgentAiSettings } from "./AgentAiSettings";
 import { RemoveAgentDialog } from "./RemoveAgentDialog";
 import { roleIcon } from "./role-icons";
+import { formatLocale } from "@/i18n/format-locale";
 
 const NAME_MAX = 60;
 const TITLE_MAX = 80;
@@ -310,7 +311,7 @@ export function EditAgentSheet({ agent, open, onOpenChange, initialTab = "profil
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span className="tabular-nums">
-                          {promptValue.length.toLocaleString()} characters
+                          {promptValue.length.toLocaleString(formatLocale())} characters
                           {promptChanged ? " · unsaved" : ""}
                         </span>
                         {promptEditable ? (

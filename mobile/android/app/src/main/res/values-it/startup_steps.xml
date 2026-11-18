@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/it.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>riordino dopo l’ultima esecuzione</item>
+        <item>applicazione delle impostazioni di esecuzione</item>
+        <item>avvio dei plugin</item>
+        <item>consegna dei messaggi in attesa</item>
+        <item>controllo del lavoro in corso quando Automa si è fermato</item>
+        <item>chiusura delle esecuzioni fermate con Automa</item>
+        <item>ripresa del lavoro in attesa</item>
+        <item>ripresa degli obiettivi degli agenti</item>
+        <item>controllo delle attività assegnate</item>
+        <item>controllo delle attività che ne aspettavano altre</item>
+        <item>controllo dei watchdog delle attività</item>
+        <item>controllo delle esecuzioni rimaste in silenzio</item>
+        <item>rilascio dei blocchi delle attività scaduti</item>
+        <item>chiusura delle sessioni di configurazione scadute</item>
+        <item>scadenza delle decisioni vecchie</item>
+        <item>chiusura delle vecchie sessioni di accesso</item>
+        <item>rilascio delle sandbox rimaste</item>
+        <item>caricamento degli adattatori degli agenti</item>
+    </string-array>
+</resources>

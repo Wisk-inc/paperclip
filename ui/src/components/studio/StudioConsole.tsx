@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SHOWN_LINES, useStudioConsoleLines, type StudioConsoleStore } from "./console-store";
+import { formatLocale, useFormatLocale } from "@/i18n/format-locale";
 
 interface StudioConsoleProps {
   /** The project's live console output (only this panel redraws when it changes). */
@@ -40,6 +41,7 @@ function chunkLines(lines: StudioConsoleLine[]) {
 
 const ConsoleChunk = memo(
   function ConsoleChunk({ lines }: { lines: StudioConsoleLine[] }) {
+    useFormatLocale();
     // Consecutive lines of the same kind are one text block: far fewer
     // elements for the phone to lay out than one per line.
     const runs: Array<{ stream: StudioConsoleLine["stream"]; seq: number; text: string }> = [];
@@ -133,7 +135,7 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
       >
         {hidden > 0 ? (
           <p className="pb-1 opacity-60" data-testid="studio-console-trimmed">
-            {hidden.toLocaleString()} earlier {hidden === 1 ? "line" : "lines"} not shown
+            {hidden.toLocaleString(formatLocale())} earlier {hidden === 1 ? "line" : "lines"} not shown
           </p>
         ) : null}
         {lines.length === 0 ? (

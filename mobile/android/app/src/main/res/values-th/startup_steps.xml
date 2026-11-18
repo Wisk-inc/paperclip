@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/th.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>เก็บกวาดหลังการทำงานครั้งก่อน</item>
+        <item>ใช้การตั้งค่าการทำงาน</item>
+        <item>เริ่มปลั๊กอิน</item>
+        <item>ส่งข้อความที่รออยู่</item>
+        <item>ตรวจสอบงานที่กำลังทำอยู่ตอน Automa หยุด</item>
+        <item>ปิดการทำงานที่หยุดไปพร้อมกับ Automa</item>
+        <item>ทำงานที่รออยู่ต่อ</item>
+        <item>ทำเป้าหมายของเอเจนต์ต่อ</item>
+        <item>ตรวจสอบงานที่มอบหมาย</item>
+        <item>ตรวจสอบงานที่รอผู้อื่นอยู่</item>
+        <item>ตรวจสอบตัวเฝ้าดูงาน</item>
+        <item>ตรวจสอบการทำงานที่เงียบไป</item>
+        <item>ปลดล็อกงานที่ค้างนาน</item>
+        <item>ปิดเซสชันการตั้งค่าที่หมดอายุ</item>
+        <item>ทำให้การตัดสินใจเก่าหมดอายุ</item>
+        <item>ปิดเซสชันการลงชื่อเข้าใช้เก่า</item>
+        <item>ปล่อยแซนด์บ็อกซ์ที่เหลืออยู่</item>
+        <item>โหลดอะแดปเตอร์เอเจนต์</item>
+    </string-array>
+</resources>

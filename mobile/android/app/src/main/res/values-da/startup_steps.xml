@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/da.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>rydder op efter sidste kørsel</item>
+        <item>anvender kørselsindstillingerne</item>
+        <item>starter plugins</item>
+        <item>leverer beskeder, der ventede</item>
+        <item>tjekker arbejde, der kørte, da Automa stoppede</item>
+        <item>lukker kørsler, der stoppede med Automa</item>
+        <item>genoptager ventende arbejde</item>
+        <item>genoptager agenternes mål</item>
+        <item>tjekker tildelte opgaver</item>
+        <item>tjekker opgaver, der ventede på andre</item>
+        <item>tjekker opgavevagter</item>
+        <item>tjekker kørsler, der er blevet tavse</item>
+        <item>frigiver forældede opgavelåse</item>
+        <item>lukker udløbne opsætningssessioner</item>
+        <item>lader gamle beslutninger udløbe</item>
+        <item>lukker gamle login-sessioner</item>
+        <item>frigiver overskydende sandkasser</item>
+        <item>indlæser agentadaptere</item>
+    </string-array>
+</resources>

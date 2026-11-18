@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/cs.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>úklid po posledním běhu</item>
+        <item>použití nastavení spouštění</item>
+        <item>spouštění pluginů</item>
+        <item>doručování čekajících zpráv</item>
+        <item>kontrola práce, která běžela, když se Automa zastavila</item>
+        <item>zavírání běhů, které se zastavily s Automa</item>
+        <item>obnovení čekající práce</item>
+        <item>obnovení cílů agentů</item>
+        <item>kontrola přiřazených úkolů</item>
+        <item>kontrola úkolů, které čekaly na jiné</item>
+        <item>kontrola hlídačů úkolů</item>
+        <item>kontrola běhů, které utichly</item>
+        <item>uvolňování zastaralých zámků úkolů</item>
+        <item>zavírání vypršelých relací nastavení</item>
+        <item>vypršení starých rozhodnutí</item>
+        <item>zavírání starých relací přihlášení</item>
+        <item>uvolňování zbylých sandboxů</item>
+        <item>načítání adaptérů agentů</item>
+    </string-array>
+</resources>

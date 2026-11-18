@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ru.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>уборка после прошлого запуска</item>
+        <item>применение настроек выполнения</item>
+        <item>запуск плагинов</item>
+        <item>доставка ожидавших сообщений</item>
+        <item>проверка работы, шедшей в момент остановки Automa</item>
+        <item>закрытие запусков, остановившихся вместе с Automa</item>
+        <item>возобновление ожидающей работы</item>
+        <item>возобновление целей агентов</item>
+        <item>проверка назначенных задач</item>
+        <item>проверка задач, ожидавших другие</item>
+        <item>проверка сторожей задач</item>
+        <item>проверка затихших запусков</item>
+        <item>снятие устаревших блокировок задач</item>
+        <item>закрытие истёкших сеансов настройки</item>
+        <item>завершение срока старых решений</item>
+        <item>закрытие старых сеансов входа</item>
+        <item>освобождение оставшихся песочниц</item>
+        <item>загрузка адаптеров агентов</item>
+    </string-array>
+</resources>

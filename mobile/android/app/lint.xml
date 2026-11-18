@@ -6,4 +6,12 @@
     </issue>
     <!-- Stylistic KTX suggestions; the plain platform calls are clearer here. -->
     <issue id="UseKtx" severity="ignore" />
+    <!-- Hebrew and Indonesian are in Android's own folder names, values-iw and values-in
+         (scripts/sync-translations.mjs), and locales_config.xml lists them by their standard
+         tags, he and id: Android maps one to the other when it picks resources, lint does not.
+         Only those two are let through; any other language missing from locales_config.xml
+         is still reported. -->
+    <issue id="UnusedTranslation">
+        <ignore regexp="The language `?(in|iw) \(" />
+    </issue>
 </lint>

@@ -10,6 +10,7 @@ import { Link } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { Badge } from "@/components/ui/badge";
+import { formatLocale } from "@/i18n/format-locale";
 
 const inviteRoleOptions = [
   {
@@ -336,7 +337,7 @@ export function InvitesSection({ maxRole = "owner" }: { maxRole?: InviteRole | n
                         ) : null}
                       </td>
                       <td className="px-5 py-3 align-top text-muted-foreground">
-                        {new Date(invite.createdAt).toLocaleString()}
+                        {new Date(invite.createdAt).toLocaleString(formatLocale())}
                       </td>
                       <td className="px-5 py-3 align-top">
                         {invite.relatedJoinRequestId ? (

@@ -25,6 +25,7 @@ import { agentsApi } from "@/api/agents";
 import { accessApi } from "@/api/access";
 import { ApiError } from "@/api/client";
 import { useToastActions } from "@/context/ToastContext";
+import { formatLocale } from "@/i18n/format-locale";
 
 const PAGE_SIZE = 50;
 const ALL = "__all";
@@ -269,7 +270,7 @@ function AuditRow({
         <time
           className="shrink-0 whitespace-nowrap text-xs text-muted-foreground"
           dateTime={record.createdAt}
-          title={new Date(record.createdAt).toLocaleString()}
+          title={new Date(record.createdAt).toLocaleString(formatLocale())}
         >
           {relativeTime(record.createdAt)}
         </time>

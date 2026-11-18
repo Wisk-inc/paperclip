@@ -120,6 +120,7 @@ import { issuesApi } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
 import { TaskChatPresentationProvider } from "@/components/task-chat/presentation-mode";
+import { formatLocale } from "@/i18n/format-locale";
 
 /**
  * Run failures that mean the agent never got a model session: the harness
@@ -259,9 +260,9 @@ export function withPendingRetry(reason: string | null | undefined, retryAt: Dat
   if (!reason) return null;
   const at = retryAt ? new Date(retryAt) : null;
   if (!at || Number.isNaN(at.getTime())) return reason;
-  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = at.toLocaleTimeString(formatLocale(), { hour: "numeric", minute: "2-digit" });
   const sameDay = at.toDateString() === new Date().toDateString();
-  const when = sameDay ? `at ${time}` : `on ${at.toLocaleDateString([], { weekday: "short" })} at ${time}`;
+  const when = sameDay ? `at ${time}` : `on ${at.toLocaleDateString(formatLocale(), { weekday: "short" })} at ${time}`;
   return `${reason.trim()} Automa tries again by itself ${when}.`;
 }
 

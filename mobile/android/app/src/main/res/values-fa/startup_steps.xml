@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fa.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>جمع‌وجور کردن پس از آخرین اجرا</item>
+        <item>اعمال تنظیمات اجرا</item>
+        <item>راه‌اندازی افزونه‌ها</item>
+        <item>تحویل پیام‌های در انتظار</item>
+        <item>بررسی کاری که هنگام توقف Automa در جریان بود</item>
+        <item>بستن اجراهایی که همراه Automa متوقف شدند</item>
+        <item>ادامهٔ کارهای در انتظار</item>
+        <item>ادامهٔ هدف‌های عامل‌ها</item>
+        <item>بررسی کارهای واگذارشده</item>
+        <item>بررسی کارهایی که منتظر کارهای دیگر بودند</item>
+        <item>بررسی نگهبان‌های کارها</item>
+        <item>بررسی اجراهایی که ساکت شدند</item>
+        <item>آزاد کردن قفل‌های کهنهٔ کارها</item>
+        <item>بستن نشست‌های راه‌اندازی منقضی</item>
+        <item>منقضی کردن تصمیم‌های قدیمی</item>
+        <item>بستن نشست‌های ورود قدیمی</item>
+        <item>آزاد کردن محیط‌های ایزولهٔ باقی‌مانده</item>
+        <item>بارگذاری مبدل‌های عامل</item>
+    </string-array>
+</resources>

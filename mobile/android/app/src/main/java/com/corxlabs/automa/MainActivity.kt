@@ -973,7 +973,10 @@ class MainActivity : ComponentActivity() {
     private fun startingDetail(startup: ServerConfig.Startup?): String? {
         startup ?: return null
         val parts = listOfNotNull(
-            startup.label?.let { getString(R.string.starting_step, it.replaceFirstChar { first -> first.lowercaseChar() }) },
+            startup.label?.let {
+                val name = StartupSteps.name(it, resources.getStringArray(R.array.startup_step_labels), resources.getStringArray(R.array.startup_step_names))
+                getString(R.string.starting_step, name)
+            },
             startup.seconds?.let { getString(R.string.starting_elapsed, formatSeconds(it)) },
         )
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")

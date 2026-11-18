@@ -58,6 +58,7 @@ import {
   FRONTMATTER_FIELD_LABELS,
   FileTree,
 } from "../components/FileTree";
+import { formatLocale } from "@/i18n/format-locale";
 
 /**
  * Extract the set of agent/project/task slugs that are "checked" based on
@@ -1085,7 +1086,7 @@ export function CompanyExport() {
               {selectedCompany?.name ?? "Organization"} export
             </span>
             <span className="text-muted-foreground">
-              Exporting {selectedCount.toLocaleString()} of {totalFiles.toLocaleString()} file{totalFiles === 1 ? "" : "s"}
+              Exporting {selectedCount.toLocaleString(formatLocale())} of {totalFiles.toLocaleString(formatLocale())} file{totalFiles === 1 ? "" : "s"}
               {selectedCount > 0 && ` (~${formatBytes(estimatedZipBytes)})`}
             </span>
             {warnings.length > 0 && (
@@ -1108,7 +1109,7 @@ export function CompanyExport() {
             <Download className="mr-1.5 h-3.5 w-3.5" />
             {downloadMutation.isPending
               ? "Building export..."
-              : `Export ${selectedCount.toLocaleString()} file${selectedCount === 1 ? "" : "s"}`}
+              : `Export ${selectedCount.toLocaleString(formatLocale())} file${selectedCount === 1 ? "" : "s"}`}
           </Button>
         </div>
       </div>
@@ -1179,7 +1180,7 @@ export function CompanyExport() {
                     />
                     <span className="min-w-0 truncate">{EXPORT_CATEGORY_LABELS[key]}</span>
                     <span className="text-xs text-muted-foreground">
-                      {countLoaded ? count.toLocaleString() : "—"}
+                      {countLoaded ? count.toLocaleString(formatLocale()) : "—"}
                     </span>
                   </label>
                 );

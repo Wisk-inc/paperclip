@@ -1,6 +1,6 @@
 # Automa Privacy Policy
 
-_Last updated: November 8, 2026_
+_Last updated: November 18, 2026_
 
 This policy explains what Automa does with your data. Automa is the Automa app
 for Android and the Automa board it opens (including Chats, App Studio,
@@ -77,6 +77,14 @@ chat as it happens.
   terms, so do not send them anything you would not give a third-party AI
   service. To show your remaining free usage on the Costs page, your server asks
   the free AI service how much has been used.
+- **Translations.** To show Automa in your language, your server asks the free
+  AI service to translate Automa's own interface wording (button labels,
+  headings, notices). It sends nothing else: it accepts only the app's own
+  English text, never your chats, tasks, names or files. The translations are
+  kept on your server for everyone on it. Your language choice and what Auto
+  found on your device (language, country, time zone) are kept on your server
+  with your account; agents are told your language and country so they write
+  to you in it.
 - **Your own keys.** When you add an API key or sign in to a provider (Claude,
   Codex, Gemini, Cursor and others), your server sends the same data straight to
   that provider, with your key, under that provider's privacy policy. Keys are

@@ -1,6 +1,7 @@
 import { AgentIdentity } from "./AgentIdentity";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useFormatLocale } from "@/i18n/format-locale";
 import { Link, useLocation } from "react-router-dom";
 import type {
   Agent,
@@ -584,6 +585,7 @@ const TimelineList = memo(function TimelineList({
   highlightCommentId?: string | null;
   externalReferences?: MarkdownExternalReferenceMap;
 }) {
+  useFormatLocale();
   if (timeline.length === 0) {
     return <p className="text-sm text-muted-foreground">No timeline entries yet.</p>;
   }

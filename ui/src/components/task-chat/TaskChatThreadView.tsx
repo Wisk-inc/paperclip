@@ -1,6 +1,7 @@
 import { TaskChatProjectCreatedCard } from "./TaskChatProjectCreatedCard";
 import { TaskChatSkillCreatedCard } from "./TaskChatSkillCreatedCard";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useFormatLocale } from "@/i18n/format-locale";
 import type { IssueAttachment } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
 import { useStableEntries, useStableValue } from "@/lib/stable-value";
@@ -381,6 +382,7 @@ function rowInputs(props: ThreadItemRowProps): unknown[] {
  */
 const ThreadItemRow = memo(
   function ThreadItemRow(props: ThreadItemRowProps) {
+    useFormatLocale();
     const { item } = props;
     const key = threadItemKey(item);
     return (

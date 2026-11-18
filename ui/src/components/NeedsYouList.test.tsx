@@ -4,6 +4,9 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
+import { LiveTranslator } from "../i18n/live-translator";
+import { buildUiStringIndex } from "../i18n/ui-string-index";
 import { NeedsYouList } from "./NeedsYouList";
 
 const badge = vi.hoisted(() => ({ inbox: 0, approvals: 0 }));
@@ -39,6 +42,39 @@ describe("NeedsYouList", () => {
       );
     });
     expect(container.textContent).toContain("1 thing needs you.");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("greets and counts in whole sentences the on-screen translator finds, with the name and count kept", async () => {
+    badge.inbox = 6;
+    badge.approvals = 0;
+    const hours = vi.spyOn(Date.prototype, "getHours").mockReturnValue(9);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <QueryClientProvider client={new QueryClient()}>
+            <NeedsYouList companyId="company-1" pendingApprovals={0} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+    });
+    expect(container.textContent).toContain("Good morning, Ada");
+    expect(container.textContent).toContain("6 things need you. Start at the top.");
+    // The board's real list of its own sentences, and Spanish for these two.
+    const spanish: Record<string, string> = {
+      "Good morning, {0}": "Buenos días, {0}",
+      "{0} things need you. Start at the top.": "{0} cosas te necesitan. Empieza por arriba.",
+    };
+    const translator = new LiveTranslator({ root: container, index: buildUiStringIndex(UI_STRINGS), lookup: (source) => spanish[source] });
+    translator.start();
+    expect(container.textContent).toContain("Buenos días, Ada");
+    expect(container.textContent).toContain("6 cosas te necesitan. Empieza por arriba.");
+    translator.stop();
+    hours.mockRestore();
     await act(async () => root.unmount());
     container.remove();
   });

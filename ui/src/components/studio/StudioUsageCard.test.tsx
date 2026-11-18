@@ -12,6 +12,9 @@ vi.mock("@/lib/router", () => ({
 }));
 
 import { StudioUsageCard } from "./StudioUsageCard";
+import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
+import { LiveTranslator } from "@/i18n/live-translator";
+import { buildUiStringIndex } from "@/i18n/ui-string-index";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,6 +52,29 @@ describe("StudioUsageCard", () => {
     usageMock.mockResolvedValue({ since: "2026-10-01T00:00:00.000Z", models: [] });
     await draw();
     expect(container.querySelector('[data-testid="studio-usage-card"]')).toBeNull();
+  });
+
+  it("writes its summary phrase by phrase, so the on-screen translator shows all of it in the person's language", async () => {
+    usageMock.mockResolvedValue({
+      since: "2026-10-01T00:00:00.000Z",
+      models: [
+        { provider: "free", model: "nvidia/nemotron-3-ultra-550b-a55b:free", calls: 12, inputTokens: 40_000, outputTokens: 4_000, costCents: 0, equivalentCents: 12 },
+        { provider: "anthropic", model: "claude-opus-5-5", calls: 2, inputTokens: 5_000, outputTokens: 1_000, costCents: 37, equivalentCents: 37 },
+      ],
+    });
+    await draw({ linkToStudio: true });
+    const summary = container.querySelector<HTMLElement>('[data-testid="studio-usage-summary"]')!;
+    expect(summary.textContent).toBe("2 models · 44k on the free models · $0.37 spent · worth $0.49 at paid prices");
+    const spanish: Record<string, string> = {
+      "{0} models": "{0} modelos",
+      "{0} on the free models": "{0} en los modelos gratuitos",
+      "{0} spent": "{0} gastados",
+      "worth {0} at paid prices": "vale {0} a precios de pago",
+    };
+    const translator = new LiveTranslator({ root: summary, index: buildUiStringIndex(UI_STRINGS), lookup: (source) => spanish[source] });
+    translator.start();
+    expect(summary.textContent).toBe("2 modelos · 44k en los modelos gratuitos · $0.37 gastados · vale $0.49 a precios de pago");
+    translator.stop();
   });
 
   it("lists each model with its logo, tokens and cost, the free ones as Free", async () => {

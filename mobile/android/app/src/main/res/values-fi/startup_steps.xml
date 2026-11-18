@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fi.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>siivotaan edellisen ajon jäljiltä</item>
+        <item>otetaan suoritusasetukset käyttöön</item>
+        <item>käynnistetään laajennukset</item>
+        <item>toimitetaan odottaneet viestit</item>
+        <item>tarkistetaan työ, joka oli kesken Automan pysähtyessä</item>
+        <item>suljetaan Automan mukana pysähtyneet ajot</item>
+        <item>jatketaan odottavaa työtä</item>
+        <item>jatketaan agenttien tavoitteita</item>
+        <item>tarkistetaan määritetyt tehtävät</item>
+        <item>tarkistetaan muita odottaneet tehtävät</item>
+        <item>tarkistetaan tehtävien vahdit</item>
+        <item>tarkistetaan hiljentyneet ajot</item>
+        <item>vapautetaan vanhentuneet tehtävälukot</item>
+        <item>suljetaan vanhentuneet määritysistunnot</item>
+        <item>vanhennetaan vanhat päätökset</item>
+        <item>suljetaan vanhat kirjautumisistunnot</item>
+        <item>vapautetaan jäljelle jääneet hiekkalaatikot</item>
+        <item>ladataan agenttien sovittimet</item>
+    </string-array>
+</resources>

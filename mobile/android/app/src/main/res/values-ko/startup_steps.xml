@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ko.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>지난 실행 후 정리</item>
+        <item>실행 설정 적용</item>
+        <item>플러그인 시작</item>
+        <item>대기 중인 메시지 전달</item>
+        <item>Automa가 멈췄을 때 실행 중이던 작업 확인</item>
+        <item>Automa와 함께 멈춘 실행 종료</item>
+        <item>대기 중인 작업 재개</item>
+        <item>에이전트 목표 재개</item>
+        <item>할당된 작업 확인</item>
+        <item>다른 사람을 기다리던 작업 확인</item>
+        <item>작업 감시 확인</item>
+        <item>응답이 끊긴 실행 확인</item>
+        <item>오래된 작업 잠금 해제</item>
+        <item>만료된 설정 세션 종료</item>
+        <item>오래된 결정 만료 처리</item>
+        <item>오래된 로그인 세션 종료</item>
+        <item>남은 샌드박스 정리</item>
+        <item>에이전트 어댑터 로드</item>
+    </string-array>
+</resources>

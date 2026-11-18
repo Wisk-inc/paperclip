@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ms.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>mengemas selepas larian terakhir</item>
+        <item>menggunakan tetapan pelaksanaan</item>
+        <item>memulakan pemalam</item>
+        <item>menghantar mesej yang menunggu</item>
+        <item>menyemak kerja yang sedang berjalan semasa Automa berhenti</item>
+        <item>menutup larian yang berhenti bersama Automa</item>
+        <item>menyambung semula kerja yang menunggu</item>
+        <item>menyambung semula matlamat ejen</item>
+        <item>menyemak tugasan yang ditetapkan</item>
+        <item>menyemak tugasan yang menunggu tugasan lain</item>
+        <item>menyemak pemerhati tugasan</item>
+        <item>menyemak larian yang menjadi senyap</item>
+        <item>melepaskan kunci tugasan yang lapuk</item>
+        <item>menutup sesi persediaan yang tamat tempoh</item>
+        <item>menamatkan keputusan lama</item>
+        <item>menutup sesi log masuk lama</item>
+        <item>melepaskan kotak pasir yang tinggal</item>
+        <item>memuatkan penyesuai ejen</item>
+    </string-array>
+</resources>

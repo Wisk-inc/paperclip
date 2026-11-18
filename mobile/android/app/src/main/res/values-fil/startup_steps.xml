@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fil.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>nililinis ang natira sa huling takbo</item>
+        <item>inilalapat ang mga setting ng pagpapatakbo</item>
+        <item>sinisimulan ang mga plugin</item>
+        <item>inihahatid ang mga mensaheng naghihintay</item>
+        <item>sinusuri ang trabahong tumatakbo nang huminto ang Automa</item>
+        <item>isinasara ang mga takbong huminto kasabay ng Automa</item>
+        <item>itinutuloy ang naghihintay na trabaho</item>
+        <item>itinutuloy ang mga layunin ng mga agent</item>
+        <item>sinusuri ang mga nakatalagang gawain</item>
+        <item>sinusuri ang mga gawaing naghihintay sa iba</item>
+        <item>sinusuri ang mga bantay ng gawain</item>
+        <item>sinusuri ang mga takbong tumahimik</item>
+        <item>pinapakawalan ang mga lumang lock ng gawain</item>
+        <item>isinasara ang mga nag-expire na session ng setup</item>
+        <item>pinapaso ang mga lumang desisyon</item>
+        <item>isinasara ang mga lumang session ng pag-sign in</item>
+        <item>pinapakawalan ang mga natirang sandbox</item>
+        <item>nilo-load ang mga adapter ng agent</item>
+    </string-array>
+</resources>

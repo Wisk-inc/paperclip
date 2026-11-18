@@ -101,6 +101,8 @@ export const BUILTIN_CORE_STRINGS: readonly string[] = [
   "Light or dark",
   "Accent color",
   "About Automa",
+  "By {0}",
+  "Made in Jamaica {0}",
   "This version",
   "First released",
   "Version history",

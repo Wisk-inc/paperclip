@@ -72,7 +72,7 @@ Support: https://discord.gg/NfnSrFK7YM
 Privacy policy URL: the public URL of `website/PRIVACY.md` (or `website/privacy.html` once the website is hosted)
 Terms of service URL: the public URL of `TERMS.md` in this folder
 
-## Data safety answers (for the APKPure build, 1.9.13, built without Firebase)
+## Data safety answers (for the APKPure build, 1.9.14, built without Firebase)
 
 - Data collected by the developer: none. The app has no Google sign-in and no
   push service in this build, and the server's usage reporting is off.
@@ -82,7 +82,9 @@ Terms of service URL: the public URL of `TERMS.md` in this folder
 - Data transmitted from the user's server: chat messages, agent instructions
   and attachments go to the AI model the user picked (the free AI service, or
   the provider whose key the user added); web searches go to DuckDuckGo (or Bing when DuckDuckGo refuses); pages
-  agents read are fetched from their own sites.
+  agents read are fetched from their own sites. To show the app in the user's
+  language, the server sends the app's own interface wording (never user data)
+  to the free AI service for translation.
 - Encrypted in transit: yes to the AI providers and the web; to the user's own
   server, yes when it uses HTTPS (on the phone, traffic never leaves the phone).
 - Users can delete data: yes, in the app (chats, tasks, files, agents,

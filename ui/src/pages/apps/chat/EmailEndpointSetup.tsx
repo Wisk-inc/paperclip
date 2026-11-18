@@ -43,6 +43,7 @@ import type {
   AgentPermissions,
   EmailEndpointSummary,
 } from "@paperclipai/shared";
+import { formatLocale } from "@/i18n/format-locale";
 const selectClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
@@ -753,7 +754,7 @@ export function EmailEndpointSettings({
         {inbox.receiveMode === "websocket" ? "Live connection" : "Webhook"}
       </p>
       <p className="text-sm text-muted-foreground">
-        Last mail check: {inbox.lastSyncAt ? new Date(inbox.lastSyncAt).toLocaleString() : "Not checked yet"}
+        Last mail check: {inbox.lastSyncAt ? new Date(inbox.lastSyncAt).toLocaleString(formatLocale()) : "Not checked yet"}
       </p>
       <p className="text-sm">
         Each email conversation is a task. Task comments stay internal; use

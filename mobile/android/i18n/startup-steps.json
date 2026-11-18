@@ -1,0 +1,20 @@
+[
+  "Tidying up after the last run",
+  "Applying execution settings",
+  "Starting plugins",
+  "Delivering messages that were waiting",
+  "Checking work that was running when Automa stopped",
+  "Closing runs that stopped with Automa",
+  "Resuming waiting work",
+  "Resuming agent goals",
+  "Checking assigned tasks",
+  "Checking tasks that were waiting on others",
+  "Checking task watchdogs",
+  "Checking runs that went quiet",
+  "Releasing stale task locks",
+  "Closing expired setup sessions",
+  "Expiring old decisions",
+  "Closing old sign-in sessions",
+  "Releasing leftover sandboxes",
+  "Loading agent adapters"
+]

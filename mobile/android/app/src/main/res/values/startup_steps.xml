@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/startup-steps.json. -->
+<resources>
+    <string-array name="startup_step_labels" translatable="false">
+        <item>Tidying up after the last run</item>
+        <item>Applying execution settings</item>
+        <item>Starting plugins</item>
+        <item>Delivering messages that were waiting</item>
+        <item>Checking work that was running when Automa stopped</item>
+        <item>Closing runs that stopped with Automa</item>
+        <item>Resuming waiting work</item>
+        <item>Resuming agent goals</item>
+        <item>Checking assigned tasks</item>
+        <item>Checking tasks that were waiting on others</item>
+        <item>Checking task watchdogs</item>
+        <item>Checking runs that went quiet</item>
+        <item>Releasing stale task locks</item>
+        <item>Closing expired setup sessions</item>
+        <item>Expiring old decisions</item>
+        <item>Closing old sign-in sessions</item>
+        <item>Releasing leftover sandboxes</item>
+        <item>Loading agent adapters</item>
+    </string-array>
+    <string-array name="startup_step_names">
+        <item>tidying up after the last run</item>
+        <item>applying execution settings</item>
+        <item>starting plugins</item>
+        <item>delivering messages that were waiting</item>
+        <item>checking work that was running when Automa stopped</item>
+        <item>closing runs that stopped with Automa</item>
+        <item>resuming waiting work</item>
+        <item>resuming agent goals</item>
+        <item>checking assigned tasks</item>
+        <item>checking tasks that were waiting on others</item>
+        <item>checking task watchdogs</item>
+        <item>checking runs that went quiet</item>
+        <item>releasing stale task locks</item>
+        <item>closing expired setup sessions</item>
+        <item>expiring old decisions</item>
+        <item>closing old sign-in sessions</item>
+        <item>releasing leftover sandboxes</item>
+        <item>loading agent adapters</item>
+    </string-array>
+</resources>

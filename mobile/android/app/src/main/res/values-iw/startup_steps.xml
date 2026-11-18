@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/he.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>סידור אחרי ההרצה האחרונה</item>
+        <item>החלת הגדרות ההרצה</item>
+        <item>הפעלת התוספים</item>
+        <item>מסירת ההודעות שהמתינו</item>
+        <item>בדיקת עבודה שרצה כש-Automa נעצר</item>
+        <item>סגירת הרצות שנעצרו יחד עם Automa</item>
+        <item>המשך העבודה הממתינה</item>
+        <item>המשך היעדים של הסוכנים</item>
+        <item>בדיקת המשימות שהוקצו</item>
+        <item>בדיקת משימות שהמתינו לאחרות</item>
+        <item>בדיקת שומרי המשימות</item>
+        <item>בדיקת הרצות שהשתתקו</item>
+        <item>שחרור נעילות משימה ישנות</item>
+        <item>סגירת סשנים של הגדרה שפג תוקפם</item>
+        <item>סיום התוקף של החלטות ישנות</item>
+        <item>סגירת סשנים ישנים של התחברות</item>
+        <item>שחרור ארגזי חול שנותרו</item>
+        <item>טעינת מתאמי הסוכנים</item>
+    </string-array>
+</resources>

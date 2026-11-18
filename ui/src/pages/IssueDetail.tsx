@@ -1,4 +1,5 @@
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
+import { useFormatLocale } from "@/i18n/format-locale";
 import { useLiveUpdatesConnected } from "../context/LiveUpdatesProvider";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { AgentModelButton } from "@/components/agent-chat/AgentModelButton";
@@ -1444,6 +1445,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   externalReferences,
   linkCaseReferences,
 }: IssueDetailChatTabProps) {
+  useFormatLocale();
   // Preserve master's Classic Task Interface seam: Streamlined UI changes the
   // TaskChatThread presentation but never swaps it for IssueChatThread.
   const { classicTaskInterfaceEnabled, streamlinedTaskDetailEnabled } =

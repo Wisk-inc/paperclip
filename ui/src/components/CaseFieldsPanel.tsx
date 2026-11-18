@@ -6,6 +6,7 @@ import { IssueReferencePill } from "@/components/IssueReferencePill";
 import { Link, useCaseHref } from "@/lib/router";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import { formatLocale } from "@/i18n/format-locale";
 
 // -----------------------------------------------------------------------------
 // CaseFieldsPanel (PAP-12968 §3) — the generic key-value renderer for a case's
@@ -176,11 +177,11 @@ export function CaseFieldValue({
     if (variant === "compact") {
       return (
         <CopyableCompactValue value={value} className="text-sm tabular-nums">
-          {value.toLocaleString()}
+          {value.toLocaleString(formatLocale())}
         </CopyableCompactValue>
       );
     }
-    return <span className="text-sm tabular-nums">{value.toLocaleString()}</span>;
+    return <span className="text-sm tabular-nums">{value.toLocaleString(formatLocale())}</span>;
   }
 
   if (typeof value === "boolean") {

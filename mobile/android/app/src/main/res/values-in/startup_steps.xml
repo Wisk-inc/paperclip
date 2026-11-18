@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/id.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>merapikan sisa proses terakhir</item>
+        <item>menerapkan setelan eksekusi</item>
+        <item>memulai plugin</item>
+        <item>mengirim pesan yang tertunda</item>
+        <item>memeriksa pekerjaan yang berjalan saat Automa berhenti</item>
+        <item>menutup proses yang berhenti bersama Automa</item>
+        <item>melanjutkan pekerjaan yang menunggu</item>
+        <item>melanjutkan sasaran agen</item>
+        <item>memeriksa tugas yang ditetapkan</item>
+        <item>memeriksa tugas yang menunggu tugas lain</item>
+        <item>memeriksa pengawas tugas</item>
+        <item>memeriksa proses yang menjadi diam</item>
+        <item>melepaskan kunci tugas yang usang</item>
+        <item>menutup sesi penyiapan yang kedaluwarsa</item>
+        <item>mengakhiri keputusan lama</item>
+        <item>menutup sesi login lama</item>
+        <item>melepaskan sandbox yang tersisa</item>
+        <item>memuat adaptor agen</item>
+    </string-array>
+</resources>

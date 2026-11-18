@@ -43,6 +43,7 @@ import {
   GitHubToggle,
   githubSelectClass,
 } from "./GitHubBotConfiguration";
+import { formatLocale } from "@/i18n/format-locale";
 
 const steps = [
   "Choose agent",
@@ -436,7 +437,7 @@ export function GitHubChatSetup() {
                   </Button>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Registration expires at{" "}
-                    {new Date(registration.expiresAt).toLocaleTimeString()}.
+                    {new Date(registration.expiresAt).toLocaleTimeString(formatLocale())}.
                   </p>
                 </form>
               )}

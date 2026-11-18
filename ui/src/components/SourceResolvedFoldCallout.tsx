@@ -7,6 +7,7 @@ import {
   formatSilenceAgeMs,
   shortenEvidenceId,
 } from "@/lib/source-resolved-watchdog-fold";
+import { formatLocale } from "@/i18n/format-locale";
 
 export interface SourceResolvedFoldCalloutProps {
   fold: SourceResolvedWatchdogFold;
@@ -19,7 +20,7 @@ function isoOrLocaleString(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(formatLocale());
 }
 
 function issueLink(id: string, identifier: string | null) {

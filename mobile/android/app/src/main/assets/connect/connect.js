@@ -187,6 +187,9 @@
   var startup = null;
   // The help line is about silence (it goes when Automa answers again).
   var silenceHelp = false;
+  // The help shown is the "on this step for 5 min" one (known here, not read back off the screen,
+  // whose words are in the person's language).
+  var stuckHelp = false;
   var RETRY_MS = 3000;
   // Tries in a row with no answer, after Automa had answered, before the page
   // says it stopped (about ten seconds).
@@ -243,9 +246,21 @@
     waitBar.setAttribute("aria-valuenow", String(value));
     drawTime();
   }
-  /** "45 s", "2 min 05 s". */
+  /** "45 s", "2 min 05 s"; in another language, its own units ("2 分 5 秒"), digits as everywhere on this screen. */
   function duration(seconds) {
     var whole = Math.max(0, Math.round(seconds));
+    var language = window.__automaConnectLanguage || "en";
+    if (language !== "en") {
+      try {
+        var unit = function (value, name) {
+          return new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "short", numberingSystem: "latn" }).format(value);
+        };
+        if (whole < 60) return unit(whole, "second");
+        return unit(Math.floor(whole / 60), "minute") + (whole % 60 ? " " + unit(whole % 60, "second") : "");
+      } catch (e) {
+        // A WebView without unit formatting: the English units below.
+      }
+    }
     if (whole < 60) return whole + " s";
     var rest = whole % 60;
     return Math.floor(whole / 60) + " min" + (rest ? " " + (rest < 10 ? "0" : "") + rest + " s" : "");
@@ -267,6 +282,7 @@
     waitHelp.hidden = !text;
     waitTermux.hidden = !offerTermux;
     silenceHelp = false;
+    stuckHelp = false;
     // Something is wrong: Safe start and Troubleshoot come with the help.
     showPhoneTools(!!text && !!offerTermux);
   }
@@ -430,7 +446,8 @@
         setStep("ready", startingStatus(), step !== "ready" && step !== "open");
         if (startup && startup.stepSeconds !== null && startup.stepSeconds >= STUCK_STEP_SECONDS) {
           setHelp("Automa has been on this step for " + duration(startup.stepSeconds) + ". If it doesn't move on, open Termux to see what it says; Ctrl+C there and then automa run starts it again.", true);
-        } else if (silenceHelp || (startup && !waitHelp.hidden && /on this step/.test(waitHelp.textContent))) {
+          stuckHelp = true;
+        } else if (silenceHelp || (startup && !waitHelp.hidden && stuckHelp)) {
           setHelp("", false);
         }
         tryLater(address);
@@ -573,9 +590,14 @@
     if (!inFlight) tryLater(address);
   }
   var reportTermux = document.getElementById("troubleshoot-termux");
-  function showReport(title, text, copy) {
+  var reportNote = document.getElementById("troubleshoot-note");
+  /** `note`: Automa's own words; `output`: the troubleshooter's report or a command, shown as written. */
+  function showReport(title, note, output, copy) {
     reportTitle.textContent = title;
-    reportText.textContent = text;
+    reportNote.textContent = note || "";
+    reportNote.hidden = !note;
+    reportText.textContent = output || "";
+    reportText.hidden = !output;
     reportCopy = copy || "";
     // Say what the button copies, so pasting it in Termux is the next step.
     // (A non-breaking hyphen, so the label never splits the command's name.)
@@ -614,7 +636,7 @@
     var address = lastWaitAddress;
     phoneTroubleshoot.disabled = true;
     phoneSafe.disabled = true;
-    showReport("Troubleshooting…", "Checking Termux, storage, Automa's files, the database and Automa itself. This takes a few seconds.");
+    showReport("Troubleshooting…", "Checking Termux, storage, Automa's files, the database and Automa itself. This takes a few seconds.", "");
     bridge.runTroubleshooter(KEY, nextCall("troubleshoot", function (reply) {
       phoneTroubleshoot.disabled = false;
       phoneSafe.disabled = false;
@@ -623,23 +645,25 @@
         var output = reply.output || "";
         showReport(
           reply.problems ? "Found problems: what to do is in the report" : "No problems found",
+          "",
           output,
           output.indexOf("Run: " + KEEP_ALIVE_COMMAND) >= 0 ? KEEP_ALIVE_COMMAND : "",
         );
         // It starts Automa unless it already runs (in safe mode when it kept stopping).
         waitAgain(address, "Waiting for Automa to answer…");
       } else if (reply && reply.pending) {
-        showReport("The troubleshooter is taking a while", "It is still running in Termux, and starts Automa when it is done. To see its report there, open Termux and run: automa troubleshoot");
+        showReport("The troubleshooter is taking a while", "It is still running in Termux, and starts Automa when it is done. To see its report there, open Termux and run:", "automa troubleshoot");
         waitAgain(address, "Waiting for Automa to answer…");
       } else if (reply && reply.reason === "not_allowed") {
         showReport(
           "Termux needs one setting first",
-          "Termux only lets other apps run Automa's commands once allow-external-apps is on. Tap Open Termux (it copies the fix), long-press in Termux, tap Paste, press Enter, then come back and tap Troubleshoot again.\n\n" + (reply.fix || ""),
+          "Termux only lets other apps run Automa's commands once allow-external-apps is on. Tap Open Termux (it copies the fix), long-press in Termux, tap Paste, press Enter, then come back and tap Troubleshoot again.",
+          reply.fix || "",
           reply.fix,
         );
       } else {
         haptic("warning");
-        showReport("Couldn't run the troubleshooter", (reply && reply.error) || "Termux didn't answer.");
+        showReport("Couldn't run the troubleshooter", (reply && reply.error) || "Termux didn't answer.", "");
       }
     }));
   });

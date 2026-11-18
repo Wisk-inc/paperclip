@@ -22,6 +22,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useManagedSandboxOnly } from "../hooks/useManagedSandboxOnly";
 import { queryKeys } from "../lib/queryKeys";
 import { projectRouteRef, projectWorkspaceUrl } from "../lib/utils";
+import { formatLocale } from "@/i18n/format-locale";
 
 type WorkspaceFormState = {
   name: string;
@@ -702,7 +703,7 @@ export function ProjectWorkspaceDetail() {
               ) : "None"}
             </DetailRow>
             <DetailRow label="Default ref">{workspace.defaultRef ?? "None"}</DetailRow>
-            <DetailRow label="Updated">{new Date(workspace.updatedAt).toLocaleString()}</DetailRow>
+            <DetailRow label="Updated">{new Date(workspace.updatedAt).toLocaleString(formatLocale())}</DetailRow>
           </Card>
 
           <Card className="block p-5">

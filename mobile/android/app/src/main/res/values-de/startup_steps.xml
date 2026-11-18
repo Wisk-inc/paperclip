@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/de.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>Aufräumen nach dem letzten Lauf</item>
+        <item>Ausführungseinstellungen werden angewendet</item>
+        <item>Plug-ins werden gestartet</item>
+        <item>Wartende Nachrichten werden zugestellt</item>
+        <item>Arbeit wird geprüft, die lief, als Automa anhielt</item>
+        <item>Läufe werden geschlossen, die mit Automa angehalten haben</item>
+        <item>Wartende Arbeit wird fortgesetzt</item>
+        <item>Ziele der Agenten werden fortgesetzt</item>
+        <item>Zugewiesene Aufgaben werden geprüft</item>
+        <item>Aufgaben werden geprüft, die auf andere gewartet haben</item>
+        <item>Aufgabenwächter werden geprüft</item>
+        <item>Läufe werden geprüft, die verstummt sind</item>
+        <item>Veraltete Aufgabensperren werden freigegeben</item>
+        <item>Abgelaufene Einrichtungssitzungen werden geschlossen</item>
+        <item>Alte Entscheidungen laufen ab</item>
+        <item>Alte Anmeldesitzungen werden geschlossen</item>
+        <item>Übrige Sandboxes werden freigegeben</item>
+        <item>Agenten-Adapter werden geladen</item>
+    </string-array>
+</resources>

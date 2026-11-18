@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.13** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.14** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.13](#2-whats-new-in-1913)
+2. [What's new in 1.9.14](#2-whats-new-in-1914)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,74 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.13
+## 2. What's new in 1.9.14
+
+Automa speaks your language: the board, your agents, the connect screen and the
+app's own screens.
+
+**Pick your language, or let Auto pick it**
+- Your account sheet has a new **Language** row. It offers **Auto** and 40
+  languages, each under its own name (Español, العربية, 日本語, हिन्दी…), and
+  the list searches by that name, the English name or the name in the language
+  you are reading, with or without accents.
+- **Auto** follows your phone's or browser's language and shows the country it
+  found ("Follows this device: Español (México)"). It understands the old
+  language codes some phones still send, Chinese script and region (Hong Kong,
+  Macau and Taiwan read Traditional Chinese) and the countries that write
+  European Portuguese, and it takes your country from the device's time zone.
+  Nothing is looked up online.
+- The choice applies at once, stays on the device and is saved to your account,
+  so every phone and browser you sign in on uses it. A choice made while signed
+  out or offline reaches your account later.
+- Dates, numbers and times such as "5 min ago" follow your language and
+  country on every screen, even when the phone itself is set to another
+  language. Digits are the Western ones (0-9) in every language, so a screen
+  never mixes two kinds; month names, separators and calendars are your
+  language's own.
+
+**The whole board in your language**
+- The main screens (navigation, your account, sign-in, chats and the model
+  switcher, the reconnecting notices and the common buttons) are built into
+  Automa in all 40 languages, so they show at once, even offline.
+- Everything else is translated the first time a screen opens, by Automa's free
+  models, and kept on the device and on your server for everyone on it, so each
+  screen is translated once per server. Only Automa's own wording is sent: the
+  server accepts nothing but the board's own English text, never your chats,
+  tasks, names or files. A phrase shows in English until its translation
+  arrives.
+- Your own words stay as they are: chats, agents' replies, notes, terminals and
+  run output are never translated. Messages Automa's server writes into a task,
+  such as why a free model did not answer, are still in English.
+- Arabic, Persian, Hebrew and Urdu read right to left: the page is mirrored,
+  arrows point the other way, a sheet's close button moves to the other side,
+  and a name or a piece of code inside a sentence keeps its own order.
+
+**Agents write to you in your language**
+- When an agent works on something for you (your comment, or a task that is
+  yours), it is told your language and country and writes to you in it. Write
+  to it in another language and it answers in that one. Code, commands, names
+  and quotes stay as they are. Free agents, every coding-tool agent and Moan do
+  this; Moan keeps Patois for English readers.
+
+**The app follows your choice**
+- The connect screen opens in your language, right to left where it should be,
+  and so does everything it shows while it connects or starts Automa: every
+  setup step for Termux and for a computer over ADB, which step Automa is on
+  while it starts and how long it has waited, the troubleshooter's notes, and
+  the app's own messages, such as why an address did not answer. Commands,
+  addresses and Termux's own button names (Paste, Open directory) stay as they
+  are, so they match what you see in Termux.
+- The board shows the app's own messages in your language too, such as a
+  share or download that did not work.
+- On Android 13 and newer the app's own screens use your choice too: the
+  "No connection" and "Automa is starting" sheets, messages such as "Saved to
+  Downloads", the launcher shortcuts and the notification channel. **Auto**
+  uses the phone's language. Android also lists Automa in its own per-app
+  language setting (Settings → Apps → Automa → Language); a language picked
+  there changes the app's own screens until you pick another one in Automa.
+  On Android 12 and older the app's own screens follow the phone's language.
+
+### From 1.9.13
 
 Model lists that update themselves as new models come out, with Claude Fable
 5.2 and Gemini 4 added; tighter security for accounts, sign-in and the free
@@ -1320,6 +1387,12 @@ organization between servers).
 **Instance settings** (for the whole server): general options, access, and
 experimental features.
 
+**Language** (account sheet): **Auto** (your phone's or browser's language, with
+the country it found) or one of 40 languages. It is saved to your account and
+used by the board, by your agents when they write to you, by the connect screen
+and, on Android 13 and newer, by the app's own screens. See
+[section 2](#2-whats-new-in-1914).
+
 **Profile and API balance** (account sheet): how much is **left on your keys**,
 what you **spent this month**, and a **monthly spending limit**. Add a key once
 and agents, chats and App Studio all use it; set a limit and nothing
@@ -1424,6 +1497,13 @@ agent exactly these commands.
   says; a made-up address in a header changes nothing.
 - Only the board itself can show the board's page in a frame, so another
   website can't load it hidden to steer your clicks.
+- Translating the board sends only the board's own English wording to the free
+  models: the server refuses any other text, so names, chats and tasks are never
+  sent. Translations are checked (same placeholders, no links or markup the
+  English lacks) and each person can have at most 2,000 new phrases translated
+  an hour.
+- Your language choice is yours alone: only you can read or change it, and an
+  agent is told only your language and country.
 
 **Agents and App Studio**
 - Free agents' web tools never reach private or local network addresses.
@@ -1445,8 +1525,9 @@ server (your computer, a VM, or your phone). The app talks to the server you
 connect it to, and to Google only for Continue with Google and push
 notifications when those are set up. Free-model requests go from your server to
 the free AI service Automa uses. The model lists' catalog is a public list your
-server downloads (nothing about you is sent). Moan's knowledge index holds only
-public Jamaican web pages.
+server downloads (nothing about you is sent). Translations of the board are
+made from Automa's own wording and shared by everyone on your server. Moan's
+knowledge index holds only public Jamaican web pages.
 
 The full threat model is in `doc/AUTOMA-SECURITY.md`.
 
@@ -1543,6 +1624,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.14 | 2026-11-18 | Languages: Auto (the device's language, with its country) or one of 40, saved to your account; the main screens built in, the rest translated by the free models on first sight and kept for everyone on the server (only Automa's own wording is sent); right to left for Arabic, Persian, Hebrew and Urdu; dates and numbers follow language and country; agents write to each person in their language; the connect screen and, on Android 13+, the app's own screens, shortcuts and notification channel follow the choice |
 | 1.9.13 | 2026-11-17 | Model lists update themselves (agents, App Studio, Terminals, the chat's Newest models), newest first; Claude Fable 5.2, Gemini 4 Carbon and Hydrogen, Qwen 4 Max; security: the free models' key stored scrambled and checked out of every build, phone secrets locked to Termux, sign-in limits per real caller, no framing of the board; PostgreSQL 18 runs three fewer processes and the server stops running git every few seconds; free models Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, and no-model agents on Nemotron 3 Ultra; review fixes: Troubleshoot, Safe start and Start each get their own answer from Termux, Troubleshoot waits during a Safe start, the safe mode banner sees a slow return |
 | 1.9.12 | 2026-11-17 | Keeps running: a lighter database and fewer connections, `automa keep-alive` lifts Android's background process limit, Termux says why Automa stopped (`automa logs`); safe start (by itself after three quick stops, or on purpose) with a banner offering Restart normally and Troubleshoot; `automa troubleshoot` checks and repairs, also from the app with its report shown there; Refresh in the header, Reload app, Refresh and Reload page on the connection screens; `automa restart` |
 | 1.9.11 | 2026-11-16 | Wide-scan fixes: saving your name or photo and the App Studio guest page say "Can't reach…" instead of "Failed to fetch"; an agent's settings page loads its extra AI-connection settings by itself once Automa answers (they used to stay missing until the app was reopened); pages you left stop asking the server after a reconnect; company folders pack with Node's own zip checksum (seconds to milliseconds for 64 MB); load-sensitive tests made reliable; four doc links fixed |

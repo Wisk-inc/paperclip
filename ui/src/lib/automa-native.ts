@@ -137,6 +137,38 @@ declare global {
   }
 }
 
+/**
+ * What the Automa app answers when it could not do what the board asked
+ * (AutomaBridge.kt and MainActivity.kt write them in English). The board shows
+ * them as they come; listed here, they are among the board's own words, so the
+ * board shows them in the person's language like the rest of its text.
+ * mobile/android/scripts/sync-translations.test.mjs keeps this list and the
+ * app's code in step.
+ */
+export const NATIVE_ERRORS = [
+  "Not available on this page",
+  "Pick an organization first",
+  "No folder is shared",
+  "Could not list the apps on this phone",
+  "No folder was chosen",
+  "Android did not grant access to that folder",
+  "Replaced by a newer request",
+  "This device has no folder picker",
+  "Google sign-in failed",
+  "Not signed in",
+  "Sign in with Google needs an https:// address for a server outside your network.",
+  "Could not send the setup to Termux",
+  "Install Termux first (from F-Droid), then set up Automa in it.",
+  "Install Termux first.",
+  "Automa in Termux is older than this app. In the setup screen tap Send to Termux, then run automa update in Termux.",
+  "Android did not let Automa reach Termux. Open Termux and run: automa run",
+  "Automa isn't set up in Termux yet. Follow \"Run Automa on this phone\" below.",
+  "Termux couldn't start Automa.",
+  "Termux couldn't start Automa: {0}",
+  "Termux needs one setting before Automa can start it: allow-external-apps.",
+  "Automa can't do that for you without that permission. Open Termux and run: automa {0}",
+] as const;
+
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 const pending = new Map<string, Pending>();
 let callCounter = 0;

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/sv.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>städar efter förra körningen</item>
+        <item>tillämpar körinställningarna</item>
+        <item>startar plugin-programmen</item>
+        <item>levererar meddelanden som väntade</item>
+        <item>kontrollerar arbete som pågick när Automa stannade</item>
+        <item>stänger körningar som stannade med Automa</item>
+        <item>återupptar väntande arbete</item>
+        <item>återupptar agenternas mål</item>
+        <item>kontrollerar tilldelade uppgifter</item>
+        <item>kontrollerar uppgifter som väntade på andra</item>
+        <item>kontrollerar uppgiftsvakter</item>
+        <item>kontrollerar körningar som tystnat</item>
+        <item>släpper inaktuella uppgiftslås</item>
+        <item>stänger utgångna konfigurationssessioner</item>
+        <item>låter gamla beslut löpa ut</item>
+        <item>stänger gamla inloggningssessioner</item>
+        <item>släpper överblivna sandlådor</item>
+        <item>läser in agentadaptrar</item>
+    </string-array>
+</resources>

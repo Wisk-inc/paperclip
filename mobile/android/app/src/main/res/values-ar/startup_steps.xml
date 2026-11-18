@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ar.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>ترتيب ما تبقى من التشغيل الأخير</item>
+        <item>تطبيق إعدادات التنفيذ</item>
+        <item>تشغيل الإضافات</item>
+        <item>تسليم الرسائل المنتظرة</item>
+        <item>فحص العمل الذي كان جاريًا عند توقف Automa</item>
+        <item>إغلاق عمليات التشغيل التي توقفت مع Automa</item>
+        <item>استئناف العمل المنتظر</item>
+        <item>استئناف أهداف الوكلاء</item>
+        <item>فحص المهام المسندة</item>
+        <item>فحص المهام التي كانت تنتظر غيرها</item>
+        <item>فحص مراقبي المهام</item>
+        <item>فحص عمليات التشغيل التي صمتت</item>
+        <item>تحرير أقفال المهام القديمة</item>
+        <item>إغلاق جلسات الإعداد المنتهية</item>
+        <item>إنهاء صلاحية القرارات القديمة</item>
+        <item>إغلاق جلسات تسجيل الدخول القديمة</item>
+        <item>تحرير بيئات العزل المتبقية</item>
+        <item>تحميل محوّلات الوكلاء</item>
+    </string-array>
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/zh-TW.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>清理上次執行留下的項目</item>
+        <item>套用執行設定</item>
+        <item>啟動外掛程式</item>
+        <item>傳遞等待中的訊息</item>
+        <item>檢查 Automa 停止時正在執行的工作</item>
+        <item>關閉隨 Automa 一起停止的執行</item>
+        <item>繼續等待中的工作</item>
+        <item>繼續代理的目標</item>
+        <item>檢查已指派的任務</item>
+        <item>檢查正在等待他人的任務</item>
+        <item>檢查任務監控程式</item>
+        <item>檢查已沒有動靜的執行</item>
+        <item>釋放過期的任務鎖定</item>
+        <item>關閉已過期的設定工作階段</item>
+        <item>讓舊的決定失效</item>
+        <item>關閉舊的登入工作階段</item>
+        <item>釋放殘留的沙箱</item>
+        <item>載入代理配接器</item>
+    </string-array>
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/hi.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>पिछली बार चलने के बाद की सफ़ाई</item>
+        <item>चलाने की सेटिंग लागू करना</item>
+        <item>प्लग-इन शुरू करना</item>
+        <item>इंतज़ार कर रहे संदेश पहुँचाना</item>
+        <item>Automa रुकने के समय चल रहे काम की जाँच</item>
+        <item>Automa के साथ रुके रन बंद करना</item>
+        <item>इंतज़ार कर रहा काम फिर शुरू करना</item>
+        <item>एजेंट के लक्ष्य फिर शुरू करना</item>
+        <item>सौंपे गए कामों की जाँच</item>
+        <item>दूसरों का इंतज़ार कर रहे कामों की जाँच</item>
+        <item>कामों के निगरानीकर्ताओं की जाँच</item>
+        <item>चुप हो गए रन की जाँच</item>
+        <item>पुराने टास्क लॉक हटाना</item>
+        <item>समय-सीमा ख़त्म हुए सेटअप सेशन बंद करना</item>
+        <item>पुराने फ़ैसलों की अवधि ख़त्म करना</item>
+        <item>पुराने साइन-इन सेशन बंद करना</item>
+        <item>बचे हुए सैंडबॉक्स ख़ाली करना</item>
+        <item>एजेंट अडैप्टर लोड करना</item>
+    </string-array>
+</resources>

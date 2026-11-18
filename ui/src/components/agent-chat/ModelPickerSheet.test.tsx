@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 import { queryKeys } from "@/lib/queryKeys";
 import { byRecency, freeHealthNote, modelVersion, ModelPickerSheet } from "./ModelPickerSheet";
+import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
+import { LiveTranslator } from "@/i18n/live-translator";
+import { buildUiStringIndex } from "@/i18n/ui-string-index";
 
 const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn() }));
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
@@ -261,6 +264,23 @@ describe("ModelPickerSheet", () => {
         aiConnection: { provider: "openrouter", method: "api_key", mode: "responsible_user" },
       },
     }, "company-1");
+  });
+
+  it("writes the free usage phrase by phrase, so the on-screen translator shows all of it in the person's language", async () => {
+    await render(<ModelPickerSheet agent={agent({ runtimeConfig: { aiConnection: { provider: "anthropic", method: "api_key", mode: "responsible_user" } } })} open onOpenChange={() => {}} />);
+    await settle(() => expect(document.querySelector('[data-testid="free-usage"]')?.textContent).toContain("Would have cost"));
+    const usage = document.querySelector<HTMLElement>('[data-testid="free-usage"]')!;
+    const spanish: Record<string, string> = {
+      "{0} tokens": "{0} tokens",
+      "1 image": "1 imagen",
+      "$0.00 charged": "$0.00 cobrados",
+      "Would have cost {0} at paid prices": "Habría costado {0} a precios de pago",
+    };
+    const translator = new LiveTranslator({ root: usage, index: buildUiStringIndex(UI_STRINGS), lookup: (source) => spanish[source] });
+    translator.start();
+    expect(usage.textContent).toContain("2,000 tokens · 1 imagen · $0.00 cobrados");
+    expect(usage.textContent).toContain("Habría costado $0.0031 a precios de pago");
+    translator.stop();
   });
 
   it("tags free models, shows what they would have cost, and moves the agent onto them without a key", async () => {

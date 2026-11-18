@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/nb.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>rydder opp etter forrige kjøring</item>
+        <item>bruker kjøringsinnstillingene</item>
+        <item>starter programtilleggene</item>
+        <item>leverer meldinger som ventet</item>
+        <item>sjekker arbeid som pågikk da Automa stoppet</item>
+        <item>lukker kjøringer som stoppet med Automa</item>
+        <item>fortsetter ventende arbeid</item>
+        <item>fortsetter agentenes mål</item>
+        <item>sjekker tildelte oppgaver</item>
+        <item>sjekker oppgaver som ventet på andre</item>
+        <item>sjekker oppgavevakter</item>
+        <item>sjekker kjøringer som har blitt stille</item>
+        <item>frigjør utdaterte oppgavelåser</item>
+        <item>lukker utløpte oppsettøkter</item>
+        <item>lar gamle beslutninger utløpe</item>
+        <item>lukker gamle påloggingsøkter</item>
+        <item>frigjør gjenværende sandkasser</item>
+        <item>laster inn agentadaptere</item>
+    </string-array>
+</resources>

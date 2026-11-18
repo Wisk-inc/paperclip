@@ -701,6 +701,31 @@ describe("AttentionQueueRow", () => {
     expect(vi.mocked(relativeTime).mock.calls.length).toBe(rendersAfterMount);
   });
 
+  it("writes its time again in the new language, though it is memoized", async () => {
+    const { setFormatLocale } = await import("../i18n/format-locale");
+    const activityAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    try {
+      setFormatLocale("en-US");
+      const view = render(
+        <AttentionQueueRow
+          item={buildItem({ activityAt })}
+          companyId="c1"
+          expanded={false}
+          onToggleExpand={noop}
+          onDismiss={noop}
+        />,
+      );
+      expect(view.textContent).toContain("2h ago");
+      // What the language provider does when the person picks Spanish in Mexico.
+      act(() => setFormatLocale("es-MX"));
+      const spanish = new Intl.RelativeTimeFormat("es-MX", { numeric: "auto", style: "narrow" }).format(-2, "hour");
+      expect(view.textContent).toContain(spanish);
+      expect(view.textContent).not.toContain("2h ago");
+    } finally {
+      setFormatLocale("en-US");
+    }
+  });
+
   it("does not expose a toggle button for non-inline rows", () => {
     render(
       <AttentionQueueRow

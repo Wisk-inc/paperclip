@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/pt-PT.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>a arrumar o que ficou da última execução</item>
+        <item>a aplicar as definições de execução</item>
+        <item>a iniciar os plug-ins</item>
+        <item>a entregar as mensagens em espera</item>
+        <item>a verificar o trabalho em curso quando o Automa parou</item>
+        <item>a fechar as execuções que pararam com o Automa</item>
+        <item>a retomar o trabalho em espera</item>
+        <item>a retomar os objetivos dos agentes</item>
+        <item>a verificar as tarefas atribuídas</item>
+        <item>a verificar as tarefas que esperavam por outras</item>
+        <item>a verificar os vigilantes de tarefas</item>
+        <item>a verificar as execuções que ficaram em silêncio</item>
+        <item>a libertar bloqueios de tarefas obsoletos</item>
+        <item>a fechar sessões de configuração expiradas</item>
+        <item>a expirar decisões antigas</item>
+        <item>a fechar sessões de início de sessão antigas</item>
+        <item>a libertar sandboxes que sobraram</item>
+        <item>a carregar os adaptadores de agentes</item>
+    </string-array>
+</resources>

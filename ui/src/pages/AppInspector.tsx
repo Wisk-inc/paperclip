@@ -17,6 +17,7 @@ import { useAskClaude } from "@/hooks/useAskClaude";
 import { automaNative } from "@/lib/automa-native";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
+import { formatLocale } from "@/i18n/format-locale";
 
 type HomeTab = "apps" | "projects";
 type Sort = "name" | "size" | "updated";
@@ -401,7 +402,7 @@ export function AppInspector() {
                             <span className="block truncate text-xs text-muted-foreground">
                               {[
                                 project.packageName,
-                                new Date(project.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+                                new Date(project.createdAt).toLocaleString(formatLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
                               ]
                                 .filter(Boolean)
                                 .join(" · ")}

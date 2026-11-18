@@ -83,7 +83,11 @@ That is the trust you give any server you choose. Two limits hold anyway: the
 Google sign-in token is handed over only to an `https://` server or one on a
 private network (never plain HTTP across the internet), and the success screen
 warns when a public address is plain HTTP. Downloads a page saves go through a
-sanitized filename into `Downloads/Automa`.
+sanitized filename into `Downloads/Automa`. It can also set the app's language
+(`setLanguage`, 1.9.14, server pages only): `AppLanguage.normalize` keeps only
+`auto` or one of the 40 codes, so the most it can do is change the language of
+the app's own screens. Only the app's own pages read the choice back
+(`getLanguage`, for the connect screen).
 
 **What if a page tries to leave the server's origin?** Only the configured
 server origin and the bundled connect screen load inside the app; every other
@@ -190,6 +194,31 @@ key the caller may use). It never reads another member's personal key.
   0600 on every install and update, also when an older installer left one
   readable. Android gives each app its own user id, so this keeps other apps
   out; the phone's owner can always read their own files.
+- Translations of the board (1.9.14): `POST /api/ui-translations` (board
+  users) accepts only strings in `UI_STRINGS`, the board's build-time list of
+  its own English wording (13,722 entries, `packages/shared/src/ui-strings.generated.ts`);
+  any other text, such as names, chat messages or task titles, is refused, so
+  nothing a person wrote reaches the free models this way. Accepted strings go
+  to the free models in batches of 30, at most 2,000 new strings per person per
+  hour; a translation is kept only with the same `{n}` placeholders, no HTML or
+  link the English lacks, and at most four times its length
+  (`acceptUiTranslation`). They are saved per language in
+  `data/ui-translations/<language>.json` in the instance folder and shared by
+  everyone on the instance (an `AGENTS.md` exception: they hold no company or
+  user data). People's own words on the board (chats, replies, notes, terminals,
+  run output) are marked `translate="no"` and never matched. The app's own
+  messages the board shows (`NATIVE_ERRORS`) are on that list as templates: an
+  address or file name in one is filled in on the device, never sent. The
+  connect screen's translations ship inside the app
+  (`assets/connect/i18n/<language>.json`) and are neither downloaded nor sent
+  anywhere.
+- Language preferences (1.9.14): `user_language_preferences` holds a person's
+  choice (`auto` or a language) and what Auto found on their device (language,
+  locale, country, time zone); instance-wide per person (an `AGENTS.md`
+  exception, like the sidebar's company order), read and written only by that
+  person through `/api/language-preferences/me` (board users; unknown values and
+  extra fields are refused). An agent run is told only the language and country
+  of the person it answers.
 - The model lists download OpenRouter's public model catalog (`/api/v1/models`,
   no credentials, nothing sent but the request) at most every 12 hours; the
   server already fetched it for free-model price estimates and OpenCode's

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/zh-CN.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>清理上次运行的残留</item>
+        <item>应用运行设置</item>
+        <item>启动插件</item>
+        <item>投递等待中的消息</item>
+        <item>检查 Automa 停止时正在运行的工作</item>
+        <item>关闭随 Automa 一起停止的运行</item>
+        <item>恢复等待中的工作</item>
+        <item>恢复智能体目标</item>
+        <item>检查已分配的任务</item>
+        <item>检查在等待他人的任务</item>
+        <item>检查任务看门狗</item>
+        <item>检查已无动静的运行</item>
+        <item>释放过期的任务锁</item>
+        <item>关闭已过期的设置会话</item>
+        <item>使旧决定过期</item>
+        <item>关闭旧的登录会话</item>
+        <item>释放残留的沙盒</item>
+        <item>加载智能体适配器</item>
+    </string-array>
+</resources>

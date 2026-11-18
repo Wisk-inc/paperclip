@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fr.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>rangement après la dernière exécution</item>
+        <item>application des réglages d’exécution</item>
+        <item>démarrage des plug-ins</item>
+        <item>livraison des messages en attente</item>
+        <item>vérification du travail en cours quand Automa s’est arrêté</item>
+        <item>fermeture des exécutions arrêtées avec Automa</item>
+        <item>reprise du travail en attente</item>
+        <item>reprise des objectifs des agents</item>
+        <item>vérification des tâches attribuées</item>
+        <item>vérification des tâches qui en attendaient d’autres</item>
+        <item>vérification des surveillances de tâches</item>
+        <item>vérification des exécutions devenues silencieuses</item>
+        <item>libération des verrous de tâches périmés</item>
+        <item>fermeture des sessions de configuration expirées</item>
+        <item>expiration des anciennes décisions</item>
+        <item>fermeture des anciennes sessions de connexion</item>
+        <item>libération des bacs à sable restants</item>
+        <item>chargement des adaptateurs d’agents</item>
+    </string-array>
+</resources>

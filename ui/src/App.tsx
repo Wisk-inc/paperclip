@@ -3,6 +3,7 @@ import type { ToolConnectionCredentialSource } from "@paperclipai/shared";
 import { Navigate, Outlet, Route, Routes, useActiveCompanyPrefix, useLocation, useNavigate, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/i18n";
+import { useFormatLocale } from "@/i18n/format-locale";
 import { Layout } from "./components/Layout";
 import { Layout as ProductionLayout } from "./components/Layout.production";
 import { ConferenceRoomChatGate } from "./components/ConferenceRoomChatGate";
@@ -820,6 +821,9 @@ function NoCompaniesStartPage() {
 }
 
 export function App() {
+  // A language switch draws every page again, so the dates and numbers already
+  // on screen take the new format; nothing is remounted, so typing is kept.
+  useFormatLocale();
   const { enabled: streamlinedUiEnabled, loaded: streamlinedUiLoaded } = useStreamlinedUiEnabled();
   useEffect(() => {
     const timer = window.setTimeout(warmPagesInBackground, 3000);

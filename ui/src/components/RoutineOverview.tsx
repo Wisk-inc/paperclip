@@ -17,6 +17,7 @@ import {
   routineDetailHref,
 } from "./RoutineContextualSidebar";
 import { useRoutineDetail } from "./routine-sections/context";
+import { formatLocale } from "@/i18n/format-locale";
 
 export type RoutineScheduleSummary = {
   label: string;
@@ -25,7 +26,7 @@ export type RoutineScheduleSummary = {
 };
 
 export function formatRoutineTimestamp(value: Date | string) {
-  return new Date(value).toLocaleString(undefined, {
+  return new Date(value).toLocaleString(formatLocale(), {
     dateStyle: "medium",
     timeStyle: "short",
   });

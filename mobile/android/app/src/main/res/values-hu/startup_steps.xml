@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/hu.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>rendrakás az előző futás után</item>
+        <item>a futtatási beállítások alkalmazása</item>
+        <item>a bővítmények indítása</item>
+        <item>a várakozó üzenetek kézbesítése</item>
+        <item>az Automa leállásakor futó munka ellenőrzése</item>
+        <item>az Automával együtt leállt futások lezárása</item>
+        <item>a várakozó munka folytatása</item>
+        <item>az ügynökök céljainak folytatása</item>
+        <item>a kiosztott feladatok ellenőrzése</item>
+        <item>a másokra váró feladatok ellenőrzése</item>
+        <item>a feladatfigyelők ellenőrzése</item>
+        <item>az elnémult futások ellenőrzése</item>
+        <item>az elavult feladatzárolások feloldása</item>
+        <item>a lejárt beállítási munkamenetek lezárása</item>
+        <item>a régi döntések lejártatása</item>
+        <item>a régi bejelentkezési munkamenetek lezárása</item>
+        <item>a megmaradt sandboxok felszabadítása</item>
+        <item>az ügynökadapterek betöltése</item>
+    </string-array>
+</resources>

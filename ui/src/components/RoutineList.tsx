@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { formatLocale } from "@/i18n/format-locale";
 
 export type RoutineListProjectSummary = {
   name: string;
@@ -39,7 +40,7 @@ export type RoutineListRowItem = {
 
 export function formatLastRunTimestamp(value: Date | string | null | undefined) {
   if (!value) return "Never";
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(formatLocale());
 }
 
 export function formatRoutineRunStatus(value: string | null | undefined) {

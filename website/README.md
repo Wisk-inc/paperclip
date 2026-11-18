@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.13
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.14
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -73,6 +73,8 @@ No Automa cloud account, no ads, no tracking.
   **take apps apart** with App Inspector.
 - **Count every token.** Costs by agent, by task and by month, hard budget stops,
   and what free work would have cost at paid prices.
+- **Use it in your language.** Auto (your phone's language) or one of 40
+  languages, right to left where it should be; agents write to you in it too.
 - **Keep it yours.** Your organizations, chats and files live on your own server,
   which can be the phone in your hand.
 
@@ -440,8 +442,8 @@ access (invites, roles, join requests), **API keys** (one place for the keys
 agents, chats and App Studio run on, with a monthly spending limit), secrets,
 adapters, environments, plugins and **Experimental** switches. **Instance
 settings** cover the whole server. The **account sheet** shows your profile, your
-API balance, the tour, the dark theme and sign-out, and **About Automa** keeps
-the full version history.
+API balance, your **language** (Auto or one of 40), the tour, the dark theme
+and sign-out, and **About Automa** keeps the full version history.
 
 <p align="center">
   <img src="screenshots/48-settings.png" width="230" alt="Organization settings">
@@ -516,7 +518,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.13.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.14.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -533,6 +535,23 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.14** (18 November 2026) — Automa in your language. **Account → Language**
+offers **Auto** and 40 languages: Auto follows your phone's or browser's
+language and shows the country it found, and dates, numbers and times follow
+your language and country. The main screens are built in for every language;
+the rest of the board is translated by Automa's free models the first time a
+screen opens and kept on your server for everyone on it. Only Automa's own
+wording is sent for that, never your chats, tasks, names or files, and your own
+words are never translated. Arabic, Persian, Hebrew and Urdu read right to
+left. Agents write to you in your language, and answer in another one if you
+write in it; Moan keeps Patois for English. The app follows your choice too:
+the whole connect screen in every language (every setup step, which step
+Automa is on while it starts, and the app's own messages, with commands and
+Termux's own button names kept as they are), and on Android 13 and newer the
+app's own notices, messages, launcher shortcuts and notification channel. The
+choice is saved to your account, so every phone and browser you sign in on
+uses it.
 
 **1.9.13** (17 November 2026) — Model lists update themselves: an agent's
 model choice, App Studio's providers, the Terminals menus and the chat's
@@ -651,6 +670,11 @@ can't give more than you have. App Studio projects can be shared with friends by
 code or link.
 
 **Where do downloads go?** `Downloads/Automa` on the phone.
+
+**Can I use Automa in my language?** Yes. Account → Language: Auto follows your
+phone, or pick one of 40 languages (Arabic, Persian, Hebrew and Urdu read right
+to left). Your agents write to you in it, and the app's own screens follow it
+on Android 13 and newer.
 
 ---
 

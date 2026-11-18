@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/sw.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>inasafisha baada ya uendeshaji wa mwisho</item>
+        <item>inatumia mipangilio ya uendeshaji</item>
+        <item>inawasha programu-jalizi</item>
+        <item>inawasilisha ujumbe uliokuwa ukisubiri</item>
+        <item>inakagua kazi iliyokuwa ikiendelea Automa iliposimama</item>
+        <item>inafunga uendeshaji uliosimama pamoja na Automa</item>
+        <item>inaendelea na kazi inayosubiri</item>
+        <item>inaendelea na malengo ya mawakala</item>
+        <item>inakagua kazi zilizokabidhiwa</item>
+        <item>inakagua kazi zilizokuwa zikisubiri nyingine</item>
+        <item>inakagua walinzi wa kazi</item>
+        <item>inakagua uendeshaji uliokaa kimya</item>
+        <item>inaachilia kufuli za kazi zilizopitwa na wakati</item>
+        <item>inafunga vipindi vya usanidi vilivyoisha muda</item>
+        <item>inamaliza muda wa maamuzi ya zamani</item>
+        <item>inafunga vipindi vya zamani vya kuingia</item>
+        <item>inaachilia sandbox zilizobaki</item>
+        <item>inapakia adapta za mawakala</item>
+    </string-array>
+</resources>

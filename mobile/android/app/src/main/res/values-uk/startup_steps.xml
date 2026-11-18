@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/uk.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>прибирання після минулого запуску</item>
+        <item>застосування налаштувань виконання</item>
+        <item>запуск плагінів</item>
+        <item>доставка повідомлень, що чекали</item>
+        <item>перевірка роботи, що йшла, коли Automa зупинилася</item>
+        <item>закриття запусків, що зупинилися разом з Automa</item>
+        <item>відновлення роботи, що чекає</item>
+        <item>відновлення цілей агентів</item>
+        <item>перевірка призначених завдань</item>
+        <item>перевірка завдань, що чекали на інші</item>
+        <item>перевірка сторожів завдань</item>
+        <item>перевірка запусків, що затихли</item>
+        <item>зняття застарілих блокувань завдань</item>
+        <item>закриття прострочених сеансів налаштування</item>
+        <item>завершення строку старих рішень</item>
+        <item>закриття старих сеансів входу</item>
+        <item>звільнення залишених пісочниць</item>
+        <item>завантаження адаптерів агентів</item>
+    </string-array>
+</resources>

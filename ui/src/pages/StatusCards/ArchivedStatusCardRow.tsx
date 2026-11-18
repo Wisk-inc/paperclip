@@ -7,10 +7,11 @@ import { queryKeys } from "@/lib/queryKeys";
 import { formatDateTime } from "@/lib/utils";
 import { formatCents, formatTokens, rollupUpdates } from "./format";
 import type { StatusCardView } from "./types";
+import { formatLocale } from "@/i18n/format-locale";
 
 function shortDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(iso).toLocaleDateString(formatLocale(), { month: "short", day: "numeric" });
 }
 
 export function ArchivedStatusCardRow({

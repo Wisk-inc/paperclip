@@ -1,5 +1,6 @@
 import type { IssueChangeReceiptEntry } from "@paperclipai/shared";
 import { formatReviewPolicyValue } from "./review-policy";
+import { formatLocale } from "@/i18n/format-locale";
 
 /**
  * Read + format the field-level change receipts carried on an `issue.updated`
@@ -82,7 +83,7 @@ export function formatIssueChangeValue(
       : `${strings.length} items`;
   }
 
-  if (value instanceof Date) return value.toLocaleString();
+  if (value instanceof Date) return value.toLocaleString(formatLocale());
 
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -94,7 +95,7 @@ export function formatIssueChangeValue(
         ? options.resolveUserLabel?.(trimmed)
         : null;
     if (resolved) return resolved;
-    if (isIsoTimestamp(trimmed)) return new Date(trimmed).toLocaleString();
+    if (isIsoTimestamp(trimmed)) return new Date(trimmed).toLocaleString(formatLocale());
     if (looksLikeId(trimmed)) return shortenId(trimmed);
     const humanized = trimmed.includes(" ") ? trimmed : trimmed.replace(/_/g, " ");
     return truncate(humanized);

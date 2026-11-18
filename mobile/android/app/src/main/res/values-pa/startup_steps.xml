@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/pa.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>ਪਿਛਲੀ ਵਾਰ ਚੱਲਣ ਤੋਂ ਬਾਅਦ ਸਫ਼ਾਈ</item>
+        <item>ਚਲਾਉਣ ਦੀਆਂ ਸੈਟਿੰਗਾਂ ਲਾਗੂ ਕਰਨਾ</item>
+        <item>ਪਲੱਗਇਨ ਸ਼ੁਰੂ ਕਰਨਾ</item>
+        <item>ਉਡੀਕ ਕਰ ਰਹੇ ਸੁਨੇਹੇ ਪਹੁੰਚਾਉਣਾ</item>
+        <item>Automa ਰੁਕਣ ਵੇਲੇ ਚੱਲ ਰਹੇ ਕੰਮ ਦੀ ਜਾਂਚ</item>
+        <item>Automa ਨਾਲ ਰੁਕੇ ਰਨ ਬੰਦ ਕਰਨਾ</item>
+        <item>ਉਡੀਕ ਕਰ ਰਿਹਾ ਕੰਮ ਮੁੜ ਸ਼ੁਰੂ ਕਰਨਾ</item>
+        <item>ਏਜੰਟਾਂ ਦੇ ਟੀਚੇ ਮੁੜ ਸ਼ੁਰੂ ਕਰਨਾ</item>
+        <item>ਸੌਂਪੇ ਗਏ ਕੰਮਾਂ ਦੀ ਜਾਂਚ</item>
+        <item>ਦੂਜਿਆਂ ਦੀ ਉਡੀਕ ਕਰ ਰਹੇ ਕੰਮਾਂ ਦੀ ਜਾਂਚ</item>
+        <item>ਕੰਮਾਂ ਦੇ ਨਿਗਰਾਨਾਂ ਦੀ ਜਾਂਚ</item>
+        <item>ਚੁੱਪ ਹੋ ਗਏ ਰਨਾਂ ਦੀ ਜਾਂਚ</item>
+        <item>ਪੁਰਾਣੇ ਟਾਸਕ ਲੌਕ ਛੱਡਣਾ</item>
+        <item>ਮਿਆਦ ਪੁੱਗੇ ਸੈੱਟਅੱਪ ਸੈਸ਼ਨ ਬੰਦ ਕਰਨਾ</item>
+        <item>ਪੁਰਾਣੇ ਫ਼ੈਸਲਿਆਂ ਦੀ ਮਿਆਦ ਖ਼ਤਮ ਕਰਨਾ</item>
+        <item>ਪੁਰਾਣੇ ਸਾਈਨ-ਇਨ ਸੈਸ਼ਨ ਬੰਦ ਕਰਨਾ</item>
+        <item>ਬਚੇ ਹੋਏ ਸੈਂਡਬਾਕਸ ਖ਼ਾਲੀ ਕਰਨਾ</item>
+        <item>ਏਜੰਟ ਅਡੈਪਟਰ ਲੋਡ ਕਰਨਾ</item>
+    </string-array>
+</resources>

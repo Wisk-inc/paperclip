@@ -109,7 +109,7 @@
         <span>Termux only lets other apps start Automa once <code>allow-external-apps</code> is on.</span>
         <ol>
           <li>Tap <b>Copy fix and open Termux</b>.</li>
-          <li>In Termux, long-press the screen, tap <b>Paste</b>, then press Enter.</li>
+          <li>In Termux, long-press the screen, tap <b translate="no">Paste</b>, then press Enter.</li>
           <li>Come back here and tap <b>Try again</b>.</li>
         </ol>
         <code id="wait-fix-command"></code>
@@ -136,7 +136,8 @@
     </div>
     <div id="troubleshoot-report" class="note troubleshoot-report" role="status" aria-live="polite" hidden>
       <strong id="troubleshoot-title">Troubleshooting…</strong>
-      <pre id="troubleshoot-text"></pre>
+      <p id="troubleshoot-note" class="troubleshoot-note" hidden></p>
+      <pre id="troubleshoot-text" hidden></pre>
       <div class="row">
         <button type="button" id="troubleshoot-termux" class="secondary">Open Termux</button>
         <button type="button" id="troubleshoot-close" class="secondary">Close</button>
@@ -179,7 +180,7 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14"/></svg>
           <div>
             <strong>Send Automa to Termux</strong>
-            <span id="send-status">Termux asks what to do with <b>automa-server.tar.xz</b>. Tap <b>Open directory</b>.</span>
+            <span id="send-status">Termux asks what to do with <b translate="no">automa-server.tar.xz</b>. Tap <b translate="no">Open directory</b>.</span>
             <button type="button" id="send-server" class="secondary">Send to Termux</button>
           </div>
         </li>

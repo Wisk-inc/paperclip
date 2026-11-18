@@ -2,10 +2,11 @@
 /**
  * The Automa app's own screens in every language, from one file per language
  * (mobile/android/i18n/<code>.json: "connect" for the connect screen, "android"
- * for the app's string resources). Writes
+ * for the app's string resources, "steps" for the server's startup steps). Writes
  *   - app/src/main/assets/connect/i18n/<code>.json: the connect screen's words
- *     (ones the board also shows come from ui/src/i18n/builtin/<code>.json), and
- *   - app/src/main/res/values-<qualifier>/strings.xml.
+ *     (ones the board also shows come from ui/src/i18n/builtin/<code>.json),
+ *   - app/src/main/res/values-<qualifier>/strings.xml, and
+ *   - app/src/main/res/values[-<qualifier>]/startup_steps.xml: the startup steps.
  * `--check` fails when a written file is out of date (CI).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -65,6 +66,21 @@ export function connectStrings() {
   return JSON.parse(readFileSync(path.join(SOURCES, "connect-strings.json"), "utf8"));
 }
 
+/**
+ * The steps a starting Automa names, as the server writes them (server/src/index.ts,
+ * in English). The app and the connect screen show one after "Now:" or "Automa is
+ * starting up:", first letter lowered ("checking assigned tasks"); each language
+ * translates that form.
+ */
+export function startupSteps() {
+  return JSON.parse(readFileSync(path.join(SOURCES, "startup-steps.json"), "utf8"));
+}
+
+/** A step as it reads inside a sentence, the way connect.js and the app lower it. */
+export function stepInSentence(label) {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
 function unescapeAndroid(text) {
   return text
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&")
@@ -102,12 +118,18 @@ function readBoard(language) {
 
 /** The connect screen's dictionary for a language: its own translations, else the board's. */
 export function connectDictionary(language) {
-  const own = readSource(language).connect ?? {};
+  const source = readSource(language);
+  const own = source.connect ?? {};
   const board = readBoard(language);
   const out = {};
-  for (const source of connectStrings()) {
-    const text = own[source] ?? board[source];
-    if (typeof text === "string" && text) out[source] = text;
+  for (const english of connectStrings()) {
+    const text = own[english] ?? board[english];
+    if (typeof text === "string" && text) out[english] = text;
+  }
+  // Startup steps, as they read inside "Automa is starting up: {0}…".
+  const steps = source.steps ?? {};
+  for (const label of startupSteps()) {
+    if (typeof steps[label] === "string" && steps[label]) out[stepInSentence(label)] = steps[label];
   }
   return out;
 }
@@ -130,20 +152,48 @@ export function renderAndroid(language) {
   return lines.join("\n");
 }
 
+function xmlItems(texts) {
+  return texts.map((text) => `        <item>${escapeAndroid(text)}</item>`);
+}
+
+/**
+ * The startup steps for the app's "Now: …" line: the server's English names
+ * (looked up, never shown) and, in each language, the name as it reads there.
+ * A language missing a step is not written (the app then shows the English).
+ */
+export function renderSteps(language) {
+  const labels = startupSteps();
+  const head = ['<?xml version="1.0" encoding="utf-8"?>', `<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/${language ?? "startup-steps"}.json. -->`, "<resources>"];
+  if (!language) {
+    return [
+      ...head,
+      '    <string-array name="startup_step_labels" translatable="false">', ...xmlItems(labels), "    </string-array>",
+      '    <string-array name="startup_step_names">', ...xmlItems(labels.map(stepInSentence)), "    </string-array>",
+      "</resources>", "",
+    ].join("\n");
+  }
+  const steps = readSource(language).steps ?? {};
+  const names = labels.map((label) => steps[label]);
+  if (names.some((name) => typeof name !== "string" || !name)) return null;
+  return [...head, '    <string-array name="startup_step_names">', ...xmlItems(names), "    </string-array>", "</resources>", ""].join("\n");
+}
+
 /** Every file this script writes, with its content. */
 export function outputs() {
-  const files = [];
+  const files = [{ file: path.join(RES, "values", "startup_steps.xml"), content: renderSteps(null) }];
   for (const language of LANGUAGES) {
     files.push({ file: path.join(CONNECT_OUT, `${language}.json`), content: renderConnect(language) });
     const android = renderAndroid(language);
+    const steps = renderSteps(language);
     for (const qualifier of ANDROID_QUALIFIERS[language]) {
       files.push({ file: path.join(RES, `values-${qualifier}`, "strings.xml"), content: android });
+      if (steps) files.push({ file: path.join(RES, `values-${qualifier}`, "startup_steps.xml"), content: steps });
     }
   }
   return files;
 }
 
-/** Written files no language owns any more (a removed language). */
+/** Written files no language owns any more (a removed language, or steps a language no longer has). */
 export function strays() {
   const wanted = new Set(outputs().map(({ file }) => file));
   const found = [];
@@ -152,6 +202,10 @@ export function strays() {
       const file = path.join(CONNECT_OUT, name);
       if (!wanted.has(file)) found.push(file);
     }
+  }
+  for (const folder of readdirSync(RES)) {
+    const file = path.join(RES, folder, "startup_steps.xml");
+    if (/^values(-|$)/.test(folder) && existsSync(file) && !wanted.has(file)) found.push(file);
   }
   return found;
 }

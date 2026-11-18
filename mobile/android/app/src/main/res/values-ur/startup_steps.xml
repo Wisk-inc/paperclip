@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ur.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>پچھلی رن کے بعد صفائی</item>
+        <item>عمل درآمد کی ترتیبات لاگو کرنا</item>
+        <item>پلگ اِن شروع کرنا</item>
+        <item>منتظر پیغامات پہنچانا</item>
+        <item>وہ کام جانچنا جو Automa رکنے کے وقت چل رہا تھا</item>
+        <item>وہ رنز بند کرنا جو Automa کے ساتھ رک گئیں</item>
+        <item>منتظر کام دوبارہ شروع کرنا</item>
+        <item>ایجنٹس کے اہداف دوبارہ شروع کرنا</item>
+        <item>تفویض کردہ کام جانچنا</item>
+        <item>دوسروں کے منتظر کام جانچنا</item>
+        <item>کاموں کے نگران جانچنا</item>
+        <item>خاموش ہو جانے والی رنز جانچنا</item>
+        <item>پرانے ٹاسک لاک کھولنا</item>
+        <item>میعاد ختم ہونے والے سیٹ اپ سیشن بند کرنا</item>
+        <item>پرانے فیصلوں کی میعاد ختم کرنا</item>
+        <item>پرانے سائن ان سیشن بند کرنا</item>
+        <item>بچی ہوئی سینڈ باکسز خالی کرنا</item>
+        <item>ایجنٹ اڈاپٹرز لوڈ کرنا</item>
+    </string-array>
+</resources>

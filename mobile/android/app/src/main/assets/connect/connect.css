@@ -328,6 +328,12 @@ input:focus-visible { border-color: var(--fg); }
   background: var(--bg); color: var(--fg); font-size: 12px; line-height: 1.45;
   white-space: pre-wrap; word-break: break-word;
 }
+.troubleshoot-report p { margin: 0; font-size: 14px; line-height: 1.45; }
+/* Right to left: commands, addresses and reports keep their own left-to-right order inside a
+   sentence, and the words in bold keep theirs (a Latin file name between Arabic words). */
+html[dir="rtl"] code, html[dir="rtl"] kbd, html[dir="rtl"] pre { direction: ltr; unicode-bidi: isolate; }
+html[dir="rtl"] pre { text-align: left; }
+html[dir="rtl"] b, html[dir="rtl"] strong, html[dir="rtl"] em { unicode-bidi: isolate; }
 @media (prefers-reduced-motion: reduce) {
   .wait-bar span { transition: none; }
   .wait-bar span::after, .wait-steps li[data-state="active"]::before { animation: none; }

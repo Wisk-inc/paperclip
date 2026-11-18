@@ -229,6 +229,35 @@ describe("StudioWorkspace", () => {
     expect(mockStudioApi.complete).toHaveBeenCalledTimes(6);
   });
 
+  it("leaves no error behind when a project that is gone can't load its console", async () => {
+    const unhandled: unknown[] = [];
+    const listener = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", listener);
+    try {
+      mockStudioApi.console.mockRejectedValue(new Error("Studio project not found"));
+      await draw();
+      // Give Node the moment it takes to report a rejection nothing handled.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(mockStudioApi.console).toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+
+  it("says when the new version of the open file can't load, keeping the open copy", async () => {
+    await draw();
+    expect(editor().dataset.path).toBe("app.js");
+    mockStudioApi.readFile.mockRejectedValue(new Error("Network down"));
+    // Someone else saved app.js; its content is too large to come with the event.
+    await act(async () => socketEvents.handler!({ type: "file:saved", path: "app.js", version: "v2", content: null }));
+    await settle();
+    expect(mockPushToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Couldn't load the new version of app.js", body: "Network down", tone: "error" }),
+    );
+    expect(editor().value).toBe("// app.js");
+  });
+
   it("says when Stop fails instead of doing nothing", async () => {
     mockStudioApi.get.mockResolvedValue({ workspace, run: { status: "running", startedAt: "2026-10-01T00:00:00.000Z" }, assistantRunning: false, participants: [], toolchain: null });
     mockStudioApi.stop.mockRejectedValue(new Error("The app didn't answer"));

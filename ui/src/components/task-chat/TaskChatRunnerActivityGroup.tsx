@@ -24,6 +24,7 @@ import {
 } from "./TaskChatProtocolActivityRow";
 import { TaskChatUsageReadout } from "./TaskChatUsageReadout";
 import { toolActivityPresentation } from "./tool-taxonomy";
+import { formatLocale } from "@/i18n/format-locale";
 
 type Activity = TaskChatActivityPhaseItem["items"][number];
 
@@ -85,10 +86,10 @@ function presentation(item: Activity, active: boolean) {
   const { used, size, inputTokens, outputTokens, costUsd } = item.usage;
   const usage = [
     size > 0
-      ? `${used.toLocaleString()}/${size.toLocaleString()} ctx`
+      ? `${used.toLocaleString(formatLocale())}/${size.toLocaleString(formatLocale())} ctx`
       : undefined,
     inputTokens != null || outputTokens != null
-      ? `↑${(inputTokens ?? 0).toLocaleString()} ↓${(outputTokens ?? 0).toLocaleString()}`
+      ? `↑${(inputTokens ?? 0).toLocaleString(formatLocale())} ↓${(outputTokens ?? 0).toLocaleString(formatLocale())}`
       : undefined,
     costUsd != null ? `$${costUsd.toFixed(4)}` : undefined,
   ]

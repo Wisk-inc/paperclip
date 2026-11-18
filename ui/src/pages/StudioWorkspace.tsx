@@ -310,9 +310,14 @@ export function StudioWorkspace() {
   useEffect(() => {
     if (!workspaceId) return;
     let cancelled = false;
-    void studioApi.console(workspaceId).then((result) => {
-      if (!cancelled) consoleStore.merge(result.lines);
-    });
+    void studioApi
+      .console(workspaceId)
+      .then((result) => {
+        if (!cancelled) consoleStore.merge(result.lines);
+      })
+      // A project that is gone, or a dropped connection: the page already says so from its own
+      // queries, and the console fills in when the socket reconnects (see below).
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -378,7 +383,13 @@ export function StudioWorkspace() {
           }
           if (current.content === current.savedContent) {
             if (event.content !== null) setFile({ ...current, content: event.content, savedContent: event.content, version: event.version });
-            else void studioApi.readFile(workspaceId, current.path).then((loaded) => setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version }));
+            else {
+              void studioApi
+                .readFile(workspaceId, current.path)
+                .then((loaded) => setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version }))
+                // The open copy stays as it was; saving it later meets the newer version as a conflict.
+                .catch((error) => pushToast({ title: `Couldn't load the new version of ${current.path}`, body: errorText(error), tone: "error" }));
+            }
           } else {
             setSaveState("conflict");
           }

@@ -54,11 +54,25 @@ export function StudioUsageCard({
           <div className="mt-1 text-xl font-semibold tabular-nums">
             {formatTokens(tokens)} <span className="text-sm font-normal text-muted-foreground">tokens</span>
           </div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {models.length} {models.length === 1 ? "model" : "models"}
-            {free ? ` · ${formatTokens(free)} on the free models` : ""}
-            {cents > 0 ? ` · $${(cents / 100).toFixed(2)} spent` : " · $0.00 charged"}
-            {worthCents > cents + 0.5 ? ` · worth ${formatUsd(worthCents / 100)} at paid prices` : ""}
+          {/* Phrase by phrase, each whole in its own element with its value as a piece of its own, so
+              each shows in the person's language (glued into one line, "model", the amounts and "at
+              paid prices" stayed in English). */}
+          <div className="mt-0.5 text-xs text-muted-foreground" data-testid="studio-usage-summary">
+            {models.length === 1 ? <span>1 model</span> : <span>{models.length} models</span>}
+            {free ? (
+              <>
+                {" · "}
+                <span>{formatTokens(free)} on the free models</span>
+              </>
+            ) : null}
+            {" · "}
+            {cents > 0 ? <span>{formatUsd(cents / 100)} spent</span> : <span>$0.00 charged</span>}
+            {worthCents > cents + 0.5 ? (
+              <>
+                {" · "}
+                <span>worth {formatUsd(worthCents / 100)} at paid prices</span>
+              </>
+            ) : null}
           </div>
         </div>
         <div className="hidden -space-x-1.5 sm:flex" aria-hidden="true">

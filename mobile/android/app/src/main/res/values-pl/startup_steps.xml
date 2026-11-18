@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/pl.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>porządkowanie po ostatnim uruchomieniu</item>
+        <item>stosowanie ustawień wykonywania</item>
+        <item>uruchamianie wtyczek</item>
+        <item>dostarczanie oczekujących wiadomości</item>
+        <item>sprawdzanie pracy przerwanej zatrzymaniem Automa</item>
+        <item>zamykanie przebiegów zatrzymanych razem z Automa</item>
+        <item>wznawianie oczekującej pracy</item>
+        <item>wznawianie celów agentów</item>
+        <item>sprawdzanie przypisanych zadań</item>
+        <item>sprawdzanie zadań czekających na inne</item>
+        <item>sprawdzanie strażników zadań</item>
+        <item>sprawdzanie przebiegów, które ucichły</item>
+        <item>zwalnianie nieaktualnych blokad zadań</item>
+        <item>zamykanie wygasłych sesji konfiguracji</item>
+        <item>wygaszanie starych decyzji</item>
+        <item>zamykanie starych sesji logowania</item>
+        <item>zwalnianie pozostałych piaskownic</item>
+        <item>wczytywanie adapterów agentów</item>
+    </string-array>
+</resources>

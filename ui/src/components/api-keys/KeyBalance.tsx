@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Wallet } from "lucide-react";
 import type { AiManagedConnectionSummary } from "@paperclipai/shared";
 import { aiConnectionsApi } from "@/api/ai-connections";
+import { formatLocale } from "@/i18n/format-locale";
 
 export function formatUsd(dollars: number) {
-  return dollars.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return dollars.toLocaleString(formatLocale(), { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**

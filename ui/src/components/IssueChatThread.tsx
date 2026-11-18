@@ -1,4 +1,5 @@
 import { DispositionRecoveryNotice, useDispositionRecoverySnapshot } from "./DispositionRecoveryNotice";
+import { useFormatLocale } from "@/i18n/format-locale";
 import type { ChatSlashCommand } from "./task-chat/slash-commands";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { TaskChatPausedTakeover, type TaskComposerPause } from "./task-chat/TaskChatPausedTakeover";
@@ -1054,6 +1055,7 @@ const IssueChatTextPart = memo(function IssueChatTextPart({
   recessed?: boolean;
   onAccent?: boolean;
 }) {
+  useFormatLocale();
   const { onImageClick, externalReferences, linkCaseReferences } =
     useContext(IssueChatCtx);
   if (isSuccessfulRunHandoffComment(text)) {
@@ -1909,6 +1911,7 @@ const IssueChatTextParts = memo(function IssueChatTextParts({
   recessed?: boolean;
   onAccent?: boolean;
 }) {
+  useFormatLocale();
   return (
     <>
       {message.content
@@ -1972,6 +1975,7 @@ const IssueChatAssistantParts = memo(function IssueChatAssistantParts({
   message: ThreadMessage;
   hasCoT: boolean;
 }) {
+  useFormatLocale();
   const groupedParts = useMemo(
     () => groupAssistantParts(message.content),
     [message.content],
@@ -4572,6 +4576,7 @@ const IssueChatMessageRow = memo(function IssueChatMessageRow({
   stoppingRunId,
   interruptingQueuedRunId,
 }: IssueChatMessageRowProps) {
+  useFormatLocale();
   const kind = issueChatMessageKind(message);
   const deletedAt = issueChatMessageDeletedAt(message);
   const activeVote = issueChatMessageActiveVote(

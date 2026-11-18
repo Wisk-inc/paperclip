@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/tr.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>son çalıştırmadan kalanlar toplanıyor</item>
+        <item>çalıştırma ayarları uygulanıyor</item>
+        <item>eklentiler başlatılıyor</item>
+        <item>bekleyen mesajlar teslim ediliyor</item>
+        <item>Automa durduğunda süren işler kontrol ediliyor</item>
+        <item>Automa ile duran çalıştırmalar kapatılıyor</item>
+        <item>bekleyen işlere devam ediliyor</item>
+        <item>ajanların hedeflerine devam ediliyor</item>
+        <item>atanan görevler kontrol ediliyor</item>
+        <item>başkalarını bekleyen görevler kontrol ediliyor</item>
+        <item>görev bekçileri kontrol ediliyor</item>
+        <item>sessizleşen çalıştırmalar kontrol ediliyor</item>
+        <item>eskimiş görev kilitleri serbest bırakılıyor</item>
+        <item>süresi dolan kurulum oturumları kapatılıyor</item>
+        <item>eski kararların süresi doldurtuluyor</item>
+        <item>eski giriş oturumları kapatılıyor</item>
+        <item>kalan korumalı alanlar serbest bırakılıyor</item>
+        <item>ajan bağdaştırıcıları yükleniyor</item>
+    </string-array>
+</resources>

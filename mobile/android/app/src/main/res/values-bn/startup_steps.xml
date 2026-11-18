@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/bn.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>আগের চালানোর পর গোছগাছ</item>
+        <item>চালানোর সেটিং প্রয়োগ</item>
+        <item>প্লাগইন চালু করা</item>
+        <item>অপেক্ষমাণ বার্তা পৌঁছে দেওয়া</item>
+        <item>Automa থামার সময় চলমান কাজ পরীক্ষা</item>
+        <item>Automa-র সঙ্গে থেমে যাওয়া রান বন্ধ করা</item>
+        <item>অপেক্ষমাণ কাজ আবার শুরু</item>
+        <item>এজেন্টদের লক্ষ্য আবার শুরু</item>
+        <item>নির্ধারিত কাজ পরীক্ষা</item>
+        <item>অন্যের অপেক্ষায় থাকা কাজ পরীক্ষা</item>
+        <item>কাজের পাহারাদার পরীক্ষা</item>
+        <item>চুপ হয়ে যাওয়া রান পরীক্ষা</item>
+        <item>পুরোনো কাজের লক খোলা</item>
+        <item>মেয়াদ শেষ হওয়া সেটআপ সেশন বন্ধ করা</item>
+        <item>পুরোনো সিদ্ধান্তের মেয়াদ শেষ করা</item>
+        <item>পুরোনো সাইন-ইন সেশন বন্ধ করা</item>
+        <item>রয়ে যাওয়া স্যান্ডবক্স খালি করা</item>
+        <item>এজেন্ট অ্যাডাপ্টার লোড করা</item>
+    </string-array>
+</resources>

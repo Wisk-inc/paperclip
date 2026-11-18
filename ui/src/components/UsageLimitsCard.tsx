@@ -5,6 +5,7 @@ import { costsApi } from "@/api/costs";
 import { Card } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn, providerDisplayName } from "@/lib/utils";
+import { formatLocale } from "@/i18n/format-locale";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -27,9 +28,9 @@ export function resetLabel(resetsAt: string, now = Date.now()): string | null {
   }
   const date = new Date(at);
   if (left < 7 * DAY) {
-    return `Resets ${date.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`;
+    return `Resets ${date.toLocaleString(formatLocale(), { weekday: "short", hour: "numeric", minute: "2-digit" })}`;
   }
-  return `Resets ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  return `Resets ${date.toLocaleDateString(formatLocale(), { month: "short", day: "numeric" })}`;
 }
 
 function fillClass(usedPercent: number): string {

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/te.json. -->
+<resources>
+    <string-array name="startup_step_names">
+        <item>గత రన్ తర్వాత శుభ్రం చేయడం</item>
+        <item>రన్ సెట్టింగ్‌లను వర్తింపజేయడం</item>
+        <item>ప్లగిన్‌లను ప్రారంభించడం</item>
+        <item>వేచి ఉన్న మెసేజ్‌లను అందించడం</item>
+        <item>Automa ఆగినప్పుడు రన్ అవుతున్న పనిని తనిఖీ చేయడం</item>
+        <item>Automa తో పాటు ఆగిన రన్‌లను మూసివేయడం</item>
+        <item>వేచి ఉన్న పనిని కొనసాగించడం</item>
+        <item>ఏజెంట్ లక్ష్యాలను కొనసాగించడం</item>
+        <item>కేటాయించిన టాస్క్‌లను తనిఖీ చేయడం</item>
+        <item>ఇతరుల కోసం వేచి ఉన్న టాస్క్‌లను తనిఖీ చేయడం</item>
+        <item>టాస్క్ వాచ్‌డాగ్‌లను తనిఖీ చేయడం</item>
+        <item>నిశ్శబ్దమైన రన్‌లను తనిఖీ చేయడం</item>
+        <item>పాత టాస్క్ లాక్‌లను విడుదల చేయడం</item>
+        <item>గడువు ముగిసిన సెటప్ సెషన్‌లను మూసివేయడం</item>
+        <item>పాత నిర్ణయాల గడువు ముగించడం</item>
+        <item>పాత సైన్-ఇన్ సెషన్‌లను మూసివేయడం</item>
+        <item>మిగిలిపోయిన శాండ్‌బాక్స్‌లను విడుదల చేయడం</item>
+        <item>ఏజెంట్ అడాప్టర్‌లను లోడ్ చేయడం</item>
+    </string-array>
+</resources>

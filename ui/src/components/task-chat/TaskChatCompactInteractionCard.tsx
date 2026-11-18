@@ -65,6 +65,7 @@ import {
 } from "./TaskChatComposerTakeoverContext";
 import { TaskChatPlanPreviewCard } from "./TaskChatPlanPreviewCard";
 import { TaskChatRichInput } from "./TaskChatRichInput";
+import { formatLocale } from "@/i18n/format-locale";
 
 const TAKEOVER_TEXTAREA_CLASS =
   "min-h-16 resize-y border-0 bg-muted/35 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0";
@@ -534,7 +535,7 @@ function ReceiptDisclosure({
               Expires{" "}
               {new Date(
                 interaction.payload.toolAction.expiresAt,
-              ).toLocaleString()}
+              ).toLocaleString(formatLocale())}
             </p>
             <div className="mt-2">
               <MarkdownBody externalReferences={externalReferences}>
@@ -571,7 +572,7 @@ function ReceiptDisclosure({
               <dd>
                 {new Date(
                   interaction.payload.secretProposal.expiresAt,
-                ).toLocaleString()}
+                ).toLocaleString(formatLocale())}
               </dd>
             </div>
           </dl>
@@ -895,7 +896,7 @@ function ConfirmationCard({
               Expires{" "}
               {new Date(
                 interaction.payload.toolAction.expiresAt,
-              ).toLocaleString()}
+              ).toLocaleString(formatLocale())}
             </span>
           </div>
           <MarkdownBody externalReferences={externalReferences}>
@@ -936,7 +937,7 @@ function ConfirmationCard({
             <dd>
               {new Date(
                 interaction.payload.secretProposal.expiresAt,
-              ).toLocaleString()}
+              ).toLocaleString(formatLocale())}
             </dd>
           </div>
         </dl>

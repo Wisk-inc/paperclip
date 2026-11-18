@@ -11,6 +11,7 @@ import { EmptyState } from "../EmptyState";
 import { RoutineHistoryTab } from "../RoutineHistoryTab";
 import { RoutineActivityRow } from "../RoutineActivityRow";
 import { useRoutineDetail } from "./context";
+import { formatLocale } from "@/i18n/format-locale";
 
 export function RunsSection() {
   const { routine, companyId, agents, projects, hasLiveRun, activeIssueId } = useRoutineDetail();
@@ -60,7 +61,7 @@ export function ActivitySection({ isLoading = false, error }: { isLoading?: bool
     for (const event of events) {
       let label = "Earlier";
       try {
-        label = new Date(event.createdAt).toLocaleDateString(undefined, {
+        label = new Date(event.createdAt).toLocaleDateString(formatLocale(), {
           weekday: "short",
           month: "short",
           day: "numeric",

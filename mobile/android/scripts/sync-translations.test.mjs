@@ -16,6 +16,8 @@ import {
   readSource,
   renderAndroid,
   rtlParagraph,
+  startupSteps,
+  stepInSentence,
   strays,
 } from "./sync-translations.mjs";
 
@@ -47,13 +49,203 @@ test("every list of Automa's languages is the same", () => {
   assert.deepEqual([...LANGUAGES].sort(), shared.filter((code) => code !== "en").sort());
 });
 
-test("the connect screen's words are on the screen exactly as listed", () => {
-  const page = read("mobile/android/app/src/main/assets/connect/index.html") + read("mobile/android/app/src/main/assets/connect/connect.js");
-  const flat = page.replace(/&#39;|&apos;/g, "'").replace(/\s+/g, " ");
-  for (const source of connectStrings()) {
-    const probe = source.split("{0}")[0].trim();
-    assert.ok(flat.includes(probe), source);
+const CONNECT = "mobile/android/app/src/main/assets/connect";
+const KOTLIN = "mobile/android/app/src/main/java/com/corxlabs/automa";
+/** The app's Kotlin that writes words the connect screen or the board shows. */
+const KOTLIN_FILES = ["AutomaBridge.kt", "MainActivity.kt", "ServerConfig.kt", "GoogleSignIn.kt"].map((name) => `${KOTLIN}/${name}`);
+
+/** A listed sentence's own words: the parts between its values. */
+const fixedParts = (text) => text.split(/\{\d+\}/).map((part) => part.trim()).filter(Boolean);
+/** Whether all of `parts` are in `haystack`, in order. */
+function inOrder(haystack, parts) {
+  let at = 0;
+  for (const part of parts) {
+    const found = haystack.indexOf(part, at);
+    if (found < 0) return false;
+    at = found + part.length;
   }
+  return true;
+}
+/** HTML as it reads: tags out (the words in their placeholder, title, aria-label and alt kept), entities decoded, spaces collapsed. */
+const pageText = (html) => html
+  .replace(/<[^>]+>/g, (tag) => ` ${[...tag.matchAll(/\b(?:placeholder|title|aria-label|alt)="([^"]*)"/g)].map((m) => m[1]).join(" ")} `)
+  .replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/\s+/g, " ");
+/**
+ * A Kotlin string starting at `at` (its opening quote): its text with each
+ * value ($host, ${…}) as {0}, {1}…, joined with the strings it is added to
+ * ("…" + "…", "…" + hint + "…"), and where it ends. Strings inside a ${…} are
+ * kept apart, in `inner`.
+ */
+function kotlinString(source, at, inner = []) {
+  let text = "";
+  let values = 0;
+  let i = at + 1;
+  const skipBlock = (from) => {
+    let depth = 1;
+    let j = from;
+    while (j < source.length && depth > 0) {
+      if (source[j] === '"') {
+        const nested = kotlinString(source, j, inner);
+        inner.push(nested.text);
+        j = nested.end;
+        continue;
+      }
+      if (source[j] === "{") depth += 1;
+      else if (source[j] === "}") depth -= 1;
+      j += 1;
+    }
+    return j;
+  };
+  for (;;) {
+    while (i < source.length && source[i] !== '"') {
+      if (source[i] === "\\") {
+        text += source[i + 1] === "n" ? "\n" : source[i + 1];
+        i += 2;
+      } else if (source[i] === "$" && source[i + 1] === "{") {
+        i = skipBlock(i + 2);
+        text += `{${values++}}`;
+      } else if (source[i] === "$" && /[A-Za-z_]/.test(source[i + 1] ?? "")) {
+        i += 1;
+        while (/[A-Za-z0-9_]/.test(source[i] ?? "")) i += 1;
+        text += `{${values++}}`;
+      } else {
+        text += source[i];
+        i += 1;
+      }
+    }
+    i += 1;
+    // Added to another string, or to a value and then a string.
+    const rest = source.slice(i, i + 200);
+    const literal = /^\s*\+\s*"/.exec(rest);
+    const value = /^\s*\+\s*[A-Za-z_][\w.?()]*\s*\+\s*"/.exec(rest);
+    if (literal) {
+      i += literal[0].length;
+    } else if (value) {
+      text += `{${values++}}`;
+      i += value[0].length;
+    } else {
+      return { text, end: i };
+    }
+  }
+}
+/** Every string in a Kotlin file (comments skipped), with the strings inside their values. */
+function kotlinLiterals(source) {
+  const out = [];
+  for (let i = 0; i < source.length; ) {
+    if (source.startsWith("//", i)) { i = source.indexOf("\n", i); if (i < 0) break; continue; }
+    if (source.startsWith("/*", i)) { i = source.indexOf("*/", i + 2) + 2; continue; }
+    if (source.startsWith('"""', i)) { i = source.indexOf('"""', i + 3) + 3; continue; }
+    if (source[i] === "'") { i += source[i + 1] === "\\" ? 4 : 3; continue; }
+    if (source[i] === '"') {
+      const inner = [];
+      const found = kotlinString(source, i, inner);
+      out.push(found.text, ...inner);
+      i = found.end;
+      continue;
+    }
+    i += 1;
+  }
+  return out;
+}
+/** The Kotlin string whose opening quote is at `at`. */
+const kotlinAt = (source, at) => kotlinString(source, at).text;
+
+/** A listed sentence as the connect screen's translator matches it: values may be anything, or nothing. */
+function listedPattern(entry) {
+  const parts = entry.split(/\{\d+\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${parts.join("[\\s\\S]*?")}$`);
+}
+/** Whether a message the app writes is a listed sentence: as the translator would match it, or (a part of it) word for word. */
+function onList(listed, message) {
+  const sample = message.replace(/\{\d+\}/g, "example.local");
+  return listed.some((entry) => listedPattern(entry).test(sample) || inOrder(entry, fixedParts(message)));
+}
+
+test("every connect screen string is still written by the page, its script or the app", () => {
+  const page = pageText(read(`${CONNECT}/index.html`));
+  const script = read(`${CONNECT}/connect.js`).replace(/\\u2011/g, "‑").replace(/\s+/g, " ");
+  const kotlin = KOTLIN_FILES.flatMap((file) => kotlinLiterals(read(file))).join(" ");
+  const kotlinWords = new Set(kotlin.toLowerCase().match(/[a-z][a-z'-]+/g));
+  const stale = connectStrings().filter((text) => {
+    if ([page, script, kotlin].some((haystack) => inOrder(haystack, fixedParts(text)))) return false;
+    // A message the app puts together from parts ("file" + " is" / "s are"): its words are all still there.
+    return !(text.toLowerCase().match(/[a-z][a-z'-]+/g) ?? []).every((word) => kotlinWords.has(word));
+  });
+  assert.deepEqual(stale, []);
+});
+
+/** Every list the app's words are on: the connect screen's, and the board's (for errors the app answers the board with). */
+function listedAnywhere() {
+  const board = [...read("ui/src/lib/automa-native.ts").match(/NATIVE_ERRORS = \[([\s\S]*?)\] as const/)[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\"/g, '"'));
+  return { connect: connectStrings(), board };
+}
+
+test("every message the app sends the connect screen or the board is on a list", () => {
+  const { connect, board } = listedAnywhere();
+  const listed = [...connect, ...board];
+  const missing = [];
+  const termuxMessages = [];
+  for (const file of KOTLIN_FILES) {
+    const source = read(file);
+    // What the app answers with (error(…), termuxFailure(…, …), put("error", …)), what the
+    // connect screen is opened with (showConnect(…)), and ServerConfig.explain's sentences.
+    const patterns = [
+      /\berror\(\s*(?=")/g,
+      /termuxFailure\(\s*"[^"]*",\s*(?=")/g,
+      /put\("error",\s*(?=")/g,
+      /showConnect\(\s*(?=")/g,
+      /(?:const val LOCKED_WITHOUT_KEY = |return |-> )(?=")/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of source.matchAll(pattern)) {
+        const message = kotlinAt(source, match.index + match[0].length);
+        if (!/[A-Za-z]{3,} [A-Za-z]/.test(message)) continue;
+        if (pattern.source.startsWith("termuxFailure")) termuxMessages.push(message);
+        if (!onList(listed, message)) missing.push(`${path.basename(file)}: ${message}`);
+      }
+    }
+  }
+  assert.deepEqual(missing, []);
+  // What Termux answers can show on either screen: it is on both lists.
+  assert.ok(termuxMessages.length >= 6);
+  for (const message of termuxMessages) {
+    assert.ok(onList(board, message), `not on the board's list: ${message}`);
+    assert.ok(onList(connect, message), `not on the connect screen's list: ${message}`);
+  }
+  // And nothing on the board's list that the app no longer sends.
+  const kotlin = KOTLIN_FILES.flatMap((file) => kotlinLiterals(read(file)));
+  assert.deepEqual(board.filter((entry) => !kotlin.some((literal) => onList([entry], literal))), []);
+});
+
+/** Strings in connect.js that are code or are not shown, though they read like words. */
+const CONNECT_JS_NOT_SHOWN = new Set([
+  "automa keep-alive",
+  "Run: ",
+  "HTTPS",
+]);
+
+test("every word connect.js shows is on the list", () => {
+  const listed = connectStrings();
+  const script = read(`${CONNECT}/connect.js`).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, " ");
+  const missing = [];
+  for (const match of script.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
+    const text = match[1].replace(/\\u2011/g, "\u2011").replace(/\\"/g, '"');
+    // Words for people: a capital and a space, or a label ending in "…"; not ids, selectors or code.
+    if (!/^[A-Z][^#.=<>{}]*\s\S|…$|^[A-Z][a-z]+ $/.test(text) || CONNECT_JS_NOT_SHOWN.has(text)) continue;
+    if (!listed.some((entry) => inOrder(entry, fixedParts(text)))) missing.push(text);
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("the startup steps are the ones the server names", () => {
+  const server = read("server/src/index.ts");
+  const named = [];
+  for (const match of server.matchAll(/(?:runStartupStep|recoverStep)\(\s*"[^"]+",\s*"([^"]+)"/g)) {
+    if (!named.includes(match[1])) named.push(match[1]);
+  }
+  assert.ok(named.length >= 15);
+  assert.deepEqual([...startupSteps()].sort(), [...named].sort());
+  assert.equal(stepInSentence("Checking assigned tasks"), "checking assigned tasks");
 });
 
 for (const language of LANGUAGES) {
@@ -70,6 +262,16 @@ for (const language of LANGUAGES) {
         assert.notEqual(text, english, english);
         if (SCRIPT[language]) assert.match(text, SCRIPT[language], `${english} → ${text}`);
       }
+    }
+
+    const steps = source.steps ?? {};
+    assert.deepEqual(Object.keys(steps).sort(), [...startupSteps()].sort(), "startup steps");
+    for (const [label, text] of Object.entries(steps)) {
+      assert.equal(typeof text, "string", label);
+      assert.equal(text, text.trim(), label);
+      assert.notEqual(text, stepInSentence(label), label);
+      if (SCRIPT[language]) assert.match(text, SCRIPT[language], `${label} → ${text}`);
+      assert.equal(connect[stepInSentence(label)], text, label);
     }
 
     const english = androidStrings();
