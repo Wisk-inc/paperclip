@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/hu.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Küldés az Automának</string>
+    <string name="shortcut_new_chat_short">Új csevegés</string>
+    <string name="shortcut_new_chat_long">Csevegés egy ügynökkel</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Alkalmazás építése és futtatása</string>
+    <string name="shortcut_files_short">Fájlok</string>
+    <string name="shortcut_files_long">Fájlok és kérések</string>
+    <string name="shortcut_new_task_short">Új feladat</string>
+    <string name="shortcut_new_task_long">Új feladat indítása</string>
+    <string name="shortcut_server_short">Szerverváltás</string>
+    <string name="shortcut_server_long">Csatlakozás másik Automa-szerverhez</string>
+    <string name="choose_file">Válassz egy fájlt</string>
+    <string name="saved_to_downloads">%1$s mentve ide: Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s mentve az alkalmazás Downloads mappájába</string>
+    <string name="download_failed">Nem sikerült menteni: %1$s</string>
+    <string name="no_app_for_link">Egyik alkalmazás sem tudja megnyitni ezt a linket</string>
+    <string name="old_app_title">Eltávolítod a régi Automát?</string>
+    <string name="old_app_message">Az Automa 1.0 még külön alkalmazásként rajta van ezen a telefonon. Ez a verzió felváltja, és a jövőbeli frissítések erre települnek. Megnyitod az Alkalmazásinformáció oldalát az eltávolításhoz?</string>
+    <string name="old_app_remove">Alkalmazásinformáció megnyitása</string>
+    <string name="old_app_keep">Most nem</string>
+    <string name="notification_channel_name">Ügynökök hírei</string>
+    <string name="notification_channel_description">Jóváhagyások, fájlkérések és más dolgok, amelyekhez az ügynökeidnek rád van szükségük</string>
+    <string name="copied">Másolva</string>
+    <string name="share_unreadable">Az Automa nem tudta beolvasni a fájlt. Oszd meg egy másik alkalmazásból, vagy előbb mentsd a telefonodra.</string>
+    <string name="offline_title">Nincs kapcsolat</string>
+    <string name="offline_message">A telefonod offline. Az Automa magától újracsatlakozik, amint visszatér a hálózat; az oldalon semmi sem vész el.</string>
+    <string name="offline_waiting">Várakozás a hálózatra…</string>
+    <string name="unreachable_title">Az Automa nem érhető el</string>
+    <string name="unreachable_message">A szerver nem válaszolt. Lehet, hogy éppen újraindul, vagy a telefon hálózatot váltott.</string>
+    <string name="offline_retry">Próbáld most</string>
+    <string name="offline_other_server">Csatlakozás másik szerverhez</string>
+    <string name="offline_reload">Oldal újratöltése</string>
+    <string name="starting_title">Az Automa indul</string>
+    <string name="starting_message">Az Automa indul ezen a telefonon. A frissítés utáni első indulás egy percig is eltarthat; az oldal magától visszatér, amikor kész.</string>
+    <string name="starting_waiting">Ellenőrzés néhány másodpercenként…</string>
+    <string name="starting_step">Most: %1$s</string>
+    <string name="starting_elapsed">Eddig %1$s</string>
+    <string name="duration_seconds">%1$d mp</string>
+    <string name="duration_minutes">%1$d perc %2$02d mp</string>
+    <string name="sign_in_at">Bejelentkezés ide: %1$s</string>
+    <string name="sign_in_cancel">Mégse</string>
+    <string name="retrying_now">Ellenőrzés, hogy válaszol-e az Automa…</string>
+    <string name="reconnecting_soon">Újrapróbálás, amikor megtelik a sáv.</string>
+    <string name="sign_in_unavailable">A Google-bejelentkezés nincs beállítva ebben a buildben</string>
+    <string name="sign_in_cancelled">A bejelentkezés megszakadt</string>
+    <string name="sign_in_no_account">Ezen a telefonon nincs Google-fiók. Adj hozzá egyet a Beállításokban, majd próbáld újra.</string>
+</resources>

@@ -945,6 +945,12 @@ jobs:
       - name: Test the board string extractor
         run: node --test ./ui/scripts/extract-ui-strings.test.mjs
 
+      - name: Check the app's translations are up to date
+        run: pnpm i18n:android:check
+
+      - name: Test the app translation generator
+        run: node --test ./mobile/android/scripts/sync-translations.test.mjs
+
       - name: Build
         run: pnpm build
 

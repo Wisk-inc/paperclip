@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/vi.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Gửi tới Automa</string>
+    <string name="shortcut_new_chat_short">Trò chuyện mới</string>
+    <string name="shortcut_new_chat_long">Trò chuyện với tác tử</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Tạo và chạy ứng dụng</string>
+    <string name="shortcut_files_short">Tệp</string>
+    <string name="shortcut_files_long">Tệp và yêu cầu</string>
+    <string name="shortcut_new_task_short">Nhiệm vụ mới</string>
+    <string name="shortcut_new_task_long">Bắt đầu nhiệm vụ mới</string>
+    <string name="shortcut_server_short">Đổi máy chủ</string>
+    <string name="shortcut_server_long">Kết nối với máy chủ Automa khác</string>
+    <string name="choose_file">Chọn tệp</string>
+    <string name="saved_to_downloads">Đã lưu %1$s vào Downloads/Automa</string>
+    <string name="saved_to_app_downloads">Đã lưu %1$s vào thư mục Downloads của ứng dụng</string>
+    <string name="download_failed">Không thể lưu %1$s</string>
+    <string name="no_app_for_link">Không có ứng dụng nào mở được đường liên kết này</string>
+    <string name="old_app_title">Gỡ Automa cũ?</string>
+    <string name="old_app_message">Automa 1.0 vẫn còn trên điện thoại này dưới dạng một ứng dụng riêng. Phiên bản này thay thế nó, và các bản cập nhật sau sẽ được cài đè lên phiên bản này. Mở trang Thông tin ứng dụng để gỡ cài đặt nó?</string>
+    <string name="old_app_remove">Mở Thông tin ứng dụng</string>
+    <string name="old_app_keep">Để sau</string>
+    <string name="notification_channel_name">Cập nhật từ tác tử</string>
+    <string name="notification_channel_description">Phê duyệt, yêu cầu tệp và những việc khác mà tác tử cần bạn</string>
+    <string name="copied">Đã sao chép</string>
+    <string name="share_unreadable">Automa không đọc được tệp đó. Hãy chia sẻ từ ứng dụng khác hoặc lưu tệp vào điện thoại trước.</string>
+    <string name="offline_title">Không có kết nối</string>
+    <string name="offline_message">Điện thoại của bạn đang ngoại tuyến. Automa sẽ tự kết nối lại ngay khi có mạng; không có gì trên trang bị mất.</string>
+    <string name="offline_waiting">Đang chờ mạng…</string>
+    <string name="unreachable_title">Không kết nối được với Automa</string>
+    <string name="unreachable_message">Máy chủ không phản hồi. Có thể máy chủ đang khởi động lại, hoặc điện thoại đã đổi mạng.</string>
+    <string name="offline_retry">Thử ngay</string>
+    <string name="offline_other_server">Kết nối với máy chủ khác</string>
+    <string name="offline_reload">Tải lại trang</string>
+    <string name="starting_title">Automa đang khởi động</string>
+    <string name="starting_message">Automa đang khởi động trên điện thoại này. Lần khởi động đầu tiên sau khi cập nhật có thể mất một phút; trang sẽ tự quay lại khi sẵn sàng.</string>
+    <string name="starting_waiting">Đang kiểm tra sau mỗi vài giây…</string>
+    <string name="starting_step">Hiện tại: %1$s</string>
+    <string name="starting_elapsed">Đã qua %1$s</string>
+    <string name="duration_seconds">%1$d giây</string>
+    <string name="duration_minutes">%1$d phút %2$02d giây</string>
+    <string name="sign_in_at">Đang đăng nhập tại %1$s</string>
+    <string name="sign_in_cancel">Hủy</string>
+    <string name="retrying_now">Đang kiểm tra xem Automa có phản hồi không…</string>
+    <string name="reconnecting_soon">Sẽ thử lại khi thanh đầy.</string>
+    <string name="sign_in_unavailable">Đăng nhập bằng Google chưa được thiết lập trong bản dựng này</string>
+    <string name="sign_in_cancelled">Đã hủy đăng nhập</string>
+    <string name="sign_in_no_account">Không có tài khoản Google nào trên điện thoại này. Hãy thêm một tài khoản trong Cài đặt rồi thử lại.</string>
+</resources>

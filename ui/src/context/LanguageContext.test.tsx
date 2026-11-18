@@ -213,6 +213,19 @@ describe("LanguageProvider", () => {
     expect(localStorage.getItem(LANGUAGE_UNSYNCED_KEY)).toBe("1");
   });
 
+  it("tells the Automa app the choice (Auto or a language), for its own screens", async () => {
+    const setLanguage = vi.fn();
+    Object.assign(window, { __automaKey: "page-key", AutomaNative: { getInfo: () => "{}", setLanguage } });
+    try {
+      await show();
+      expect(setLanguage).toHaveBeenLastCalledWith("page-key", "auto");
+      await act(async () => current.setPreference("fr"));
+      expect(setLanguage).toHaveBeenLastCalledWith("page-key", "fr");
+    } finally {
+      for (const key of ["AutomaNative", "__automaKey"]) delete (window as unknown as Record<string, unknown>)[key];
+    }
+  });
+
   it("signed out: the choice stays on this device and no account is asked", async () => {
     await show();
     await act(async () => current.setPreference("pt-BR"));

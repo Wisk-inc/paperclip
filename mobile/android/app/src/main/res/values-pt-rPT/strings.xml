@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/pt-PT.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Enviar para o Automa</string>
+    <string name="shortcut_new_chat_short">Nova conversa</string>
+    <string name="shortcut_new_chat_long">Conversar com um agente</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Criar e executar uma app</string>
+    <string name="shortcut_files_short">Ficheiros</string>
+    <string name="shortcut_files_long">Ficheiros e pedidos</string>
+    <string name="shortcut_new_task_short">Nova tarefa</string>
+    <string name="shortcut_new_task_long">Começar uma nova tarefa</string>
+    <string name="shortcut_server_short">Mudar de servidor</string>
+    <string name="shortcut_server_long">Ligar a outro servidor Automa</string>
+    <string name="choose_file">Escolha um ficheiro</string>
+    <string name="saved_to_downloads">%1$s guardado em Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s guardado na pasta Downloads da app</string>
+    <string name="download_failed">Não foi possível guardar %1$s</string>
+    <string name="no_app_for_link">Nenhuma app consegue abrir esta ligação</string>
+    <string name="old_app_title">Remover o Automa antigo?</string>
+    <string name="old_app_message">O Automa 1.0 continua neste telemóvel como uma app separada. Esta versão substitui-a, e as próximas atualizações instalam-se sobre esta. Abrir a página Informações da app para a desinstalar?</string>
+    <string name="old_app_remove">Abrir Informações da app</string>
+    <string name="old_app_keep">Agora não</string>
+    <string name="notification_channel_name">Novidades dos agentes</string>
+    <string name="notification_channel_description">Aprovações, pedidos de ficheiros e outras coisas de que os seus agentes precisam de si</string>
+    <string name="copied">Copiado</string>
+    <string name="share_unreadable">O Automa não conseguiu ler esse ficheiro. Partilhe-o a partir de outra app ou guarde-o primeiro no telemóvel.</string>
+    <string name="offline_title">Sem ligação</string>
+    <string name="offline_message">O seu telemóvel está offline. O Automa volta a ligar-se sozinho assim que a rede regressa; nada na página se perde.</string>
+    <string name="offline_waiting">À espera da rede…</string>
+    <string name="unreachable_title">Não é possível contactar o Automa</string>
+    <string name="unreachable_message">O servidor não respondeu. Pode estar a reiniciar, ou o telemóvel pode ter mudado de rede.</string>
+    <string name="offline_retry">Tentar agora</string>
+    <string name="offline_other_server">Ligar a outro servidor</string>
+    <string name="offline_reload">Recarregar a página</string>
+    <string name="starting_title">O Automa está a arrancar</string>
+    <string name="starting_message">O Automa está a arrancar neste telemóvel. O primeiro arranque depois de uma atualização pode demorar um minuto; a página volta sozinha quando estiver pronta.</string>
+    <string name="starting_waiting">A verificar a cada poucos segundos…</string>
+    <string name="starting_step">Agora: %1$s</string>
+    <string name="starting_elapsed">%1$s até agora</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">A iniciar sessão em %1$s</string>
+    <string name="sign_in_cancel">Cancelar</string>
+    <string name="retrying_now">A verificar se o Automa responde…</string>
+    <string name="reconnecting_soon">Tentaremos novamente quando a barra encher.</string>
+    <string name="sign_in_unavailable">O início de sessão com o Google não está configurado nesta versão</string>
+    <string name="sign_in_cancelled">O início de sessão foi cancelado</string>
+    <string name="sign_in_no_account">Não há nenhuma conta Google neste telemóvel. Adicione uma nas Definições e tente novamente.</string>
+</resources>

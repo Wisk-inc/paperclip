@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/he.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">שליחה ל-Automa</string>
+    <string name="shortcut_new_chat_short">צ׳אט חדש</string>
+    <string name="shortcut_new_chat_long">צ׳אט עם סוכן</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">בנייה והרצה של אפליקציה</string>
+    <string name="shortcut_files_short">קבצים</string>
+    <string name="shortcut_files_long">קבצים ובקשות</string>
+    <string name="shortcut_new_task_short">משימה חדשה</string>
+    <string name="shortcut_new_task_long">התחלת משימה חדשה</string>
+    <string name="shortcut_server_short">החלפת שרת</string>
+    <string name="shortcut_server_long">התחברות לשרת Automa אחר</string>
+    <string name="choose_file">בחירת קובץ</string>
+    <string name="saved_to_downloads">הקובץ %1$s נשמר ב-Downloads/Automa</string>
+    <string name="saved_to_app_downloads">הקובץ %1$s נשמר בתיקיית Downloads של האפליקציה</string>
+    <string name="download_failed">לא ניתן היה לשמור את %1$s</string>
+    <string name="no_app_for_link">אין אפליקציה שיכולה לפתוח את הקישור הזה</string>
+    <string name="old_app_title">להסיר את Automa הישן?</string>
+    <string name="old_app_message">‏Automa 1.0 עדיין מותקן בטלפון הזה כאפליקציה נפרדת. הגרסה הזו מחליפה אותו, ועדכונים עתידיים יותקנו עליה. לפתוח את דף פרטי האפליקציה שלו כדי להסיר אותו?</string>
+    <string name="old_app_remove">פתיחת פרטי האפליקציה</string>
+    <string name="old_app_keep">לא עכשיו</string>
+    <string name="notification_channel_name">עדכונים מהסוכנים</string>
+    <string name="notification_channel_description">אישורים, בקשות לקבצים ודברים אחרים שהסוכנים צריכים ממך</string>
+    <string name="copied">הועתק</string>
+    <string name="share_unreadable">‏Automa לא הצליח לקרוא את הקובץ. אפשר לשתף אותו מאפליקציה אחרת, או לשמור אותו קודם בטלפון.</string>
+    <string name="offline_title">אין חיבור</string>
+    <string name="offline_message">הטלפון במצב לא מקוון. Automa יתחבר מחדש מעצמו ברגע שהרשת תחזור; שום דבר בדף לא הולך לאיבוד.</string>
+    <string name="offline_waiting">בהמתנה לרשת…</string>
+    <string name="unreachable_title">אין גישה ל-Automa</string>
+    <string name="unreachable_message">השרת לא ענה. ייתכן שהוא מופעל מחדש, או שהטלפון עבר לרשת אחרת.</string>
+    <string name="offline_retry">לנסות עכשיו</string>
+    <string name="offline_other_server">התחברות לשרת אחר</string>
+    <string name="offline_reload">טעינה מחדש של הדף</string>
+    <string name="starting_title">‏Automa עולה</string>
+    <string name="starting_message">‏Automa עולה בטלפון הזה. ההפעלה הראשונה אחרי עדכון יכולה להימשך דקה; הדף יחזור מעצמו כשהכול יהיה מוכן.</string>
+    <string name="starting_waiting">בדיקה כל כמה שניות…</string>
+    <string name="starting_step">עכשיו: %1$s</string>
+    <string name="starting_elapsed">עד עכשיו %1$s</string>
+    <string name="duration_seconds">%1$d שנ׳</string>
+    <string name="duration_minutes">%1$d דק׳ %2$02d שנ׳</string>
+    <string name="sign_in_at">מתבצעת התחברות אל %1$s</string>
+    <string name="sign_in_cancel">ביטול</string>
+    <string name="retrying_now">בודקים אם Automa עונה…</string>
+    <string name="reconnecting_soon">ניסיון נוסף כשהפס יתמלא.</string>
+    <string name="sign_in_unavailable">התחברות עם Google לא הוגדרה בגרסה הזו</string>
+    <string name="sign_in_cancelled">ההתחברות בוטלה</string>
+    <string name="sign_in_no_account">אין חשבון Google בטלפון הזה. אפשר להוסיף חשבון בהגדרות ולנסות שוב.</string>
+</resources>

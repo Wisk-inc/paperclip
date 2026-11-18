@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/sw.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Tuma kwa Automa</string>
+    <string name="shortcut_new_chat_short">Gumzo jipya</string>
+    <string name="shortcut_new_chat_long">Piga gumzo na wakala</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Unda na uendeshe programu</string>
+    <string name="shortcut_files_short">Faili</string>
+    <string name="shortcut_files_long">Faili na maombi</string>
+    <string name="shortcut_new_task_short">Kazi mpya</string>
+    <string name="shortcut_new_task_long">Anza kazi mpya</string>
+    <string name="shortcut_server_short">Badilisha seva</string>
+    <string name="shortcut_server_long">Unganisha kwenye seva nyingine ya Automa</string>
+    <string name="choose_file">Chagua faili</string>
+    <string name="saved_to_downloads">%1$s imehifadhiwa kwenye Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s imehifadhiwa kwenye folda ya Downloads ya programu</string>
+    <string name="download_failed">Imeshindwa kuhifadhi %1$s</string>
+    <string name="no_app_for_link">Hakuna programu inayoweza kufungua kiungo hiki</string>
+    <string name="old_app_title">Ungependa kuondoa Automa ya zamani?</string>
+    <string name="old_app_message">Automa 1.0 bado iko kwenye simu hii kama programu tofauti. Toleo hili linaichukua nafasi, na masasisho yajayo yatasakinishwa juu ya hili. Ungependa kufungua ukurasa wa Maelezo ya programu ili kuiondoa?</string>
+    <string name="old_app_remove">Fungua Maelezo ya programu</string>
+    <string name="old_app_keep">Si sasa</string>
+    <string name="notification_channel_name">Habari kutoka kwa mawakala</string>
+    <string name="notification_channel_description">Idhini, maombi ya faili na mambo mengine ambayo mawakala wako wanahitaji kutoka kwako</string>
+    <string name="copied">Imenakiliwa</string>
+    <string name="share_unreadable">Automa imeshindwa kusoma faili hiyo. Ishiriki kutoka programu nyingine, au ihifadhi kwanza kwenye simu yako.</string>
+    <string name="offline_title">Hakuna muunganisho</string>
+    <string name="offline_message">Simu yako iko nje ya mtandao. Automa itaunganisha tena yenyewe mara mtandao utakaporudi; hakuna kitakachopotea kwenye ukurasa.</string>
+    <string name="offline_waiting">Inasubiri mtandao…</string>
+    <string name="unreachable_title">Haiwezi kufikia Automa</string>
+    <string name="unreachable_message">Seva haikujibu. Huenda inawashwa upya, au simu imebadilisha mtandao.</string>
+    <string name="offline_retry">Jaribu sasa</string>
+    <string name="offline_other_server">Unganisha kwenye seva nyingine</string>
+    <string name="offline_reload">Pakia ukurasa upya</string>
+    <string name="starting_title">Automa inawaka</string>
+    <string name="starting_message">Automa inawaka kwenye simu hii. Kuwaka kwa mara ya kwanza baada ya sasisho kunaweza kuchukua dakika moja; ukurasa utarudi wenyewe ukiwa tayari.</string>
+    <string name="starting_waiting">Inakagua kila baada ya sekunde chache…</string>
+    <string name="starting_step">Sasa: %1$s</string>
+    <string name="starting_elapsed">%1$s hadi sasa</string>
+    <string name="duration_seconds">sek %1$d</string>
+    <string name="duration_minutes">dak %1$d sek %2$02d</string>
+    <string name="sign_in_at">Inaingia kwenye %1$s</string>
+    <string name="sign_in_cancel">Ghairi</string>
+    <string name="retrying_now">Inakagua kama Automa inajibu…</string>
+    <string name="reconnecting_soon">Itajaribu tena upau ukijaa.</string>
+    <string name="sign_in_unavailable">Kuingia kwa Google hakujawekwa katika muundo huu</string>
+    <string name="sign_in_cancelled">Kuingia kumeghairiwa</string>
+    <string name="sign_in_no_account">Hakuna akaunti ya Google kwenye simu hii. Ongeza moja katika Mipangilio, kisha ujaribu tena.</string>
+</resources>

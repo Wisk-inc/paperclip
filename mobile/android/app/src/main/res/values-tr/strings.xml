@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/tr.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Automa\'ya gönder</string>
+    <string name="shortcut_new_chat_short">Yeni sohbet</string>
+    <string name="shortcut_new_chat_long">Bir ajanla sohbet et</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Bir uygulama oluştur ve çalıştır</string>
+    <string name="shortcut_files_short">Dosyalar</string>
+    <string name="shortcut_files_long">Dosyalar ve istekler</string>
+    <string name="shortcut_new_task_short">Yeni görev</string>
+    <string name="shortcut_new_task_long">Yeni bir görev başlat</string>
+    <string name="shortcut_server_short">Sunucu değiştir</string>
+    <string name="shortcut_server_long">Başka bir Automa sunucusuna bağlan</string>
+    <string name="choose_file">Bir dosya seç</string>
+    <string name="saved_to_downloads">%1$s, Downloads/Automa klasörüne kaydedildi</string>
+    <string name="saved_to_app_downloads">%1$s, uygulamanın Downloads klasörüne kaydedildi</string>
+    <string name="download_failed">%1$s kaydedilemedi</string>
+    <string name="no_app_for_link">Bu bağlantıyı açabilecek uygulama yok</string>
+    <string name="old_app_title">Eski Automa kaldırılsın mı?</string>
+    <string name="old_app_message">Automa 1.0 hâlâ bu telefonda ayrı bir uygulama olarak duruyor. Bu sürüm onun yerini alır ve gelecekteki güncellemeler bunun üzerine kurulur. Kaldırmak için Uygulama bilgileri sayfası açılsın mı?</string>
+    <string name="old_app_remove">Uygulama bilgilerini aç</string>
+    <string name="old_app_keep">Şimdi değil</string>
+    <string name="notification_channel_name">Ajan güncellemeleri</string>
+    <string name="notification_channel_description">Onaylar, dosya istekleri ve ajanlarının senden ihtiyaç duyduğu diğer şeyler</string>
+    <string name="copied">Kopyalandı</string>
+    <string name="share_unreadable">Automa bu dosyayı okuyamadı. Başka bir uygulamadan paylaş ya da önce telefonuna kaydet.</string>
+    <string name="offline_title">Bağlantı yok</string>
+    <string name="offline_message">Telefonun çevrimdışı. Ağ geri gelir gelmez Automa kendiliğinden yeniden bağlanır; sayfadaki hiçbir şey kaybolmaz.</string>
+    <string name="offline_waiting">Ağ bekleniyor…</string>
+    <string name="unreachable_title">Automa\'ya ulaşılamıyor</string>
+    <string name="unreachable_message">Sunucu yanıt vermedi. Yeniden başlıyor olabilir ya da telefon ağ değiştirmiş olabilir.</string>
+    <string name="offline_retry">Şimdi dene</string>
+    <string name="offline_other_server">Başka bir sunucuya bağlan</string>
+    <string name="offline_reload">Sayfayı yeniden yükle</string>
+    <string name="starting_title">Automa başlatılıyor</string>
+    <string name="starting_message">Automa bu telefonda başlatılıyor. Güncellemeden sonraki ilk başlatma bir dakika sürebilir; sayfa hazır olduğunda kendiliğinden geri gelir.</string>
+    <string name="starting_waiting">Birkaç saniyede bir kontrol ediliyor…</string>
+    <string name="starting_step">Şu an: %1$s</string>
+    <string name="starting_elapsed">Şimdiye kadar %1$s</string>
+    <string name="duration_seconds">%1$d sn</string>
+    <string name="duration_minutes">%1$d dk %2$02d sn</string>
+    <string name="sign_in_at">%1$s adresinde oturum açılıyor</string>
+    <string name="sign_in_cancel">İptal</string>
+    <string name="retrying_now">Automa\'nın yanıt verip vermediği kontrol ediliyor…</string>
+    <string name="reconnecting_soon">Çubuk dolduğunda tekrar denenecek.</string>
+    <string name="sign_in_unavailable">Google ile oturum açma bu derlemede ayarlanmamış</string>
+    <string name="sign_in_cancelled">Oturum açma iptal edildi</string>
+    <string name="sign_in_no_account">Bu telefonda Google hesabı yok. Ayarlar\'dan bir hesap ekle, sonra tekrar dene.</string>
+</resources>

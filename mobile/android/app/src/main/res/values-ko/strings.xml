@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ko.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Automa로 보내기</string>
+    <string name="shortcut_new_chat_short">새 채팅</string>
+    <string name="shortcut_new_chat_long">에이전트와 채팅</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">앱을 만들고 실행하기</string>
+    <string name="shortcut_files_short">파일</string>
+    <string name="shortcut_files_long">파일 및 요청</string>
+    <string name="shortcut_new_task_short">새 작업</string>
+    <string name="shortcut_new_task_long">새 작업 시작</string>
+    <string name="shortcut_server_short">서버 변경</string>
+    <string name="shortcut_server_long">다른 Automa 서버에 연결</string>
+    <string name="choose_file">파일 선택</string>
+    <string name="saved_to_downloads">%1$s을(를) Downloads/Automa에 저장했습니다</string>
+    <string name="saved_to_app_downloads">%1$s을(를) 앱의 Downloads 폴더에 저장했습니다</string>
+    <string name="download_failed">%1$s을(를) 저장하지 못했습니다</string>
+    <string name="no_app_for_link">이 링크를 열 수 있는 앱이 없습니다</string>
+    <string name="old_app_title">이전 Automa를 삭제할까요?</string>
+    <string name="old_app_message">Automa 1.0이 별도의 앱으로 이 휴대전화에 아직 남아 있습니다. 이 버전이 그 앱을 대신하며, 앞으로의 업데이트는 이 버전 위에 설치됩니다. 삭제하려면 앱 정보 페이지를 열까요?</string>
+    <string name="old_app_remove">앱 정보 열기</string>
+    <string name="old_app_keep">나중에</string>
+    <string name="notification_channel_name">에이전트 소식</string>
+    <string name="notification_channel_description">승인, 파일 요청 등 에이전트가 나에게 필요로 하는 일</string>
+    <string name="copied">복사됨</string>
+    <string name="share_unreadable">Automa가 그 파일을 읽지 못했습니다. 다른 앱에서 공유하거나 먼저 휴대전화에 저장하세요.</string>
+    <string name="offline_title">연결 없음</string>
+    <string name="offline_message">휴대전화가 오프라인 상태입니다. 네트워크가 돌아오면 Automa가 자동으로 다시 연결합니다. 페이지 내용은 사라지지 않습니다.</string>
+    <string name="offline_waiting">네트워크를 기다리는 중…</string>
+    <string name="unreachable_title">Automa에 연결할 수 없음</string>
+    <string name="unreachable_message">서버가 응답하지 않았습니다. 다시 시작하는 중이거나 휴대전화의 네트워크가 바뀌었을 수 있습니다.</string>
+    <string name="offline_retry">지금 다시 시도</string>
+    <string name="offline_other_server">다른 서버에 연결</string>
+    <string name="offline_reload">페이지 새로고침</string>
+    <string name="starting_title">Automa를 시작하는 중</string>
+    <string name="starting_message">이 휴대전화에서 Automa를 시작하는 중입니다. 업데이트 후 첫 시작은 1분 정도 걸릴 수 있습니다. 준비되면 페이지가 자동으로 돌아옵니다.</string>
+    <string name="starting_waiting">몇 초마다 확인하는 중…</string>
+    <string name="starting_step">현재: %1$s</string>
+    <string name="starting_elapsed">경과 시간 %1$s</string>
+    <string name="duration_seconds">%1$d초</string>
+    <string name="duration_minutes">%1$d분 %2$02d초</string>
+    <string name="sign_in_at">%1$s에 로그인하는 중</string>
+    <string name="sign_in_cancel">취소</string>
+    <string name="retrying_now">Automa가 응답하는지 확인하는 중…</string>
+    <string name="reconnecting_soon">막대가 다 차면 다시 시도합니다.</string>
+    <string name="sign_in_unavailable">이 빌드에는 Google 로그인이 설정되어 있지 않습니다</string>
+    <string name="sign_in_cancelled">로그인이 취소되었습니다</string>
+    <string name="sign_in_no_account">이 휴대전화에 Google 계정이 없습니다. 설정에서 계정을 추가한 다음 다시 시도하세요.</string>
+</resources>

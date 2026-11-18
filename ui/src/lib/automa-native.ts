@@ -83,7 +83,7 @@ interface AutomaNativeRaw {
   /** 1.9.6+: this phone is registered on this server as `deviceId` (its pushes come from here). */
   rememberPushDevice?(key: string, deviceId: string): void;
   setDarkTheme?(key: string, dark: boolean): void;
-  /** 1.9.14+: the language the board is in ("es", "zh-TW"), so the app's own screens and notifications match it. */
+  /** 1.9.14+: the person's language choice, "auto" or a code ("es", "zh-TW"), for the app's connect screen and own screens. */
   setLanguage?(key: string, language: string): void;
   /** Plays a system haptic (`tick`, `thud`, `success`, `warning`); honors the phone's touch-feedback setting. */
   haptic?(key: string, kind: string): void;
@@ -266,7 +266,7 @@ export const automaNative = {
   setDarkTheme(dark: boolean) {
     rawBridge()?.setDarkTheme?.(pageKey(), dark);
   },
-  /** Tells the app the board's language; apps before 1.9.14 keep the phone's. */
+  /** Tells the app the person's language choice ("auto" or a code); apps before 1.9.14 keep the phone's. */
   setLanguage(language: string) {
     rawBridge()?.setLanguage?.(pageKey(), language);
   },

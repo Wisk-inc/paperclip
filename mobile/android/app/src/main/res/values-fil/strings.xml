@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fil.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Ipadala sa Automa</string>
+    <string name="shortcut_new_chat_short">Bagong chat</string>
+    <string name="shortcut_new_chat_long">Makipag-chat sa agent</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Bumuo at magpatakbo ng app</string>
+    <string name="shortcut_files_short">Mga file</string>
+    <string name="shortcut_files_long">Mga file at hiling</string>
+    <string name="shortcut_new_task_short">Bagong gawain</string>
+    <string name="shortcut_new_task_long">Magsimula ng bagong gawain</string>
+    <string name="shortcut_server_short">Palitan ang server</string>
+    <string name="shortcut_server_long">Kumonekta sa ibang Automa server</string>
+    <string name="choose_file">Pumili ng file</string>
+    <string name="saved_to_downloads">Na-save ang %1$s sa Downloads/Automa</string>
+    <string name="saved_to_app_downloads">Na-save ang %1$s sa Downloads folder ng app</string>
+    <string name="download_failed">Hindi ma-save ang %1$s</string>
+    <string name="no_app_for_link">Walang app na makakapagbukas ng link na ito</string>
+    <string name="old_app_title">Alisin ang lumang Automa?</string>
+    <string name="old_app_message">Nasa teleponong ito pa rin ang Automa 1.0 bilang hiwalay na app. Pinapalitan ito ng bersyong ito, at dito na mai-install ang mga susunod na update. Buksan ang App info nito para i-uninstall?</string>
+    <string name="old_app_remove">Buksan ang App info</string>
+    <string name="old_app_keep">Hindi ngayon</string>
+    <string name="notification_channel_name">Balita mula sa mga agent</string>
+    <string name="notification_channel_description">Mga pag-apruba, hiling na file, at iba pang kailangan sa iyo ng mga agent mo</string>
+    <string name="copied">Nakopya</string>
+    <string name="share_unreadable">Hindi mabasa ng Automa ang file na iyon. Ibahagi ito mula sa ibang app, o i-save muna ito sa iyong telepono.</string>
+    <string name="offline_title">Walang koneksyon</string>
+    <string name="offline_message">Offline ang iyong telepono. Kusang kokonekta muli ang Automa sa sandaling bumalik ang network; walang mawawala sa page.</string>
+    <string name="offline_waiting">Hinihintay ang network…</string>
+    <string name="unreachable_title">Hindi maabot ang Automa</string>
+    <string name="unreachable_message">Hindi sumagot ang server. Maaaring nagre-restart ito, o nagpalit ng network ang telepono.</string>
+    <string name="offline_retry">Subukan ngayon</string>
+    <string name="offline_other_server">Kumonekta sa ibang server</string>
+    <string name="offline_reload">I-reload ang page</string>
+    <string name="starting_title">Nagsisimula ang Automa</string>
+    <string name="starting_message">Nagsisimula ang Automa sa teleponong ito. Maaaring umabot nang isang minuto ang unang pagsisimula pagkatapos ng update; kusang babalik ang page kapag handa na.</string>
+    <string name="starting_waiting">Sinusuri bawat ilang segundo…</string>
+    <string name="starting_step">Ngayon: %1$s</string>
+    <string name="starting_elapsed">%1$s na ang lumipas</string>
+    <string name="duration_seconds">%1$d seg</string>
+    <string name="duration_minutes">%1$d min %2$02d seg</string>
+    <string name="sign_in_at">Nagsa-sign in sa %1$s</string>
+    <string name="sign_in_cancel">Kanselahin</string>
+    <string name="retrying_now">Sinusuri kung sumasagot ang Automa…</string>
+    <string name="reconnecting_soon">Susubukan ulit kapag napuno ang bar.</string>
+    <string name="sign_in_unavailable">Hindi naka-set up ang pag-sign in gamit ang Google sa build na ito</string>
+    <string name="sign_in_cancelled">Kinansela ang pag-sign in</string>
+    <string name="sign_in_no_account">Walang Google account sa teleponong ito. Magdagdag ng isa sa Settings, pagkatapos ay subukang muli.</string>
+</resources>

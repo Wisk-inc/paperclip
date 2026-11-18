@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/cs.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Poslat do Automa</string>
+    <string name="shortcut_new_chat_short">Nový chat</string>
+    <string name="shortcut_new_chat_long">Chatovat s agentem</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Vytvořit a spustit aplikaci</string>
+    <string name="shortcut_files_short">Soubory</string>
+    <string name="shortcut_files_long">Soubory a žádosti</string>
+    <string name="shortcut_new_task_short">Nový úkol</string>
+    <string name="shortcut_new_task_long">Začít nový úkol</string>
+    <string name="shortcut_server_short">Změnit server</string>
+    <string name="shortcut_server_long">Připojit k jinému serveru Automa</string>
+    <string name="choose_file">Vyberte soubor</string>
+    <string name="saved_to_downloads">%1$s uloženo do Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s uloženo do složky Downloads aplikace</string>
+    <string name="download_failed">%1$s se nepodařilo uložit</string>
+    <string name="no_app_for_link">Tento odkaz nemůže otevřít žádná aplikace</string>
+    <string name="old_app_title">Odebrat starou aplikaci Automa?</string>
+    <string name="old_app_message">Automa 1.0 je v tomto telefonu stále jako samostatná aplikace. Tato verze ji nahrazuje a budoucí aktualizace se budou instalovat přes ni. Otevřít stránku Informace o aplikaci a odinstalovat ji?</string>
+    <string name="old_app_remove">Otevřít Informace o aplikaci</string>
+    <string name="old_app_keep">Teď ne</string>
+    <string name="notification_channel_name">Novinky od agentů</string>
+    <string name="notification_channel_description">Schválení, žádosti o soubory a další věci, které od vás agenti potřebují</string>
+    <string name="copied">Zkopírováno</string>
+    <string name="share_unreadable">Automa tento soubor nedokázala přečíst. Sdílejte ho z jiné aplikace, nebo ho nejdřív uložte do telefonu.</string>
+    <string name="offline_title">Žádné připojení</string>
+    <string name="offline_message">Telefon je offline. Automa se znovu připojí sama, jakmile se síť vrátí; nic na stránce se neztratí.</string>
+    <string name="offline_waiting">Čeká se na síť…</string>
+    <string name="unreachable_title">Automa není dostupná</string>
+    <string name="unreachable_message">Server neodpověděl. Možná se restartuje, nebo telefon přešel na jinou síť.</string>
+    <string name="offline_retry">Zkusit teď</string>
+    <string name="offline_other_server">Připojit k jinému serveru</string>
+    <string name="offline_reload">Načíst stránku znovu</string>
+    <string name="starting_title">Automa se spouští</string>
+    <string name="starting_message">Automa se na tomto telefonu spouští. První spuštění po aktualizaci může trvat minutu; stránka se vrátí sama, až bude připravená.</string>
+    <string name="starting_waiting">Kontrola každých pár sekund…</string>
+    <string name="starting_step">Teď: %1$s</string>
+    <string name="starting_elapsed">Zatím %1$s</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Přihlašování na %1$s</string>
+    <string name="sign_in_cancel">Zrušit</string>
+    <string name="retrying_now">Kontroluje se, zda Automa odpovídá…</string>
+    <string name="reconnecting_soon">Další pokus, až se pruh naplní.</string>
+    <string name="sign_in_unavailable">Přihlášení přes Google není v tomto sestavení nastaveno</string>
+    <string name="sign_in_cancelled">Přihlášení bylo zrušeno</string>
+    <string name="sign_in_no_account">V tomto telefonu není žádný účet Google. Přidejte ho v Nastavení a zkuste to znovu.</string>
+</resources>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/de.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">An Automa senden</string>
+    <string name="shortcut_new_chat_short">Neuer Chat</string>
+    <string name="shortcut_new_chat_long">Mit einem Agenten chatten</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Eine App bauen und ausführen</string>
+    <string name="shortcut_files_short">Dateien</string>
+    <string name="shortcut_files_long">Dateien und Anfragen</string>
+    <string name="shortcut_new_task_short">Neue Aufgabe</string>
+    <string name="shortcut_new_task_long">Eine neue Aufgabe starten</string>
+    <string name="shortcut_server_short">Server wechseln</string>
+    <string name="shortcut_server_long">Mit einem anderen Automa-Server verbinden</string>
+    <string name="choose_file">Datei auswählen</string>
+    <string name="saved_to_downloads">%1$s in Downloads/Automa gespeichert</string>
+    <string name="saved_to_app_downloads">%1$s im Downloads-Ordner der App gespeichert</string>
+    <string name="download_failed">%1$s konnte nicht gespeichert werden</string>
+    <string name="no_app_for_link">Keine App kann diesen Link öffnen</string>
+    <string name="old_app_title">Altes Automa entfernen?</string>
+    <string name="old_app_message">Automa 1.0 ist noch als separate App auf diesem Handy. Diese Version ersetzt sie, und künftige Updates werden über diese installiert. Die Seite App-Info öffnen, um sie zu deinstallieren?</string>
+    <string name="old_app_remove">App-Info öffnen</string>
+    <string name="old_app_keep">Nicht jetzt</string>
+    <string name="notification_channel_name">Neuigkeiten von Agenten</string>
+    <string name="notification_channel_description">Freigaben, Dateianfragen und andere Dinge, die deine Agenten von dir brauchen</string>
+    <string name="copied">Kopiert</string>
+    <string name="share_unreadable">Automa konnte diese Datei nicht lesen. Teile sie aus einer anderen App oder speichere sie zuerst auf deinem Handy.</string>
+    <string name="offline_title">Keine Verbindung</string>
+    <string name="offline_message">Dein Handy ist offline. Automa verbindet sich von selbst wieder, sobald das Netz zurück ist; auf der Seite geht nichts verloren.</string>
+    <string name="offline_waiting">Warte auf das Netzwerk…</string>
+    <string name="unreachable_title">Automa ist nicht erreichbar</string>
+    <string name="unreachable_message">Der Server hat nicht geantwortet. Vielleicht startet er gerade neu, oder das Handy hat das Netzwerk gewechselt.</string>
+    <string name="offline_retry">Jetzt versuchen</string>
+    <string name="offline_other_server">Mit einem anderen Server verbinden</string>
+    <string name="offline_reload">Seite neu laden</string>
+    <string name="starting_title">Automa startet</string>
+    <string name="starting_message">Automa startet auf diesem Handy. Der erste Start nach einem Update kann eine Minute dauern; die Seite kommt von selbst zurück, sobald sie bereit ist.</string>
+    <string name="starting_waiting">Prüfe alle paar Sekunden…</string>
+    <string name="starting_step">Jetzt: %1$s</string>
+    <string name="starting_elapsed">Bisher %1$s</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Anmeldung bei %1$s</string>
+    <string name="sign_in_cancel">Abbrechen</string>
+    <string name="retrying_now">Prüfe, ob Automa antwortet…</string>
+    <string name="reconnecting_soon">Neuer Versuch, sobald der Balken voll ist.</string>
+    <string name="sign_in_unavailable">Die Google-Anmeldung ist in diesem Build nicht eingerichtet</string>
+    <string name="sign_in_cancelled">Die Anmeldung wurde abgebrochen</string>
+    <string name="sign_in_no_account">Auf diesem Handy ist kein Google-Konto vorhanden. Füge in den Einstellungen eines hinzu und versuche es dann erneut.</string>
+</resources>

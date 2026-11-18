@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/zh-CN.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">发送到 Automa</string>
+    <string name="shortcut_new_chat_short">新聊天</string>
+    <string name="shortcut_new_chat_long">与智能体聊天</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">构建并运行应用</string>
+    <string name="shortcut_files_short">文件</string>
+    <string name="shortcut_files_long">文件和请求</string>
+    <string name="shortcut_new_task_short">新建任务</string>
+    <string name="shortcut_new_task_long">开始新任务</string>
+    <string name="shortcut_server_short">更换服务器</string>
+    <string name="shortcut_server_long">连接到另一台 Automa 服务器</string>
+    <string name="choose_file">选择文件</string>
+    <string name="saved_to_downloads">已将 %1$s 保存到 Downloads/Automa</string>
+    <string name="saved_to_app_downloads">已将 %1$s 保存到应用的 Downloads 文件夹</string>
+    <string name="download_failed">无法保存 %1$s</string>
+    <string name="no_app_for_link">没有可以打开此链接的应用</string>
+    <string name="old_app_title">要移除旧版 Automa 吗？</string>
+    <string name="old_app_message">Automa 1.0 仍以独立应用的形式留在这部手机上。此版本将取代它，以后的更新都会安装在此版本之上。要打开它的“应用信息”页面将其卸载吗？</string>
+    <string name="old_app_remove">打开应用信息</string>
+    <string name="old_app_keep">以后再说</string>
+    <string name="notification_channel_name">智能体动态</string>
+    <string name="notification_channel_description">审批、文件请求，以及智能体需要你处理的其他事项</string>
+    <string name="copied">已复制</string>
+    <string name="share_unreadable">Automa 无法读取该文件。请从其他应用分享，或先将它保存到手机上。</string>
+    <string name="offline_title">无网络连接</string>
+    <string name="offline_message">你的手机已离线。网络恢复后，Automa 会自动重新连接；页面上的内容不会丢失。</string>
+    <string name="offline_waiting">正在等待网络…</string>
+    <string name="unreachable_title">无法连接到 Automa</string>
+    <string name="unreachable_message">服务器没有响应。它可能正在重启，或者手机切换了网络。</string>
+    <string name="offline_retry">立即重试</string>
+    <string name="offline_other_server">连接到其他服务器</string>
+    <string name="offline_reload">重新加载页面</string>
+    <string name="starting_title">Automa 正在启动</string>
+    <string name="starting_message">Automa 正在这部手机上启动。更新后的首次启动可能需要一分钟；准备就绪后页面会自动返回。</string>
+    <string name="starting_waiting">每隔几秒检查一次…</string>
+    <string name="starting_step">当前：%1$s</string>
+    <string name="starting_elapsed">已用时 %1$s</string>
+    <string name="duration_seconds">%1$d 秒</string>
+    <string name="duration_minutes">%1$d 分 %2$02d 秒</string>
+    <string name="sign_in_at">正在登录 %1$s</string>
+    <string name="sign_in_cancel">取消</string>
+    <string name="retrying_now">正在检查 Automa 是否响应…</string>
+    <string name="reconnecting_soon">进度条填满后会再次尝试。</string>
+    <string name="sign_in_unavailable">此版本未设置 Google 登录</string>
+    <string name="sign_in_cancelled">已取消登录</string>
+    <string name="sign_in_no_account">这部手机上没有 Google 账号。请在“设置”中添加一个，然后重试。</string>
+</resources>

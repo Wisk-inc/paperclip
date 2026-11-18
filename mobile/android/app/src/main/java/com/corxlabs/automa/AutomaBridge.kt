@@ -209,6 +209,21 @@ class AutomaBridge(
         if (onAppPage(key)) activity.runOnUiThread { activity.applyTheme(dark) }
     }
 
+    /**
+     * The person's language choice on the board (1.9.14): "auto" or a code
+     * ("es", "pt-BR"). Kept for the connect screen; on Android 13+ the app's
+     * own screens follow it (see [AppLanguage]).
+     */
+    @JavascriptInterface
+    fun setLanguage(key: String?, language: String?) {
+        if (!onServerPage(key)) return
+        activity.runOnUiThread { AppLanguage.choose(activity, language) }
+    }
+
+    /** The saved choice, for the connect screen: "auto" or a code. */
+    @JavascriptInterface
+    fun getLanguage(key: String?): String = if (onAppPage(key)) AppLanguage.saved(activity) else AppLanguage.AUTO
+
     /** One of `tick`, `thud`, `success`, `warning`; see ui/src/lib/haptics.ts. */
     @JavascriptInterface
     fun haptic(key: String?, kind: String) {

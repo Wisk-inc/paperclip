@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ta.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Automa க்கு அனுப்பு</string>
+    <string name="shortcut_new_chat_short">புதிய அரட்டை</string>
+    <string name="shortcut_new_chat_long">முகவருடன் அரட்டையடி</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">ஆப்பை உருவாக்கி இயக்கு</string>
+    <string name="shortcut_files_short">கோப்புகள்</string>
+    <string name="shortcut_files_long">கோப்புகளும் கோரிக்கைகளும்</string>
+    <string name="shortcut_new_task_short">புதிய பணி</string>
+    <string name="shortcut_new_task_long">புதிய பணியைத் தொடங்கு</string>
+    <string name="shortcut_server_short">சர்வரை மாற்று</string>
+    <string name="shortcut_server_long">வேறொரு Automa சர்வருடன் இணை</string>
+    <string name="choose_file">கோப்பைத் தேர்ந்தெடுங்கள்</string>
+    <string name="saved_to_downloads">%1$s, Downloads/Automa இல் சேமிக்கப்பட்டது</string>
+    <string name="saved_to_app_downloads">%1$s, ஆப்பின் Downloads கோப்புறையில் சேமிக்கப்பட்டது</string>
+    <string name="download_failed">%1$s ஐச் சேமிக்க முடியவில்லை</string>
+    <string name="no_app_for_link">இந்த இணைப்பைத் திறக்க எந்த ஆப்பும் இல்லை</string>
+    <string name="old_app_title">பழைய Automa ஐ அகற்றவா?</string>
+    <string name="old_app_message">Automa 1.0 இன்னும் இந்த ஃபோனில் தனி ஆப்பாக உள்ளது. இந்தப் பதிப்பு அதை மாற்றுகிறது, இனி வரும் புதுப்பிப்புகள் இதன் மேல் நிறுவப்படும். அதை நிறுவல் நீக்க, அதன் ஆப்ஸ் தகவல் பக்கத்தைத் திறக்கவா?</string>
+    <string name="old_app_remove">ஆப்ஸ் தகவலைத் திற</string>
+    <string name="old_app_keep">இப்போது வேண்டாம்</string>
+    <string name="notification_channel_name">முகவர்களின் செய்திகள்</string>
+    <string name="notification_channel_description">ஒப்புதல்கள், கோப்புக் கோரிக்கைகள், உங்கள் முகவர்களுக்கு உங்களிடமிருந்து தேவைப்படும் பிற விஷயங்கள்</string>
+    <string name="copied">நகலெடுக்கப்பட்டது</string>
+    <string name="share_unreadable">Automa ஆல் அந்தக் கோப்பைப் படிக்க முடியவில்லை. வேறொரு ஆப்பிலிருந்து பகிருங்கள், அல்லது முதலில் ஃபோனில் சேமியுங்கள்.</string>
+    <string name="offline_title">இணைப்பு இல்லை</string>
+    <string name="offline_message">உங்கள் ஃபோன் ஆஃப்லைனில் உள்ளது. நெட்வொர்க் திரும்பியவுடன் Automa தானாகவே மீண்டும் இணையும்; பக்கத்தில் எதுவும் இழக்கப்படாது.</string>
+    <string name="offline_waiting">நெட்வொர்க்குக்காகக் காத்திருக்கிறது…</string>
+    <string name="unreachable_title">Automa ஐ அணுக முடியவில்லை</string>
+    <string name="unreachable_message">சர்வர் பதிலளிக்கவில்லை. அது மறுதொடக்கம் ஆகிக்கொண்டிருக்கலாம், அல்லது ஃபோன் நெட்வொர்க்கை மாற்றியிருக்கலாம்.</string>
+    <string name="offline_retry">இப்போது முயல்க</string>
+    <string name="offline_other_server">வேறொரு சர்வருடன் இணை</string>
+    <string name="offline_reload">பக்கத்தை மீண்டும் ஏற்று</string>
+    <string name="starting_title">Automa தொடங்குகிறது</string>
+    <string name="starting_message">இந்த ஃபோனில் Automa தொடங்குகிறது. புதுப்பிப்புக்குப் பின் முதல் முறை தொடங்க ஒரு நிமிடம் ஆகலாம்; தயாரானதும் பக்கம் தானாகத் திரும்பி வரும்.</string>
+    <string name="starting_waiting">சில விநாடிகளுக்கு ஒருமுறை சரிபார்க்கிறது…</string>
+    <string name="starting_step">இப்போது: %1$s</string>
+    <string name="starting_elapsed">இதுவரை %1$s</string>
+    <string name="duration_seconds">%1$d வி</string>
+    <string name="duration_minutes">%1$d நி %2$02d வி</string>
+    <string name="sign_in_at">%1$s இல் உள்நுழைகிறது</string>
+    <string name="sign_in_cancel">ரத்துசெய்</string>
+    <string name="retrying_now">Automa பதிலளிக்கிறதா எனச் சரிபார்க்கிறது…</string>
+    <string name="reconnecting_soon">பட்டி நிரம்பியதும் மீண்டும் முயலும்.</string>
+    <string name="sign_in_unavailable">இந்த பில்டில் Google உள்நுழைவு அமைக்கப்படவில்லை</string>
+    <string name="sign_in_cancelled">உள்நுழைவு ரத்துசெய்யப்பட்டது</string>
+    <string name="sign_in_no_account">இந்த ஃபோனில் Google கணக்கு இல்லை. அமைப்புகளில் ஒன்றைச் சேர்த்து, மீண்டும் முயலுங்கள்.</string>
+</resources>

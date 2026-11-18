@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ar.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">إرسال إلى Automa</string>
+    <string name="shortcut_new_chat_short">محادثة جديدة</string>
+    <string name="shortcut_new_chat_long">الدردشة مع وكيل</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">إنشاء تطبيق وتشغيله</string>
+    <string name="shortcut_files_short">الملفات</string>
+    <string name="shortcut_files_long">الملفات والطلبات</string>
+    <string name="shortcut_new_task_short">مهمة جديدة</string>
+    <string name="shortcut_new_task_long">بدء مهمة جديدة</string>
+    <string name="shortcut_server_short">تغيير الخادم</string>
+    <string name="shortcut_server_long">الاتصال بخادم Automa آخر</string>
+    <string name="choose_file">اختر ملفًا</string>
+    <string name="saved_to_downloads">تم حفظ %1$s في Downloads/Automa</string>
+    <string name="saved_to_app_downloads">تم حفظ %1$s في مجلد Downloads الخاص بالتطبيق</string>
+    <string name="download_failed">تعذّر حفظ %1$s</string>
+    <string name="no_app_for_link">لا يوجد تطبيق يمكنه فتح هذا الرابط</string>
+    <string name="old_app_title">هل تريد إزالة Automa القديم؟</string>
+    <string name="old_app_message">لا يزال Automa 1.0 موجودًا على هذا الهاتف كتطبيق منفصل. هذا الإصدار يحل محله، وستُثبَّت التحديثات القادمة فوق هذا الإصدار. هل تريد فتح صفحة معلومات التطبيق لإلغاء تثبيته؟</string>
+    <string name="old_app_remove">فتح معلومات التطبيق</string>
+    <string name="old_app_keep">ليس الآن</string>
+    <string name="notification_channel_name">أخبار الوكلاء</string>
+    <string name="notification_channel_description">الموافقات وطلبات الملفات وأمور أخرى يحتاجها وكلاؤك منك</string>
+    <string name="copied">تم النسخ</string>
+    <string name="share_unreadable">تعذّر على Automa قراءة هذا الملف. شاركه من تطبيق آخر، أو احفظه على هاتفك أولًا.</string>
+    <string name="offline_title">لا يوجد اتصال</string>
+    <string name="offline_message">هاتفك غير متصل بالإنترنت. يعيد Automa الاتصال تلقائيًا فور عودة الشبكة، ولن يضيع شيء من الصفحة.</string>
+    <string name="offline_waiting">في انتظار الشبكة…</string>
+    <string name="unreachable_title">تعذّر الوصول إلى Automa</string>
+    <string name="unreachable_message">لم يستجب الخادم. ربما تتم إعادة تشغيله، أو ربما انتقل الهاتف إلى شبكة أخرى.</string>
+    <string name="offline_retry">المحاولة الآن</string>
+    <string name="offline_other_server">الاتصال بخادم آخر</string>
+    <string name="offline_reload">إعادة تحميل الصفحة</string>
+    <string name="starting_title">يجري تشغيل Automa</string>
+    <string name="starting_message">يجري تشغيل Automa على هذا الهاتف. قد يستغرق التشغيل الأول بعد التحديث دقيقة، وستعود الصفحة تلقائيًا عندما تكون جاهزة.</string>
+    <string name="starting_waiting">يجري التحقق كل بضع ثوانٍ…</string>
+    <string name="starting_step">الآن: %1$s</string>
+    <string name="starting_elapsed">حتى الآن %1$s</string>
+    <string name="duration_seconds">%1$d ث</string>
+    <string name="duration_minutes">%1$d د %2$02d ث</string>
+    <string name="sign_in_at">جارٍ تسجيل الدخول في %1$s</string>
+    <string name="sign_in_cancel">إلغاء</string>
+    <string name="retrying_now">جارٍ التحقق مما إذا كان Automa يستجيب…</string>
+    <string name="reconnecting_soon">ستتم المحاولة مرة أخرى عندما يمتلئ الشريط.</string>
+    <string name="sign_in_unavailable">لم يتم إعداد تسجيل الدخول باستخدام Google في هذا الإصدار</string>
+    <string name="sign_in_cancelled">تم إلغاء تسجيل الدخول</string>
+    <string name="sign_in_no_account">لا يوجد حساب Google على هذا الهاتف. أضف حسابًا من الإعدادات، ثم حاول مرة أخرى.</string>
+</resources>

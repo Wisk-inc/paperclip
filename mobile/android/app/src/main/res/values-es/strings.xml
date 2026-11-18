@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/es.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Enviar a Automa</string>
+    <string name="shortcut_new_chat_short">Nuevo chat</string>
+    <string name="shortcut_new_chat_long">Chatear con un agente</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Crea y ejecuta una app</string>
+    <string name="shortcut_files_short">Archivos</string>
+    <string name="shortcut_files_long">Archivos y solicitudes</string>
+    <string name="shortcut_new_task_short">Nueva tarea</string>
+    <string name="shortcut_new_task_long">Empezar una tarea nueva</string>
+    <string name="shortcut_server_short">Cambiar servidor</string>
+    <string name="shortcut_server_long">Conectarse a otro servidor de Automa</string>
+    <string name="choose_file">Elige un archivo</string>
+    <string name="saved_to_downloads">%1$s guardado en Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s guardado en la carpeta Downloads de la app</string>
+    <string name="download_failed">No se pudo guardar %1$s</string>
+    <string name="no_app_for_link">Ninguna app puede abrir este enlace</string>
+    <string name="old_app_title">¿Quitar el Automa anterior?</string>
+    <string name="old_app_message">Automa 1.0 sigue en este teléfono como una app aparte. Esta versión la reemplaza, y las próximas actualizaciones se instalan sobre esta. ¿Abrir su página de Información de la app para desinstalarla?</string>
+    <string name="old_app_remove">Abrir Información de la app</string>
+    <string name="old_app_keep">Ahora no</string>
+    <string name="notification_channel_name">Novedades de los agentes</string>
+    <string name="notification_channel_description">Aprobaciones, solicitudes de archivos y otras cosas que tus agentes necesitan de ti</string>
+    <string name="copied">Copiado</string>
+    <string name="share_unreadable">Automa no pudo leer ese archivo. Compártelo desde otra app o guárdalo antes en tu teléfono.</string>
+    <string name="offline_title">Sin conexión</string>
+    <string name="offline_message">Tu teléfono no tiene conexión. Automa se reconecta solo en cuanto vuelve la red; no se pierde nada de la página.</string>
+    <string name="offline_waiting">Esperando la red…</string>
+    <string name="unreachable_title">No se puede conectar con Automa</string>
+    <string name="unreachable_message">El servidor no respondió. Puede que se esté reiniciando o que el teléfono haya cambiado de red.</string>
+    <string name="offline_retry">Intentar ahora</string>
+    <string name="offline_other_server">Conectarse a otro servidor</string>
+    <string name="offline_reload">Recargar la página</string>
+    <string name="starting_title">Automa se está iniciando</string>
+    <string name="starting_message">Automa se está iniciando en este teléfono. El primer inicio después de una actualización puede tardar un minuto; la página vuelve sola cuando esté lista.</string>
+    <string name="starting_waiting">Comprobando cada pocos segundos…</string>
+    <string name="starting_step">Ahora: %1$s</string>
+    <string name="starting_elapsed">%1$s hasta ahora</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Iniciando sesión en %1$s</string>
+    <string name="sign_in_cancel">Cancelar</string>
+    <string name="retrying_now">Comprobando si Automa responde…</string>
+    <string name="reconnecting_soon">Se volverá a intentar cuando la barra se llene.</string>
+    <string name="sign_in_unavailable">El inicio de sesión con Google no está configurado en esta versión</string>
+    <string name="sign_in_cancelled">Se canceló el inicio de sesión</string>
+    <string name="sign_in_no_account">No hay ninguna cuenta de Google en este teléfono. Agrega una en Ajustes y vuelve a intentarlo.</string>
+</resources>

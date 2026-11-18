@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ms.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Hantar ke Automa</string>
+    <string name="shortcut_new_chat_short">Sembang baharu</string>
+    <string name="shortcut_new_chat_long">Bersembang dengan ejen</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Bina dan jalankan apl</string>
+    <string name="shortcut_files_short">Fail</string>
+    <string name="shortcut_files_long">Fail dan permintaan</string>
+    <string name="shortcut_new_task_short">Tugasan baharu</string>
+    <string name="shortcut_new_task_long">Mulakan tugasan baharu</string>
+    <string name="shortcut_server_short">Tukar pelayan</string>
+    <string name="shortcut_server_long">Sambung ke pelayan Automa lain</string>
+    <string name="choose_file">Pilih fail</string>
+    <string name="saved_to_downloads">%1$s disimpan ke Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s disimpan ke folder Downloads apl</string>
+    <string name="download_failed">Tidak dapat menyimpan %1$s</string>
+    <string name="no_app_for_link">Tiada apl yang boleh membuka pautan ini</string>
+    <string name="old_app_title">Alih keluar Automa lama?</string>
+    <string name="old_app_message">Automa 1.0 masih ada pada telefon ini sebagai apl berasingan. Versi ini menggantikannya, dan kemas kini akan datang dipasang di atas versi ini. Buka halaman Maklumat apl untuk menyahpasangnya?</string>
+    <string name="old_app_remove">Buka Maklumat apl</string>
+    <string name="old_app_keep">Bukan sekarang</string>
+    <string name="notification_channel_name">Berita daripada ejen</string>
+    <string name="notification_channel_description">Kelulusan, permintaan fail dan perkara lain yang ejen anda perlukan daripada anda</string>
+    <string name="copied">Disalin</string>
+    <string name="share_unreadable">Automa tidak dapat membaca fail itu. Kongsikannya dari apl lain, atau simpan pada telefon anda dahulu.</string>
+    <string name="offline_title">Tiada sambungan</string>
+    <string name="offline_message">Telefon anda di luar talian. Automa menyambung semula dengan sendirinya sebaik sahaja rangkaian kembali; tiada apa-apa pada halaman yang hilang.</string>
+    <string name="offline_waiting">Menunggu rangkaian…</string>
+    <string name="unreachable_title">Automa tidak dapat dicapai</string>
+    <string name="unreachable_message">Pelayan tidak menjawab. Mungkin ia sedang dimulakan semula, atau telefon telah bertukar rangkaian.</string>
+    <string name="offline_retry">Cuba sekarang</string>
+    <string name="offline_other_server">Sambung ke pelayan lain</string>
+    <string name="offline_reload">Muat semula halaman</string>
+    <string name="starting_title">Automa sedang dimulakan</string>
+    <string name="starting_message">Automa sedang dimulakan pada telefon ini. Permulaan pertama selepas kemas kini boleh mengambil masa seminit; halaman akan kembali sendiri apabila sedia.</string>
+    <string name="starting_waiting">Menyemak setiap beberapa saat…</string>
+    <string name="starting_step">Sekarang: %1$s</string>
+    <string name="starting_elapsed">%1$s setakat ini</string>
+    <string name="duration_seconds">%1$d saat</string>
+    <string name="duration_minutes">%1$d min %2$02d saat</string>
+    <string name="sign_in_at">Log masuk di %1$s</string>
+    <string name="sign_in_cancel">Batal</string>
+    <string name="retrying_now">Menyemak sama ada Automa menjawab…</string>
+    <string name="reconnecting_soon">Mencuba lagi apabila bar penuh.</string>
+    <string name="sign_in_unavailable">Log masuk Google belum disediakan dalam binaan ini</string>
+    <string name="sign_in_cancelled">Log masuk dibatalkan</string>
+    <string name="sign_in_no_account">Tiada akaun Google pada telefon ini. Tambah satu dalam Tetapan, kemudian cuba lagi.</string>
+</resources>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/nl.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Naar Automa sturen</string>
+    <string name="shortcut_new_chat_short">Nieuwe chat</string>
+    <string name="shortcut_new_chat_long">Chatten met een agent</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Een app bouwen en draaien</string>
+    <string name="shortcut_files_short">Bestanden</string>
+    <string name="shortcut_files_long">Bestanden en verzoeken</string>
+    <string name="shortcut_new_task_short">Nieuwe taak</string>
+    <string name="shortcut_new_task_long">Een nieuwe taak starten</string>
+    <string name="shortcut_server_short">Andere server</string>
+    <string name="shortcut_server_long">Verbinden met een andere Automa-server</string>
+    <string name="choose_file">Kies een bestand</string>
+    <string name="saved_to_downloads">%1$s opgeslagen in Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s opgeslagen in de map Downloads van de app</string>
+    <string name="download_failed">Kan %1$s niet opslaan</string>
+    <string name="no_app_for_link">Geen app kan deze link openen</string>
+    <string name="old_app_title">Oude Automa verwijderen?</string>
+    <string name="old_app_message">Automa 1.0 staat nog als aparte app op deze telefoon. Deze versie vervangt die, en toekomstige updates worden over deze geïnstalleerd. De pagina App-info openen om hem te verwijderen?</string>
+    <string name="old_app_remove">App-info openen</string>
+    <string name="old_app_keep">Niet nu</string>
+    <string name="notification_channel_name">Updates van agents</string>
+    <string name="notification_channel_description">Goedkeuringen, bestandsverzoeken en andere dingen die je agents van je nodig hebben</string>
+    <string name="copied">Gekopieerd</string>
+    <string name="share_unreadable">Automa kan dat bestand niet lezen. Deel het vanuit een andere app of sla het eerst op je telefoon op.</string>
+    <string name="offline_title">Geen verbinding</string>
+    <string name="offline_message">Je telefoon is offline. Automa maakt vanzelf weer verbinding zodra het netwerk terug is; er gaat niets verloren op de pagina.</string>
+    <string name="offline_waiting">Wachten op het netwerk…</string>
+    <string name="unreachable_title">Automa is niet bereikbaar</string>
+    <string name="unreachable_message">De server antwoordde niet. Misschien wordt hij opnieuw opgestart, of is de telefoon van netwerk gewisseld.</string>
+    <string name="offline_retry">Nu proberen</string>
+    <string name="offline_other_server">Verbinden met een andere server</string>
+    <string name="offline_reload">Pagina opnieuw laden</string>
+    <string name="starting_title">Automa start op</string>
+    <string name="starting_message">Automa start op deze telefoon op. De eerste start na een update kan een minuut duren; de pagina komt vanzelf terug zodra hij klaar is.</string>
+    <string name="starting_waiting">Elke paar seconden controleren…</string>
+    <string name="starting_step">Nu: %1$s</string>
+    <string name="starting_elapsed">%1$s tot nu toe</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Inloggen bij %1$s</string>
+    <string name="sign_in_cancel">Annuleren</string>
+    <string name="retrying_now">Controleren of Automa antwoordt…</string>
+    <string name="reconnecting_soon">Nieuwe poging zodra de balk vol is.</string>
+    <string name="sign_in_unavailable">Inloggen met Google is niet ingesteld in deze build</string>
+    <string name="sign_in_cancelled">Inloggen is geannuleerd</string>
+    <string name="sign_in_no_account">Er staat geen Google-account op deze telefoon. Voeg er een toe in Instellingen en probeer het opnieuw.</string>
+</resources>

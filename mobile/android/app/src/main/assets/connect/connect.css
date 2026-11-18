@@ -332,3 +332,10 @@ input:focus-visible { border-color: var(--fg); }
   .wait-bar span { transition: none; }
   .wait-bar span::after, .wait-steps li[data-state="active"]::before { animation: none; }
 }
+
+/* While the connect screen's words are swapped into the person's language (i18n.js): a few milliseconds. */
+.i18n-pending body {
+  visibility: hidden;
+}
+/* Japanese headings break between phrases, not inside a word (WebView/Chrome 119+; ignored before). */
+html:lang(ja) h1, html:lang(ja) h2 { word-break: auto-phrase; }

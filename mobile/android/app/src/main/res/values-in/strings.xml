@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/id.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Kirim ke Automa</string>
+    <string name="shortcut_new_chat_short">Obrolan baru</string>
+    <string name="shortcut_new_chat_long">Mengobrol dengan agen</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Buat dan jalankan aplikasi</string>
+    <string name="shortcut_files_short">File</string>
+    <string name="shortcut_files_long">File dan permintaan</string>
+    <string name="shortcut_new_task_short">Tugas baru</string>
+    <string name="shortcut_new_task_long">Mulai tugas baru</string>
+    <string name="shortcut_server_short">Ganti server</string>
+    <string name="shortcut_server_long">Hubungkan ke server Automa lain</string>
+    <string name="choose_file">Pilih file</string>
+    <string name="saved_to_downloads">%1$s disimpan di Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s disimpan di folder Downloads aplikasi</string>
+    <string name="download_failed">Tidak dapat menyimpan %1$s</string>
+    <string name="no_app_for_link">Tidak ada aplikasi yang bisa membuka tautan ini</string>
+    <string name="old_app_title">Hapus Automa lama?</string>
+    <string name="old_app_message">Automa 1.0 masih ada di ponsel ini sebagai aplikasi terpisah. Versi ini menggantikannya, dan pembaruan berikutnya akan dipasang di atas versi ini. Buka halaman Info aplikasi untuk mencopot pemasangannya?</string>
+    <string name="old_app_remove">Buka Info aplikasi</string>
+    <string name="old_app_keep">Lain kali</string>
+    <string name="notification_channel_name">Kabar dari agen</string>
+    <string name="notification_channel_description">Persetujuan, permintaan file, dan hal lain yang dibutuhkan agen Anda dari Anda</string>
+    <string name="copied">Disalin</string>
+    <string name="share_unreadable">Automa tidak dapat membaca file itu. Bagikan dari aplikasi lain, atau simpan dulu ke ponsel Anda.</string>
+    <string name="offline_title">Tidak ada koneksi</string>
+    <string name="offline_message">Ponsel Anda sedang offline. Automa tersambung lagi dengan sendirinya begitu jaringan kembali; tidak ada yang hilang dari halaman.</string>
+    <string name="offline_waiting">Menunggu jaringan…</string>
+    <string name="unreachable_title">Automa tidak dapat dijangkau</string>
+    <string name="unreachable_message">Server tidak merespons. Mungkin sedang dimulai ulang, atau ponsel berganti jaringan.</string>
+    <string name="offline_retry">Coba sekarang</string>
+    <string name="offline_other_server">Hubungkan ke server lain</string>
+    <string name="offline_reload">Muat ulang halaman</string>
+    <string name="starting_title">Automa sedang dimulai</string>
+    <string name="starting_message">Automa sedang dimulai di ponsel ini. Mulai pertama setelah pembaruan bisa memakan waktu satu menit; halaman akan kembali sendiri saat siap.</string>
+    <string name="starting_waiting">Memeriksa setiap beberapa detik…</string>
+    <string name="starting_step">Sekarang: %1$s</string>
+    <string name="starting_elapsed">Sudah %1$s</string>
+    <string name="duration_seconds">%1$d dtk</string>
+    <string name="duration_minutes">%1$d mnt %2$02d dtk</string>
+    <string name="sign_in_at">Masuk di %1$s</string>
+    <string name="sign_in_cancel">Batal</string>
+    <string name="retrying_now">Memeriksa apakah Automa merespons…</string>
+    <string name="reconnecting_soon">Mencoba lagi saat bilah penuh.</string>
+    <string name="sign_in_unavailable">Masuk dengan Google belum diatur di versi ini</string>
+    <string name="sign_in_cancelled">Proses masuk dibatalkan</string>
+    <string name="sign_in_no_account">Tidak ada akun Google di ponsel ini. Tambahkan di Setelan, lalu coba lagi.</string>
+</resources>

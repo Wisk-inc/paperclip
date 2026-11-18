@@ -134,7 +134,6 @@ export function applyLanguage(language: AppLanguageCode, detected: DetectedLangu
     root.dir = appLanguage(language).rtl ? "rtl" : "ltr";
   }
   if (i18n.language !== language) void i18n.changeLanguage(language);
-  automaNative.setLanguage(language);
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
@@ -156,6 +155,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     applyLanguage(language, detected);
   }, [language, detected]);
+
+  // The Automa app keeps the choice for its connect screen and, on Android 13+,
+  // its own screens; Auto there follows the phone.
+  useEffect(() => {
+    automaNative.setLanguage(preference);
+  }, [preference]);
 
   // The phone's language changed while Automa was open.
   useEffect(() => {

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/it.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Invia ad Automa</string>
+    <string name="shortcut_new_chat_short">Nuova chat</string>
+    <string name="shortcut_new_chat_long">Chatta con un agente</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Crea ed esegui un’app</string>
+    <string name="shortcut_files_short">File</string>
+    <string name="shortcut_files_long">File e richieste</string>
+    <string name="shortcut_new_task_short">Nuova attività</string>
+    <string name="shortcut_new_task_long">Avvia una nuova attività</string>
+    <string name="shortcut_server_short">Cambia server</string>
+    <string name="shortcut_server_long">Connettiti a un altro server Automa</string>
+    <string name="choose_file">Scegli un file</string>
+    <string name="saved_to_downloads">%1$s salvato in Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s salvato nella cartella Downloads dell’app</string>
+    <string name="download_failed">Impossibile salvare %1$s</string>
+    <string name="no_app_for_link">Nessuna app può aprire questo link</string>
+    <string name="old_app_title">Rimuovere il vecchio Automa?</string>
+    <string name="old_app_message">Automa 1.0 è ancora su questo telefono come app separata. Questa versione la sostituisce e i prossimi aggiornamenti si installeranno su questa. Aprire la pagina Informazioni app per disinstallarla?</string>
+    <string name="old_app_remove">Apri Informazioni app</string>
+    <string name="old_app_keep">Non ora</string>
+    <string name="notification_channel_name">Aggiornamenti dagli agenti</string>
+    <string name="notification_channel_description">Approvazioni, richieste di file e altre cose di cui i tuoi agenti hanno bisogno da te</string>
+    <string name="copied">Copiato</string>
+    <string name="share_unreadable">Automa non ha potuto leggere quel file. Condividilo da un’altra app o salvalo prima sul telefono.</string>
+    <string name="offline_title">Nessuna connessione</string>
+    <string name="offline_message">Il telefono è offline. Automa si riconnette automaticamente appena torna la rete; nulla sulla pagina va perso.</string>
+    <string name="offline_waiting">In attesa della rete…</string>
+    <string name="unreachable_title">Impossibile raggiungere Automa</string>
+    <string name="unreachable_message">Il server non ha risposto. Potrebbe essere in riavvio, oppure il telefono ha cambiato rete.</string>
+    <string name="offline_retry">Riprova ora</string>
+    <string name="offline_other_server">Connettiti a un altro server</string>
+    <string name="offline_reload">Ricarica la pagina</string>
+    <string name="starting_title">Automa si sta avviando</string>
+    <string name="starting_message">Automa si sta avviando su questo telefono. Il primo avvio dopo un aggiornamento può richiedere un minuto; la pagina torna da sola quando è pronta.</string>
+    <string name="starting_waiting">Controllo ogni pochi secondi…</string>
+    <string name="starting_step">Ora: %1$s</string>
+    <string name="starting_elapsed">%1$s finora</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Accesso a %1$s</string>
+    <string name="sign_in_cancel">Annulla</string>
+    <string name="retrying_now">Controllo se Automa risponde…</string>
+    <string name="reconnecting_soon">Nuovo tentativo quando la barra si riempie.</string>
+    <string name="sign_in_unavailable">L’accesso con Google non è configurato in questa build</string>
+    <string name="sign_in_cancelled">Accesso annullato</string>
+    <string name="sign_in_no_account">Su questo telefono non c’è un account Google. Aggiungine uno in Impostazioni, poi riprova.</string>
+</resources>

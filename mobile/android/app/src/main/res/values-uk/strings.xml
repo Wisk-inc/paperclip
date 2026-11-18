@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/uk.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Надіслати в Automa</string>
+    <string name="shortcut_new_chat_short">Новий чат</string>
+    <string name="shortcut_new_chat_long">Чат з агентом</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Створити й запустити застосунок</string>
+    <string name="shortcut_files_short">Файли</string>
+    <string name="shortcut_files_long">Файли й запити</string>
+    <string name="shortcut_new_task_short">Нове завдання</string>
+    <string name="shortcut_new_task_long">Почати нове завдання</string>
+    <string name="shortcut_server_short">Змінити сервер</string>
+    <string name="shortcut_server_long">Підключитися до іншого сервера Automa</string>
+    <string name="choose_file">Виберіть файл</string>
+    <string name="saved_to_downloads">Файл %1$s збережено в Downloads/Automa</string>
+    <string name="saved_to_app_downloads">Файл %1$s збережено в папці Downloads застосунку</string>
+    <string name="download_failed">Не вдалося зберегти %1$s</string>
+    <string name="no_app_for_link">Немає застосунку, який може відкрити це посилання</string>
+    <string name="old_app_title">Видалити стару Automa?</string>
+    <string name="old_app_message">Automa 1.0 досі встановлена на цьому телефоні як окремий застосунок. Ця версія замінює її, а майбутні оновлення встановлюватимуться поверх цієї. Відкрити сторінку «Про застосунок», щоб видалити її?</string>
+    <string name="old_app_remove">Відкрити «Про застосунок»</string>
+    <string name="old_app_keep">Не зараз</string>
+    <string name="notification_channel_name">Новини від агентів</string>
+    <string name="notification_channel_description">Погодження, запити файлів та інше, що агентам потрібно від вас</string>
+    <string name="copied">Скопійовано</string>
+    <string name="share_unreadable">Automa не змогла прочитати цей файл. Поділіться ним з іншого застосунку або спершу збережіть його на телефон.</string>
+    <string name="offline_title">Немає з’єднання</string>
+    <string name="offline_message">Телефон не в мережі. Automa сама знову підключиться, щойно мережа повернеться; на сторінці нічого не загубиться.</string>
+    <string name="offline_waiting">Чекаємо на мережу…</string>
+    <string name="unreachable_title">Automa недоступна</string>
+    <string name="unreachable_message">Сервер не відповів. Можливо, він перезапускається або телефон змінив мережу.</string>
+    <string name="offline_retry">Спробувати зараз</string>
+    <string name="offline_other_server">Підключитися до іншого сервера</string>
+    <string name="offline_reload">Перезавантажити сторінку</string>
+    <string name="starting_title">Automa запускається</string>
+    <string name="starting_message">Automa запускається на цьому телефоні. Перший запуск після оновлення може тривати хвилину; сторінка повернеться сама, коли все буде готово.</string>
+    <string name="starting_waiting">Перевіряємо кожні кілька секунд…</string>
+    <string name="starting_step">Зараз: %1$s</string>
+    <string name="starting_elapsed">Минуло %1$s</string>
+    <string name="duration_seconds">%1$d с</string>
+    <string name="duration_minutes">%1$d хв %2$02d с</string>
+    <string name="sign_in_at">Вхід на %1$s</string>
+    <string name="sign_in_cancel">Скасувати</string>
+    <string name="retrying_now">Перевіряємо, чи відповідає Automa…</string>
+    <string name="reconnecting_soon">Спробуємо ще раз, коли смуга заповниться.</string>
+    <string name="sign_in_unavailable">Вхід через Google не налаштовано в цій збірці</string>
+    <string name="sign_in_cancelled">Вхід скасовано</string>
+    <string name="sign_in_no_account">На цьому телефоні немає облікового запису Google. Додайте його в Налаштуваннях і спробуйте ще раз.</string>
+</resources>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ro.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Trimite în Automa</string>
+    <string name="shortcut_new_chat_short">Chat nou</string>
+    <string name="shortcut_new_chat_long">Discută cu un agent</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Construiește și rulează o aplicație</string>
+    <string name="shortcut_files_short">Fișiere</string>
+    <string name="shortcut_files_long">Fișiere și cereri</string>
+    <string name="shortcut_new_task_short">Sarcină nouă</string>
+    <string name="shortcut_new_task_long">Începe o sarcină nouă</string>
+    <string name="shortcut_server_short">Schimbă serverul</string>
+    <string name="shortcut_server_long">Conectează-te la alt server Automa</string>
+    <string name="choose_file">Alege un fișier</string>
+    <string name="saved_to_downloads">%1$s a fost salvat în Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s a fost salvat în dosarul Downloads al aplicației</string>
+    <string name="download_failed">Nu s-a putut salva %1$s</string>
+    <string name="no_app_for_link">Nicio aplicație nu poate deschide acest link</string>
+    <string name="old_app_title">Elimini vechea aplicație Automa?</string>
+    <string name="old_app_message">Automa 1.0 este încă pe acest telefon ca aplicație separată. Această versiune o înlocuiește, iar actualizările viitoare se instalează peste aceasta. Deschizi pagina Informații despre aplicație ca s-o dezinstalezi?</string>
+    <string name="old_app_remove">Deschide Informații despre aplicație</string>
+    <string name="old_app_keep">Nu acum</string>
+    <string name="notification_channel_name">Noutăți de la agenți</string>
+    <string name="notification_channel_description">Aprobări, cereri de fișiere și alte lucruri de care agenții tăi au nevoie de la tine</string>
+    <string name="copied">Copiat</string>
+    <string name="share_unreadable">Automa nu a putut citi fișierul. Partajează-l din altă aplicație sau salvează-l mai întâi pe telefon.</string>
+    <string name="offline_title">Fără conexiune</string>
+    <string name="offline_message">Telefonul tău e offline. Automa se reconectează automat imediat ce revine rețeaua; nimic de pe pagină nu se pierde.</string>
+    <string name="offline_waiting">Se așteaptă rețeaua…</string>
+    <string name="unreachable_title">Nu se poate ajunge la Automa</string>
+    <string name="unreachable_message">Serverul nu a răspuns. Poate repornește sau telefonul a schimbat rețeaua.</string>
+    <string name="offline_retry">Încearcă acum</string>
+    <string name="offline_other_server">Conectează-te la alt server</string>
+    <string name="offline_reload">Reîncarcă pagina</string>
+    <string name="starting_title">Automa pornește</string>
+    <string name="starting_message">Automa pornește pe acest telefon. Prima pornire după o actualizare poate dura un minut; pagina revine singură când e gata.</string>
+    <string name="starting_waiting">Se verifică la câteva secunde…</string>
+    <string name="starting_step">Acum: %1$s</string>
+    <string name="starting_elapsed">%1$s până acum</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Conectare la %1$s</string>
+    <string name="sign_in_cancel">Anulează</string>
+    <string name="retrying_now">Se verifică dacă Automa răspunde…</string>
+    <string name="reconnecting_soon">Se reîncearcă atunci când bara se umple.</string>
+    <string name="sign_in_unavailable">Conectarea cu Google nu este configurată în această versiune</string>
+    <string name="sign_in_cancelled">Conectarea a fost anulată</string>
+    <string name="sign_in_no_account">Nu există niciun cont Google pe acest telefon. Adaugă unul din Setări, apoi încearcă din nou.</string>
+</resources>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/ja.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Automa に送る</string>
+    <string name="shortcut_new_chat_short">新しいチャット</string>
+    <string name="shortcut_new_chat_long">エージェントとチャット</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">アプリを作って動かす</string>
+    <string name="shortcut_files_short">ファイル</string>
+    <string name="shortcut_files_long">ファイルとリクエスト</string>
+    <string name="shortcut_new_task_short">新しいタスク</string>
+    <string name="shortcut_new_task_long">新しいタスクを始める</string>
+    <string name="shortcut_server_short">サーバーを変更</string>
+    <string name="shortcut_server_long">別の Automa サーバーに接続</string>
+    <string name="choose_file">ファイルを選択</string>
+    <string name="saved_to_downloads">%1$s を Downloads/Automa に保存しました</string>
+    <string name="saved_to_app_downloads">%1$s をアプリの Downloads フォルダに保存しました</string>
+    <string name="download_failed">%1$s を保存できませんでした</string>
+    <string name="no_app_for_link">このリンクを開けるアプリがありません</string>
+    <string name="old_app_title">古い Automa を削除しますか？</string>
+    <string name="old_app_message">Automa 1.0 が別のアプリとしてこのスマートフォンに残っています。このバージョンが置き換わり、今後のアップデートはこちらに上書きされます。アンインストールするためにアプリ情報のページを開きますか？</string>
+    <string name="old_app_remove">アプリ情報を開く</string>
+    <string name="old_app_keep">後で</string>
+    <string name="notification_channel_name">エージェントからのお知らせ</string>
+    <string name="notification_channel_description">承認、ファイルのリクエストなど、エージェントがあなたに求めていること</string>
+    <string name="copied">コピーしました</string>
+    <string name="share_unreadable">Automa はそのファイルを読み取れませんでした。別のアプリから共有するか、先にスマートフォンに保存してください。</string>
+    <string name="offline_title">接続がありません</string>
+    <string name="offline_message">スマートフォンがオフラインです。ネットワークが戻ると Automa は自動的に再接続します。ページの内容は失われません。</string>
+    <string name="offline_waiting">ネットワークを待っています…</string>
+    <string name="unreachable_title">Automa に接続できません</string>
+    <string name="unreachable_message">サーバーが応答しませんでした。再起動中か、スマートフォンのネットワークが切り替わった可能性があります。</string>
+    <string name="offline_retry">今すぐ再試行</string>
+    <string name="offline_other_server">別のサーバーに接続</string>
+    <string name="offline_reload">ページを再読み込み</string>
+    <string name="starting_title">Automa を起動しています</string>
+    <string name="starting_message">このスマートフォンで Automa を起動しています。アップデート後の初回起動には 1 分ほどかかることがあります。準備ができるとページは自動的に戻ります。</string>
+    <string name="starting_waiting">数秒ごとに確認しています…</string>
+    <string name="starting_step">現在: %1$s</string>
+    <string name="starting_elapsed">経過時間 %1$s</string>
+    <string name="duration_seconds">%1$d 秒</string>
+    <string name="duration_minutes">%1$d 分 %2$02d 秒</string>
+    <string name="sign_in_at">%1$s にログインしています</string>
+    <string name="sign_in_cancel">キャンセル</string>
+    <string name="retrying_now">Automa が応答するか確認しています…</string>
+    <string name="reconnecting_soon">バーがいっぱいになったら再試行します。</string>
+    <string name="sign_in_unavailable">このビルドでは Google ログインが設定されていません</string>
+    <string name="sign_in_cancelled">ログインがキャンセルされました</string>
+    <string name="sign_in_no_account">このスマートフォンには Google アカウントがありません。設定でアカウントを追加してから、もう一度お試しください。</string>
+</resources>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/el.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Αποστολή στο Automa</string>
+    <string name="shortcut_new_chat_short">Νέα συνομιλία</string>
+    <string name="shortcut_new_chat_long">Συνομιλία με πράκτορα</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Δημιουργία και εκτέλεση εφαρμογής</string>
+    <string name="shortcut_files_short">Αρχεία</string>
+    <string name="shortcut_files_long">Αρχεία και αιτήματα</string>
+    <string name="shortcut_new_task_short">Νέα εργασία</string>
+    <string name="shortcut_new_task_long">Έναρξη νέας εργασίας</string>
+    <string name="shortcut_server_short">Αλλαγή διακομιστή</string>
+    <string name="shortcut_server_long">Σύνδεση σε άλλο διακομιστή Automa</string>
+    <string name="choose_file">Επιλέξτε αρχείο</string>
+    <string name="saved_to_downloads">Το %1$s αποθηκεύτηκε στο Downloads/Automa</string>
+    <string name="saved_to_app_downloads">Το %1$s αποθηκεύτηκε στον φάκελο Downloads της εφαρμογής</string>
+    <string name="download_failed">Δεν ήταν δυνατή η αποθήκευση του %1$s</string>
+    <string name="no_app_for_link">Καμία εφαρμογή δεν μπορεί να ανοίξει αυτόν τον σύνδεσμο</string>
+    <string name="old_app_title">Κατάργηση του παλιού Automa;</string>
+    <string name="old_app_message">Το Automa 1.0 υπάρχει ακόμα σε αυτό το τηλέφωνο ως ξεχωριστή εφαρμογή. Αυτή η έκδοση το αντικαθιστά και οι μελλοντικές ενημερώσεις θα εγκαθίστανται πάνω σε αυτήν. Άνοιγμα της σελίδας Πληροφορίες εφαρμογής για απεγκατάσταση;</string>
+    <string name="old_app_remove">Άνοιγμα Πληροφοριών εφαρμογής</string>
+    <string name="old_app_keep">Όχι τώρα</string>
+    <string name="notification_channel_name">Ενημερώσεις πρακτόρων</string>
+    <string name="notification_channel_description">Εγκρίσεις, αιτήματα αρχείων και άλλα που χρειάζονται από εσάς οι πράκτορές σας</string>
+    <string name="copied">Αντιγράφηκε</string>
+    <string name="share_unreadable">Το Automa δεν μπόρεσε να διαβάσει αυτό το αρχείο. Μοιραστείτε το από άλλη εφαρμογή ή αποθηκεύστε το πρώτα στο τηλέφωνό σας.</string>
+    <string name="offline_title">Χωρίς σύνδεση</string>
+    <string name="offline_message">Το τηλέφωνό σας είναι εκτός σύνδεσης. Το Automa επανασυνδέεται μόνο του μόλις επανέλθει το δίκτυο· τίποτα στη σελίδα δεν χάνεται.</string>
+    <string name="offline_waiting">Αναμονή για το δίκτυο…</string>
+    <string name="unreachable_title">Δεν είναι δυνατή η πρόσβαση στο Automa</string>
+    <string name="unreachable_message">Ο διακομιστής δεν απάντησε. Ίσως επανεκκινείται ή το τηλέφωνο άλλαξε δίκτυο.</string>
+    <string name="offline_retry">Δοκιμή τώρα</string>
+    <string name="offline_other_server">Σύνδεση σε άλλο διακομιστή</string>
+    <string name="offline_reload">Επαναφόρτωση σελίδας</string>
+    <string name="starting_title">Το Automa ξεκινά</string>
+    <string name="starting_message">Το Automa ξεκινά σε αυτό το τηλέφωνο. Η πρώτη εκκίνηση μετά από ενημέρωση μπορεί να διαρκέσει ένα λεπτό· η σελίδα επιστρέφει μόνη της όταν είναι έτοιμη.</string>
+    <string name="starting_waiting">Έλεγχος κάθε λίγα δευτερόλεπτα…</string>
+    <string name="starting_step">Τώρα: %1$s</string>
+    <string name="starting_elapsed">%1$s μέχρι στιγμής</string>
+    <string name="duration_seconds">%1$d δευτ.</string>
+    <string name="duration_minutes">%1$d λεπ. %2$02d δευτ.</string>
+    <string name="sign_in_at">Σύνδεση στο %1$s</string>
+    <string name="sign_in_cancel">Ακύρωση</string>
+    <string name="retrying_now">Έλεγχος αν απαντά το Automa…</string>
+    <string name="reconnecting_soon">Νέα προσπάθεια όταν γεμίσει η μπάρα.</string>
+    <string name="sign_in_unavailable">Η σύνδεση μέσω Google δεν έχει ρυθμιστεί σε αυτή την έκδοση</string>
+    <string name="sign_in_cancelled">Η σύνδεση ακυρώθηκε</string>
+    <string name="sign_in_no_account">Δεν υπάρχει λογαριασμός Google σε αυτό το τηλέφωνο. Προσθέστε έναν στις Ρυθμίσεις και δοκιμάστε ξανά.</string>
+</resources>

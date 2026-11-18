@@ -2,16 +2,33 @@ package com.corxlabs.automa
 
 import android.app.Application
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 
 class AutomaApplication : Application() {
+    /** The languages the shortcuts and the notification channel were last named in. */
+    private var labelsLanguage: String? = null
+
     override fun onCreate() {
         super.onCreate()
+        nameLabels()
+        Push.refreshToken(this)
+    }
+
+    // A new language (picked on the board, or the phone's own) renames the
+    // launcher shortcuts and the notification channel right away instead of at
+    // the next start: Android keeps both under the names they were given.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (newConfig.locales.toLanguageTags() != labelsLanguage) nameLabels()
+    }
+
+    private fun nameLabels() {
+        labelsLanguage = resources.configuration.locales.toLanguageTags()
         publishShortcuts()
         Push.createChannel(this)
-        Push.refreshToken(this)
     }
 
     /**

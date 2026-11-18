@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/da.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Send til Automa</string>
+    <string name="shortcut_new_chat_short">Ny chat</string>
+    <string name="shortcut_new_chat_long">Chat med en agent</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">Byg og kør en app</string>
+    <string name="shortcut_files_short">Filer</string>
+    <string name="shortcut_files_long">Filer og anmodninger</string>
+    <string name="shortcut_new_task_short">Ny opgave</string>
+    <string name="shortcut_new_task_long">Start en ny opgave</string>
+    <string name="shortcut_server_short">Skift server</string>
+    <string name="shortcut_server_long">Opret forbindelse til en anden Automa-server</string>
+    <string name="choose_file">Vælg en fil</string>
+    <string name="saved_to_downloads">%1$s er gemt i Downloads/Automa</string>
+    <string name="saved_to_app_downloads">%1$s er gemt i appens Downloads-mappe</string>
+    <string name="download_failed">%1$s kunne ikke gemmes</string>
+    <string name="no_app_for_link">Ingen app kan åbne dette link</string>
+    <string name="old_app_title">Vil du fjerne den gamle Automa?</string>
+    <string name="old_app_message">Automa 1.0 ligger stadig på denne telefon som en separat app. Denne version erstatter den, og fremtidige opdateringer installeres oven på denne. Vil du åbne siden Appinfo for at afinstallere den?</string>
+    <string name="old_app_remove">Åbn Appinfo</string>
+    <string name="old_app_keep">Ikke nu</string>
+    <string name="notification_channel_name">Opdateringer fra agenter</string>
+    <string name="notification_channel_description">Godkendelser, filanmodninger og andet, som dine agenter har brug for fra dig</string>
+    <string name="copied">Kopieret</string>
+    <string name="share_unreadable">Automa kunne ikke læse filen. Del den fra en anden app, eller gem den på din telefon først.</string>
+    <string name="offline_title">Ingen forbindelse</string>
+    <string name="offline_message">Din telefon er offline. Automa genopretter selv forbindelsen, så snart netværket er tilbage; intet på siden går tabt.</string>
+    <string name="offline_waiting">Venter på netværket…</string>
+    <string name="unreachable_title">Kan ikke få kontakt til Automa</string>
+    <string name="unreachable_message">Serveren svarede ikke. Den genstarter måske, eller telefonen har skiftet netværk.</string>
+    <string name="offline_retry">Prøv nu</string>
+    <string name="offline_other_server">Opret forbindelse til en anden server</string>
+    <string name="offline_reload">Genindlæs siden</string>
+    <string name="starting_title">Automa starter</string>
+    <string name="starting_message">Automa starter på denne telefon. Den første start efter en opdatering kan tage et minut; siden kommer selv tilbage, når den er klar.</string>
+    <string name="starting_waiting">Tjekker med få sekunders mellemrum…</string>
+    <string name="starting_step">Nu: %1$s</string>
+    <string name="starting_elapsed">%1$s indtil videre</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$02d s</string>
+    <string name="sign_in_at">Logger ind på %1$s</string>
+    <string name="sign_in_cancel">Annuller</string>
+    <string name="retrying_now">Tjekker, om Automa svarer…</string>
+    <string name="reconnecting_soon">Prøver igen, når bjælken er fuld.</string>
+    <string name="sign_in_unavailable">Login med Google er ikke konfigureret i denne version</string>
+    <string name="sign_in_cancelled">Login blev annulleret</string>
+    <string name="sign_in_no_account">Der er ingen Google-konto på denne telefon. Tilføj en i Indstillinger, og prøv igen.</string>
+</resources>

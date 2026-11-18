@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/th.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">ส่งไปยัง Automa</string>
+    <string name="shortcut_new_chat_short">แชตใหม่</string>
+    <string name="shortcut_new_chat_long">แชตกับเอเจนต์</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">สร้างและเรียกใช้แอป</string>
+    <string name="shortcut_files_short">ไฟล์</string>
+    <string name="shortcut_files_long">ไฟล์และคำขอ</string>
+    <string name="shortcut_new_task_short">งานใหม่</string>
+    <string name="shortcut_new_task_long">เริ่มงานใหม่</string>
+    <string name="shortcut_server_short">เปลี่ยนเซิร์ฟเวอร์</string>
+    <string name="shortcut_server_long">เชื่อมต่อกับเซิร์ฟเวอร์ Automa อื่น</string>
+    <string name="choose_file">เลือกไฟล์</string>
+    <string name="saved_to_downloads">บันทึก %1$s ไปยัง Downloads/Automa แล้ว</string>
+    <string name="saved_to_app_downloads">บันทึก %1$s ไปยังโฟลเดอร์ Downloads ของแอปแล้ว</string>
+    <string name="download_failed">บันทึก %1$s ไม่ได้</string>
+    <string name="no_app_for_link">ไม่มีแอปที่เปิดลิงก์นี้ได้</string>
+    <string name="old_app_title">นำ Automa รุ่นเก่าออกไหม</string>
+    <string name="old_app_message">Automa 1.0 ยังอยู่ในโทรศัพท์เครื่องนี้ในฐานะแอปแยกต่างหาก เวอร์ชันนี้มาแทนที่แอปนั้น และอัปเดตต่อ ๆ ไปจะติดตั้งทับเวอร์ชันนี้ เปิดหน้าข้อมูลแอปเพื่อถอนการติดตั้งไหม</string>
+    <string name="old_app_remove">เปิดข้อมูลแอป</string>
+    <string name="old_app_keep">ไว้ทีหลัง</string>
+    <string name="notification_channel_name">ข่าวสารจากเอเจนต์</string>
+    <string name="notification_channel_description">การอนุมัติ คำขอไฟล์ และเรื่องอื่น ๆ ที่เอเจนต์ต้องการจากคุณ</string>
+    <string name="copied">คัดลอกแล้ว</string>
+    <string name="share_unreadable">Automa อ่านไฟล์นั้นไม่ได้ ลองแชร์จากแอปอื่น หรือบันทึกไฟล์ลงโทรศัพท์ก่อน</string>
+    <string name="offline_title">ไม่มีการเชื่อมต่อ</string>
+    <string name="offline_message">โทรศัพท์ของคุณออฟไลน์อยู่ Automa จะเชื่อมต่อใหม่เองทันทีที่เครือข่ายกลับมา ไม่มีอะไรบนหน้านี้สูญหาย</string>
+    <string name="offline_waiting">กำลังรอเครือข่าย…</string>
+    <string name="unreachable_title">ติดต่อ Automa ไม่ได้</string>
+    <string name="unreachable_message">เซิร์ฟเวอร์ไม่ตอบกลับ อาจกำลังรีสตาร์ต หรือโทรศัพท์เปลี่ยนเครือข่าย</string>
+    <string name="offline_retry">ลองตอนนี้</string>
+    <string name="offline_other_server">เชื่อมต่อกับเซิร์ฟเวอร์อื่น</string>
+    <string name="offline_reload">โหลดหน้าใหม่</string>
+    <string name="starting_title">Automa กำลังเริ่มทำงาน</string>
+    <string name="starting_message">Automa กำลังเริ่มทำงานบนโทรศัพท์เครื่องนี้ การเริ่มครั้งแรกหลังอัปเดตอาจใช้เวลาหนึ่งนาที หน้าจะกลับมาเองเมื่อพร้อม</string>
+    <string name="starting_waiting">กำลังตรวจสอบทุก ๆ ไม่กี่วินาที…</string>
+    <string name="starting_step">ตอนนี้: %1$s</string>
+    <string name="starting_elapsed">ผ่านไปแล้ว %1$s</string>
+    <string name="duration_seconds">%1$d วินาที</string>
+    <string name="duration_minutes">%1$d นาที %2$02d วินาที</string>
+    <string name="sign_in_at">กำลังลงชื่อเข้าใช้ที่ %1$s</string>
+    <string name="sign_in_cancel">ยกเลิก</string>
+    <string name="retrying_now">กำลังตรวจสอบว่า Automa ตอบกลับไหม…</string>
+    <string name="reconnecting_soon">จะลองอีกครั้งเมื่อแถบเต็ม</string>
+    <string name="sign_in_unavailable">บิลด์นี้ยังไม่ได้ตั้งค่าการลงชื่อเข้าใช้ด้วย Google</string>
+    <string name="sign_in_cancelled">ยกเลิกการลงชื่อเข้าใช้แล้ว</string>
+    <string name="sign_in_no_account">ไม่มีบัญชี Google ในโทรศัพท์เครื่องนี้ เพิ่มบัญชีในการตั้งค่า แล้วลองอีกครั้ง</string>
+</resources>

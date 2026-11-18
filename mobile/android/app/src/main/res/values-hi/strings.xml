@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/hi.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">Automa पर भेजें</string>
+    <string name="shortcut_new_chat_short">नई चैट</string>
+    <string name="shortcut_new_chat_long">किसी एजेंट से चैट करें</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">ऐप बनाएँ और चलाएँ</string>
+    <string name="shortcut_files_short">फ़ाइलें</string>
+    <string name="shortcut_files_long">फ़ाइलें और अनुरोध</string>
+    <string name="shortcut_new_task_short">नया काम</string>
+    <string name="shortcut_new_task_long">नया काम शुरू करें</string>
+    <string name="shortcut_server_short">सर्वर बदलें</string>
+    <string name="shortcut_server_long">दूसरे Automa सर्वर से कनेक्ट करें</string>
+    <string name="choose_file">कोई फ़ाइल चुनें</string>
+    <string name="saved_to_downloads">%1$s को Downloads/Automa में सेव किया गया</string>
+    <string name="saved_to_app_downloads">%1$s को ऐप के Downloads फ़ोल्डर में सेव किया गया</string>
+    <string name="download_failed">%1$s सेव नहीं हो सका</string>
+    <string name="no_app_for_link">कोई भी ऐप यह लिंक नहीं खोल सकता</string>
+    <string name="old_app_title">पुराना Automa हटाएँ?</string>
+    <string name="old_app_message">Automa 1.0 अब भी इस फ़ोन पर एक अलग ऐप के रूप में है। यह वर्शन उसकी जगह लेता है, और आगे के अपडेट इसी पर इंस्टॉल होंगे। उसे अनइंस्टॉल करने के लिए उसका ऐप की जानकारी पेज खोलें?</string>
+    <string name="old_app_remove">ऐप की जानकारी खोलें</string>
+    <string name="old_app_keep">अभी नहीं</string>
+    <string name="notification_channel_name">एजेंटों की खबरें</string>
+    <string name="notification_channel_description">मंज़ूरियाँ, फ़ाइल अनुरोध और दूसरी चीज़ें जिनके लिए आपके एजेंटों को आपकी ज़रूरत है</string>
+    <string name="copied">कॉपी हो गया</string>
+    <string name="share_unreadable">Automa वह फ़ाइल नहीं पढ़ सका। उसे किसी दूसरे ऐप से शेयर करें, या पहले अपने फ़ोन पर सेव करें।</string>
+    <string name="offline_title">कनेक्शन नहीं है</string>
+    <string name="offline_message">आपका फ़ोन ऑफ़लाइन है। नेटवर्क लौटते ही Automa अपने-आप फिर से कनेक्ट हो जाता है; पेज पर कुछ भी नहीं खोता।</string>
+    <string name="offline_waiting">नेटवर्क का इंतज़ार है…</string>
+    <string name="unreachable_title">Automa तक नहीं पहुँच पा रहे</string>
+    <string name="unreachable_message">सर्वर ने जवाब नहीं दिया। हो सकता है वह रीस्टार्ट हो रहा हो, या फ़ोन ने नेटवर्क बदल लिया हो।</string>
+    <string name="offline_retry">अभी कोशिश करें</string>
+    <string name="offline_other_server">दूसरे सर्वर से कनेक्ट करें</string>
+    <string name="offline_reload">पेज फिर से लोड करें</string>
+    <string name="starting_title">Automa शुरू हो रहा है</string>
+    <string name="starting_message">इस फ़ोन पर Automa शुरू हो रहा है। अपडेट के बाद पहली बार शुरू होने में एक मिनट लग सकता है; तैयार होते ही पेज अपने-आप लौट आएगा।</string>
+    <string name="starting_waiting">हर कुछ सेकंड में जाँच हो रही है…</string>
+    <string name="starting_step">अभी: %1$s</string>
+    <string name="starting_elapsed">अब तक %1$s</string>
+    <string name="duration_seconds">%1$d से.</string>
+    <string name="duration_minutes">%1$d मि. %2$02d से.</string>
+    <string name="sign_in_at">%1$s पर साइन इन हो रहा है</string>
+    <string name="sign_in_cancel">रद्द करें</string>
+    <string name="retrying_now">जाँच हो रही है कि Automa जवाब दे रहा है या नहीं…</string>
+    <string name="reconnecting_soon">बार भरते ही फिर कोशिश होगी।</string>
+    <string name="sign_in_unavailable">इस बिल्ड में Google साइन इन सेट नहीं है</string>
+    <string name="sign_in_cancelled">साइन इन रद्द हो गया</string>
+    <string name="sign_in_no_account">इस फ़ोन पर कोई Google खाता नहीं है। सेटिंग में एक खाता जोड़ें, फिर दोबारा कोशिश करें।</string>
+</resources>

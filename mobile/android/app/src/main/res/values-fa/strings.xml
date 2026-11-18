@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Made by mobile/android/scripts/sync-translations.mjs from mobile/android/i18n/fa.json. -->
+<resources>
+    <string name="app_name">Automa</string>
+    <string name="share_label">فرستادن به Automa</string>
+    <string name="shortcut_new_chat_short">گفتگوی جدید</string>
+    <string name="shortcut_new_chat_long">گفتگو با یک عامل</string>
+    <string name="shortcut_studio_short">App Studio</string>
+    <string name="shortcut_studio_long">ساخت و اجرای برنامه</string>
+    <string name="shortcut_files_short">فایل‌ها</string>
+    <string name="shortcut_files_long">فایل‌ها و درخواست‌ها</string>
+    <string name="shortcut_new_task_short">کار جدید</string>
+    <string name="shortcut_new_task_long">شروع یک کار جدید</string>
+    <string name="shortcut_server_short">تغییر سرور</string>
+    <string name="shortcut_server_long">اتصال به سرور دیگری از Automa</string>
+    <string name="choose_file">یک فایل انتخاب کنید</string>
+    <string name="saved_to_downloads">فایل %1$s در Downloads/Automa ذخیره شد</string>
+    <string name="saved_to_app_downloads">فایل %1$s در پوشهٔ Downloads برنامه ذخیره شد</string>
+    <string name="download_failed">ذخیرهٔ %1$s ممکن نشد</string>
+    <string name="no_app_for_link">هیچ برنامه‌ای نمی‌تواند این پیوند را باز کند</string>
+    <string name="old_app_title">‏Automa قدیمی حذف شود؟</string>
+    <string name="old_app_message">‏Automa 1.0 هنوز به‌صورت برنامه‌ای جداگانه روی این گوشی هست. این نسخه جای آن را می‌گیرد و به‌روزرسانی‌های بعدی روی همین نسخه نصب می‌شوند. صفحهٔ اطلاعات برنامهٔ آن را برای حذف نصب باز کنیم؟</string>
+    <string name="old_app_remove">باز کردن اطلاعات برنامه</string>
+    <string name="old_app_keep">الان نه</string>
+    <string name="notification_channel_name">خبرهای عامل‌ها</string>
+    <string name="notification_channel_description">تأییدها، درخواست‌های فایل و چیزهای دیگری که عامل‌هایتان از شما لازم دارند</string>
+    <string name="copied">کپی شد</string>
+    <string name="share_unreadable">‏Automa نتوانست آن فایل را بخواند. آن را از برنامهٔ دیگری هم‌رسانی کنید، یا اول روی گوشی ذخیره‌اش کنید.</string>
+    <string name="offline_title">اتصالی برقرار نیست</string>
+    <string name="offline_message">گوشی شما آفلاین است. Automa به‌محض برگشتن شبکه خودش دوباره وصل می‌شود؛ چیزی از صفحه از دست نمی‌رود.</string>
+    <string name="offline_waiting">در انتظار شبکه…</string>
+    <string name="unreachable_title">دسترسی به Automa ممکن نیست</string>
+    <string name="unreachable_message">سرور پاسخ نداد. شاید در حال راه‌اندازی دوباره باشد، یا گوشی شبکه‌اش را عوض کرده باشد.</string>
+    <string name="offline_retry">همین حالا امتحان کنید</string>
+    <string name="offline_other_server">اتصال به سرور دیگر</string>
+    <string name="offline_reload">بارگیری دوبارهٔ صفحه</string>
+    <string name="starting_title">‏Automa در حال راه‌اندازی است</string>
+    <string name="starting_message">‏Automa روی این گوشی در حال راه‌اندازی است. اولین راه‌اندازی پس از به‌روزرسانی ممکن است یک دقیقه طول بکشد؛ صفحه وقتی آماده شد خودش برمی‌گردد.</string>
+    <string name="starting_waiting">هر چند ثانیه یک بار بررسی می‌شود…</string>
+    <string name="starting_step">اکنون: %1$s</string>
+    <string name="starting_elapsed">تا الان %1$s</string>
+    <string name="duration_seconds">%1$d ثانیه</string>
+    <string name="duration_minutes">%1$d دقیقه %2$02d ثانیه</string>
+    <string name="sign_in_at">در حال ورود به %1$s</string>
+    <string name="sign_in_cancel">لغو</string>
+    <string name="retrying_now">در حال بررسی اینکه Automa پاسخ می‌دهد یا نه…</string>
+    <string name="reconnecting_soon">وقتی نوار پر شود دوباره امتحان می‌شود.</string>
+    <string name="sign_in_unavailable">ورود با Google در این نسخه راه‌اندازی نشده است</string>
+    <string name="sign_in_cancelled">ورود لغو شد</string>
+    <string name="sign_in_no_account">هیچ حساب Google روی این گوشی نیست. یکی در تنظیمات اضافه کنید و دوباره امتحان کنید.</string>
+</resources>
