@@ -759,6 +759,7 @@ function EnvironmentCustomImageBrowserTerminal({
       <div className="bg-neutral-950 p-2 focus-within:ring-2 focus-within:ring-ring">
         <div
           ref={terminalElementRef}
+          translate="no"
           data-testid={`custom-image-terminal-screen-${sessionId}`}
           aria-label="Custom image browser terminal"
           role="application"

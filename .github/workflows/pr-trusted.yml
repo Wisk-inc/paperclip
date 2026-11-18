@@ -939,6 +939,12 @@ jobs:
       - name: Build Runner Evalbook viewer
         run: pnpm --filter @paperclipai/paperclip-runner build:issue-thread
 
+      - name: Check the board's string list is up to date
+        run: pnpm i18n:check
+
+      - name: Test the board string extractor
+        run: node --test ./ui/scripts/extract-ui-strings.test.mjs
+
       - name: Build
         run: pnpm build
 

@@ -1019,6 +1019,8 @@ function MarkdownBodyImpl({
 
   return (
     <div
+      // People's and agents' own words: the on-screen translator leaves them as written.
+      translate="no"
       className={cn(
         "paperclip-markdown prose prose-sm min-w-0 max-w-full break-words overflow-hidden",
         theme === "dark" && "prose-invert",

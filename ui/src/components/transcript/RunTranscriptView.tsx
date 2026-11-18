@@ -1540,7 +1540,7 @@ function TranscriptEventRow({
               <span className="text-(length:--text-nano) font-semibold uppercase tracking-(--tracking-label) text-muted-foreground/70">
                 {block.label}
               </span>
-              {block.text ? <span className="ml-2">{block.text}</span> : null}
+              {block.text ? <span className="ml-2" translate="no">{block.text}</span> : null}
             </div>
           )}
           {block.detail && (

@@ -17,8 +17,9 @@ import {
   type LucideIcon,
   Compass,
   KeyRound,
+  Languages,
 } from "lucide-react";
-import type { AuthSession, Company, CurrentUserProfile } from "@paperclipai/shared";
+import { APP_LANGUAGE_AUTO, type AuthSession, type Company, type CurrentUserProfile } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
 import { assetsApi } from "@/api/assets";
 import { authApi } from "@/api/auth";
@@ -32,6 +33,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { DiscordSupportLink } from "../DiscordSupportLink";
 import { requestFeatureTour } from "@/lib/feature-tour";
 import { useCompany } from "@/context/CompanyContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { useDialogActions } from "@/context/DialogContext";
 import { useToastActions } from "@/context/ToastContext";
 import { useAccountProfile } from "@/hooks/useAccountProfile";
@@ -44,6 +46,7 @@ import { Link, useLocation, useNavigate } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { AUTOMA_RELEASES } from "@/lib/release-history";
 import { AboutAutomaSheet } from "./AboutAutomaSheet";
+import { LanguageSheet, preferenceLabel } from "./LanguageSheet";
 import { TroubleshootDialog } from "../TroubleshootDialog";
 import { AccountBalanceCard } from "./AccountBalanceCard";
 import { AutomaCredit } from "./AutomaCredit";
@@ -86,13 +89,15 @@ function PhotoButton({ label, busy, onFile, children }: { label: string; busy: b
   );
 }
 
-function ActionRow({ icon: Icon, label, hint, to, onClick, tone }: {
+function ActionRow({ icon: Icon, label, hint, to, onClick, tone, chevron }: {
   icon: LucideIcon;
   label: string;
-  hint?: string;
+  hint?: React.ReactNode;
   to?: string;
   onClick?: () => void;
   tone?: "danger";
+  /** Opens more choices (a link always shows one). */
+  chevron?: boolean;
 }) {
   const body = (
     <>
@@ -103,7 +108,7 @@ function ActionRow({ icon: Icon, label, hint, to, onClick, tone }: {
         <span className={cn("block text-sm font-medium", tone === "danger" ? "text-destructive" : "text-foreground")}>{label}</span>
         {hint ? <span className="block truncate text-xs text-muted-foreground">{hint}</span> : null}
       </span>
-      {to ? <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+      {to || chevron ? <ChevronRight className="size-4 shrink-0 text-muted-foreground rtl:rotate-180" aria-hidden="true" /> : null}
     </>
   );
   const className = "flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/60 active:bg-accent";
@@ -143,6 +148,8 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const googleSignedIn = profile.source === "google";
 
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const { preference: languagePreference, detected: detectedLanguage } = useLanguage();
   const [name, setName] = useState(profile.name);
   const [orgName, setOrgName] = useState(selectedCompany?.name ?? "");
   useEffect(() => {
@@ -431,6 +438,26 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             <div className="rounded-xl border border-border bg-card p-3">
               <AppearancePicker />
             </div>
+            <div className="overflow-hidden rounded-xl border border-border bg-card" data-slot="account-language">
+              <ActionRow
+                icon={Languages}
+                label="Language"
+                chevron
+                hint={
+                  languagePreference === APP_LANGUAGE_AUTO ? (
+                    <>
+                      <span>Auto</span> · <span translate="no">{preferenceLabel(languagePreference, detectedLanguage)}</span>
+                    </>
+                  ) : (
+                    <span translate="no">{preferenceLabel(languagePreference, detectedLanguage)}</span>
+                  )
+                }
+                onClick={() => {
+                  haptic("tick");
+                  setLanguageOpen(true);
+                }}
+              />
+            </div>
           </section>
 
           <section aria-label="Account" className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
@@ -479,6 +506,7 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         </div>
       </SheetContent>
       <AboutAutomaSheet open={aboutOpen} onOpenChange={setAboutOpen} />
+      <LanguageSheet open={languageOpen} onOpenChange={setLanguageOpen} />
       <TroubleshootDialog open={troubleshootOpen} onOpenChange={setTroubleshootOpen} />
     </Sheet>
   );

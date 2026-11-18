@@ -624,6 +624,9 @@ export const queryKeys = {
     mine: (companyId: string) =>
       ["inbox-agent-policy", companyId, "me"] as const,
   },
+  languagePreferences: {
+    mine: (userId: string) => ["language-preferences", "me", userId] as const,
+  },
   sidebarPreferences: {
     companyOrder: (userId: string) =>
       ["sidebar-preferences", "company-order", userId] as const,

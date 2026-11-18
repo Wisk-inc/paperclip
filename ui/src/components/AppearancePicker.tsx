@@ -15,10 +15,10 @@ export function AppearancePicker({ className }: { className?: string }) {
       <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="radiogroup" aria-label="Light or dark">
         {(
           [
-            ["light", "Light", Sun],
-            ["dark", "Dark", Moon],
+            { id: "light", label: "Light", Icon: Sun },
+            { id: "dark", label: "Dark", Icon: Moon },
           ] as const
-        ).map(([id, label, Icon]) => (
+        ).map(({ id, label, Icon }) => (
           <button
             key={id}
             type="button"

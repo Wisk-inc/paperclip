@@ -5,6 +5,7 @@ import {
 } from "./experimental-api-paths.js";
 import { Router } from "express";
 import { z } from "zod";
+import { uiTranslationRequestSchema } from "./ui-translations.js";
 import {
   createAiConnectionSchema,
   aiConnectionLoginIntentSchema,
@@ -6077,6 +6078,24 @@ registry.registerPath({
   tags: ["languages"],
   summary: "Save the current user's language choice or what Auto detected on their device",
   request: { body: jsonBody(updateLanguagePreferenceSchema) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/ui-translations/{language}",
+  tags: ["languages"],
+  summary: "Every saved translation of the board's own text for a language",
+  request: { params: z.object({ language: z.string() }) },
+  responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/ui-translations",
+  tags: ["languages"],
+  summary: "Translate board strings into a language (only the board's own text; the free models translate each once and it is saved)",
+  request: { body: jsonBody(uiTranslationRequestSchema) },
   responses: { 200: r.ok(), 400: r.badRequest, 401: r.unauthorized, 403: r.forbidden },
 });
 

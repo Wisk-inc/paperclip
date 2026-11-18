@@ -84,6 +84,12 @@ Auto or a chosen language, plus what Auto detected on their device) is an
 instance-wide user preference like the sidebar's company order, so a person
 keeps one language in every organization. It holds no company data.
 
+Explicit exception: translations of the board's own wording
+(`data/ui-translations/<language>.json` in the instance folder, written by
+`server/src/services/ui-translations.ts`) are instance-level. The server only
+accepts Automa's own English interface strings (`UI_STRINGS`), never company
+or user data, so every person on the instance shares them.
+
 Explicit exception: Moan's Jamaican knowledge index (`moan_knowledge`,
 `moan_sources`) is instance-level. It holds only public pages fetched from
 Jamaican news, government, law and reference sites, never company or user

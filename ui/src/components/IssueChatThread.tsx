@@ -1425,6 +1425,7 @@ function IssueChatVerboseLiveReasoningPart({ text }: { text: string }) {
         {lines.map((line, index) => (
           <p
             key={index}
+            translate="no"
             className="whitespace-pre-wrap break-words text-(length:--text-compact) italic leading-5 text-muted-foreground/70"
           >
             {line}
