@@ -271,6 +271,12 @@ key the caller may use). It never reads another member's personal key.
   base64'd and binary copies and never prints the token; the source holds no
   12-character run of it. `server/src/__tests__/termux-pkg-script.test.ts`:
   both phone secrets are 0600 after an install over a readable one.
+- `server/src/__tests__/secret-leak-guards.test.ts`: apps App Studio runs get
+  none of the server's secrets, and the built board (`ui/dist`, the app's
+  `assets/ui` and `assets/connect`) holds no copy of the free-model token, by
+  the release check's own finder, and no key-shaped string. Until 1.9.14's
+  check before release it read the token's pieces from a list that masking
+  the token removed, so it looked for nothing.
 - `server/src/__tests__/assets.test.ts`: photos and logos must really be
   images. `server/src/__tests__/error-handler.test.ts`: oversized bodies and
   bad ids answer 413 and 400, not 500.
