@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { studioChildEnv } from "../services/studio/runner.js";
+// The release check's own way of finding the token (scripts/check-free-model-token.mjs, tested beside it).
+import { findToken, readFreeModelToken, tokenNeedles } from "../../../scripts/check-free-model-token.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -44,11 +46,15 @@ describe("server secrets stay out of the apps Studio runs", () => {
   });
 });
 
-/** The free-model token's pieces, read from the one server-only file that holds them. */
-function tokenPieces(): string[] {
-  const source = readFileSync(path.join(REPO, "packages/shared/src/puter-ai.ts"), "utf8");
-  const list = source.match(/const _P = \[([\s\S]*?)\];/)?.[1] ?? "";
-  return [...list.matchAll(/["']([^"']+)["']/g)].map((match) => match[1]!).filter((piece) => piece.length >= 12);
+/**
+ * What a file must not hold of the free-model token: the release check's needles (the whole token,
+ * its parts, every 10-character run of its signature, and the token base64'd), made from the token
+ * a request carries now, so the check follows however packages/shared/src/puter-ai.ts masks it.
+ * (It once read the token's pieces from a list in that file; when the token came to be stored
+ * masked, the list was gone, and this check had nothing to look for.)
+ */
+async function tokenNeedlesNow(): Promise<Buffer[]> {
+  return tokenNeedles(await readFreeModelToken(() => import("@paperclipai/shared/puter-ai")));
 }
 
 function textFilesUnder(dir: string): string[] {
@@ -76,16 +82,16 @@ const BUNDLES = ["ui/dist", "mobile/android/app/src/main/assets/ui", "mobile/and
   .filter((dir) => existsSync(dir));
 
 describe.skipIf(BUNDLES.length === 0)("the built web app", () => {
-  it("knows the token's pieces it is checking for", () => {
-    expect(tokenPieces().length).toBeGreaterThan(3);
+  it("knows the token's pieces it is checking for", async () => {
+    expect((await tokenNeedlesNow()).length).toBeGreaterThan(3);
   });
 
-  it.each(BUNDLES.map((dir) => [path.relative(REPO, dir), dir]))("%s carries no piece of the free-model token and no key", (_name, dir) => {
-    const pieces = tokenPieces();
-    const found: string[] = [];
+  it.each(BUNDLES.map((dir) => [path.relative(REPO, dir), dir]))("%s carries no piece of the free-model token and no key", async (_name, dir) => {
+    // Only file names are reported, never the token or a piece of it.
+    const { hits } = findToken([dir], await tokenNeedlesNow());
+    const found = hits.map((file: string) => `token piece in ${path.relative(REPO, file)}`);
     for (const file of textFilesUnder(dir)) {
       const text = readFileSync(file, "utf8");
-      if (pieces.some((piece) => text.includes(piece))) found.push(`token piece in ${path.relative(REPO, file)}`);
       for (const shape of KEY_SHAPES) if (shape.test(text)) found.push(`${shape.source.slice(0, 16)} in ${path.relative(REPO, file)}`);
     }
     expect(found).toEqual([]);
