@@ -269,18 +269,41 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
       commands: [] as string[],
     };
     const runner = {
-      execute: async (input: { command: string; args?: string[]; env?: Record<string, string> }) => {
+      execute: async (input: {
+        command: string;
+        args?: string[];
+        cwd?: string;
+        env?: Record<string, string>;
+        stdin?: string;
+      }) => {
         runnerState.commands.push(input.command);
         if (input.command === "sh") {
-          return {
-            exitCode: 0,
-          signal: null,
-          timedOut: false,
-          stdout: "",
-          stderr: "",
-          pid: 555,
-          startedAt: new Date().toISOString(),
-        };
+          // Where the agent command lives is this test's to decide (the mocked
+          // prepareCursorSandboxCommand above), so `command -v` probes are answered here.
+          if ((input.args?.[1] ?? "").startsWith("command -v ")) {
+            return {
+              exitCode: 0,
+              signal: null,
+              timedOut: false,
+              stdout: "",
+              stderr: "",
+              pid: 555,
+              startedAt: new Date().toISOString(),
+            };
+          }
+          // The managed runtime's own scripts run for real: the sandbox is the temporary remote
+          // workspace on this machine, and the runtime reads back what they write (the workspace
+          // archive after the run is sized with `wc -c`, then read in chunks), so an empty answer
+          // would fail the run.
+          return runChildProcess(`cursor-fresh-lease-${runnerState.commands.length}`, "sh", input.args ?? [], {
+            cwd: input.cwd ?? remoteWorkspace,
+            env: input.env ?? {},
+            stdin: input.stdin,
+            timeoutSec: 30,
+            graceSec: 5,
+            onLog: async () => {},
+            onSpawn: async () => {},
+          });
         }
 
         return runChildProcess(`cursor-fresh-lease-${runnerState.commands.length}`, input.command, input.args ?? [], {
