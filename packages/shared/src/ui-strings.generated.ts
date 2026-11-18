@@ -13608,6 +13608,7 @@ export const UI_STRINGS: readonly string[] = [
   "· last summary",
   "· last used {0}",
   "· latest",
+  "· led by",
   "· led by {0}",
   "· led by {0} ({1})",
   "· lifetime {0} / {1}",

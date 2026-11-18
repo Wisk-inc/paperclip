@@ -39,6 +39,8 @@ const LETTER = /\p{L}/u;
  * by word is passed over without being matched.
  */
 export const MAX_BOARD_TEXT = 600;
+/** The most text nodes one of the board's sentences is written in (a run longer than this is matched in stretches of it). */
+const MAX_RUN_PARTS = 12;
 
 /** Unicode first-strong isolate and pop: the text between keeps its own direction. */
 export const FSI = "\u2068";
@@ -202,18 +204,33 @@ export class LiveTranslator {
     return tracked && node.data === tracked.applied ? tracked.original : node.data;
   }
 
-  /** Adjacent text nodes: the board wrote them as one sentence with values in it. */
+  /**
+   * Adjacent text nodes: the board wrote them as one sentence with values in
+   * it, or as a few such sentences side by side ("2 agents" and " · led by
+   * Nova"). From each node, the longest stretch of nodes that is one of the
+   * board's sentences is translated as one; a node in no such stretch is
+   * translated on its own.
+   */
   private translateRun(nodes: Text[]): void {
     const originals = nodes.map((node) => this.originalOf(node));
-    const pieces = originals.filter((text) => text.trim() !== "");
-    if (pieces.length > 1) {
-      const whole = this.translateText(originals.join(""), true);
-      if (whole !== null) {
-        nodes.forEach((node, index) => this.write(node, originals[index]!, index === 0 ? whole : ""));
-        return;
+    const results: (string | null)[] = originals.map(() => null);
+    let start = 0;
+    while (start < nodes.length) {
+      let end = start;
+      for (let last = Math.min(nodes.length - 1, start + MAX_RUN_PARTS - 1); last > start; last -= 1) {
+        const parts = originals.slice(start, last + 1);
+        if (parts.filter((text) => text.trim() !== "").length < 2) continue;
+        const whole = this.translateText(parts.join(""), true, parts);
+        if (whole === null) continue;
+        results[start] = whole;
+        for (let index = start + 1; index <= last; index += 1) results[index] = "";
+        end = last;
+        break;
       }
+      if (end === start) results[start] = this.translateText(originals[start]!, false);
+      start = end + 1;
     }
-    nodes.forEach((node, index) => this.write(node, originals[index]!, this.translateText(originals[index]!, false)));
+    nodes.forEach((node, index) => this.write(node, originals[index]!, results[index] ?? null));
   }
 
   private write(node: Text, original: string, translated: string | null): void {
@@ -253,10 +270,10 @@ export class LiveTranslator {
     this.attributes.set(element, map);
   }
 
-  /** The translation of a board string, with its spacing kept, or null. */
-  private translateText(text: string, pieced: boolean): string | null {
+  /** The translation of a board string, with its spacing kept, or null. `pieces`: the text nodes it was joined from. */
+  private translateText(text: string, pieced: boolean, pieces?: readonly string[]): string | null {
     if (text.length > MAX_BOARD_TEXT || !LETTER.test(text)) return null;
-    const match = this.options.index.match(text, pieced);
+    const match = this.options.index.match(text, pieced, pieces);
     if (!match) return null;
     const lead = text.match(/^\s*/)?.[0] ?? "";
     const trail = text.match(/\s*$/)?.[0] ?? "";

@@ -336,7 +336,8 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                     <p className="truncate font-display text-lg font-semibold leading-tight">{selectedCompany.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {activeAgents.length} {activeAgents.length === 1 ? "agent" : "agents"}
-                      {lead ? ` · led by ${lead.name}` : ""}
+                      {/* In pieces, so the on-screen translator sees the name as a value (see LiveTranslator). */}
+                      {lead ? <> · led by {lead.name}</> : null}
                     </p>
                   </div>
                 </div>

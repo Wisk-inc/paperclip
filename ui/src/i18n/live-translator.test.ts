@@ -81,6 +81,45 @@ describe("LiveTranslator", () => {
     expect(q.textContent).toBe("4 de 9 terminadas");
   });
 
+  it("does not read a template across two of the board's own texts written side by side", () => {
+    const own: Record<string, string> = {
+      "{0} changed {1}": "{0} cambió {1}",
+      "Backend files changed since this server booted.": "Los archivos del servidor cambiaron desde que arrancó.",
+      "Updated {0}.": "Actualizado {0}.",
+    };
+    const p = document.createElement("p");
+    // What <p>{reason}{changedAt ? ` Updated ${changedAt}.` : ""}</p> renders: two text nodes.
+    p.append("Backend files changed since this server booted.", " Updated 5m ago.");
+    root.append(p);
+    translator = new LiveTranslator({ root, index: buildUiStringIndex(Object.keys(own)), lookup: (source) => own[source] });
+    translator.start();
+    expect(p.textContent).toBe("Los archivos del servidor cambiaron desde que arrancó. Actualizado 5m ago.");
+  });
+
+  it("translates a few of the board's sentences written side by side in one run", () => {
+    const own: Record<string, string> = {
+      agents: "agentes",
+      "· led by {0}": "· dirigida por {0}",
+      "Sign out": "Cerrar sesión",
+    };
+    const p = document.createElement("p");
+    // What <p>{count} {label}{lead ? <> · led by {lead.name}</> : null}</p> renders.
+    p.append("2", " ", "agents", " · led by ", "Nova");
+    // A board string next to a person's words: only the board's part is translated.
+    const q = document.createElement("p");
+    q.append("Sign out", " Buy milk");
+    root.append(p, q);
+    translator = new LiveTranslator({ root, index: buildUiStringIndex(Object.keys(own)), lookup: (source) => own[source] });
+    translator.start();
+    expect(p.textContent).toBe("2 agentes · dirigida por Nova");
+    expect(q.textContent).toBe("Cerrar sesión Buy milk");
+    // Back to English, every piece as it was.
+    translator.stop();
+    translator = null;
+    expect(p.textContent).toBe("2 agents · led by Nova");
+    expect(Array.from(p.childNodes).map((node) => node.textContent)).toEqual(["2", " ", "agents", " · led by ", "Nova"]);
+  });
+
   it("translates a value that is itself a board string", () => {
     const p = document.createElement("p");
     p.append("Status: ", "Done");
