@@ -16,6 +16,7 @@ import {
   removeManagedPathBlock,
   removeManagedShim,
   resolveInstallStorePaths,
+  unlinkIfPresent,
   withInstallStoreLock,
   writeInstallManifestAtomic,
   writeManagedShim,
@@ -87,6 +88,20 @@ describe("managed install store", () => {
 
     expect(fs.realpathSync(paths.currentPath)).toBe(fs.realpathSync(oldPayload));
     expect(fs.readdirSync(paths.cliRoot).filter((entry) => entry.startsWith(".current-"))).toEqual([]);
+  });
+
+  it("removes a link to a payload directory itself, never its target, and is quiet once it is gone", () => {
+    const payload = payloadPathFor(paths, "npm", "1.0.0");
+    fs.mkdirSync(payload, { recursive: true });
+    fs.writeFileSync(path.join(payload, "keep.txt"), "keep\n");
+    const link = path.join(root, "link-to-payload");
+    fs.symlinkSync(payload, link, "dir");
+
+    unlinkIfPresent(link);
+
+    expect(() => fs.lstatSync(link)).toThrow(expect.objectContaining({ code: "ENOENT" }));
+    expect(fs.readFileSync(path.join(payload, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(() => unlinkIfPresent(link)).not.toThrow();
   });
 
   it("retains current plus two previous payloads and prunes older entries", () => {
@@ -221,7 +236,8 @@ describe("managed install store", () => {
     fs.symlinkSync(outsideBin, localDir, "dir");
     expect(() => writeManagedShim(paths)).toThrow("unsafe shim directory");
 
-    fs.rmSync(localDir);
+    // unlink, not rmSync: Node 24.11's rmSync follows a link to a directory and throws.
+    fs.unlinkSync(localDir);
     fs.mkdirSync(path.dirname(paths.shimPath), { recursive: true });
     fs.writeFileSync(paths.shimPath, `# ${MANAGED_SHIM_MARKER}\n`);
     fs.linkSync(paths.shimPath, path.join(root, "linked-shim"));

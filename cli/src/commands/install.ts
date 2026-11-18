@@ -15,6 +15,7 @@ import {
   pruneInstallPayloads,
   readInstallManifest,
   resolveInstallStorePaths,
+  unlinkIfPresent,
   withInstallStoreLock,
   writeInstallManifestAtomic,
   writeManagedShim,
@@ -374,7 +375,7 @@ export async function installCommand(
       const nextManifest = buildNextManifest(record, currentManifest);
       const oldTarget = fs.existsSync(paths.currentPath) ? fs.readlinkSync(paths.currentPath) : null;
       flipCurrentAtomic(payload.payloadPath, paths);
-      try { writeInstallManifestAtomic(nextManifest, paths); } catch (error) { if (oldTarget) flipCurrentAtomic(path.resolve(paths.cliRoot, oldTarget), paths); else fs.rmSync(paths.currentPath, { force: true }); throw error; }
+      try { writeInstallManifestAtomic(nextManifest, paths); } catch (error) { if (oldTarget) flipCurrentAtomic(path.resolve(paths.cliRoot, oldTarget), paths); else unlinkIfPresent(paths.currentPath); throw error; }
       writeManagedShim(paths); pruneInstallPayloads(nextManifest, paths); return payload;
     }, paths);
     await ensureShimOnPath(options);
@@ -405,7 +406,7 @@ export async function installCommand(
       writeInstallManifestAtomic(nextManifest, paths);
     } catch (error) {
       if (oldTarget) flipCurrentAtomic(path.resolve(paths.cliRoot, oldTarget), paths);
-      else fs.rmSync(paths.currentPath, { force: true });
+      else unlinkIfPresent(paths.currentPath);
       throw error;
     }
     writeManagedShim(paths);

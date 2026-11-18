@@ -9,6 +9,7 @@ import { resolveGitHubOperationCredentials } from "../github-operation-credentia
 import { bindManagedNativeCredentialTurn, completeManagedNativeCredentialTurn } from "./managed-native-credentials.js";
 import { createLocalNativeQuestionBridge } from "./local-native-question-bridge.js";
 import { readVerifiedRemoteWorkspaceFile } from "./remote-deliverable-file.js";
+import { removeEntryWithoutFollowing } from "./remove-entry.js";
 import { copyBackCodexAuth } from "@paperclipai/adapter-codex-local/server";
 import { nativeCompletionFeedback } from "./native-completion-feedback.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent } from "../acknowledged-native-stop.js";
@@ -1560,10 +1561,7 @@ function scrubRunnerdQuarantineLaunchState(root: string): void {
     if (!stats) continue;
     // Remove symlinks themselves, never their targets. Real temporary
     // directories are safe to remove recursively inside the verified home.
-    rmSync(entry, {
-      recursive: stats.isDirectory() && !stats.isSymbolicLink(),
-      force: true,
-    });
+    removeEntryWithoutFollowing(entry, stats);
   }
 }
 

@@ -294,7 +294,22 @@ export function flipCurrentAtomic(
     hooks.beforeRename?.();
     fs.renameSync(temporaryLink, paths.currentPath);
   } finally {
-    fs.rmSync(temporaryLink, { force: true });
+    unlinkIfPresent(temporaryLink);
+  }
+}
+
+/**
+ * Removes the path itself (a symlink is removed, never followed) unless it is already gone.
+ * Links to payload directories are removed with this, not `fs.rmSync`: on Node 24.11 (fixed by
+ * 24.22) `rmSync` without `recursive` follows a link to a directory and throws "Path is a
+ * directory", so a failed flip or install reported that in place of its own error and left the
+ * link behind.
+ */
+export function unlinkIfPresent(linkPath: string): void {
+  try {
+    fs.unlinkSync(linkPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 

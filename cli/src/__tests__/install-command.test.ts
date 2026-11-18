@@ -270,6 +270,35 @@ describe("managed install commands", () => {
     expect(fs.readFileSync(userData, "utf8")).toBe("keep");
   });
 
+  it("takes the new current link away and reports the manifest's own error when a first install cannot record itself", async () => {
+    const version = "2026.720.0";
+    const runCommand = vi.fn(async (file: string, args: string[], _options?: unknown) => {
+      if (file === "npm" && args[0] === "view") return { stdout: JSON.stringify(version), stderr: "" };
+      if (file === "npm" && args[0] === "install") {
+        const prefix = args[args.indexOf("--prefix") + 1];
+        const entrypoint = path.join(prefix, "node_modules", "paperclipai", "dist", "index.js");
+        fs.mkdirSync(path.dirname(entrypoint), { recursive: true });
+        fs.writeFileSync(entrypoint, "#!/usr/bin/env node\n");
+        // A directory where the manifest goes: recording the install fails after current is flipped.
+        fs.mkdirSync(path.join(resolveInstallStorePaths().manifestPath, "in-the-way"), { recursive: true });
+        return { stdout: "", stderr: "" };
+      }
+      if (file === process.execPath && args.at(-1) === "--version") {
+        return { stdout: `${version}\n`, stderr: "" };
+      }
+      throw new Error(`Unexpected command: ${file} ${args.join(" ")}`);
+    });
+
+    // The rename's error, not "Path is a directory" from taking the link away (Node 24.11's rmSync
+    // follows a link to a directory and throws instead of removing it).
+    await expect(
+      installCommand({}, { runCommand, now: () => new Date("2026-07-22T18:00:00.000Z") }),
+    ).rejects.toThrow(/rename/);
+    const paths = resolveInstallStorePaths();
+    expect(() => fs.lstatSync(paths.currentPath)).toThrow(expect.objectContaining({ code: "ENOENT" }));
+    expect(fs.readdirSync(paths.cliRoot).filter((entry) => entry.startsWith(".current-"))).toEqual([]);
+  });
+
   it("refuses to remove the shared CLI while another instance service is installed", async () => {
     const paths = resolveInstallStorePaths();
     const otherUnitPath = path.join(process.env.HOME!, ".config", "systemd", "user", systemdServiceName("team-a"));
