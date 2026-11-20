@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
+
+// tsx's loader, as `--import tsx` loads it. Not import.meta.resolve: this package's Vitest runs on
+// Vite 6, whose module runner does not support it and threw before the child ever started. tsx
+// exports one entry (`./dist/loader.mjs`) for every condition, so require's resolution is the same file.
+const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 
 describe("protocol-failure cleanup", () => {
   it.each(["immediate", "delayed", "successful"])(
@@ -54,7 +61,7 @@ describe("protocol-failure cleanup", () => {
         process.stdout.write("HOST_ALIVE_CLEANUP_OUTCOME_PRESERVED");
       `;
       expect(execFileSync(process.execPath, [
-        "--unhandled-rejections=strict", "--import", import.meta.resolve("tsx"),
+        "--unhandled-rejections=strict", "--import", tsxLoader,
         "--input-type=module", "--eval", source,
       ], { encoding: "utf8", timeout: 10_000 })).toBe("HOST_ALIVE_CLEANUP_OUTCOME_PRESERVED");
     },
