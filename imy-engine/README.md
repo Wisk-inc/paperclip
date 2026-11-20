@@ -334,6 +334,15 @@ pytest                      # mocked model, no network
 pytest --live               # also calls your real provider (uses a temporary memory store)
 ```
 
+Releases go to PyPI from `.github/workflows/publish-imagenery.yml` (Trusted Publishing, no
+stored token):
+
+1. Bump `__version__` in `src/imy/__init__.py`.
+2. Rebuild the wheel that Automa's Terminals installer ships:
+   `python -m build --wheel --outdir ../server/src/services/scripts/terminals/imy .`,
+   removing the old wheel. `tests/test_bundled_wheel.py` checks it.
+3. Push the tag `imagenery-v<version>`.
+
 ## License
 
 MIT
