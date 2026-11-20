@@ -650,6 +650,30 @@ jobs:
       - name: Run generated-file drift checks against the Docker build context
         run: docker buildx build --file .github/docker-context-checks.Dockerfile .
 
+  imy_engine:
+    # The IMY compiler (imy-engine/, published as `imagenery`) and the wheel the
+    # Terminals installer ships. Mocked model only: no keys, no AI calls.
+    name: IMY engine (Python)
+    needs: gate
+    if: ${{ needs.gate.outputs.full_ci == 'true' }}
+    runs-on: ${{ needs.gate.outputs.runner }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Run the IMY tests
+        working-directory: imy-engine
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 11), sys.version'
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet --upgrade pip
+          .venv/bin/pip install --quiet -e ".[dev]"
+          .venv/bin/python -m pytest -q
+
   verify:
     # Preserve the legacy required-check name while the underlying work runs in parallel.
     name: verify

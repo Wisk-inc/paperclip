@@ -1,0 +1,5 @@
+# ("prints a greeting with the user's name and how many letters the name has")
+name = "Ava"
+letters = count(name)
+show ("Hello, " + name + "!")
+show ("Your name has " + letters + " letters.")

@@ -1314,6 +1314,12 @@ proot-distro Debian layer the page sets up for you.
   model per tool** (Claude Code's, Codex's and Gemini CLI's menus add new models
   by themselves).
 - A **Free models chat** with nothing to install.
+- **IMY** (Imagenery), the strict blueprint compiler from `imy-engine/`
+  (`pip install imagenery` anywhere else). Install it from the page; on a
+  phone it goes into the Debian layer. Then open it, type IMY code line by
+  line under a `# ("...")` header, and `:run` it. It compiles with the free
+  models (no key; pick one in the model menu), or with your own key once you
+  run `imy init`.
 - Terminals run where Automa runs (on the phone when Automa runs in Termux). If
   the server is older than the app, the page offers the update.
 

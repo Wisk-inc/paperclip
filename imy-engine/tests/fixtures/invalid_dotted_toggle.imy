@@ -1,0 +1,3 @@
+# ("text editor helper that checks spelling while the user types")
+editor = Editor.getInstance()
+editor.spellcheck.on

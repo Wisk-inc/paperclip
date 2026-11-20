@@ -1,0 +1,3 @@
+# ("greets two players with the greeting helper saved in session one")
+greet ("Bo")
+greet ("Cy")

@@ -1,0 +1,4 @@
+# ("photo organizer for my own pictures: tags each image and sorts it into a folder")
+gallery = Folder.open("/photos")
+gallery.autotag
+gallery.autosort

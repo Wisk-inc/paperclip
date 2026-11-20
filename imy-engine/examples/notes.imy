@@ -1,0 +1,5 @@
+# ("note keeper: adds today's note to a notes file on a virtual path, then prints every saved note")
+notes = ship ("/notes:today.txt")
+note = "Bought paint for the fence"
+append.line (notes, note)
+show (read.all (notes))

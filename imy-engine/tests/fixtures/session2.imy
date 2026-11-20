@@ -1,0 +1,4 @@
+# ("greets two players with the saved greeting helper and prints the saved velocity pack")
+greet ("Bo")
+greet ("Cy")
+show ("XYZ")

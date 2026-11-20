@@ -1,0 +1,4 @@
+# ("creates the home page directory with menus and logos for each")
+if = menu.home page.structure
+menu = options "home, game, play"
+call image "menu logo.png"

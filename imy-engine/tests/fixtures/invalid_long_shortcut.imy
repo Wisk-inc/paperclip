@@ -1,0 +1,3 @@
+# ("dashboard helper for my own app: finds every widget on the screen and lists it")
+screen = Display.getInstance()
+screen.autodetect_every_widget_on_screen

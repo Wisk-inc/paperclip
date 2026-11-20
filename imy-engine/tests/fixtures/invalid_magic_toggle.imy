@@ -1,0 +1,3 @@
+# ("platformer movement script that lets the player double jump")
+Player.autohook.inject
+then DoubleJump = True

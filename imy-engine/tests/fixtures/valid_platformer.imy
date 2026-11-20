@@ -1,0 +1,13 @@
+# ("platformer movement for my own game: reads the player's position and velocity, moves along X and Z on key press, jumps along Y, pulls the player down with gravity, and lands on the floor")
+PlayerBody.getInstance()
+If = instance posX = posY = posZ
+VelocityX = velocityY = velocityZ = name variblepack = "XYZ" = ship ("/save:slots")
+floorY = 0
+gravity = ("-0.08")
+  then
+    from = "xyz" movement = ("key,press") = "X,Z" = forward
+    then jump = from = "Y" then = positive = ("+0.5")
+    from "xyz" crouch = y = hold = ("-0.5")
+    then velocityY = velocityY + gravity
+    then grounded = ("true") when posY <= floorY
+    then velocityY = 0 when grounded

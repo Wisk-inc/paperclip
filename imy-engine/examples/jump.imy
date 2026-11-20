@@ -1,0 +1,11 @@
+# ("platformer physics for my own game: the player leaves the floor with an upward speed, gravity lowers the speed every tick, and each tick prints the tick number and the height until the player lands")
+height = 0
+speed = 0.5
+gravity = 0.1
+tick = 0
+repeat until (height < 0)
+  then tick = tick + 1
+  then height = height + speed
+  then speed = speed - gravity
+  then show ("tick " + tick + ": height " + round(height, 2))
+show ("landed after " + tick + " ticks")

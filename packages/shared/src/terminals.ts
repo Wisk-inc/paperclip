@@ -3,7 +3,7 @@
 
 import { STUDIO_AI_PROVIDER_INFO, STUDIO_FREE_MODELS } from "./studio/types.js";
 
-export type TerminalToolId = "claude" | "codex" | "gemini" | "opencode" | "kimi" | "freechat" | "shell";
+export type TerminalToolId = "claude" | "codex" | "gemini" | "opencode" | "kimi" | "freechat" | "imy" | "shell";
 
 export interface TerminalToolInfo {
   id: TerminalToolId;
@@ -23,6 +23,9 @@ export interface TerminalToolInfo {
 
 export const TERMINAL_TOOLS: readonly TerminalToolInfo[] = [
   { id: "freechat", label: "Free models", brand: "/brands/models/deepseek.svg", blurb: "Chat with the free models right here. No key, nothing to install.", linuxOnPhone: false, agentCapable: false, models: STUDIO_FREE_MODELS },
+  // IMY (the imagenery CLI) opens its console; a model chosen here is one of the free
+  // models (--free-model), and without one IMY uses its own setting (`imy init`).
+  { id: "imy", label: "IMY", brand: "/brands/imy.svg", blurb: "Invent your own syntax, code every step, and IMY checks, compiles and runs it. Free models built in, or your own key.", linuxOnPhone: true, agentCapable: false, models: STUDIO_FREE_MODELS.filter((id) => !id.startsWith("moan/")) },
   { id: "claude", label: "Claude Code", brand: "/brands/claude-color.svg", blurb: "Anthropic's coding agent in your terminal.", linuxOnPhone: true, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.anthropic.models },
   { id: "codex", label: "Codex", brand: "/brands/codex-color.svg", blurb: "OpenAI's coding agent in your terminal.", linuxOnPhone: true, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.openai.models },
   { id: "gemini", label: "Gemini CLI", brand: "/brands/adapters/gemini-color.svg", blurb: "Google's Gemini in your terminal.", linuxOnPhone: false, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.google.models },

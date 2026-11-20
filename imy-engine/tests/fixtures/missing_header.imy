@@ -1,0 +1,2 @@
+total = 2 + 3
+show (total)

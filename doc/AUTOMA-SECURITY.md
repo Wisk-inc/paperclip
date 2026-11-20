@@ -277,6 +277,15 @@ key the caller may use). It never reads another member's personal key.
   the release check's own finder, and no key-shaped string. Until 1.9.14's
   check before release it read the token's pieces from a list that masking
   the token removed, so it looked for nothing.
+- `server/src/services/terminals/free-complete-script.test.ts`: IMY's
+  free-models bridge sends only the user and assistant turns, after its own
+  system message, to the exact model asked for. It refuses requests it can't
+  read without calling the service. It never prints the token, even when the
+  service echoes it in a refusal.
+- `imy-engine/tests`: a key typed into `imy init` is stored at mode 0600 and
+  never printed. Programs IMY runs get no `IMY_API_KEY`. `imy inject` rejects
+  git URLs that could run commands (`ext::`, leading `-`). Paths stay inside
+  the repository and the virtual file system.
 - `server/src/__tests__/assets.test.ts`: photos and logos must really be
   images. `server/src/__tests__/error-handler.test.ts`: oversized bodies and
   bad ids answer 413 and 400, not 500.

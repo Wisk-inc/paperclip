@@ -1,0 +1,5 @@
+# ("collision helper for my own game: installs the physics hook, then detects walls in the scene")
+walls = World.find("wall")
+World.detect(walls)
+bounce = ("0.5")
+physics.autohook

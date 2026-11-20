@@ -1,0 +1,5 @@
+# ("calculator that asks for two numbers, adds them and prints the sum")
+first = ask ("First number: ")
+second = ask ("Second number: ")
+total = number(first) + number(second)
+show ("Sum: " + total)

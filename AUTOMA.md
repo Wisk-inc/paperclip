@@ -254,6 +254,23 @@ proot-distro Debian layer the page sets up for you. Wire a terminal to an
 agent so it works with that agent's key. Runs only where Automa runs (on the
 phone when Automa runs in Termux).
 
+**IMY** (`imy-engine/`, the `imagenery` Python package) opens `imy console`
+with `IMY_AUTOMA_BRIDGE` naming `server/src/services/scripts/terminals/free-complete.mjs`.
+That script takes one JSON request on stdin and gives one JSON reply on stdout
+(`{"op":"complete"}` or `{"op":"models"}`), so IMY compiles with the free
+models while the service token stays inside that script.
+
+- **Model menu:** passes `--free-model <id>`. With no choice, IMY uses the
+  provider set by `imy init`, or the free models until `imy init` has run.
+- **Install** (`linux-setup.sh install imy`): IMY gets its own venv
+  (`~/.local/share/imy-venv`, linked as `~/.local/bin/imy`), inside Debian on a
+  phone. It is installed from the wheel shipped in
+  `server/src/services/scripts/terminals/imy/`, or from PyPI when that wheel is
+  missing.
+- **Changing `imy-engine/`:** rebuild that wheel too
+  (`python -m build --wheel --outdir ../server/src/services/scripts/terminals/imy .`).
+  `imy-engine/tests/test_bundled_wheel.py` fails until it matches the source.
+
 ### App Inspector
 Pick an app on your phone to decode its manifest, resources and code, read
 the code as Java, ask Claude to explain any file, edit, and rebuild a signed

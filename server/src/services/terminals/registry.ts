@@ -6,6 +6,9 @@
  * The command is a closed, in-code set keyed by the tool id. Opening a terminal
  * can only ever start one of these — never an arbitrary process a caller named.
  */
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { terminalToolInfo, type AiProvider, type TerminalToolId } from "@paperclipai/shared";
 
@@ -29,7 +32,42 @@ function freeChatScript(): string {
   return fileURLToPath(new URL("../scripts/terminals/free-chat.mjs", import.meta.url));
 }
 
-const COMMANDS: Record<TerminalToolId, ToolCommand> = {
+/** IMY's bridge to the free models, shipped with the server next to the free chat. */
+export function freeCompleteScript(): string {
+  return fileURLToPath(new URL("../scripts/terminals/free-complete.mjs", import.meta.url));
+}
+
+function shq(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Where `linux-setup.sh install imy` links the IMY command on a computer; else whatever `imy` is on PATH. */
+export function imyBinary(home: string = os.homedir()): string {
+  const linked = path.join(home, ".local", "bin", "imy");
+  return existsSync(linked) ? linked : "imy";
+}
+
+/**
+ * IMY's console, told where the free-models bridge is (IMY_AUTOMA_BRIDGE), so
+ * IMY compiles with Automa's free models without a key while the service token
+ * stays inside the bridge. On a computer the bridge runs on the server's own
+ * Node; in the Debian layer on a phone, on Debian's Node (the script's folder
+ * is inside the files tree the layer binds). Worked out when a terminal opens,
+ * so an install made after the server started is found.
+ */
+function imyCommand(): ToolCommand {
+  const script = freeCompleteScript();
+  // On a phone IMY lives in the Debian layer, where the probe and the run both find `imy` on PATH.
+  const phone = process.platform === "android" || (process.env.PREFIX ?? "").includes("com.termux");
+  const bin = phone ? "imy" : imyBinary();
+  return {
+    probe: bin,
+    run: ["env", `IMY_AUTOMA_BRIDGE=${shq(process.execPath)} ${shq(script)}`, bin, "console"],
+    runInLinux: ["env", `IMY_AUTOMA_BRIDGE=node ${shq(script)}`, "imy", "console"],
+  };
+}
+
+const COMMANDS: Record<Exclude<TerminalToolId, "imy">, ToolCommand> = {
   freechat: { probe: "node", run: ["node", freeChatScript()] },
   claude: { probe: "claude", run: ["claude"], runInLinux: ["claude"] },
   codex: { probe: "codex", run: ["codex"], runInLinux: ["codex"] },
@@ -40,7 +78,7 @@ const COMMANDS: Record<TerminalToolId, ToolCommand> = {
 };
 
 export function terminalCommand(id: TerminalToolId): ToolCommand {
-  return COMMANDS[id];
+  return id === "imy" ? imyCommand() : COMMANDS[id];
 }
 
 /** The flag each tool takes a model name with; tools without one ignore the choice. */
@@ -50,6 +88,8 @@ const MODEL_FLAG: Partial<Record<TerminalToolId, string>> = {
   codex: "-m",
   gemini: "-m",
   opencode: "-m",
+  // IMY's picker lists the free models; without a choice IMY keeps its own setting.
+  imy: "--free-model",
 };
 
 /** A model name as it may appear on a command line: ids like `openrouter/deepseek/deepseek-v4.1-flash:free`. */

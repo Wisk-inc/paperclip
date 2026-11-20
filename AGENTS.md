@@ -38,6 +38,7 @@ submission.
 - `packages/skills-catalog/`: app-shipped skills catalog (`@paperclipai/skills-catalog`)
 - `packages/teams-catalog/`: app-shipped teams catalog (`@paperclipai/teams-catalog`)
 - `cli/`: `paperclipai` CLI package (published bin, agent-facing commands)
+- `imy-engine/`: Imagenery (IMY) Python package and `imy` CLI (published as `imagenery`; the Terminals IMY tool installs the wheel shipped in `server/src/services/scripts/terminals/imy/`)
 - `skills/`: Paperclip runtime/operational skills (not part of the app catalog)
 - `doc/`: operational and product docs
 

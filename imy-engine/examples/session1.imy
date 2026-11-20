@@ -1,0 +1,5 @@
+# ("saves a greeting helper and a velocity pack for later sessions")
+def greet(person):
+    show ("Hello, " + person + "!")
+VelocityX = velocityY = velocityZ = name variablepack = "XYZ"
+greet ("Ava")

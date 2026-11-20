@@ -2,7 +2,7 @@
 # Sets up the Linux layer and installs terminal coding tools for Automa.
 #
 #   linux-setup.sh setup           prepare the Debian layer (phone) or report (PC)
-#   linux-setup.sh install <tool>  install one tool (claude|codex|gemini|opencode|kimi)
+#   linux-setup.sh install <tool>  install one tool (claude|codex|gemini|opencode|kimi|imy)
 #
 # On a phone (Termux) the desktop-Linux agents (Claude Code, Codex) run inside a
 # Debian userland through proot-distro; Node tools (Gemini, OpenCode, Kimi) run
@@ -25,6 +25,9 @@ on_phone() { [ -n "${PREFIX:-}" ] && case "$PREFIX" in *com.termux*) return 0;; 
 # read ~/.bashrc, so the folders the installers put tools in are named here.
 # pipefail: a download that fails in `curl … | bash` must not pass as success.
 indeb() { proot-distro login "$DISTRO" -- bash -lc "set -o pipefail; export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\" DEBIAN_FRONTEND=noninteractive; $1"; }
+# The same, with Termux's files tree bound in at the same path (as a terminal
+# has it), for a step that reads a file Automa ships, such as IMY's wheel.
+indeb_files() { proot-distro login "$DISTRO" --bind "$(dirname "$PREFIX")" -- bash -lc "set -o pipefail; export PATH=\"\$HOME/.local/bin:/usr/local/bin:\$PATH\" DEBIAN_FRONTEND=noninteractive; $1"; }
 
 ensure_wake_lock() { command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true; }
 
@@ -88,6 +91,56 @@ install_node_tool() {
   fi
 }
 
+# IMY (the imagenery Python CLI) gets its own virtual environment, linked as
+# ~/.local/bin/imy. The wheel Automa ships next to this script is installed when
+# present, so IMY matches this release; otherwise the one on PyPI. On a phone
+# IMY lives in the Debian layer, where Python installs the prebuilt wheels IMY
+# needs (pydantic's included) without compiling anything.
+imy_package() {
+  local bundled
+  bundled="$(ls "$(dirname "${BASH_SOURCE[0]}")"/imy/imagenery-*.whl 2>/dev/null | sort -V | tail -n 1 || true)"
+  if [ -n "$bundled" ]; then printf '%s' "$bundled"; else printf 'imagenery'; fi
+}
+
+install_imy() {
+  local package venv
+  package="$(imy_package)"
+  if on_phone; then
+    ensure_linux
+    say "Installing Python in Debian"
+    indeb "apt-get install -y --no-install-recommends python3 python3-venv python3-pip >/dev/null"
+    say "Installing IMY in Debian"
+    if ! indeb_files "python3 -m venv \"\$HOME/.local/share/imy-venv\" && \"\$HOME/.local/share/imy-venv/bin/pip\" install --quiet --upgrade pip && \"\$HOME/.local/share/imy-venv/bin/pip\" install --quiet --upgrade $(printf '%q' "$package") && mkdir -p \"\$HOME/.local/bin\" && ln -sf \"\$HOME/.local/share/imy-venv/bin/imy\" \"\$HOME/.local/bin/imy\""; then
+      warn "IMY did not install in Debian. Check the connection and free space, then try again."
+      exit 1
+    fi
+    if ! indeb 'imy --version'; then
+      warn "IMY is installed but not answering in Debian yet. Open Terminals > Shell and run: proot-distro login debian -- imy --version"
+      exit 1
+    fi
+  else
+    if ! command -v python3 >/dev/null 2>&1; then
+      warn "IMY needs Python 3.11 or newer. Install Python, then try again."
+      exit 1
+    fi
+    if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+      warn "IMY needs Python 3.11 or newer; this computer has Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')."
+      exit 1
+    fi
+    venv="$HOME/.local/share/imy-venv"
+    say "Installing IMY"
+    if ! python3 -m venv "$venv"; then
+      warn "Python could not make a virtual environment (Debian/Ubuntu: sudo apt install python3-venv)."
+      exit 1
+    fi
+    "$venv/bin/pip" install --quiet --upgrade pip
+    "$venv/bin/pip" install --quiet --upgrade "$package"
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$venv/bin/imy" "$HOME/.local/bin/imy"
+    "$HOME/.local/bin/imy" --version
+  fi
+}
+
 install_tool() {
   local tool="$1"
   case "$tool" in
@@ -133,6 +186,9 @@ install_tool() {
     kimi)
       say "Installing Kimi CLI"
       install_node_tool "@moonshot/kimi-cli" termux
+      ;;
+    imy)
+      install_imy
       ;;
     shell)
       say "The shell needs no install."

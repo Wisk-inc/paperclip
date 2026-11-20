@@ -1,0 +1,5 @@
+# ("photo tagger for my own pictures: opens the folder, tags each image, then prints how many were tagged")
+gallery = Folder.open("/photos")
+gallery.autotag
+tagged = gallery.count()
+show ("Tagged: " + tagged)
