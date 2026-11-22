@@ -45,6 +45,7 @@ Then use a command:
   :models            list models and what was last found  :models check  ask each if it answers now
   :live on|off       convert each line as you enter it, in the background (now: {live})
   :memory            list saved symbols
+  :import <folder>   bring an existing project in: its functions and variables can then be used by name
   :help              this help                            :quit    leave (or Ctrl+D)
   !<command>         run a shell command, e.g. !ls"""
 
@@ -402,6 +403,7 @@ class ImyConsole:
             "check": self._check, "run": self._run, "convert": self._convert,
             "header": self._header, "examples": self._examples, "example": self._example,
             "live": self._live_cmd, "languages": self._languages, "langs": self._languages,
+            "import": self._import,
         }.get(name)
         if handler is None:
             self.console.print(f"[red]Unknown command :{escape(name)}[/red] (type :help)")
@@ -410,6 +412,20 @@ class ImyConsole:
 
     def _quit(self, args: list[str], raw: str) -> bool:
         return False
+
+    def _import(self, args: list[str], raw: str) -> bool:
+        """:import <folder, file or repository address>: save what an existing project defines to memory."""
+        if len(args) != 1:
+            self.console.print("Usage: :import <folder, file or repository address>   (imy import --help lists the options)")
+            return True
+        from .cli import import_source, render_error, run_import
+
+        try:
+            root = import_source(self.session, args[0], self.console)
+            run_import(self.session, root, self.console, shown=args[0])
+        except ImyError as exc:
+            render_error(exc, self.console)
+        return True
 
     def _help(self, args: list[str], raw: str) -> bool:
         self.console.print(HELP.format(target=escape(self.target), live="on" if self.live_on else "off"))

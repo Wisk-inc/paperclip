@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -994,6 +995,235 @@ def doctor(
             out.print(f"[bold green]✓ {escape(reply.provider)} answered[/bold green] with {escape(reply.model)}: {escape(answer)}")
 
 
+# ── Importing an existing project ────────────────────────────────────────
+
+
+def _plural(count: int, word: str) -> str:
+    if count == 1:
+        return f"1 {word}"
+    return f"{count} {word[:-1] + 'es' if word.endswith('s') else word + 's'}"
+
+
+def _found_words(functions: int, classes: int, variables: int) -> str:
+    parts = [_plural(count, word) for count, word in ((functions, "function"), (classes, "class"), (variables, "variable")) if count]
+    return ", ".join(parts) if parts else "nothing at its top level"
+
+
+def import_source(session: Session, source: str, console: Console, *, branch: str | None = None, subdir: str | None = None) -> Path:
+    """The folder or file to import: ``source`` itself when it is on this machine, else a clone of the repository it names."""
+    from .repo_injector import clone_repository, parse_repo_url
+
+    local = Path(source).expanduser()
+    remote = "://" in source or re.match(r"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:", source) is not None
+    if local.exists() and not remote:
+        if branch or subdir:
+            raise ConfigError("--branch and --subdir are for a repository that is cloned; this is a folder on this machine.")
+        return local.resolve()
+    if not remote:
+        raise ConfigError(
+            f"There is no file or folder at {source}.",
+            hint="To import a repository from the internet, give its address: imy import https://github.com/<owner>/<repo>",
+        )
+    ref = parse_repo_url(source)
+    destination = session.workspace.repos / ref.folder
+    with working(console, f"Cloning {ref.display}"):
+        clone_repository(ref, destination, branch=branch)
+    if not subdir:
+        return destination.resolve()
+    inside = (destination / subdir.strip().lstrip("/\\")).resolve()
+    if destination.resolve() != inside and destination.resolve() not in inside.parents:
+        raise ConfigError(f"--subdir {subdir!r} points outside the repository.")
+    if not inside.exists():
+        raise ConfigError(f"{subdir} does not exist in {ref.display}.")
+    return inside
+
+
+def _local_store(session: Session) -> tuple[Memory, MemoryStore]:
+    """This project's own memory (created when missing), and the memory reopened with it."""
+    home = imy_home(session.env.values)
+    try:
+        same = session.workspace.dot.resolve() == home.resolve()
+    except OSError:
+        same = False
+    if same:
+        raise ConfigError(
+            "This folder's workspace is IMY's own home, so it has no separate project memory.",
+            hint="Leave --local out: what is imported here is saved to the one memory there is.",
+        )
+    session.workspace.ensure()
+    store = MemoryStore(session.workspace.local_memory, "local")
+    store.create()
+    return Memory.open(home, session.workspace.dot), store
+
+
+def run_import(
+    session: Session,
+    root: Path,
+    console: Console,
+    *,
+    name: str | None = None,
+    max_files: int = 25,
+    include_tests: bool = False,
+    update: bool = False,
+    fresh: bool = False,
+    local: bool = False,
+    shown: str | None = None,
+) -> int:
+    """Read ``root`` and save what it defines to memory, saying what was found. Returns the exit code.
+
+    ``shown`` is the folder as the person named it, for the line that says how to undo the import.
+    """
+    from . import importer
+
+    memory, store = _local_store(session) if local else (session.memory, None)
+    config = session.config
+    model_label = f"{config.provider}/{config.resolved_model()}"
+    started: list[contextlib.AbstractContextManager[object]] = []
+
+    def on_model(count: int) -> None:
+        console.print(f"[dim]{_plural(count, 'file')} in other languages than Python: {escape(model_label)} reads them (their text is sent to it).[/dim]")
+        spinner = working(console, f"Reading {_plural(count, 'file')} with {model_label}", hint=SLOW_HINT if config.provider == "automa" else "")
+        spinner.__enter__()
+        started.append(spinner)
+
+    def on_read(read: importer.FileRead) -> None:
+        where = f"[bold]{escape(read.file.relative)}[/bold] [dim]{escape(read.file.language.display)}[/dim]"
+        if read.error is not None:
+            console.print(f"[red]✗[/red] {where}  {escape(read.error)}")
+            return
+        how = {"model": f"  [dim]({escape(read.model or 'model')}, {format_seconds(read.seconds)})[/dim]", "saved": "  [dim](read before, unchanged)[/dim]"}.get(read.how, "")
+        console.print(f"[green]✓[/green] {where}  {_found_words(read.count('function'), read.count('class'), read.count('variable'))}{how}")
+        for symbol_name, reason in read.skipped:
+            console.print(f"    [dim]left out {escape(symbol_name)}: {escape(reason)}[/dim]")
+
+    index = importer.ImportIndex(session.workspace.dot / "imports.json")
+    session.workspace.ensure()
+    try:
+        outcome = importer.import_project(
+            root,
+            memory=memory,
+            index=index,
+            config=config,
+            client_factory=session.compiler.client,
+            project=name,
+            max_files=max_files,
+            include_tests=include_tests,
+            update=update,
+            fresh=fresh,
+            store=store,
+            on_read=on_read,
+            on_model=on_model,
+        )
+    finally:
+        for spinner in started:
+            spinner.__exit__(None, None, None)
+    collected = outcome.collected
+    for relative, reason in collected.skipped:
+        console.print(f"[dim]- {escape(relative)}: {escape(reason)}[/dim]")
+    asides = []
+    if collected.left_out:
+        asides.append(f"{_plural(collected.left_out, 'more file')} beyond the limit of {max_files} (--max-files raises it)")
+    if collected.tests:
+        asides.append(f"{_plural(collected.tests, 'test file')} (--include-tests reads them)")
+    if asides:
+        console.print(f"[dim]Not read: {escape('; '.join(asides))}.[/dim]")
+    if not collected.files:
+        console.print(f"[yellow]No source files to import in {escape(str(outcome.root))}.[/yellow]")
+        return 2
+    if outcome.model_error is not None:
+        render_error(outcome.model_error, console)
+        if outcome.unread:
+            console.print(f"[yellow]Not read: {escape(', '.join(file.relative for file in outcome.unread))}. Import again to read them; what was read is kept.[/yellow]")
+    report = outcome.report
+    if report is None:
+        console.print("[yellow]Nothing to save: the files that were read define no functions or variables at their top level.[/yellow]")
+        return 3 if outcome.model_error is not None else 0
+    scope = "this project's memory" if store is not None or memory.local_store is not None else "memory"
+    saved = report.added + report.updated + report.replaced
+    parts = []
+    if report.added:
+        parts.append(f"{len(report.added)} new")
+    if report.updated:
+        parts.append(f"{len(report.updated)} updated")
+    if report.replaced:
+        parts.append(f"{len(report.replaced)} replaced (--update-memory)")
+    if report.unchanged:
+        parts.append(f"{len(report.unchanged)} already saved and unchanged")
+    console.print(f"[cyan]Saved to {scope}:[/cyan] {escape(', '.join(parts) or 'nothing')}  [dim]({escape(str(report.store))})[/dim]")
+    for diagnostic in report.conflicts:
+        console.print(f"[yellow]Not saved:[/yellow] {escape(diagnostic.message)}")
+    # The example names something that was saved: a plain function first, then a class, then a variable.
+    kept = {symbol.name for symbol in (*saved, *report.unchanged)}
+    found = [symbol for symbol in outcome.symbols if symbol.name in kept and not symbol.name.startswith("_")]
+    example = next((symbol for what in ("function", "class", "variable") for symbol in found if symbol.what == what), None)
+    if example is not None:
+        call = example.name if example.what == "variable" else f"{example.name}({', '.join(param.lstrip('*') for param in example.params[:3])})"
+        console.print("Use them by name in a .imy file, for example:")
+        console.print(f"  [green]show ({escape(call)})[/green]")
+        console.print(f"[dim]imy memory list shows everything saved; imy import {escape(shown or str(root))} --forget removes this import.[/dim]")
+    return 3 if outcome.model_error is not None else 0
+
+
+@app.command("import")
+def import_command(
+    source: Annotated[str, typer.Argument(help="A folder or file on this machine, or the address of a git repository.")],
+    name: Annotated[Optional[str], typer.Option("--name", help="What to call the project in the saved meanings (default: the folder's name).")] = None,
+    max_files: Annotated[int, typer.Option("--max-files", min=1, max=500, help="Read at most this many source files, the shallowest first.")] = 25,
+    include_tests: Annotated[bool, typer.Option("--include-tests", help="Also read test files and test folders.")] = False,
+    update_memory: UpdateMemoryOpt = False,
+    fresh: Annotated[bool, typer.Option("--fresh", help="Read every file again, also the ones that have not changed.")] = False,
+    local: Annotated[bool, typer.Option("--local", help="Save into this project's own memory (.imy/memory.json), creating it.")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="List the files that would be read, and which the model would see. Reads and saves nothing.")] = False,
+    forget: Annotated[bool, typer.Option("--forget", help="Remove what an earlier import of this folder or file saved.")] = False,
+    branch: Annotated[Optional[str], typer.Option("--branch", help="For a repository address: the branch or tag to clone.")] = None,
+    subdir: Annotated[Optional[str], typer.Option("--subdir", help="For a repository address: import only this folder inside it.")] = None,
+    provider: ProviderOpt = None,
+    model: ModelOpt = None,
+    free_model: FreeModelOpt = None,
+) -> None:
+    """Bring an existing project in: its functions and variables are saved to memory, for .imy files to use by name."""
+    from . import importer
+
+    code = 0
+    with guarded():
+        provider, model = choose_model(provider, model, free_model)
+        session = open_session(Path.cwd() / "import.imy", provider=provider, model=model)
+        root = import_source(session, source, err, branch=branch, subdir=subdir)
+        if forget:
+            removed = session.memory.forget_imported(root)
+            index = importer.ImportIndex(session.workspace.dot / "imports.json")
+            index.drop(root)
+            index.save()
+            if removed:
+                out.print(f"[green]removed[/green] {_plural(len(removed), 'saved definition')} that came from {escape(str(root))}")
+            else:
+                out.print(f"[dim]Nothing saved came from {escape(str(root))}.[/dim]")
+            raise typer.Exit(0)
+        if dry_run:
+            collected = importer.collect(root, max_files=max_files, include_tests=include_tests)
+            config = session.config
+            out.print(f"Would read {_plural(len(collected.files), 'file')} from {escape(str(collected.root))}:")
+            for file in collected.files:
+                how = "read here, by Python's own parser" if file.language.name == "python" else f"read by {config.provider}/{config.resolved_model()} (its text is sent to that model)"
+                out.print(f"  [bold]{escape(file.relative)}[/bold] [dim]{escape(file.language.display)}[/dim]  {escape(how)}")
+            for relative, reason in collected.skipped:
+                out.print(f"[dim]- {escape(relative)}: {escape(reason)}[/dim]")
+            asides = [text for count, text in (
+                (collected.left_out, f"{_plural(collected.left_out, 'file')} beyond --max-files {max_files}"),
+                (collected.tests, _plural(collected.tests, "test file")),
+                (collected.other, f"{_plural(collected.other, 'other file')} (not source code)"),
+            ) if count]
+            if asides:
+                out.print(f"[dim]Not read: {escape('; '.join(asides))}.[/dim]")
+            out.print("[dim]Nothing was read or saved.[/dim]")
+            raise typer.Exit(0)
+        code = run_import(
+            session, root, out, name=name, max_files=max_files, include_tests=include_tests, update=update_memory, fresh=fresh,
+            local=local, shown=source,
+        )
+    raise typer.Exit(code)
+
+
 def _open_memory(project: Path) -> Memory:
     workspace = Workspace.discover(project / "anchor.imy", home=imy_home())
     return Memory.open(imy_home(), workspace.dot)
@@ -1026,7 +1256,8 @@ def memory_list(
         table.add_column("from")
         table.add_column("scope", style="dim")
         for store_scope, symbol in rows:
-            table.add_row(escape(symbol.name), symbol.kind.value, escape(symbol.meaning), escape(symbol.origin_label), store_scope)
+            came_from = f"{symbol.origin_label} ({resolve_language(symbol.language).display})" if symbol.language else symbol.origin_label
+            table.add_row(escape(symbol.name), symbol.kind.value, escape(symbol.meaning), escape(came_from), store_scope)
         out.print(table)
 
 
@@ -1047,9 +1278,13 @@ def memory_show(
             if symbol.members:
                 out.print(f"  members   {escape(', '.join(symbol.members))}")
             out.print(f"  from      {escape(symbol.origin)} line {symbol.origin_line}")
+            if symbol.language:
+                out.print(f"  imported  {escape(resolve_language(symbol.language).display)} code, brought in with imy import")
+            if symbol.uses:
+                out.print(f"  needs     {escape(', '.join(symbol.uses))}")
             out.print(f"  saved     {escape(symbol.created_at)} (updated {escape(symbol.updated_at)})")
             out.print("  defined as:")
-            out.print(Syntax(symbol.source_fragment or "", "text", word_wrap=True))
+            out.print(Syntax(symbol.source_fragment or "", symbol.language or "text", word_wrap=True))
 
 
 @memory_app.command("delete")

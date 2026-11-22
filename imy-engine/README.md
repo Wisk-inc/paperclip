@@ -49,6 +49,7 @@ imy convert hello.imy --to rust -o hello.rs
 imy console                                # type IMY line by line: each line is converted as you go
 imy console --to ruby                      # the same, into Ruby (or any other language)
 imy languages                              # every language IMY converts to, and which run here
+imy import ./my-project                    # use an existing project's functions and variables by name
 imy models --check                         # which models answer right now, and how fast
 ```
 
@@ -297,6 +298,76 @@ start. To read the code before it runs, use `imy run --show-code`, or `imy conve
 the file yourself. Use `--timeout 30` to stop a long-running program, and `--detach` to run it
 in the background with a log in `.imy/build/`.
 
+## Importing an existing project
+
+You don't have to start from nothing. `imy import` brings a project you already have into the
+workspace: every function, class and variable its files define at their top level is saved to
+IMY's memory, with the project's own code as the definition. From then on a `.imy` file uses
+them by name, and they come out in whatever language that file is compiled to.
+
+```console
+$ imy import shop
+✓ cart.py Python  2 functions, 1 class, 1 variable
+    left out main: it is the file's own entry point
+✓ prices.py Python  2 functions, 3 variables
+1 file in other languages than Python: automa/nvidia/nemotron-3-ultra-550b-a55b:free reads them (their text is sent to it).
+✓ web/format.js JavaScript  2 functions, 1 variable  (nvidia/nemotron-3-ultra-550b-a55b:free, 8 s)
+Saved to memory: 12 new
+Use them by name in a .imy file, for example:
+  show (cart_total(prices))
+```
+
+`cart_total` is Python and `money` is JavaScript. One IMY file uses both:
+
+```text
+# ("prints the price of three shop items with tax and shipping, as a money label in euros")
+prices = [4.50, 3.25, 10.00]
+total = cart_total(prices)
+show ("To pay: " + money(total, "EUR"))
+```
+
+```console
+$ imy run receipt.imy
+To pay: €25.80
+$ imy run receipt.imy --to javascript
+To pay: €25.80
+```
+
+The compiled program holds `cart_total`, the two functions and two constants it leans on, and
+`money` with its table of currency signs, all written in the target language with the same
+behaviour. Nothing else of the project comes along.
+
+How a file is read:
+
+- **Python** is read by Python's own parser, on your machine: exact, instant, no model.
+- **Every other language** (JavaScript, TypeScript, Ruby, Rust, Go, C, Java, …) is read by the
+  model. Each thing it reports is checked against the file: the name must be in the file, and
+  the definition saved is the file's own lines, never the model's words.
+- **No project code is ever run**, and nothing in the project is changed.
+
+`imy import <folder> --dry-run` lists the files that would be read and which of them the model
+would see, and reads nothing. The source can be a folder, one file, or the address of a git
+repository (`imy import https://github.com/owner/repo --subdir src`), which is cloned into
+`.imy/repos/` first.
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | list what would be read; read and save nothing |
+| `--max-files N` | read at most N files, the shallowest first (25 unless you say otherwise) |
+| `--include-tests` | also read test files and test folders |
+| `--update-memory` | replace a definition another file saved under the same name |
+| `--local` | save into this project's own memory (`.imy/memory.json`) instead of the shared one |
+| `--fresh` | read every file again, also the ones that have not changed |
+| `--forget` | remove what an earlier import of this folder or file saved |
+| `--name`, `--branch`, `--subdir` | the project's name in the saved meanings; for a repository, the branch and the folder inside it |
+
+Folders that hold other people's code or build output (`node_modules`, `venv`, `dist`, …),
+hidden folders, links, generated files and files over 40 KB are left alone, and the report
+names what was left out and why. A file that has not changed since the last import is not
+read again. A name another file already saved is not replaced unless you pass
+`--update-memory`; everything else is saved all the same. A `.imy` file that defines a name
+itself always uses its own. In the console: `:import <folder>`.
+
 ## Injecting into a repository
 
 ```console
@@ -448,6 +519,7 @@ conversion is off until you turn it on, because every line you enter would be a 
 | `:live on`, `:live off` | convert each line as you enter it, in the background |
 | `:provider <name>`, `:model <id>` | switch provider or model |
 | `:models`, `:models check` | list the models with what was last found; ask each if it answers now |
+| `:import <folder>` | bring an existing project in: its functions and variables can be used by name |
 | `:memory`, `:help`, `:quit` | saved symbols, help, leave |
 | `!<command>` | run a shell command |
 

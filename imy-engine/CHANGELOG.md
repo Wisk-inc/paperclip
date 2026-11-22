@@ -30,6 +30,14 @@
   `imy languages <name>` says what a language needs. In the console: `:languages`.
 - `imy console --to <language>` opens the console in a language, and the opening lines name
   it and how to switch (`:target rust`).
+- **`imy import`: bring an existing project in.** Every function, class and variable a
+  project's files define at their top level is saved to memory with the project's own code
+  as the definition, so a `.imy` file uses them by name and they come out in whatever
+  language that file compiles to, each with the helpers it leans on. Python is read by
+  Python's own parser (exact, no model); every other language by the model, with each
+  answer checked against the file. No project code runs. `--dry-run` shows what would be
+  read and what the model would see; `--forget` removes an import; a folder, a file or a
+  git repository address can be given. In the console: `:import <folder>`.
 - **A program that does not build is corrected.** When the language's own build tool
   refuses the compiled program (the C compiler, rustc, go, javac, the assembler, …), what
   the tool said goes back to the model for a corrected version, as often as
