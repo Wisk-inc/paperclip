@@ -93,7 +93,7 @@ export function appLanguage(code: AppLanguageCode): AppLanguage {
 /** Old or alternative language codes phones still report. */
 const LEGACY_CODES: Record<string, string> = { iw: "he", in: "id", tl: "fil", no: "nb", nn: "nb" };
 /** Where Portuguese is written the European way. */
-const EUROPEAN_PORTUGUESE = new Set(["PT", "AO", "MZ", "CV", "GW", "ST", "TL", "GQ", "LU", "CH"]);
+const EUROPEAN_PORTUGUESE = new Set(["PT", "GW", "LU", "AO", "ST", "CH", "MZ", "CV", "GQ", "TL"]);
 /** Where Chinese is written in traditional characters. */
 const TRADITIONAL_CHINESE = new Set(["TW", "HK", "MO"]);
 

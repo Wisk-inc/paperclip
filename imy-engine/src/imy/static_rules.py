@@ -78,15 +78,15 @@ _CAMEL_OR_SNAKE = re.compile(r"(?:[a-z0-9][A-Z])|(?:[A-Za-z0-9]_[A-Za-z0-9])")
 
 INIT_METHODS = frozenset(
     {
-        "getinstance", "instance", "init", "initialize", "initialise", "create", "new", "connect", "open",
-        "load", "setup", "attach", "register", "mount", "boot", "spawn",
+        "new", "getinstance", "instance", "init", "initialize", "initialise", "open", "create", "connect",
+        "setup", "attach", "spawn", "register", "mount", "load", "boot",
     }
 )
 _BOOL_WORDS = frozenset(
     {"true", "false", "on", "off", "yes", "no", "enabled", "disabled", "enable", "disable", "active", "inactive"}
 )
 _TOGGLE_VERBS = frozenset(
-    {"on", "off", "enable", "disable", "enabled", "disabled", "activate", "deactivate", "toggle", "turnon", "turnoff"}
+    {"turnon", "turnoff", "enabled", "disabled", "enable", "disable", "toggle", "activate", "deactivate", "on", "off"}
 )
 _TOGGLE_PROPS = frozenset({"on", "enabled", "enable", "active", "activated", "toggled", "switch", "switched"})
 

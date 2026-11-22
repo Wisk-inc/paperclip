@@ -1085,20 +1085,20 @@ export function injectIntoPreviewHtml(html: string, tags: string): string {
  * cookies and storage, or setting its reporting and transport rules).
  */
 const PREVIEW_DROPPED_RESPONSE_HEADERS = new Set([
-  "set-cookie",
-  "x-frame-options",
-  "content-security-policy",
-  "content-length",
-  "transfer-encoding",
+  "clear-site-data",
   "connection",
   "access-control-allow-origin",
   "access-control-allow-credentials",
-  "clear-site-data",
+  "x-frame-options",
   "nel",
   "report-to",
   "reporting-endpoints",
-  "alt-svc",
   "strict-transport-security",
+  "set-cookie",
+  "content-length",
+  "transfer-encoding",
+  "alt-svc",
+  "content-security-policy",
 ]);
 
 /**

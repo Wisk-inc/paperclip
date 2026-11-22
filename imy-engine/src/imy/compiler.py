@@ -372,7 +372,7 @@ class Compiler:
             raise CompilationFailed(
                 last_output + extra, source_lines=parsed.raw_lines, output_lines=last_lines, path=parsed.path
             )
-        summary = "; ".join(last_format_problems)[:400] or "no usable answer"
+        summary = "; ".join(last_format_problems)[:380] or "no usable answer"
         raise LLMResponseError(
             f"The model did not return the JSON object IMY needs after {attempts} attempt(s): {summary}",
             hint="Try again, or pick a stronger model with `imy init` or --model.",

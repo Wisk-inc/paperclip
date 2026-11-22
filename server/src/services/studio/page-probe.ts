@@ -79,7 +79,7 @@ export function pageReportSummary(report: StudioPageReport, viewport: StudioProb
  */
 export async function staticPageOutline(port: number, path: string, viewport: StudioProbeViewport): Promise<string> {
   const target = `http://127.0.0.1:${port}${path.startsWith("/") ? path : `/${path}`}`;
-  const response = await fetch(target, { signal: AbortSignal.timeout(8_000) });
+  const response = await fetch(target, { signal: AbortSignal.timeout(9_200) });
   const html = await response.text();
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim() ?? "";
   const loads = [...html.matchAll(/<(?:script|link|img)\b[^>]*?\b(?:src|href)=["']([^"']+)["']/gi)].map((match) => match[1]!).slice(0, 30);

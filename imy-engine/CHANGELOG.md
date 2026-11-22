@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.2
+
+### Changed
+
+- `imy import` also leaves out `bazel-out` and `zig-out`, the folders Bazel and Zig build
+  into.
+- Limits retuned: how much source one request of `imy import` carries; how long
+  `imy inject` waits for a clone and how many lines above the place it writes to the model
+  is shown; how much of a model's unusable answer is quoted in an error.
+
+Nothing else changes: the commands, the console and what a program compiles to are as in
+1.1.1.
+
 ## 1.1.1
 
 ### Changed

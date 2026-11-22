@@ -76,6 +76,42 @@ export function freeModelOffline(health: FreeModelHealthEntry | null | undefined
   return closed(health.last) && Number.isFinite(checked) && now - checked >= 0 && now - checked < FREE_MODEL_FINDING_MS;
 }
 
+/** How long after a refusal a model is passed over when another one is suggested. */
+export const FREE_MODEL_RECENT_REFUSAL_MS = 15 * 60_000;
+
+/**
+ * Whether a free model can be expected to answer a question sent now: it is
+ * not held (at its daily limit, busy, closed by its provider), and it was not
+ * refused the last time it was asked within the last quarter of an hour.
+ * A model never asked since the server started counts as answering.
+ */
+export function freeModelAnswering(health: FreeModelHealthEntry | null | undefined, now: number = Date.now()): boolean {
+  if (!health) return true;
+  if (freeModelOffline(health, now)) return false;
+  if (health.state !== "ok" && (!health.until || new Date(health.until).getTime() > now)) return false;
+  const checked = new Date(health.checkedAt).getTime();
+  const recent = Number.isFinite(checked) && now - checked >= 0 && now - checked < FREE_MODEL_RECENT_REFUSAL_MS;
+  return !(recent && health.last !== undefined && health.last !== "ok");
+}
+
+/**
+ * A model from `models` (in their order of preference) that is not known to be
+ * refusing; null when every one of them is. `except` leaves a model out (the
+ * one that just failed). With `proven`, a model that answered when it was last
+ * asked comes before one that has not been asked yet, which is what to offer
+ * right after a refusal. Choosing is all this does: nothing is switched for the person.
+ */
+export function pickAnsweringFreeModel(
+  models: readonly string[],
+  health: FreeModelHealthMap,
+  options: { except?: string | null; now?: number; proven?: boolean } = {},
+): string | null {
+  const now = options.now ?? Date.now();
+  const open = models.filter((model) => model !== options.except && freeModelAnswering(health[model], now));
+  const proven = options.proven ? open.find((model) => health[model]?.last === "ok") : undefined;
+  return proven ?? open[0] ?? null;
+}
+
 /** The image model a free chat agent draws with until one is chosen: the fast SDXL. */
 export const DEFAULT_FREE_IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";
 /** Stored as `imageModel` when the pairing is switched off on purpose. */

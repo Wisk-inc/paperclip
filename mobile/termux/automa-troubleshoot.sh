@@ -224,7 +224,7 @@ section "Automa"
 # One word for what answers on Automa's port: ready, safe:<reason>,
 # starting:<step>, http-<status>, or silent.
 state="$(node -e '
-  fetch(process.argv[1], { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) })
+  fetch(process.argv[1], { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8600) })
     .then(async (res) => {
       const body = await res.json().catch(() => null);
       if (res.ok && body && body.safeMode) return console.log(`safe:${body.safeModeReason || "asked"}`);

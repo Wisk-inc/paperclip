@@ -9,7 +9,7 @@ import { logger } from "../../middleware/logger.js";
  * here, so a public link to this port never exposes your Automa. Cookies and
  * Authorization headers are dropped on the way through.
  */
-const DROPPED_HEADERS = new Set(["cookie", "authorization", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip"]);
+const DROPPED_HEADERS = new Set(["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "authorization", "cookie", "forwarded", "x-real-ip"]);
 
 export function isGatewayPathAllowed(pathname: string, dev = process.env.NODE_ENV !== "production"): boolean {
   if (pathname.split("/").includes("..")) return false;

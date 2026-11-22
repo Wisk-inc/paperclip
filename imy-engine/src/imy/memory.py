@@ -148,11 +148,11 @@ def _same_folder(first: Path, second: Path) -> bool:
 # value, so `if = menu.home page.structure` in one file never rewrites every `if` elsewhere.
 GENERIC_WORDS: frozenset[str] = frozenset(
     {
-        "if", "elif", "else", "then", "while", "for", "foreach", "when", "until", "unless", "repeat", "loop",
-        "do", "end", "begin", "start", "stop", "return", "and", "or", "not", "in", "is", "as", "at", "by",
-        "of", "on", "to", "from", "into", "with", "the", "a", "an", "it", "this", "that", "be", "name",
-        "show", "print", "call", "set", "get", "let", "var", "const", "new", "def", "fn", "func", "function",
-        "true", "false", "yes", "no", "none", "null", "ship", "pack", "case", "match", "switch", "try", "catch",
+        "until", "unless", "when", "if", "elif", "else", "then", "while", "for", "foreach", "repeat", "loop",
+        "at", "by", "do", "end", "and", "or", "not", "as", "in", "is", "return", "begin", "start", "stop",
+        "name", "from", "on", "be", "to", "the", "a", "an", "of", "with", "it", "this", "that", "into",
+        "var", "const", "new", "show", "print", "set", "get", "let", "def", "fn", "func", "function", "call",
+        "none", "null", "try", "catch", "true", "false", "case", "match", "switch", "ship", "pack", "yes", "no",
     }
 )
 

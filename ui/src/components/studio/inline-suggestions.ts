@@ -104,7 +104,7 @@ function goodSpot(view: EditorView): boolean {
  * the rest. While one shows, the editor's word list is closed so there is only
  * one suggestion to accept. `suggest` is called with the text around the cursor.
  */
-export function inlineSuggestions(suggest: SuggestFn, delayMs = 650): Extension {
+export function inlineSuggestions(suggest: SuggestFn, delayMs = 580): Extension {
   const plugin = ViewPlugin.fromClass(
     class {
       timer: ReturnType<typeof setTimeout> | null = null;

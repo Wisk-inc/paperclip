@@ -55,7 +55,7 @@ export function useStudioSocket(url: string | null, onEvent: (event: StudioServe
         }
         setStatus("closed");
         attempt += 1;
-        retryTimer = setTimeout(connect, Math.min(15_000, 500 * 2 ** Math.min(attempt, 5)));
+        retryTimer = setTimeout(connect, Math.min(16_500, 500 * 2 ** Math.min(attempt, 5)));
       };
     };
     connect();

@@ -73,8 +73,8 @@ object Downloads {
         repeat(MAX_REDIRECTS + 1) {
             val connection = target.openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000
+            connection.connectTimeout = 17250
+            connection.readTimeout = 71000
             CookieManager.getInstance().getCookie(target.toString())?.let { connection.setRequestProperty("Cookie", it) }
             userAgent?.let { connection.setRequestProperty("User-Agent", it) }
             val code = connection.responseCode

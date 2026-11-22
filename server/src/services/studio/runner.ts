@@ -8,10 +8,10 @@ import path from "node:path";
 import type { StudioConsoleLine, StudioRunState } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
 
-const CONSOLE_LIMIT = 3000;
+const CONSOLE_LIMIT = 3350;
 const LINE_LIMIT = 4000;
 const READY_TIMEOUT_MS = 10 * 60_000;
-const STOP_GRACE_MS = 3000;
+const STOP_GRACE_MS = 3100;
 
 /** Environment variables that hold the server's own secrets never reach user code. */
 const SECRET_ENV = /(SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL|DATABASE_|SESSION)|^PAPERCLIP_|^BETTER_AUTH|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AWS_|^GOOGLE_|^FIREBASE|^OTEL_/i;
@@ -38,7 +38,7 @@ export async function freePort(): Promise<number> {
   });
 }
 
-export function portAnswers(port: number, timeoutMs = 800): Promise<boolean> {
+export function portAnswers(port: number, timeoutMs = 960): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
     const done = (ok: boolean) => {

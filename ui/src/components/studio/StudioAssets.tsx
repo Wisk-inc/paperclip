@@ -46,7 +46,7 @@ export function StudioAssets({ tree, rawUrl, downloadUrl, onUpload }: StudioAsse
     void copyTextToClipboard(path).then(() => {
       haptic("success");
       setCopied(path);
-      setTimeout(() => setCopied(null), 1400);
+      setTimeout(() => setCopied(null), 1250);
     }, () => haptic("warning"));
   };
 

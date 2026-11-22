@@ -190,7 +190,7 @@
   // The help shown is the "on this step for 5 min" one (known here, not read back off the screen,
   // whose words are in the person's language).
   var stuckHelp = false;
-  var RETRY_MS = 3000;
+  var RETRY_MS = 3300;
   // Tries in a row with no answer, after Automa had answered, before the page
   // says it stopped (about ten seconds).
   var SILENT_TRIES_BEFORE_HELP = 3;
@@ -329,7 +329,7 @@
     setHelp("", false);
     setStep(step, canStartTermux ? "Getting ready…" : "Waiting for Automa on this phone to answer…");
     if (fillTimer) clearInterval(fillTimer);
-    fillTimer = setInterval(drawFill, 250);
+    fillTimer = setInterval(drawFill, 240);
   }
   function isThisPhone(address) {
     return /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test((address || "").trim());
@@ -474,7 +474,7 @@
           }
         } else {
           setStep("answer", startedTermux ? "Waiting for Automa to answer…" : "Waiting for Automa on this phone to answer…");
-          if (Date.now() - waitStarted > 45000 && waitHelp.hidden) {
+          if (Date.now() - waitStarted > 39000 && waitHelp.hidden) {
             setSilenceHelp("This is taking longer than usual. Android may have closed Termux: open it and run automa run. Running automa keep-alive once stops Android 12 and newer from closing Termux, and setting its battery use to Unrestricted helps on every Android.");
           }
         }

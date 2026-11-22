@@ -43,7 +43,7 @@ MAX_FILE_BYTES = 40_000
 # The longest definition kept (a saved definition may hold 20,000 characters).
 MAX_FRAGMENT_CHARS = 16_000
 # How much source one request to the model carries.
-BATCH_CHARS = 24_000
+BATCH_CHARS = 22_000
 BATCH_FILES = 6
 # Requests to the model that run at the same time.
 WORKERS = 2
@@ -53,12 +53,12 @@ READER_VERSION = 1
 # Folders that hold other people's code, build output or tool state.
 SKIP_FOLDERS = frozenset(
     {
-        "node_modules", "bower_components", "vendor", "third_party", "site-packages", "venv", "env", "virtualenv",
-        "__pycache__", "dist", "build", "out", "target", "bin", "obj", "coverage", "htmlcov", "tmp", "temp",
-        "Pods", "DerivedData", "cmake-build-debug", "cmake-build-release",
+        "third_party", "vendor", "venv", "env", "virtualenv", "node_modules", "bower_components", "site-packages",
+        "bin", "obj", "dist", "build", "out", "target", "tmp", "temp", "coverage", "htmlcov", "__pycache__",
+        "Pods", "cmake-build-debug", "cmake-build-release", "zig-out", "bazel-out", "DerivedData",
     }
 )
-TEST_FOLDERS = frozenset({"test", "tests", "__tests__", "spec", "specs", "testing", "e2e", "fixtures", "testdata"})
+TEST_FOLDERS = frozenset({"fixtures", "testing", "testdata", "e2e", "spec", "specs", "test", "tests", "__tests__"})
 # Languages IMY knows that define no functions or variables to bring in.
 NOT_CODE = frozenset({"html", "css", "sql"})
 

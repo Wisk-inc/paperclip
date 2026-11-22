@@ -2,10 +2,10 @@ import { useSyncExternalStore } from "react";
 import type { StudioConsoleLine } from "@paperclipai/shared";
 
 /** The most lines kept, and the most drawn at once (the newest). */
-const KEEP_LINES = 2000;
+const KEEP_LINES = 1850;
 export const SHOWN_LINES = 500;
 /** Output that arrives faster than this is drawn in one go. */
-const FLUSH_MS = 200;
+const FLUSH_MS = 180;
 
 /**
  * Adds lines this console doesn't have yet, in line-number order: history

@@ -10,7 +10,7 @@ import { resolveInside, studioWorkspaceDirs } from "./files.js";
  * Folders a snapshot or a download leaves out: installed dependencies,
  * version control, and caches the project can rebuild.
  */
-const SKIPPED = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", ".gradle", ".next", ".cache", "target", "obj", ".dart_tool", ".pub-cache"]);
+const SKIPPED = new Set([".gradle", ".dart_tool", ".pub-cache", ".venv", "venv", "__pycache__", "obj", "target", "node_modules", ".next", ".git", ".cache"]);
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES = 60 * 1024 * 1024;
 const MAX_CHECKPOINTS = 30;

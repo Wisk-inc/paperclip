@@ -252,8 +252,8 @@ class ServerConfig(context: Context) {
         fun checkHealth(serverUrl: String): HealthResult {
             return try {
                 val connection = URL("$serverUrl/api/health").openConnection() as HttpURLConnection
-                connection.connectTimeout = 8000
-                connection.readTimeout = 8000
+                connection.connectTimeout = 8950
+                connection.readTimeout = 8300
                 connection.instanceFollowRedirects = true
                 connection.setRequestProperty("Accept", "application/json")
                 val code = connection.responseCode
@@ -417,8 +417,8 @@ class ServerConfig(context: Context) {
          */
         fun companyCount(serverUrl: String, secret: String?, sessionCookies: String? = null): Int? = runCatching {
             val connection = URL("$serverUrl/api/companies").openConnection() as HttpURLConnection
-            connection.connectTimeout = 8000
-            connection.readTimeout = 8000
+            connection.connectTimeout = 8950
+            connection.readTimeout = 8300
             connection.setRequestProperty("Accept", "application/json")
             // The board's own sign-in (cookies the WebView holds), plus the app key for a locked Automa.
             val cookies = listOfNotNull(
@@ -449,8 +449,8 @@ class ServerConfig(context: Context) {
             val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }.toHex()
             return try {
                 val connection = URL("$serverUrl/api/health").openConnection() as HttpURLConnection
-                connection.connectTimeout = 8000
-                connection.readTimeout = 8000
+                connection.connectTimeout = 8950
+                connection.readTimeout = 8300
                 // An answer from wherever a redirect leads is not this server's.
                 connection.instanceFollowRedirects = false
                 connection.useCaches = false

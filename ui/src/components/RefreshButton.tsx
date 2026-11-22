@@ -6,7 +6,7 @@ import { haptic } from "../lib/haptics";
 import { cn } from "../lib/utils";
 
 /** The shortest turn the icon makes, so a quick refresh still shows it happened. */
-const MIN_SPIN_MS = 600;
+const MIN_SPIN_MS = 570;
 
 /**
  * Refresh in the header: everything on the page loads again from the server,

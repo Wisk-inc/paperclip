@@ -8,17 +8,17 @@
  * `App.tsx`; `apps-routes.test.ts` fails when one is missing.
  */
 export const RESERVED_APP_SUBPATHS: ReadonlySet<string> = new Set([
-  "browse",
-  "connections",
-  "connect",
-  "chat",
-  "vercel-connect",
-  "byo",
   "review",
-  "attention",
-  "gateways",
+  "byo",
   "advanced",
   "app",
+  "chat",
+  "connections",
+  "connect",
+  "vercel-connect",
+  "attention",
+  "gateways",
+  "browse",
 ]);
 
 /** The connection id an Apps path names, or null on an Apps page that is not a connection's. */

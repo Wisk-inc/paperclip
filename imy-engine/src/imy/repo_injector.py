@@ -31,7 +31,7 @@ _OWNER = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})"
 _REPO = r"[A-Za-z0-9._-]{1,100}"
 _SHORTHAND = re.compile(rf"^(?P<owner>{_OWNER})/(?P<repo>{_REPO})$")
 _KNOWN_HOSTS = ("gitlab.com", "bitbucket.org", "codeberg.org", "git.sr.ht", "gitea.com")
-_CONTEXT_BEFORE = 40
+_CONTEXT_BEFORE = 42
 _CONTEXT_AFTER = 20
 
 
@@ -132,7 +132,7 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def clone_repository(ref: RepoRef, destination: Path, *, branch: str | None = None, depth: int | None = 1, timeout: float = 900) -> Path:
+def clone_repository(ref: RepoRef, destination: Path, *, branch: str | None = None, depth: int | None = 1, timeout: float = 1035) -> Path:
     """Clone (or reuse an existing clone of the same repository) into ``destination``."""
     git = _git()
     if destination.exists():

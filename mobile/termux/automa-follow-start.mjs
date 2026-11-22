@@ -10,7 +10,7 @@
 // for tests.
 const once = process.argv.includes("--once");
 const url = process.env.AUTOMA_HEALTH_URL || "http://127.0.0.1:3100/api/health";
-const pollMs = Number(process.env.AUTOMA_FOLLOW_POLL_MS) || 1500;
+const pollMs = Number(process.env.AUTOMA_FOLLOW_POLL_MS) || 1650;
 const silentLimitMs = Number(process.env.AUTOMA_FOLLOW_SILENT_MS) || 60_000;
 
 let last = "";
@@ -32,7 +32,7 @@ function describe(body) {
 
 async function check() {
   try {
-    const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+    const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8650) });
     const body = await res.json().catch(() => null);
     silentSince = 0;
     if (res.ok && body && body.status === "ok") {

@@ -14,7 +14,7 @@ export function studioHostPlatform(): StudioHostPlatform {
 }
 
 const lookupCache = new Map<string, { at: number; found: string | null }>();
-const CACHE_MS = 15_000;
+const CACHE_MS = 16_750;
 
 /** The absolute path of `program` on PATH, or null. */
 export function findOnPath(program: string, extraDirs: readonly string[] = []): string | null {

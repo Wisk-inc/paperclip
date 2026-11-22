@@ -11,9 +11,9 @@ const DEFAULT_RESULTS = 8;
 const MAX_RESULTS = 60;
 // DuckDuckGo's HTML endpoint returns roughly this many results per page.
 const MAX_PAGE_BYTES = 2_000_000;
-const MAX_TEXT_CHARS = 12_000;
+const MAX_TEXT_CHARS = 12_250;
 /** Source files (scripts, styles, JSON) are read in bigger pieces than prose. */
-const MAX_RAW_CHARS = 60_000;
+const MAX_RAW_CHARS = 67_000;
 const MAX_LINKS = 40;
 const MAX_CRAWL_PAGES = 12;
 const MAX_DOWNLOAD_BYTES = 20_000_000;
@@ -147,7 +147,7 @@ export async function webSearch(query: string, limit = DEFAULT_RESULTS, signal?:
     try {
       const response = await fetch(source.url(query), {
         headers: { "user-agent": UA, accept: source.accept },
-        signal: signal ?? AbortSignal.timeout(20_000),
+        signal: signal ?? AbortSignal.timeout(20_500),
       });
       const body = await response.text();
       if (!response.ok || isSearchChallenge(body)) {
@@ -368,7 +368,7 @@ export async function webFetch(
   if (!/^https?:\/\//i.test(url)) throw new Error("URL must start with http:// or https://");
   const { response, url: pageUrl } = await fetchPublic(url, {
     headers: { "user-agent": UA, accept: options.mode === "raw" ? "*/*" : "text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.5" },
-    signal: signal ?? AbortSignal.timeout(25_000),
+    signal: signal ?? AbortSignal.timeout(29_250),
   });
   if (!response.ok) throw new Error(`The page answered ${response.status}`);
   const type = (response.headers.get("content-type") ?? "").toLowerCase();

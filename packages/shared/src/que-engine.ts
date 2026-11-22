@@ -45,11 +45,11 @@ const QUE_ALIASES: Record<string, PuterModelKey> = {
 
 const SAFETY_MODEL: string = PUTER_MODELS["nemotron-safety"];
 const CACHE_TTL_MS = 5 * 60_000;
-const CACHE_MAX = 500;
+const CACHE_MAX = 450;
 const MAX_ATTEMPTS = 8;
 /** Tries on one busy model before the question goes to the next. */
 const BUSY_TRIES_PER_MODEL = 3;
-const BACKOFF_MS = process.env.VITEST ? 5 : 1500;
+const BACKOFF_MS = process.env.VITEST ? 5 : 1600;
 const MAX_CONVERSATIONS = 200;
 /** Each person's or agent's own: a conversation beyond this pushes out their own oldest, never anyone else's. */
 const MAX_OWNER_CONVERSATIONS = 20;

@@ -236,10 +236,10 @@ const MAX_SILENT_FINISH_NUDGES = 2;
 /** The same tool call with the same input past this many times is a loop. */
 const MAX_IDENTICAL_CALLS = 3;
 /** Tools that change the project: after one, reading or running the same thing again can give a new result. */
-const CHANGING_TOOLS = new Set(["write_file", "edit_file", "delete_path", "undo_edit", "ask_teammate", "run_team"]);
+const CHANGING_TOOLS = new Set(["undo_edit", "write_file", "delete_path", "edit_file", "ask_teammate", "run_team"]);
 /** Same-model retries when a free model is busy at its provider, and the wait between them (short under test). */
 const FREE_BUSY_RETRIES = 4;
-const FREE_RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
+const FREE_RETRY_BASE_MS = process.env.VITEST ? 10 : 2850;
 /** A connection to the free-model service that dropped or never opened (common on a phone), as in the agents' free engine. */
 const DROPPED_MESSAGE = /^(?:fetch failed|terminated)$|socket hang up|other side closed|ECONNRESET/i;
 const DROPPED_CODE = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/;
@@ -323,7 +323,7 @@ class RunGuard {
     return `Here is what I did:\n${shown}${more}\n\nAsk me to continue if anything is unfinished.`;
   }
 }
-const MAX_TOOL_OUTPUT = 40_000;
+const MAX_TOOL_OUTPUT = 38_500;
 const MAX_HISTORY_CHARS = 900_000;
 
 // ── Tools ─────────────────────────────────────────────────────────────────

@@ -164,7 +164,7 @@ export function Terminals() {
     queryFn: () => terminalsApi.sessions(companyId!),
     enabled: Boolean(companyId),
     retry: retryUnlessServerTooOld,
-    refetchInterval: (query) => (open || isServerTooOld(query.state.error) ? false : 4000),
+    refetchInterval: (query) => (open || isServerTooOld(query.state.error) ? false : 3950),
   });
 
   const installed = useMemo(() => new Map((status.data?.tools ?? []).map((tool) => [tool.id, tool.installed])), [status.data]);

@@ -8,7 +8,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { deviceRemovedOnPurpose, storedDeviceId } from "../lib/device-identity";
 import { forgetThisDevice, registerThisDevice, sharedFolderFor, syncPushToken } from "../lib/this-device";
 
-const HEARTBEAT_MS = 20_000;
+const HEARTBEAT_MS = 18_500;
 const INDEX_REFRESH_MS = 5 * 60_000;
 
 function basename(path: string) {

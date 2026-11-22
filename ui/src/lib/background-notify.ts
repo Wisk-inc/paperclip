@@ -25,7 +25,7 @@ export interface AwayNotice {
   key: string;
 }
 
-const SEEN_LIMIT = 300;
+const SEEN_LIMIT = 330;
 const seen = new Set<string>();
 
 /** False when this key was already handled. */

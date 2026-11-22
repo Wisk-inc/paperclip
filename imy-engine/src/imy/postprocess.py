@@ -35,10 +35,10 @@ _CHAT_LINE = re.compile(
 _CODE_CHARS = set("=(){}[];<>")
 _STYLE_WORDS = frozenset(
     {
-        "style", "styles", "styled", "styling", "css", "color", "colour", "colors", "colours", "font", "fonts",
-        "theme", "themes", "background", "bg", "margin", "padding", "border", "bold", "italic", "underline",
-        "animation", "animate", "animated", "transition", "class", "classes", "width", "height", "size", "align",
-        "center", "centre", "layout", "grid", "flex", "shadow", "rounded", "radius", "opacity", "gradient",
+        "font", "fonts", "style", "styles", "styled", "styling", "color", "colour", "colors", "colours", "css",
+        "bold", "italic", "underline", "theme", "themes", "background", "bg", "padding", "margin", "border",
+        "width", "height", "size", "transition", "animation", "animate", "animated", "class", "classes", "align",
+        "layout", "shadow", "grid", "flex", "center", "centre", "opacity", "gradient", "rounded", "radius",
     }
 )
 _LEGACY_STYLE_ATTRS = ("bgcolor", "color", "background", "face")

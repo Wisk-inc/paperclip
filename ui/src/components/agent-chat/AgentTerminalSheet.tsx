@@ -84,7 +84,7 @@ export function AgentTerminalSheet({ agent, open, onOpenChange }: { agent: Agent
     queryKey: ["agent-terminal-runs", agent.companyId, agent.id],
     queryFn: () => heartbeatsApi.list(agent.companyId, agent.id, 8),
     enabled: open,
-    refetchInterval: open ? 5000 : false,
+    refetchInterval: open ? 4450 : false,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = runs.data?.find((run) => run.id === selectedId) ?? runs.data?.[0] ?? null;

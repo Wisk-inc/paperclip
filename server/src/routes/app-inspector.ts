@@ -3,13 +3,24 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import type { DeploymentExposure, DeploymentMode } from "@paperclipai/shared";
 import { assertCompanyAccess } from "./authz.js";
-import { forbidden, notFound, unprocessable } from "../errors.js";
+import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { aiConnectionService } from "../services/ai-connections.js";
 import { getActorInfo } from "./authz.js";
 import { logActivity } from "../services/activity-log.js";
 import { supportsLocalAiLogin } from "../services/local-ai-login-policy.js";
+import {
+  askInspectorChat,
+  clearInspectorChat,
+  INSPECTOR_CHAT_CLAUDE,
+  INSPECTOR_CHAT_MAX_MESSAGE,
+  INSPECTOR_CHAT_MODELS,
+  InspectorChatBusyError,
+  InspectorChatModelError,
+  inspectorChatDefaultModel,
+  readInspectorChat,
+} from "../services/app-inspector/chat.js";
 import {
   deleteInspectorProject,
   getInspectorProject,
@@ -53,6 +64,14 @@ const uploadQuery = z.object({
 });
 const viewSchema = z.enum(["files", "java"]).default("files");
 const writeSchema = z.object({ path: z.string().min(1).max(4096), text: z.string().max(2 * 1024 * 1024) });
+const chatSchema = z.object({
+  message: z.string().trim().min(1).max(INSPECTOR_CHAT_MAX_MESSAGE),
+  /** The file open in the editor, when the question is about it. */
+  path: z.string().min(1).max(4096).optional(),
+  view: viewSchema.optional(),
+  /** A free model's id, or "claude" for the person's Anthropic key; the first answering free model when left out. */
+  model: z.string().trim().min(1).max(200).optional(),
+});
 
 /**
  * The App Inspector: decode, read, edit and rebuild Android apps on the device.
@@ -329,6 +348,88 @@ export function appInspectorRoutes(
     } catch (error) {
       throw unprocessable(error instanceof Error ? `Claude couldn't read it: ${error.message}` : "Claude couldn't read it");
     }
+  });
+
+  // The project's chat: questions about the app and the open file, answered by a free model
+  // (no key needed) or by Claude on the person's own Anthropic key.
+  router.get("/companies/:companyId/app-inspector/projects/:id/chat", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertDeviceOperator(req);
+    const current = project(req);
+    const key = await connections.credentialForProvider(companyId, getActorInfo(req).actorId, "anthropic").catch(() => null);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      messages: await readInspectorChat(companyId, current.id),
+      models: INSPECTOR_CHAT_MODELS,
+      defaultModel: inspectorChatDefaultModel(),
+      claude: Boolean(key),
+    });
+  });
+
+  router.post("/companies/:companyId/app-inspector/projects/:id/chat", validate(chatSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertDeviceOperator(req);
+    const current = project(req);
+    const body = chatSchema.parse(req.body);
+    const actor = getActorInfo(req);
+    const model = body.model ?? inspectorChatDefaultModel();
+    const key = model === INSPECTOR_CHAT_CLAUDE ? await connections.credentialForProvider(companyId, actor.actorId, "anthropic").catch(() => null) : null;
+    // The question stops (and leaves the free models' queue) when the person goes away.
+    const controller = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
+    try {
+      const result = await askInspectorChat({
+        companyId,
+        projectId: current.id,
+        message: body.message,
+        path: body.path ?? null,
+        view: body.view,
+        model,
+        owner: `${actor.actorType}:${actor.actorId}`,
+        anthropicKey: key,
+        signal: controller.signal,
+      });
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: req.actor.userId ?? "local-board",
+        action: "app_inspector.chat_asked",
+        entityType: "app_inspector_project",
+        entityId: current.id,
+        details: { model: result.reply.model ?? model, ...(body.path ? { path: body.path } : {}) },
+      });
+      res.json(result);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (error instanceof InspectorChatBusyError) throw conflict(error.message);
+      // The request was fine and the model can't answer right now: not a server fault.
+      if (error instanceof InspectorChatModelError) {
+        res.status(503).json({ error: error.message, model });
+        return;
+      }
+      throw unprocessable(inspectorErrorMessage(error, "Could not ask that"));
+    }
+  });
+
+  router.delete("/companies/:companyId/app-inspector/projects/:id/chat", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertDeviceOperator(req);
+    const current = project(req);
+    await clearInspectorChat(companyId, current.id);
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "local-board",
+      action: "app_inspector.chat_cleared",
+      entityType: "app_inspector_project",
+      entityId: current.id,
+    });
+    res.json({ ok: true });
   });
 
   return router;

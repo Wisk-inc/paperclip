@@ -30,7 +30,7 @@ phone (in Automa, or in Termux). Anyone can install it. Pick whichever line fits
 ```console
 pip install imagenery
 pip install "git+https://github.com/Wisk-inc/paperclip@claude/automa-android-apk-uiimmy#subdirectory=imy-engine"
-pip install imagenery-1.1.1-py3-none-any.whl
+pip install imagenery-1.1.2-py3-none-any.whl
 ```
 
 - The first is the usual way once the package is on PyPI. If pip answers that it finds no
@@ -499,7 +499,7 @@ free models:
 
 ```console
 $ imy console
-main.py  IMY 1.1.1 · :help
+main.py  IMY 1.1.2 · :help
   1 │ # ("greets one person by name and says how long
       the name is")
   2 │ person = "Bo"

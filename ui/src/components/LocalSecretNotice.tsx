@@ -21,7 +21,7 @@ export function LocalSecretNotice() {
   useEffect(() => {
     if (!inApp) return;
     setAsked(automaNative.appKeyMissing() ? "asked" : "unsupported");
-    const timer = window.setTimeout(() => setSlow(true), 6000);
+    const timer = window.setTimeout(() => setSlow(true), 5750);
     return () => window.clearTimeout(timer);
   }, [inApp]);
 
@@ -58,7 +58,7 @@ export function LocalSecretNotice() {
             onClick={() => {
               setSlow(false);
               setAsked(automaNative.appKeyMissing() ? "asked" : "unsupported");
-              window.setTimeout(() => setSlow(true), 6000);
+              window.setTimeout(() => setSlow(true), 5750);
             }}
           >
             Try again

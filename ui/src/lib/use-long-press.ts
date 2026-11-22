@@ -5,7 +5,7 @@ import { useCallback, useRef } from "react";
  * after `ms`, and cancels if the pointer moves far or lifts first, so a normal
  * tap or a scroll never triggers it.
  */
-export function useLongPress(onLongPress: () => void, ms = 450) {
+export function useLongPress(onLongPress: () => void, ms = 400) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
 

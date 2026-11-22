@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
         /** Gap between the two beats of the success haptic on Android 10 and older. */
         private const val SUCCESS_BEAT_GAP_MS = 70L
         /** How long the connect screen's success panel shows before Automa opens. */
-        const val CONNECTED_SCREEN_MS = 1900L
+        const val CONNECTED_SCREEN_MS = 1750L
         /** Asks the board to close an open drawer, sheet or dialog; "true" when it did (see Layout.tsx). */
         private const val CLOSE_OVERLAY_SCRIPT =
             "(function(){try{return window.__automaCloseOverlay?String(window.__automaCloseOverlay()):'false'}catch(e){return 'false'}})()"
@@ -159,9 +159,9 @@ class MainActivity : ComponentActivity() {
          * restarting after an update: the page stays and is checked again.
          */
         private const val LOOPBACK_CHECKS_BEFORE_WAIT = 3
-        private const val LOOPBACK_RECHECK_MS = 2_500L
+        private const val LOOPBACK_RECHECK_MS = 2_800L
         /** Automa answered that it is still starting: checked again this often. */
-        private const val STARTING_RECHECK_MS = 4_000L
+        private const val STARTING_RECHECK_MS = 3_850L
 
         const val LOCKED_WITHOUT_KEY = "Automa on this phone is locked to the app, and the app does not have its key. In Termux, run: automa link (it opens Automa here). You can also paste the key it prints."
 

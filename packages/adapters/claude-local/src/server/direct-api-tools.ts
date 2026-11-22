@@ -20,7 +20,7 @@ import { asString, buildPaperclipEnv, parseObject, sanitizeInheritedPaperclipEnv
  */
 
 const MAX_READ_LINES = 2_000;
-const MAX_TOOL_OUTPUT_CHARS = 30_000;
+const MAX_TOOL_OUTPUT_CHARS = 30_500;
 const MAX_LINE_CHARS = 2_000;
 const DEFAULT_COMMAND_TIMEOUT_SEC = 120;
 const MAX_COMMAND_TIMEOUT_SEC = 600;
@@ -28,7 +28,7 @@ const MAX_SEARCH_RESULTS = 200;
 const MAX_GLOB_RESULTS = 300;
 const MAX_SEARCH_FILE_BYTES = 1_000_000;
 /** Folders a search never walks into: generated, vendored, or version control. */
-const SKIPPED_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".turbo", ".cache", "coverage", "__pycache__", ".venv"]);
+const SKIPPED_DIRS = new Set(["dist", "__pycache__", "node_modules", ".next", "coverage", ".venv", "build", ".turbo", ".cache", ".git"]);
 
 export const DIRECT_TOOL_NAMES = ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Automa"] as const;
 export type DirectToolName = (typeof DIRECT_TOOL_NAMES)[number];

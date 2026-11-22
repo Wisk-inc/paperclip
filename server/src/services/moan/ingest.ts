@@ -26,8 +26,8 @@ export interface IngestResult {
 const ARTICLE_CHARS = 20_000;
 const REFERENCE_CHARS = 160_000;
 const LAW_CHARS = 400_000;
-const FETCH_TIMEOUT_MS = 30_000;
-const PDF_TIMEOUT_MS = 90_000;
+const FETCH_TIMEOUT_MS = 35_250;
+const PDF_TIMEOUT_MS = 102_500;
 /** A stored article is not fetched again within this window. */
 const ARTICLE_FRESH_MS = 3 * 24 * 60 * 60_000;
 const LAW_FRESH_MS = 30 * 24 * 60 * 60_000;

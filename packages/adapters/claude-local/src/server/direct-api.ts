@@ -51,7 +51,7 @@ const MAX_MESSAGE_CHARS = 100_000;
 /** Tool rounds in one run unless the agent sets maxTurnsPerRun; each round is a paid call. */
 const DEFAULT_MAX_TOOL_TURNS = 40;
 /** Tool output shown in the chat; the model gets the full (clipped) result. */
-const MAX_LOGGED_TOOL_OUTPUT = 4_000;
+const MAX_LOGGED_TOOL_OUTPUT = 3_400;
 /** Live output is sent in small batches so the chat updates smoothly without a log line per token. */
 const FLUSH_MS = 100;
 

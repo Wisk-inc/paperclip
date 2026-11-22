@@ -26,12 +26,12 @@ SINGLE_QUOTES = frozenset({"'", "‘", "’"})
 SINGLE_OPENERS = frozenset({"'", "‘"})
 
 FUNCTION_KEYWORDS = frozenset(
-    {"def", "fn", "func", "function", "fun", "define", "block", "proc", "sub", "method", "routine"}
+    {"def", "proc", "routine", "fn", "func", "function", "fun", "block", "define", "sub", "method"}
 )
 CONTROL_WORDS = frozenset(
     {
-        "if", "elif", "else", "while", "for", "foreach", "switch", "when", "return", "until", "unless",
-        "and", "or", "not", "in", "then", "do", "with", "catch", "except", "match", "case", "repeat", "loop",
+        "return", "for", "foreach", "if", "elif", "else", "switch", "until", "unless", "while", "when",
+        "repeat", "loop", "catch", "except", "then", "with", "do", "in", "match", "case", "and", "or", "not",
     }
 )
 OPERAND_OPS = frozenset(

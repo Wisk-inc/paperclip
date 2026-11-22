@@ -230,7 +230,7 @@ function nextAppUid(): string {
 }
 
 function cooldownAppUid(id: string): void {
-  appCooldown.set(id, Date.now() + 11_000);
+  appCooldown.set(id, Date.now() + 12_500);
 }
 
 export function appIdPoolStats(): { total: number; cooling: number; active: number } {
@@ -899,7 +899,7 @@ export function puterPickModel(tag: string): PuterModelId {
 
 /** Text-to-image. Resolves to the image bytes and its MIME type. */
 const PUTER_USAGE_API = 'https://api.puter.com/metering/usage';
-const ALLOWANCE_CACHE_MS = 60_000;
+const ALLOWANCE_CACHE_MS = 62_000;
 
 /** The free-model service's monthly allowance, and this month's requests to each of Automa's free models. */
 export interface FreeModelAllowance {

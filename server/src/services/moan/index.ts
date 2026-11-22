@@ -14,14 +14,14 @@ import { knowledgeStats, pruneKnowledge, recentKnowledge, searchAnyWord, searchK
 import { formatContext, queryTerms, timeAgo } from "./text.js";
 
 const TICK_MS = 10 * 60_000;
-const FIRST_TICK_MS = 45_000;
+const FIRST_TICK_MS = 50_500;
 const SOURCES_PER_TICK = 4;
 const IN_USE_CACHE_MS = 5 * 60_000;
 const USED_RECENTLY_MS = 24 * 60 * 60_000;
 const RUN_TIMEOUT_MS = 8 * 60_000;
 const NEWS_KEPT_MS = 365 * 24 * 60 * 60_000;
 /** A backstop on the index's size: at full intake, a few months of news beside every reference page. */
-const MAX_ROWS = 80_000;
+const MAX_ROWS = 82_500;
 
 export interface MoanKnowledge {
   /** Starts the refresh clock (no-op when already started). */

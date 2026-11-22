@@ -102,7 +102,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function serverAnswers(port) {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(3600) });
     return response.ok;
   } catch {
     return false;
@@ -219,7 +219,7 @@ async function main() {
   say("Keeping the link up (Ctrl+C to stop). Agents here can also run commands on the phone with: adb -s " + serial + " shell <command>");
   let linked = true;
   for (;;) {
-    await sleep(5000);
+    await sleep(5150);
     let current = parseDevices(run(["devices"], { quiet: true }).output).includes(serial);
     if (!current && options.connect) {
       run(["connect", options.connect], { quiet: true });

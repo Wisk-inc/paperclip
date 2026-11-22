@@ -296,7 +296,7 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   const [openFile, setOpenFile] = useState<{ view: InspectorView; path: string } | null>(null);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"name" | "text">("name");
-  const debouncedQuery = useDebounced(query.trim(), 350);
+  const debouncedQuery = useDebounced(query.trim(), 300);
 
   const project = useQuery({
     queryKey: ["inspector", "project", companyId, projectId],

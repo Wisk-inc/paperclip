@@ -2,7 +2,7 @@
 
 Everything below was run for real with Automa's free models: the console sessions in
 section 4 with `imy 1.1.1`, the others with `imy 1.1.0` (those commands print the same in
-1.1.1). Each console block is cut from the session as it happened; where a command names
+1.1.2, whose console names its own version in the first line). Each console block is cut from the session as it happened; where a command names
 the model that compiled a program and the seconds it took, that is in the output. The
 programs are the ones that come with IMY (`imy examples`), so you can repeat every session.
 

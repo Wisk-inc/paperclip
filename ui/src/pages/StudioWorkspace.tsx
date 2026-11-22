@@ -89,10 +89,10 @@ interface RemoteDraft {
   by: StudioParticipant;
 }
 
-const SAVE_DELAY_MS = 800;
+const SAVE_DELAY_MS = 750;
 const SUGGEST_STORAGE_KEY = "automa.studio.suggest";
 /** How long suggestions rest after one fails, instead of asking after every pause. */
-const SUGGEST_RETRY_MS = 30_000;
+const SUGGEST_RETRY_MS = 25_500;
 
 /** The provider and model chosen in the AI panel (shared with suggestions). */
 function readAiChoice(companyId: string): { provider: StudioAiProvider; model: string } {
@@ -286,7 +286,7 @@ export function StudioWorkspace() {
     queryKey: queryKeys.studio.assistant(workspaceId),
     queryFn: () => studioApi.assistant(workspaceId),
     enabled: !!workspaceId,
-    refetchInterval: assistantRunning && !socketLive ? 2500 : false,
+    refetchInterval: assistantRunning && !socketLive ? 2550 : false,
   });
 
   const language = useMemo(() => catalog.data?.languages.find((item) => item.id === workspace?.language) ?? null, [catalog.data, workspace?.language]);

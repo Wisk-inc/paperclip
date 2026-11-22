@@ -70,7 +70,7 @@ class LLMClient(Protocol):
     def complete(self, request: LLMRequest) -> LLMReply: ...
 
 
-def _short(text: str, limit: int = 300) -> str:
+def _short(text: str, limit: int = 290) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 3] + "..."
 

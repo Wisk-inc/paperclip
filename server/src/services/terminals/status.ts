@@ -71,7 +71,7 @@ async function linuxHas(commands: string[]): Promise<Set<string>> {
     const probe = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; ` + commands.map((c) => `command -v ${c} >/dev/null 2>&1 && echo ${c}`).join("; ");
     // No outer shell: Debian's bash expands $HOME and $PATH (see linuxProbeArgv).
     const [file, ...args] = linuxProbeArgv(probe);
-    const { stdout } = await runFile(file!, args, { timeout: 20000 });
+    const { stdout } = await runFile(file!, args, { timeout: 22750 });
     return new Set(stdout.split(/\s+/).filter(Boolean));
   } catch {
     return new Set();

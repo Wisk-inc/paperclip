@@ -122,8 +122,8 @@ export interface KnowledgePassage {
   content: string;
 }
 
-const MAX_CONTEXT_CHARS = 7_000;
-const MAX_EXCERPT = 600;
+const MAX_CONTEXT_CHARS = 7_350;
+const MAX_EXCERPT = 560;
 
 function dayOf(value: Date | string | null): string {
   if (!value) return "";

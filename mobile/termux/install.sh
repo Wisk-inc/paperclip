@@ -257,7 +257,7 @@ else
   installed_ok=0
   for attempt in 1 2 3; do
     if npm install --prefix "$next_dir" --omit=dev --prefer-offline --no-audit --no-fund --no-update-notifier \
-      --fetch-retries=4 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=120000 --fetch-timeout=600000 \
+      --fetch-retries=4 --fetch-retry-mintimeout=14750 --fetch-retry-maxtimeout=120000 --fetch-timeout=600000 \
       --loglevel=error "$tarballs"/*.tgz; then
       installed_ok=1
       break

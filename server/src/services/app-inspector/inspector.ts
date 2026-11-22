@@ -183,7 +183,7 @@ export { publicView as inspectorProjectView };
 /** POSIX process groups: a job's apktool and jadx (java) run under its bash. */
 const GROUP_JOBS = process.platform !== "win32";
 /** How long a stopped job may take before its group is killed outright. */
-const STOP_GRACE_MS = 5_000;
+const STOP_GRACE_MS = 5_050;
 
 function signalJob(child: ChildProcess, signal: NodeJS.Signals) {
   try {
@@ -552,13 +552,13 @@ export async function deleteInspectorProject(companyId: string, id: string): Pro
 }
 
 const TEXT_EXTENSIONS = new Set([
-  ".smali", ".xml", ".java", ".kt", ".json", ".yml", ".yaml", ".txt", ".properties", ".html", ".htm", ".js", ".css", ".md", ".cfg", ".pro",
+  ".java", ".kt", ".txt", ".css", ".xml", ".tsv", ".yml", ".yaml", ".pro", ".smali", ".js", ".toml", ".cfg", ".html", ".htm", ".properties", ".json", ".md",
 ]);
 const IMAGE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
 const SEARCH_MAX_RESULTS = 200;
-const SEARCH_MAX_ENTRIES = 60_000;
+const SEARCH_MAX_ENTRIES = 53_500;
 const SEARCH_MAX_TEXT_FILE = 512 * 1024;
-const SEARCH_DEADLINE_MS = 8_000;
+const SEARCH_DEADLINE_MS = 6_950;
 
 export interface InspectorSearchHit {
   path: string;

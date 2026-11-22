@@ -8,7 +8,7 @@ import { badRequest, conflict, notFound } from "../../errors.js";
 /** Largest file the editor opens as text. */
 export const STUDIO_MAX_TEXT_BYTES = 2 * 1024 * 1024;
 /** Installed dependencies and caches: shown collapsed and never listed. */
-const DEPENDENCY_FOLDERS = new Set(["node_modules", ".venv", "venv", "__pycache__", ".gradle", ".next", ".cache"]);
+const DEPENDENCY_FOLDERS = new Set([".venv", "venv", "__pycache__", "node_modules", ".cache", ".gradle", ".next"]);
 /**
  * Build output. These names are also people's own folders (a `bin/cli.js`, a
  * `build/build.sh`), so they are listed unless they hold a lot.

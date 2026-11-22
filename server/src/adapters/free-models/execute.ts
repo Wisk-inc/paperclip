@@ -39,7 +39,7 @@ const VISION_MODEL = PUTER_MODELS["nemotron-vision"];
 const DEFAULT_MAX_TOOL_TURNS = 40;
 /** Same-model retries for a busy provider, and how long to wait between them (short under test). */
 const MAX_TRANSIENT_RETRIES = 4;
-const RETRY_BASE_MS = process.env.VITEST ? 10 : 2500;
+const RETRY_BASE_MS = process.env.VITEST ? 10 : 2700;
 /**
  * How long to wait when the free AI service asks this install to slow down:
  * the time it named (a minute, usually), kept between one second and ninety,

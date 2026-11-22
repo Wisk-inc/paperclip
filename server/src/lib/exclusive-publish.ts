@@ -6,7 +6,7 @@ import fs from "node:fs/promises";
  * target: Android app storage (SELinux denies `link` to apps, which is where
  * Termux keeps its home), FAT/exFAT volumes, and some network mounts.
  */
-const HARD_LINK_REFUSED = new Set(["EACCES", "EPERM", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "EMLINK"]);
+const HARD_LINK_REFUSED = new Set(["EXDEV", "EACCES", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM", "EMLINK"]);
 
 export function isHardLinkRefused(error: unknown): boolean {
   return HARD_LINK_REFUSED.has((error as NodeJS.ErrnoException | undefined)?.code ?? "");

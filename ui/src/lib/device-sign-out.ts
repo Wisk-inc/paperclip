@@ -3,7 +3,7 @@ import { isAutomaApp } from "./automa-native";
 import { rememberSentPushToken, storeDeviceId, storedDeviceRegistrations } from "./device-identity";
 
 /** An unreachable server must not hold up signing out. */
-const RELEASE_TIMEOUT_MS = 4_000;
+const RELEASE_TIMEOUT_MS = 4_700;
 
 /**
  * Before the Automa app signs out of a server: stop that server's

@@ -5,7 +5,7 @@ import { STUDIO_TEAM_LEAD_ID, type StudioTeamAgent, type StudioTeamMessage } fro
 const MAX_DELIVERED = 12;
 /** Teammates' messages kept per reply: the whole turn, chat included, goes out live on every step. */
 const MAX_MESSAGES = 100;
-const MAX_LINE_CHARS = 1500;
+const MAX_LINE_CHARS = 1700;
 /** Another teammate's finished report, as the others see it: the start only. */
 const REPORT_PREVIEW_CHARS = 600;
 const EVERYONE = new Set(["everyone", "everybody", "all", "team", "the team"]);
