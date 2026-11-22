@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOAN_MODEL_ID, resolveFreeModel } from "@paperclipai/shared";
 import { ApiError } from "@/api/client";
 import { queryKeys } from "@/lib/queryKeys";
-import { FreeModelCheck, freeModelHealthOf, offlineCount } from "./FreeModelCheck";
+import { checkRemainder, FreeModelCheck, freeModelHealthOf, offlineCount } from "./FreeModelCheck";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,11 +73,58 @@ describe("FreeModelCheck", () => {
       },
     };
     await act(async () => finish(found));
-    await vi.waitFor(() => expect(row()?.textContent).toContain("2 of 3 free models answer right now."));
+    await vi.waitFor(() => expect(row()?.textContent).toContain("2 of 3 free models answer right now. The others are marked in the lists."));
     expect(button().textContent).toContain("Check again");
     expect(button().disabled).toBe(false);
     expect(client.getQueryData(queryKeys.freeModels.health())).toEqual(found.health);
     expect(toasts.push).not.toHaveBeenCalled();
+  });
+
+  it("tells a model that was only busy from one the lists mark, and says nothing more when all answer", async () => {
+    const check = async (found: unknown) => {
+      api.checkHealth.mockResolvedValue(found);
+      await act(async () => button().click());
+    };
+    await render();
+    await vi.waitFor(() => expect(row()).not.toBeNull());
+
+    // Five asked, two answer: one is closed at its provider (the lists mark it), two were busy or at their limit.
+    await check({
+      checkedAt: iso(0),
+      total: 5,
+      answering: 2,
+      health: {
+        [A]: { state: "ok", until: null, checkedAt: iso(0), last: "ok" },
+        [B]: { state: "withdrawn", until: iso(-300_000), checkedAt: iso(0), last: "withdrawn" },
+        [C]: { state: "busy", until: iso(-60_000), checkedAt: iso(0), last: "busy" },
+        "some/limited:free": { state: "daily_limit", until: iso(-3600_000), checkedAt: iso(0), last: "daily_limit" },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(row()?.textContent).toContain("2 of 5 free models answer right now. Marked in the lists: 1. Only busy or at a limit, may answer later: 2."),
+    );
+    expect(row()?.textContent).not.toContain("The others are marked");
+
+    // None closed: nothing is marked, so nothing is said to be.
+    await check({ checkedAt: iso(0), total: 3, answering: 2, health: { [C]: { state: "busy", until: iso(-60_000), checkedAt: iso(0), last: "busy" } } });
+    await vi.waitFor(() => expect(row()?.textContent).toContain("2 of 3 free models answer right now. The others were busy or at a limit and may answer later."));
+
+    // All answer.
+    await check({ checkedAt: iso(0), total: 3, answering: 3, health: { [A]: { state: "ok", until: null, checkedAt: iso(0), last: "ok" } } });
+    await vi.waitFor(() => expect(row()?.textContent).toContain("3 of 3 free models answer right now."));
+    expect(row()?.textContent).not.toContain("others");
+    expect(row()?.textContent).not.toContain("Marked in the lists");
+  });
+
+  it("counts as marked only what the lists mark", () => {
+    const entry = (state: string, last = state) => ({ state, until: state === "ok" ? null : iso(-300_000), checkedAt: iso(0), last });
+    const result = (answering: number, total: number, health: Record<string, unknown>) => ({ checkedAt: iso(0), total, answering, health }) as never;
+    expect(checkRemainder(result(2, 5, { a: entry("ok"), b: entry("withdrawn"), c: entry("restricted"), d: entry("busy") }))).toEqual({ marked: 2, unmarked: 1 });
+    expect(checkRemainder(result(3, 3, { a: entry("ok") }))).toEqual({ marked: 0, unmarked: 0 });
+    // A model with no record at all (it never answered in any way) is not marked either.
+    expect(checkRemainder(result(1, 4, { a: entry("ok"), b: entry("charged") }))).toEqual({ marked: 1, unmarked: 2 });
+    // Never more marked than did not answer, whatever the record holds.
+    expect(checkRemainder(result(2, 3, { b: entry("withdrawn"), c: entry("withdrawn") }))).toEqual({ marked: 1, unmarked: 0 });
   });
 
   it("says how many of the listed models did not answer when one was found offline earlier", async () => {
