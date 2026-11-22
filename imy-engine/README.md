@@ -38,13 +38,21 @@ Automa's free models, so no key is needed. You can still switch to your own key 
 
 ```console
 imy init                                   # provider, model, key; creates .imy/ here
+imy examples                               # the ready programs that come with IMY
+imy examples hello --copy                  # write hello.imy into this folder
 imy check hello.imy                        # rules + AI validator, nothing runs
 imy check hello.imy --static               # only the free deterministic rules
 imy run hello.imy                          # validate, remember, compile, run
 imy run hello.imy --to javascript          # compile to JavaScript and run it with node
+imy run hello.imy --watch                  # run again each time you save the file
 imy convert hello.imy --to rust -o hello.rs
 imy console                                # type IMY line by line, then :run
+imy models --check                         # which models answer right now, and how fast
 ```
+
+While a model works, IMY shows how long it has waited, and afterwards which model compiled
+the program and in how many seconds. A second run of unchanged code comes from the cache at
+once. Real sessions, with their output, are in [examples/README.md](examples/README.md).
 
 ## The rules
 
@@ -199,8 +207,8 @@ imy memory delete greet [--file session1.imy] [--yes]
 imy memory clear [--scope local] [--cache] --yes
 ```
 
-Example: `examples/session1.imy` defines `greet` and the pack `XYZ`. After
-`imy run session1.imy`, `examples/session2.imy` can call `greet ("Bo")` without defining it,
+Example: `session1.imy` (`imy examples session1 --copy`) defines `greet` and the pack `XYZ`.
+After `imy run session1.imy`, `session2.imy` can call `greet ("Bo")` without defining it,
 because IMY injects the saved definition.
 
 ### Deterministic cache
@@ -322,32 +330,59 @@ it points at this computer (`localhost`, `127.0.0.1`). Set those in your shell o
 
 `imy doctor` shows what IMY will use, where the key comes from and which toolchains are
 installed. `imy doctor --ping` sends one tiny request to test the key and model.
-`imy models` lists the models for a provider.
+
+`imy models` lists the models for a provider. Free models come and go: a provider can take a
+free version offline for a day or a month, and IMY never answers on a different model than
+the one you picked. `imy models --check` asks every listed model for one word and shows which
+answer now and how fast:
+
+```console
+$ imy models --check
+Automa free models (no key)
+  ✓ 1.3 s  nvidia/nemotron-3-ultra-550b-a55b:free
+  ✗ not served now  deepseek/deepseek-v4.1-flash:free
+  ✓ 0.8 s  recursive/flint-v1.0:free
+  …
+12 of 23 answer now. Fastest: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free (0.7 s).
+```
+
+What the check found, and what each compile finds, is kept for a day (in
+`~/.imy/model-checks.json`) and shown next to each model by `imy models`.
 
 ## The console
 
 ```console
 $ imy console
-  1 imy> # ("greets one person by name on the screen")
+  1 imy> :header greets one person by name on the screen
+header set: # ("greets one person by name on the screen")
   2 imy> show ("Hi, Bo!")
   3 imy> :run
+compiled to python (nvidia/nemotron-3-ultra-550b-a55b:free, 31 s)
 Hi, Bo!
 exit code 0
 ```
+
+`:header` writes the header line from plain words (handy on a phone keyboard); typing the
+line yourself works the same. `:example hello` loads a ready program to look at and run.
 
 | Command | What it does |
 |---|---|
 | `:run [args]` | validate, compile and run the code |
 | `:check` | validate only |
 | `:convert <lang> [file]` | convert to another language |
+| `:header <words>` | write the `# ("...")` header line from plain words |
+| `:examples`, `:example <name>` | list the ready programs; load one |
 | `:show`, `:code` | list the code; show the last compiled code |
 | `:undo`, `:del N`, `:edit N <text>`, `:insert N <text>` | edit lines |
 | `:clear`, `:load <file>`, `:save <file>`, `:save! <file>` | manage the buffer (`:save!` overwrites) |
-| `:target <lang>`, `:provider <name>`, `:model <id>`, `:models` | switch target, provider or model |
+| `:target <lang>`, `:provider <name>`, `:model <id>` | switch target, provider or model |
+| `:models`, `:models check` | list the models with what was last found; ask each if it answers now |
 | `:memory`, `:help`, `:quit` | saved symbols, help, leave |
 | `!<command>` | run a shell command |
 
 Ctrl+C stops the command that is running and returns to the prompt; `:quit` or Ctrl+D leaves.
+`:edit N` and `:insert N` take the rest of the line as code, exactly as typed: quotes need no
+closing, and spaces after the first one indent the line.
 
 ## Exit codes
 

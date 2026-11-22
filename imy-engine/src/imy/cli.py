@@ -7,7 +7,8 @@ import os
 import platform
 import shutil
 import sys
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Optional
@@ -37,6 +38,7 @@ from .errors import CompilationFailed, ConfigError, Diagnostic, ImyError, LLMErr
 from .llm_client import AutomaBridgeClient, ChatMessage, LLMClient, LLMRequest, build_client
 from .memory import Memory, MemoryStore
 from .parser import parse_file, read_source
+from .progress import format_seconds, working
 from .runner import build_artifact, python_command, run_artifact, serve_folder
 from .workspace import Workspace, prepare_virtual_files
 
@@ -198,8 +200,69 @@ def _compile(session: Session, file: Path, target: str, **options: object) -> Co
     session.compiler.static_check(parsed)
     config = session.config
     label = f"Compiling {file.name} → {target} with {config.provider}/{config.resolved_model()}"
-    with err.status(escape(label) + "…"):
+    with working(err, label, hint=SLOW_HINT if config.provider == "automa" else ""):
         return session.compiler.compile_parsed(parsed, CompileOptions(target=target, **options))  # type: ignore[arg-type]
+
+
+# Shown beside the seconds once a free-model compile has run for a while.
+SLOW_HINT = "free models often take a minute"
+
+
+def compile_note(result: CompileResult) -> str:
+    """Where the program came from: the cache, or which model and how long it took."""
+    if result.from_cache:
+        return "cached"
+    model = result.model or "the model"
+    return f"{model}, {format_seconds(result.seconds)}" if result.seconds >= 1 else model
+
+
+# How often a watched file is looked at. Module-level so a test can stand in for the wait.
+WATCH_INTERVAL = 0.4
+_watch_sleep: Callable[[float], None] = time.sleep
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def wait_for_change(path: Path, last: tuple[int, int] | None) -> tuple[int, int]:
+    """Wait until the file is saved again: its time or size differs from ``last`` and has settled.
+
+    An editor may write a file in steps (empty first, then the text); two looks
+    in a row must agree before the save counts. A file that is deleted is
+    waited for until it is back.
+    """
+    while True:
+        _watch_sleep(WATCH_INTERVAL)
+        current = _file_signature(path)
+        if current is None or current == last:
+            continue
+        _watch_sleep(WATCH_INTERVAL / 2)
+        if _file_signature(path) == current:
+            return current
+
+
+def watch_runs(file: Path, once: Callable[[], int]) -> int:
+    """Run ``once`` now and again after each save of ``file``, until Ctrl+C. A broken rule is shown and waited out."""
+    seen = _file_signature(file)
+    try:
+        while True:
+            try:
+                once()
+            except CompilationFailed as exc:
+                render_failure(exc)
+            except ImyError as exc:
+                render_error(exc)
+            err.print(f"[dim]watching {escape(file.name)}: save it to run again, Ctrl+C to stop[/dim]")
+            seen = wait_for_change(file, seen)
+            err.print(f"[dim]── {escape(file.name)} changed ──[/dim]")
+    except KeyboardInterrupt:
+        err.print("[dim]stopped watching[/dim]")
+        return 0
 
 
 def _require_source(file: Path) -> None:
@@ -264,6 +327,7 @@ def run(
     show_code: Annotated[bool, typer.Option("--show-code", help="Print the compiled code before running it.")] = False,
     serve: Annotated[bool, typer.Option("--serve", help="For websites: serve the built page on localhost.")] = False,
     port: Annotated[int, typer.Option("--port", help="Port for --serve.")] = 8000,
+    watch: Annotated[bool, typer.Option("--watch", help="Run again each time the file is saved (Ctrl+C stops).")] = False,
     provider: ProviderOpt = None,
     model: ModelOpt = None,
     free_model: FreeModelOpt = None,
@@ -273,29 +337,35 @@ def run(
     with guarded():
         provider, model = choose_model(provider, model, free_model)
         _require_source(file)
+        if watch and (detach or serve):
+            raise ConfigError("--watch runs the program here each time the file is saved; it can't be combined with --detach or --serve.")
         session = open_session(file, provider=provider, model=model)
         target = to or session.config.default_target
-        result = _compile(session, file, target, update_memory=update_memory, use_cache=not no_cache)
-        render_memory(result)
-        artifact = build_artifact(result, session.workspace)
-        downloaded = prepare_virtual_files(result.vfs, session.workspace, offline=offline, refresh=refresh_web)
-        for url in downloaded:
-            err.print(f"[dim]mirrored {escape(url)}[/dim]")
-        if show_code:
-            err.print(Syntax(result.code, result.language.name, line_numbers=True, word_wrap=True))
-        if result.language.name in ("html", "css"):
-            err.print(f"[bold green]✓ built[/bold green] {escape(str(artifact.path))}")
-            if serve:
-                err.print(f"Serving http://127.0.0.1:{port}/ (Ctrl+C to stop)")
-                serve_folder(artifact.folder, port)
-            return
-        err.print(f"[dim]▶ {escape(file.name)} ({escape(result.language.name)}{', cached' if result.from_cache else ''})[/dim]")
-        outcome = run_artifact(artifact, session.workspace, args=list(ctx.args), timeout=timeout, detach=detach)
-        if outcome.pid is not None:
-            err.print(f"[green]running in the background[/green] (pid {outcome.pid}); output: {escape(str(outcome.log_path))}")
-        if outcome.timed_out:
-            err.print(f"[yellow]Stopped after {timeout:g} seconds (--timeout).[/yellow]")
-        code = outcome.exit_code
+
+        def once() -> int:
+            result = _compile(session, file, target, update_memory=update_memory, use_cache=not no_cache)
+            render_memory(result)
+            artifact = build_artifact(result, session.workspace)
+            downloaded = prepare_virtual_files(result.vfs, session.workspace, offline=offline, refresh=refresh_web)
+            for url in downloaded:
+                err.print(f"[dim]mirrored {escape(url)}[/dim]")
+            if show_code:
+                err.print(Syntax(result.code, result.language.name, line_numbers=True, word_wrap=True))
+            if result.language.name in ("html", "css"):
+                err.print(f"[bold green]✓ built[/bold green] {escape(str(artifact.path))}")
+                if serve:
+                    err.print(f"Serving http://127.0.0.1:{port}/ (Ctrl+C to stop)")
+                    serve_folder(artifact.folder, port)
+                return 0
+            err.print(f"[dim]▶ {escape(file.name)} ({escape(result.language.name)}, {escape(compile_note(result))})[/dim]")
+            outcome = run_artifact(artifact, session.workspace, args=list(ctx.args), timeout=timeout, detach=detach)
+            if outcome.pid is not None:
+                err.print(f"[green]running in the background[/green] (pid {outcome.pid}); output: {escape(str(outcome.log_path))}")
+            if outcome.timed_out:
+                err.print(f"[yellow]Stopped after {timeout:g} seconds (--timeout).[/yellow]")
+            return outcome.exit_code
+
+        code = watch_runs(file, once) if watch else once()
     raise typer.Exit(code)
 
 
@@ -350,16 +420,18 @@ def inject(
     no_cache: NoCacheOpt = False,
     provider: ProviderOpt = None,
     model: ModelOpt = None,
+    free_model: FreeModelOpt = None,
 ) -> None:
     """Clone a repository, inject the compiled IMY code into a file, and optionally run it."""
     from .repo_injector import inject as do_inject
 
     code = 0
     with guarded():
+        provider, model = choose_model(provider, model, free_model)
         _require_source(imy)
         session = open_session(imy, provider=provider, model=model)
         session.compiler.static_check(parse_file(imy))
-        with err.status(f"Cloning {escape(repo_url)} and compiling {escape(imy.name)}…"):
+        with working(err, f"Cloning {repo_url} and compiling {imy.name}", hint=SLOW_HINT if session.config.provider == "automa" else ""):
             result = do_inject(
                 session.compiler,
                 repo_url=repo_url,
@@ -438,21 +510,138 @@ def model_rows(config: ImyConfig, env: EnvView) -> list[tuple[str, str, str]]:
     return [(model_id, label, "●" if model_id == current else " ") for model_id, label in rows]
 
 
+# How long one model gets to say its one word during a check.
+CHECK_TIMEOUT = 45.0
+_STATE_STYLE = {"ok": "green", "not_served": "red"}
+
+
+def _finding_markup(state: str, text: str) -> str:
+    style = _STATE_STYLE.get(state, "yellow")
+    mark = "✓" if state == "ok" else "✗" if state == "not_served" else "…"
+    return f"[{style}]{mark} {escape(text)}[/{style}]"
+
+
+def model_lines(config: ImyConfig, env: EnvView) -> list[str]:
+    """The model list as markup lines: ● for the one in use, and what the last check or compile found."""
+    from .availability import remembered
+
+    found = remembered(imy_home(env.values), config.provider)
+    lines = []
+    for model_id, label, marker in model_rows(config, env):
+        line = f" {marker} {escape(model_id)}"
+        if label != model_id:
+            line += f"  [dim]{escape(label)}[/dim]"
+        if model_id in found:
+            state, age = found[model_id]
+            from .availability import WORDS
+
+            line += "  " + _finding_markup(state, f"{WORDS.get(state, state)} ({age})")
+        lines.append(line)
+    return lines
+
+
+def run_model_check(config: ImyConfig, env: EnvView, console: Console) -> list[Any]:
+    """Ask every listed model for one word; print each finding as it arrives, then the count."""
+    from .availability import check_models, note_result, summary
+
+    rows = [(model_id, label) for model_id, label, _ in model_rows(config, env)]
+    home = imy_home(env.values)
+    request = LLMRequest(
+        system="You are a connectivity check. Reply with exactly the word OK.",
+        messages=(ChatMessage("user", "Reply with OK."),),
+        max_output_tokens=4096,
+    )
+    # One client first: a missing bridge or key is reported once, not once per model.
+    build_client(config, env)
+
+    def ask(model_id: str) -> float:
+        quick = config.model_copy(update={"model": model_id, "timeout_seconds": min(config.timeout_seconds, CHECK_TIMEOUT)})
+        client = build_client(quick, env)
+        started = time.monotonic()
+        client.complete(request)
+        return time.monotonic() - started
+
+    def heard(finding: Any) -> None:
+        note_result(home, config.provider, finding.model, finding.state, seconds=finding.seconds)
+        text = f"{finding.seconds:.1f} s" if finding.answered else finding.words
+        console.print(f"  {_finding_markup(finding.state, text)}  {escape(finding.model)}")
+
+    count = len(rows)
+    with working(console, f"Asking {count} model{'' if count == 1 else 's'} for one word"):
+        findings = check_models(rows, ask, on_result=heard)
+    console.print(escape(summary(findings)))
+    return findings
+
+
 @app.command()
 def models(
     provider: ProviderOpt = None,
+    check: Annotated[bool, typer.Option("--check", help="Ask every model for one word: which answer now, and how fast.")] = False,
 ) -> None:
-    """List the models IMY knows for a provider (● = in use)."""
+    """List the models IMY knows for a provider (● = in use). --check asks each one whether it answers now."""
     with guarded():
         env = environment(Path.cwd())
         config = load_config(Path.cwd(), env=env, overrides={"provider": provider})
         info = config.info
         out.print(f"[bold]{escape(info.label)}[/bold]")
-        for model_id, label, marker in model_rows(config, env):
-            suffix = f"  [dim]{escape(label)}[/dim]" if label != model_id else ""
-            out.print(f" {marker} {escape(model_id)}{suffix}")
+        if check:
+            findings = run_model_check(config, env, out)
+            if any(finding.answered for finding in findings):
+                flag = "--free-model" if config.provider == "automa" else "--model"
+                out.print(f"[dim]Use one for a run with {flag} <id>, or keep it with imy init.[/dim]")
+            return
+        for line in model_lines(config, env):
+            out.print(line)
         if info.notes:
             out.print(f"[dim]{escape(info.notes)}[/dim]")
+        out.print("[dim]imy models --check asks each one whether it answers now.[/dim]")
+
+
+@app.command()
+def examples(
+    name: Annotated[Optional[str], typer.Argument(help="The example to show. Leave out to list them all.")] = None,
+    copy: Annotated[bool, typer.Option("--copy", help="Write the example into this folder as <name>.imy.")] = False,
+    every: Annotated[bool, typer.Option("--all", help="With --copy: write every example.")] = False,
+    force: Annotated[bool, typer.Option("--force", help="With --copy: replace a file that is already there.")] = False,
+) -> None:
+    """List the example programs that come with IMY, show one, or copy it into this folder."""
+    from .examples import get_example, list_examples
+
+    with guarded():
+        if every and not copy:
+            raise ConfigError("--all goes with --copy.", hint="imy examples --copy --all writes every example into this folder.")
+        if copy:
+            if name is None and not every:
+                raise ConfigError("Name the example to copy, or add --all.", hint="For instance: imy examples hello --copy")
+            chosen = list_examples() if name is None else [get_example(name)]
+            targets = [(example, Path.cwd() / f"{example.name}.imy") for example in chosen]
+            taken = [path.name for _, path in targets if path.exists()]
+            if taken and not force:
+                raise ConfigError(
+                    f"{', '.join(taken)} already exist{'s' if len(taken) == 1 else ''} here; nothing was written.",
+                    hint="Add --force to replace, or copy into another folder.",
+                )
+            for example, path in targets:
+                try:
+                    path.write_text(example.text, encoding="utf-8")
+                except OSError as exc:
+                    raise ConfigError(f"Can't write {path}: {exc.strerror or exc}") from exc
+                err.print(f"[bold green]✓[/bold green] wrote {escape(path.name)}")
+            first = targets[0][1].name
+            err.print(f"Run one with [bold]imy run {escape(first)}[/bold].")
+            return
+        if name is not None:
+            sys.stdout.write(get_example(name).text)
+            sys.stdout.flush()
+            return
+        listing = list_examples()
+        if not listing:
+            out.print("[dim]This install has no examples.[/dim]")
+            return
+        width = max(len(example.name) for example in listing)
+        for example in listing:
+            out.print(f"  [bold]{escape(example.name.ljust(width))}[/bold]  {escape(example.shows)}")
+        out.print("[dim]imy examples hello[/dim] shows one, [dim]imy examples hello --copy[/dim] writes hello.imy here, and in the console [dim]:example hello[/dim] loads it.")
 
 
 def _ask_choice(title: str, options: list[tuple[str, str]], default_value: str) -> str:
@@ -600,9 +789,11 @@ def doctor(
     ping: Annotated[bool, typer.Option("--ping", help="Send one tiny request to test the key and model.")] = False,
     provider: ProviderOpt = None,
     model: ModelOpt = None,
+    free_model: FreeModelOpt = None,
 ) -> None:
     """Show what IMY will use and check the toolchains (and the key, with --ping)."""
     with guarded():
+        provider, model = choose_model(provider, model, free_model)
         session = open_session(Path.cwd() / "doctor.imy", provider=provider, model=model, ensure=False)
         config, env = session.config, session.env
         table = Table(show_header=False, box=None, pad_edge=False)
@@ -643,7 +834,7 @@ def doctor(
         out.print(table)
         if ping:
             client = make_client(config, env)
-            with err.status("Asking the model for a one-word answer…"):
+            with working(err, "Asking the model for a one-word answer"):
                 reply = client.complete(
                     LLMRequest(
                         system="You are a connectivity check. Reply with exactly the word OK.",

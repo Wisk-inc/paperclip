@@ -1,0 +1,7 @@
+# ("rocket countdown: counts from 5 down to 1, one number per line, then prints Liftoff")
+count <- 5
+loop while count > 0 ::
+  say >> count
+  count <- count - 1
+:: end
+say >> "Liftoff!"

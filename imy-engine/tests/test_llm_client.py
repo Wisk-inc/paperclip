@@ -15,6 +15,7 @@ from imy.errors import (
     ConfigError,
     LLMAuthError,
     LLMConnectionError,
+    LLMError,
     LLMProviderError,
     LLMRateLimitError,
     LLMRefusalError,
@@ -314,8 +315,8 @@ class TestAutomaBridge:
         "kind, error, hint",
         [
             ("daily_limit", LLMRateLimitError, "daily limit"),
-            ("restricted", LLMProviderError, "another free model"),
-            ("withdrawn", LLMProviderError, "another free model"),
+            ("restricted", LLMProviderError, "imy models --check"),
+            ("withdrawn", LLMProviderError, "imy models --check"),
             ("rejected", LLMProviderError, None),
             ("refused", LLMRefusalError, None),
             ("timeout", LLMTimeoutError, None),
@@ -326,8 +327,48 @@ class TestAutomaBridge:
         with pytest.raises(error) as caught:
             self.bridge(tmp_path, kind).complete(REQUEST)
         assert f"free model said {kind}" in caught.value.message  # type: ignore[attr-defined]
+        assert caught.value.kind == kind  # type: ignore[attr-defined]
         if hint:
             assert hint in (caught.value.hint or "")  # type: ignore[attr-defined]
+
+    def test_each_call_reports_what_it_found_about_the_model(self, tmp_path: Path) -> None:
+        heard: list[tuple[str, str]] = []
+        script = tmp_path / "bridge.py"
+        script.write_text(BRIDGE, encoding="utf-8")
+
+        def client(model: str) -> AutomaBridgeClient:
+            return AutomaBridgeClient(
+                command=[sys.executable, str(script)], model=model, timeout=30,
+                on_outcome=lambda answered, finding, seconds: heard.append((answered, finding)),
+            )
+
+        client("free/one").complete(REQUEST)
+        for model in ("withdrawn", "restricted", "daily_limit", "busy", "timeout"):
+            with pytest.raises(LLMError):
+                client(model).complete(REQUEST)
+        # Nothing is learned about a model from a lost connection, a refusal of the request or a broken reply.
+        for model in ("network", "refused", "rejected", "garbage", "crash"):
+            with pytest.raises(LLMError):
+                client(model).complete(REQUEST)
+        client("free/one").list_models()
+        assert heard == [
+            ("free/one", "ok"),
+            ("withdrawn", "not_served"),
+            ("restricted", "not_served"),
+            ("daily_limit", "daily_limit"),
+            ("busy", "busy"),
+            ("timeout", "timeout"),
+        ]
+
+    def test_a_failing_note_never_fails_the_call(self, tmp_path: Path) -> None:
+        script = tmp_path / "bridge.py"
+        script.write_text(BRIDGE, encoding="utf-8")
+
+        def broken(*args: object) -> None:
+            raise OSError("disk full")
+
+        result = AutomaBridgeClient(command=[sys.executable, str(script)], model="free/one", timeout=30, on_outcome=broken).complete(REQUEST)
+        assert result.model == "free/one"
 
     def test_missing_bridge_program(self) -> None:
         with pytest.raises(ConfigError):

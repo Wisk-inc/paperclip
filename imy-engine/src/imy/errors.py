@@ -88,6 +88,8 @@ class ImyError(Exception):
     """Base class for every error IMY reports to the user (never a traceback)."""
 
     exit_code = 2
+    # The provider's own word for what went wrong ("withdrawn", "busy", "daily_limit"…), when it gave one.
+    kind: str | None = None
 
     def __init__(self, message: str, *, hint: str | None = None) -> None:
         super().__init__(message)

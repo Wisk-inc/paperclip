@@ -10,6 +10,7 @@ fails stage 3 gets ``repair_attempts`` corrections, then the compile is cut off.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,6 +74,8 @@ class CompileResult:
     memory_report: MemoryUpdateReport | None = None
     notes: list[str] = field(default_factory=list)
     attempts: int = 0
+    # Seconds spent waiting for the model (0 when the program came from the cache).
+    seconds: float = 0.0
 
 
 @dataclass
@@ -170,7 +173,9 @@ class Compiler:
                 relevant_memory=relevant.symbols,
             )
         else:
+            started = time.monotonic()
             output = self._call_model(parsed, language, relevant.symbols, vmap, options)
+            waited = time.monotonic() - started
             cache.put(
                 CacheEntry(
                     key=key,
@@ -196,6 +201,7 @@ class Compiler:
                 relevant_memory=relevant.symbols,
                 notes=output.notes,
                 attempts=output.attempts,
+                seconds=waited,
             )
 
         if options.save_memory:

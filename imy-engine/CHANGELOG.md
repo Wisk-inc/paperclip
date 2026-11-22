@@ -2,6 +2,22 @@
 
 ## 1.1.0
 
+### New
+
+- **Examples built in.** `imy examples` lists nine ready programs, `imy examples hello`
+  prints one and `--copy` writes it into the folder. In the console, `:examples` and
+  `:example hello` load one to look at and run.
+- **`:header <words>`** in the console writes the `# ("...")` line from plain words, and
+  the console opens with three lines that say how to start.
+- **Seconds while you wait.** The compile line counts the seconds, says after a while that
+  free models often take a minute, and the result names the model and the time it took.
+- **`imy models --check`** asks every listed model for one word and shows which answer now
+  and how fast. What it found, and what each compile finds, is shown by `imy models` and
+  `:models` for a day. A model that is not being served points at the check.
+- **`imy run --watch`** runs the file again each time it is saved, until Ctrl+C. A broken
+  rule is shown and the next save is waited for.
+- `imy inject` and `imy doctor` take `--free-model` like the other commands.
+
 ### Fixes
 
 From a full review of every module. Each has a test.
@@ -67,6 +83,9 @@ From a full review of every module. Each has a test.
 - SQL files in a folder with spaces in its name run.
 - Ctrl+C in the console stops the running command and returns to the prompt.
 - Long paths in messages are no longer cut in the middle of a word.
+- `:edit N` and `:insert N` in the console take code as typed. A line with an apostrophe
+  (`show ("it's ready")`) was refused as an unclosed quote, and the spaces that indent a
+  line were dropped.
 
 ## 1.0.0
 

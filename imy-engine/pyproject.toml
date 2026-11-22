@@ -53,7 +53,7 @@ path = "src/imy/__init__.py"
 packages = ["src/imy"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/imy", "tests", "examples", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+include = ["src/imy", "tests", "examples/README.md", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

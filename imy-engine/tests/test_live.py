@@ -20,7 +20,7 @@ from imy.runner import build_artifact, run_artifact
 
 pytestmark = pytest.mark.live
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+EXAMPLES = Path(__file__).resolve().parent.parent / "src" / "imy" / "examples"
 
 
 @pytest.fixture

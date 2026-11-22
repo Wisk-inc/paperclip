@@ -20,6 +20,8 @@ from . import __version__
 from .compiler import CompileOptions, CompileResult
 from .errors import CompilationFailed, ImyError
 from .languages import resolve_language
+from .parser import parse_header
+from .progress import working
 from .runner import build_artifact, run_artifact
 from .workspace import prepare_virtual_files
 
@@ -29,6 +31,8 @@ Then use a command:
   :run [args]        validate, compile and run the code (saves new symbols to memory)
   :check             validate only (rules + AI validator), nothing runs
   :convert <lang> [file]   show the code in another language, or write it to a file
+  :header <words>    write the header line for you:  :header prints a greeting by name
+  :examples          list the ready programs              :example <name>  load one
   :show              list the code with line numbers      :code   show the last compiled code
   :undo              remove the last line                 :del N  remove line N
   :edit N <text>     replace line N                       :insert N <text>  insert before line N
@@ -36,9 +40,14 @@ Then use a command:
   :save <file>       write the code to a file (:save! overwrites)
   :target <lang>     compile to another language (now: {target})
   :provider <name>   switch provider for this session     :model <id>   switch model
-  :models            list models for the provider         :memory  list saved symbols
+  :models            list models and what was last found  :models check  ask each if it answers now
+  :memory            list saved symbols
   :help              this help                            :quit    leave (or Ctrl+D)
   !<command>         run a shell command, e.g. !ls"""
+
+# Commands whose text is code or plain words, kept exactly as typed: quotes need no closing
+# and the spaces that indent a line stay.
+RAW_COMMANDS = frozenset({"edit", "insert", "header"})
 
 
 class ImyConsole:
@@ -94,8 +103,10 @@ class ImyConsole:
             f"[bold cyan]IMY console[/bold cyan] {__version__} · {escape(config.provider)}/"
             f"{escape(config.resolved_model())} · target [bold]{escape(self.target)}[/bold]"
         )
-        self.console.print('Start with a header like [green]# ("what this code builds and how it works")[/green]. '
-                           "Type [bold]:help[/bold] for commands.")
+        self.console.print('1. Say what you are building: [green]# ("what it builds and how it works")[/green]')
+        self.console.print("   or let IMY write that line: [bold]:header[/bold] what it builds and how it works")
+        self.console.print("2. Code every step under it, line by line, in your own syntax.")
+        self.console.print("3. [bold]:run[/bold] it. [bold]:example hello[/bold] loads a ready program, [bold]:help[/bold] lists everything.")
 
     def loop(self) -> int:
         self.banner()
@@ -142,9 +153,12 @@ class ImyConsole:
             return None
         from .cli import render_failure, render_error
 
+        from .cli import SLOW_HINT, compile_note
+
         path = self._write_scratch()
+        config = self.session.config
         try:
-            with self.console.status(f"Compiling to {escape(target)}..."):
+            with working(self.console, f"Compiling to {target}", hint=SLOW_HINT if config.provider == "automa" else ""):
                 result = self.session.compiler.compile_file(
                     path, CompileOptions(target=target, save_memory=save_memory, run_dir=Path.cwd())
                 )
@@ -155,18 +169,29 @@ class ImyConsole:
             render_error(exc, self.console)
             return None
         self.last = result
+        self.console.print(f"[dim]compiled to {escape(result.language.name)} ({escape(compile_note(result))})[/dim]")
         return result
 
     def command(self, text: str) -> bool:
-        try:
-            parts = shlex.split(text)
-        except ValueError as exc:
-            self.console.print(f"[red]{escape(str(exc))}[/red]")
+        stripped = text.strip()
+        if not stripped:
             return True
-        if not parts:
-            return True
-        name, args = parts[0].lower(), parts[1:]
-        raw_rest = text[len(parts[0]) :].strip()
+        name = stripped.split(None, 1)[0].lower()
+        # What follows the command name, as typed (the space after the name aside).
+        rest = stripped[len(name) :]
+        rest = rest[1:] if rest[:1] in (" ", "\t") else rest
+        if name in RAW_COMMANDS:
+            # Code and plain words: an apostrophe is not an unclosed quote, and indentation counts.
+            first = rest.split(None, 1)
+            args = first[:1]
+            raw_rest = rest
+        else:
+            try:
+                args = shlex.split(rest)
+            except ValueError as exc:
+                self.console.print(f"[red]{escape(str(exc))}[/red] (put a file name with spaces in quotes)")
+                return True
+            raw_rest = rest.strip()
         handler = {
             "q": self._quit, "quit": self._quit, "exit": self._quit,
             "help": self._help, "h": self._help, "?": self._help,
@@ -178,6 +203,7 @@ class ImyConsole:
             "provider": self._provider_cmd, "model": self._model_cmd, "models": self._models,
             "memory": self._memory, "code": self._code,
             "check": self._check, "run": self._run, "convert": self._convert,
+            "header": self._header, "examples": self._examples, "example": self._example,
         }.get(name)
         if handler is None:
             self.console.print(f"[red]Unknown command :{escape(name)}[/red] (type :help)")
@@ -232,7 +258,7 @@ class ImyConsole:
             return True
         number = self._line_number(args[0])
         if number is not None:
-            self.lines[number - 1] = raw[len(args[0]) :].lstrip()
+            self.lines[number - 1] = self._text_after_number(raw, args[0])
         return True
 
     def _insert_line(self, args: list[str], raw: str) -> bool:
@@ -241,7 +267,68 @@ class ImyConsole:
             return True
         number = self._line_number(args[0], allow_end=True)
         if number is not None:
-            self.lines.insert(number - 1, raw[len(args[0]) :].lstrip())
+            self.lines.insert(number - 1, self._text_after_number(raw, args[0]))
+        return True
+
+    @staticmethod
+    def _text_after_number(raw: str, number: str) -> str:
+        """The line typed after `:edit N ` or `:insert N `: one space separates, the rest is the line's own."""
+        text = raw.lstrip()[len(number) :]
+        return text[1:] if text[:1] in (" ", "\t") else text
+
+    def _header(self, args: list[str], raw: str) -> bool:
+        words = " ".join(raw.split())
+        if not words:
+            self.console.print("Usage: :header <what this code builds and how it works>")
+            return True
+        if words.startswith("#"):
+            line = words
+        else:
+            line = '# ("' + words.replace("\\", "\\\\").replace('"', '\\"') + '")'
+        described, problem = parse_header(line)
+        if described is None:
+            self.console.print(f"[red]{escape(problem or 'that is not a header')}[/red]")
+            return True
+        if self.lines and self.lines[0].lstrip().startswith("#"):
+            self.lines[0] = line
+            self.console.print(f"[dim]header replaced:[/dim] {escape(line)}")
+        else:
+            self.lines.insert(0, line)
+            self.console.print(f"[dim]header set:[/dim] {escape(line)}")
+        return True
+
+    def _examples(self, args: list[str], raw: str) -> bool:
+        from .examples import list_examples
+
+        if args:
+            return self._example(args, raw)
+        listing = list_examples()
+        if not listing:
+            self.console.print("[dim]This install has no examples.[/dim]")
+            return True
+        width = max(len(example.name) for example in listing)
+        for example in listing:
+            self.console.print(f"  [bold]{escape(example.name.ljust(width))}[/bold]  {escape(example.shows)}")
+        self.console.print("[dim]:example <name> loads one here; then :show it or :run it.[/dim]")
+        return True
+
+    def _example(self, args: list[str], raw: str) -> bool:
+        from .examples import get_example
+
+        if len(args) != 1:
+            return self._examples([], raw)
+        try:
+            example = get_example(args[0])
+        except ImyError as exc:
+            self.console.print(f"[red]{escape(exc.message)}[/red]" + (f" {escape(exc.hint)}" if exc.hint else ""))
+            return True
+        replaced = len(self.lines)
+        self.lines = example.lines
+        self.last = None
+        note = f" (it replaced the {replaced} line{'' if replaced == 1 else 's'} you had)" if replaced else ""
+        self.console.print(f"[dim]loaded {escape(example.name)}: {len(self.lines)} lines{note}[/dim]")
+        for number, line in enumerate(self.lines, start=1):
+            self.console.print(f"[dim]{number:>3} |[/dim] {escape(line)}")
         return True
 
     def _clear(self, args: list[str], raw: str) -> bool:
@@ -332,10 +419,22 @@ class ImyConsole:
         return True
 
     def _models(self, args: list[str], raw: str) -> bool:
-        from .cli import model_rows
+        from .cli import model_lines, render_error, run_model_check
 
-        for model_id, label, marker in model_rows(self.session.config, self.session.env):
-            self.console.print(f"  {marker} {escape(model_id)}" + (f"  [dim]{escape(label)}[/dim]" if label != model_id else ""))
+        if args and args[0].lower() == "check":
+            try:
+                run_model_check(self.session.config, self.session.env, self.console)
+            except ImyError as exc:
+                render_error(exc, self.console)
+            else:
+                self.console.print("[dim]:model <id> switches to one of them.[/dim]")
+            return True
+        if args:
+            self.console.print("Usage: :models   or   :models check")
+            return True
+        for line in model_lines(self.session.config, self.session.env):
+            self.console.print(" " + line)
+        self.console.print("[dim]:models check asks each one whether it answers now.[/dim]")
         return True
 
     def _memory(self, args: list[str], raw: str) -> bool:

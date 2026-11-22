@@ -249,6 +249,88 @@ class TestDoctorAndModels:
         assert "● claude-opus-5-5" in result.stdout
 
 
+class TestWatch:
+    def saves(self, monkeypatch: pytest.MonkeyPatch, actions: list) -> list[float]:
+        """Stand in for the wait between looks at the file: each look runs the next action (a save, or Ctrl+C)."""
+        waits: list[float] = []
+        pending = list(actions)
+
+        def fake_sleep(seconds: float) -> None:
+            waits.append(seconds)
+            if pending:
+                action = pending.pop(0)
+                if action is not None:
+                    action()
+            else:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr("imy.cli._watch_sleep", fake_sleep)
+        return waits
+
+    def test_runs_again_after_each_save_and_stops_on_ctrl_c(self, isolated: Path, llm: FakeLLM, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]) -> None:
+        path = write(isolated / "greet.imy", '# ("greets one person by name on the screen")\nshow ("Hi, Bo!")\n')
+        llm.queue(reply('print("Hi, Bo!")\n'), reply('print("Hi, Cy!")\n'))
+
+        def save_cy() -> None:
+            path.write_text('# ("greets one person by name on the screen")\nshow ("Hi, Cy!")\n', encoding="utf-8")
+            os.utime(path, ns=(2_000_000_000_000_000_000, 2_000_000_000_000_000_000))
+
+        # Two looks see nothing new, the third sees the save, the fourth confirms it has settled.
+        self.saves(monkeypatch, [None, None, save_cy, None])
+        result = runner.invoke(app, ["run", str(path), "--watch"])
+        assert result.exit_code == 0, result.stderr
+        stderr = " ".join(result.stderr.split())
+        assert stderr.count("watching greet.imy: save it to run again, Ctrl+C to stop") == 2
+        assert "── greet.imy changed ──" in stderr and "stopped watching" in stderr
+        assert capfd.readouterr().out == "Hi, Bo!\nHi, Cy!\n"
+        assert llm.calls == 2
+
+    def test_a_broken_rule_is_shown_and_the_next_save_runs(self, isolated: Path, llm: FakeLLM, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]) -> None:
+        path = write(isolated / "greet.imy", '# ("greets one person by name on the screen")\nplease make me a greeting app\n')
+        llm.queue(reply('print("Hi, Bo!")\n'))
+
+        def fix() -> None:
+            path.write_text('# ("greets one person by name on the screen")\nshow ("Hi, Bo!")\n', encoding="utf-8")
+            os.utime(path, ns=(2_000_000_000_000_000_000, 2_000_000_000_000_000_000))
+
+        self.saves(monkeypatch, [fix, None])
+        result = runner.invoke(app, ["run", str(path), "--watch"])
+        assert result.exit_code == 0
+        assert "PromptingDetected" in result.stderr
+        assert capfd.readouterr().out == "Hi, Bo!\n"
+        assert llm.calls == 1
+
+    def test_a_half_written_save_is_waited_out_and_a_deleted_file_is_waited_for(self, isolated: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from imy.cli import _file_signature, wait_for_change
+
+        path = write(isolated / "greet.imy", "one\n")
+        first = _file_signature(path)
+
+        def stamp(text: str, when: int) -> None:
+            path.write_text(text, encoding="utf-8")
+            os.utime(path, ns=(when, when))
+
+        steps = [
+            path.unlink,                                        # deleted: keep waiting
+            None,
+            lambda: stamp("", 3_000_000_000_000_000_000),      # the editor empties the file...
+            lambda: stamp("two\n", 3_000_000_000_500_000_000),  # ...and writes it while we look again: not settled
+            None,                                                # the next look sees the finished save
+            None,                                                # and the look after it agrees
+        ]
+        waits = self.saves(monkeypatch, steps)
+        settled = wait_for_change(path, first)
+        assert settled == _file_signature(path) and path.read_text() == "two\n"
+        assert len(waits) == 6
+
+    def test_watch_cannot_be_combined_with_background_or_serving(self, isolated: Path, llm: FakeLLM) -> None:
+        path = hello(isolated)
+        for flag in ("--detach", "--serve"):
+            result = runner.invoke(app, ["run", str(path), "--watch", flag])
+            assert result.exit_code == 2 and "--watch" in result.stderr
+        assert llm.calls == 0
+
+
 class TestConsole:
     def make(self, isolated: Path, llm: FakeLLM, lines: list[str]) -> tuple[ImyConsole, Console]:
         console = Console(record=True, width=120, force_terminal=False, file=io.StringIO())
@@ -296,6 +378,72 @@ class TestConsole:
         text = console.export_text()
         assert "Stopped." in text and "exit code 0" in text
         assert capfd.readouterr().out.count("Hi, Bo!") == 1
+
+    def test_the_banner_says_how_to_start(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.make(isolated, llm, [])
+        repl.loop()
+        text = console.export_text()
+        assert f"IMY console {__version__}" in text
+        assert '# ("what it builds and how it works")' in text
+        assert ":header" in text and ":example hello" in text and ":run" in text and ":help" in text
+
+    def test_header_command_writes_the_header_line(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.make(isolated, llm, [
+            'show ("Hi, Bo!")',
+            ":header greets one person by name on the screen",
+            ":header   prints a greeting   that says \"hi\" to Bo  ",
+            ":header too short",
+            ":header",
+            ':header # ("counts the letters of one name")',
+        ])
+        repl.loop()
+        text = console.export_text()
+        assert "header set:" in text and "header replaced:" in text
+        assert "at least 3 words" in text
+        assert "Usage: :header" in text
+        assert repl.lines == ['# ("counts the letters of one name")', 'show ("Hi, Bo!")']
+
+    def test_header_with_quotes_is_escaped_and_read_back_whole(self, isolated: Path, llm: FakeLLM) -> None:
+        from imy.parser import parse_header
+
+        repl, _ = self.make(isolated, llm, [':header prints a greeting that says "hi" to Bo'])
+        repl.loop()
+        assert repl.lines == ['# ("prints a greeting that says \\"hi\\" to Bo")']
+        assert parse_header(repl.lines[0]) == ('prints a greeting that says "hi" to Bo', None)
+
+    def test_edit_and_insert_take_code_as_typed(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.make(isolated, llm, [
+            '# ("prints two lines inside a block for one person")',
+            "block start",
+            "block end",
+            ":insert 3   show (\"it's ready\")",
+            ":edit 2 when (ready) do: show ('go')",
+            ":insert 4     show (\"don't stop\")",
+            ":edit 9 nothing",
+            ":save \"my file.imy\"",
+            ":save 'unclosed",
+        ])
+        repl.loop()
+        assert repl.lines == [
+            '# ("prints two lines inside a block for one person")',
+            "when (ready) do: show ('go')",
+            "  show (\"it's ready\")",
+            "    show (\"don't stop\")",
+            "block end",
+        ]
+        text = console.export_text()
+        assert "Line 9 doesn't exist" in text
+        assert (isolated / "my file.imy").exists()
+        assert "No closing quotation" in text and "in quotes" in text
+
+    def test_a_compile_says_which_model_and_reuses_the_cache(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
+        llm.queue(reply('print("Hi, Bo!")\n'))
+        repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', 'show ("Hi, Bo!")', ":run", ":run"])
+        repl.loop()
+        text = console.export_text()
+        assert "compiled to python (fake-model)" in text
+        assert "compiled to python (cached)" in text
+        assert llm.calls == 1
 
     def test_console_reports_rule_errors_without_calling_the_model(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', "please make me a greeting app", ":run"])

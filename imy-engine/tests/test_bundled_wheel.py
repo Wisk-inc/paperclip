@@ -30,7 +30,13 @@ def test_wheel_holds_exactly_this_source() -> None:
     wheel = BUNDLE / f"imagenery-{__version__}-py3-none-any.whl"
     with zipfile.ZipFile(wheel) as archive:
         packaged = {name: archive.read(name) for name in archive.namelist() if name.startswith("imy/")}
-    source = {f"imy/{p.name}": p.read_bytes() for p in (ENGINE / "src" / "imy").glob("*.py")}
+    package = ENGINE / "src" / "imy"
+    source = {
+        f"imy/{p.relative_to(package).as_posix()}": p.read_bytes()
+        for p in package.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    }
+    assert any(name.startswith("imy/examples/") and name.endswith(".imy") for name in source), "the examples ship in the wheel"
     assert sorted(packaged) == sorted(source)
     stale = [name for name in source if packaged[name] != source[name]]
     assert stale == [], f"rebuild the bundled wheel; these files changed: {stale}"

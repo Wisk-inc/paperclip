@@ -13,7 +13,7 @@ import re
 import shlex
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 from urllib.parse import quote
@@ -21,11 +21,12 @@ from urllib.parse import quote
 import httpx2
 
 from . import __version__
-from .config import EnvView, ImyConfig
+from .config import EnvView, ImyConfig, imy_home
 from .errors import (
     ConfigError,
     LLMAuthError,
     LLMConnectionError,
+    LLMError,
     LLMProviderError,
     LLMRateLimitError,
     LLMRefusalError,
@@ -453,6 +454,14 @@ class GeminiClient(_HttpProvider):
         )
 
 
+def _finding(error: LLMError) -> str | None:
+    """What a refusal says about the model itself; None when it says nothing (no connection, a broken reply)."""
+    from .availability import BUSY, DAILY_LIMIT, NOT_SERVED, TIMEOUT, state_of
+
+    finding = state_of(error)
+    return finding if finding in (NOT_SERVED, BUSY, DAILY_LIMIT, TIMEOUT) and error.kind else None
+
+
 class AutomaBridgeClient:
     """Automa's free models, reached through the bridge command Automa's IMY terminal sets.
 
@@ -462,12 +471,21 @@ class AutomaBridgeClient:
 
     provider = "automa"
 
-    def __init__(self, *, command: Sequence[str], model: str, timeout: float) -> None:
+    def __init__(
+        self,
+        *,
+        command: Sequence[str],
+        model: str,
+        timeout: float,
+        on_outcome: Callable[[str, str, float], None] | None = None,
+    ) -> None:
         if not command:
             raise ConfigError("The free-models bridge command is empty.")
         self._command = list(command)
         self.model = model
         self._timeout = timeout
+        # Hears (model, finding, seconds) after each answer or refusal, so IMY can say later which models answer.
+        self._on_outcome = on_outcome
 
     def _run(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -502,20 +520,27 @@ class AutomaBridgeClient:
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
             kind = str(error.get("kind") or "")
             message = _short(str(error.get("message") or "the free model failed"))
-            switch_hint = "Pick another free model with `imy models` and --model (or :model in the console)."
+            switch_hint = (
+                "See which free models answer now with `imy models --check` (or :models check in the console), "
+                "then pick one with --free-model (or :model)."
+            )
+            failure: LLMError
             if kind in ("busy", "rate_limit"):
-                raise LLMRateLimitError(message, hint="Wait a moment and try again, or pick another free model.")
-            if kind == "daily_limit":
-                raise LLMRateLimitError(message, hint="This free model's daily limit is used up. " + switch_hint)
-            if kind == "refused":
-                raise LLMRefusalError(message)
-            if kind == "timeout":
-                raise LLMTimeoutError(message)
-            if kind == "network":
-                raise LLMConnectionError(message, hint="Check the phone's or computer's internet connection.")
-            if kind in ("restricted", "withdrawn", "no_tools", "charged"):
-                raise LLMProviderError(message, hint=switch_hint)
-            raise LLMProviderError(message)
+                failure = LLMRateLimitError(message, hint="Wait a moment and try again, or pick another free model.")
+            elif kind == "daily_limit":
+                failure = LLMRateLimitError(message, hint="This free model's daily limit is used up. " + switch_hint)
+            elif kind == "refused":
+                failure = LLMRefusalError(message)
+            elif kind == "timeout":
+                failure = LLMTimeoutError(message)
+            elif kind == "network":
+                failure = LLMConnectionError(message, hint="Check the phone's or computer's internet connection.")
+            elif kind in ("restricted", "withdrawn", "no_tools", "charged"):
+                failure = LLMProviderError(message, hint=switch_hint)
+            else:
+                failure = LLMProviderError(message)
+            failure.kind = kind or None
+            raise failure
         if proc.returncode != 0:
             raise LLMProviderError(f"The free-models bridge exited with code {proc.returncode}: {_short(proc.stderr)}")
         return data
@@ -529,10 +554,16 @@ class AutomaBridgeClient:
             "maxTokens": request.max_output_tokens,
             "json": request.json_schema is not None,
         }
-        data = self._run(payload)
+        started = time.monotonic()
+        try:
+            data = self._run(payload)
+        except LLMError as exc:
+            self._heard(_finding(exc), 0.0)
+            raise
         text = data.get("text")
         if not isinstance(text, str):
             raise LLMProviderError("The free-models bridge answered without text.")
+        self._heard("ok", time.monotonic() - started)
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         return LLMReply(
             text=text,
@@ -542,6 +573,15 @@ class AutomaBridgeClient:
             output_tokens=usage.get("outputTokens"),
             stop_reason=data.get("stopReason"),
         )
+
+    def _heard(self, finding: str | None, seconds: float) -> None:
+        if finding is None or self._on_outcome is None:
+            return
+        try:
+            self._on_outcome(self.model, finding, seconds)
+        except Exception:
+            # What a model answered is worth more than a note about it.
+            return
 
     def list_models(self) -> list[tuple[str, str]]:
         data = self._run({"op": "models"})
@@ -570,7 +610,14 @@ def build_client(config: ImyConfig, env: EnvView, *, transport: Any | None = Non
             command = shlex.split(bridge)
         except ValueError as exc:
             raise ConfigError(f"IMY_AUTOMA_BRIDGE is not a valid command: {exc}") from exc
-        return AutomaBridgeClient(command=command, model=model, timeout=timeout)
+        home = imy_home(env.values)
+
+        def remember(answered_model: str, finding: str, seconds: float) -> None:
+            from .availability import note_result
+
+            note_result(home, "automa", answered_model, finding, seconds=seconds)
+
+        return AutomaBridgeClient(command=command, model=model, timeout=timeout, on_outcome=remember)
 
     key, _source = config.resolve_api_key(env)
     if key is not None and any(ch.isspace() for ch in key):
