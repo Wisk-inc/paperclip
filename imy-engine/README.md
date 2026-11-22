@@ -390,7 +390,9 @@ hidden folders, links, generated files and files over 40 KB are left alone, and 
 names what was left out and why. A file that has not changed since the last import is not
 read again. A name another file already saved is not replaced unless you pass
 `--update-memory`; everything else is saved all the same. A `.imy` file that defines a name
-itself always uses its own. In the console: `:import <folder>`.
+itself always uses its own. Names that IMY programs use as plain words (`show`, `count`,
+`round`, `if`, `call`, …) are not imported, so an import never changes what your other
+programs mean; the report lists the ones it left out. In the console: `:import <folder>`.
 
 ## Injecting into a repository
 

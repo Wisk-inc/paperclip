@@ -34,7 +34,7 @@ from .config import ImyConfig
 from .errors import ConfigError, ImyError, LLMError
 from .languages import Language, language_for_extension
 from .llm_client import ChatMessage, LLMClient, LLMRequest
-from .memory import Memory, MemoryStore, MemorySymbol, MemoryUpdateReport, SymbolKind, fingerprint, now_iso
+from .memory import GENERIC_WORDS, Memory, MemoryStore, MemorySymbol, MemoryUpdateReport, SymbolKind, fingerprint, now_iso
 from .prompts import ResponseFormatError, extract_json_object
 
 # How much one import reads, unless told otherwise.
@@ -61,6 +61,17 @@ SKIP_FOLDERS = frozenset(
 TEST_FOLDERS = frozenset({"test", "tests", "__tests__", "spec", "specs", "testing", "e2e", "fixtures", "testdata"})
 # Languages IMY knows that define no functions or variables to bring in.
 NOT_CODE = frozenset({"html", "css", "sql"})
+
+# Words IMY programs use without defining them: grammar (if, then, call, set) and the helpers
+# every program leans on (show, count, round). A saved definition is used wherever its name
+# appears, so a project's own `count` would quietly change what count means in every other
+# program. An import never does that: these names are left out, and the report says so.
+COMMON_WORDS = GENERIC_WORDS | frozenset(
+    {
+        "say", "display", "output", "echo", "write", "read", "ask", "input", "count", "len", "length", "round",
+        "open", "close", "append", "sum", "min", "max", "abs", "wait", "sleep",
+    }
+)
 
 _TEST_FILE = re.compile(
     r"^(test_.*\.py|.*_test\.(py|go|rb|rs|c|cc|cpp)|conftest\.py|.*\.(test|spec)\.[cm]?[jt]sx?|.*_spec\.rb|.*Tests?\.(java|kt|cs|swift))$"
@@ -707,14 +718,21 @@ def _meaning(found: FoundSymbol, file: SourceFile, project: str) -> str:
 
 
 def to_memory(reads: Sequence[FileRead], project: str) -> list[MemorySymbol]:
-    """The saved definitions for what was read. A function two files both define is kept from the first."""
-    names = {symbol.name for read in reads for symbol in read.symbols}
+    """The saved definitions for what was read.
+
+    A function two files both define is kept from the first, and a name IMY
+    programs use as a plain word (COMMON_WORDS) is left out.
+    """
+    names = {symbol.name for read in reads for symbol in read.symbols if symbol.name.casefold() not in COMMON_WORDS}
     stamp = now_iso()
     owners: dict[str, str] = {}
     saved: list[MemorySymbol] = []
     for read in reads:
         kept: list[FoundSymbol] = []
         for found in read.symbols:
+            if found.name.casefold() in COMMON_WORDS:
+                read.skipped.append((found.name, "IMY reads that word itself in every program"))
+                continue
             if found.kind is SymbolKind.FUNCTION:
                 owner = owners.setdefault(found.name, read.file.relative)
                 if owner != read.file.relative:

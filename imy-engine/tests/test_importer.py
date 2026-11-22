@@ -373,6 +373,27 @@ class TestSavedDefinitions:
         assert saved["Cart"].meaning == "A list of priced items. A Python class. Imported from shop/cart.py."
         assert saved["Cart"].uses == ["ITEMS"]
 
+    def test_words_every_program_uses_are_never_taken_over(self, tmp_path: Path) -> None:
+        text = (
+            "def show(text):\n    print('>>', text)\n\n"
+            "def count(items):\n    return 99\n\n"
+            "def Round(value):\n    return value\n\n"
+            "start = 5\n\n"
+            "def greet(person):\n    show('Hello ' + person)\n    return count(person)\n"
+        )
+        read = read_python(source(tmp_path / "words.py", text))
+        saved = to_memory([read], "proj")
+        # Saved, show or count would change what those words mean in every other program.
+        assert [symbol.name for symbol in saved] == ["greet"]
+        assert read.skipped == [
+            ("show", "IMY reads that word itself in every program"),
+            ("count", "IMY reads that word itself in every program"),
+            ("Round", "IMY reads that word itself in every program"),
+            ("start", "IMY reads that word itself in every program"),
+        ]
+        # greet is saved with its own code; the words it calls are not listed as helpers to bring along.
+        assert saved[0].uses == [] and "show('Hello ' + person)" in saved[0].source_fragment
+
     def test_a_function_two_files_define_is_kept_from_the_first(self, tmp_path: Path) -> None:
         first = read_python(source(tmp_path / "a.py", "def helper():\n    return 1\n\nLIMIT = 1\n"))
         second = read_python(source(tmp_path / "b.py", "def helper():\n    return 2\n\nLIMIT = 2\n"))
