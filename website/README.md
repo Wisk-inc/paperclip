@@ -574,9 +574,10 @@ phone), the next opens its console. It works with the free models with no key
 When a new Automa brings a newer IMY the tile says **Tap to update**, and anyone
 can install IMY on a computer with pip. Also new: a **Check** button on
 Terminals and in the chat's model picker asks every free model for one word and
-marks the ones that are not answering; one more free model (LFM3 1.7B); and the
-Terminals tools' names and descriptions are translated with the rest of the
-board.
+marks the ones that are not answering; one more free model (LFM3 1.7B); a
+terminal starts at the width your screen really shows, so a tool's first lines
+no longer break mid-word on a phone; and the Terminals tools' names and
+descriptions are translated with the rest of the board.
 
 **1.9.14** (18 November 2026) — Automa in your language. **Account → Language**
 offers **Auto** and 40 languages: Auto follows your phone's or browser's

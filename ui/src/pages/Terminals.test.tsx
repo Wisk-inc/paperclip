@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TERMINAL_TOOLS } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
-import { defaultLanguageLabel, defaultModelLabel, launchModel, modelOptionLabel, offeredLanguage, offeredModel, Terminals } from "./Terminals";
+import { defaultLanguageLabel, defaultModelLabel, launchModel, modelOptionLabel, offeredLanguage, offeredModel, Terminals, terminalSizeGuess } from "./Terminals";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -363,6 +363,18 @@ describe("terminal model choice", () => {
     expect(board.has(defaultLanguageLabel(imy))).toBe(true);
     expect(board.has(defaultLanguageLabel(claude))).toBe(true);
     expect(board.has("Language for {0}")).toBe(true);
+  });
+
+  it("starts a terminal at the width the screen will really show", () => {
+    // A phone: about 55 columns, not the 80 a tool would otherwise lay its first lines out for.
+    expect(terminalSizeGuess(412, 915)).toEqual({ cols: 55, rows: 49 });
+    expect(terminalSizeGuess(360, 640)).toEqual({ cols: 48, rows: 32 });
+    // A computer's window.
+    expect(terminalSizeGuess(1280, 800)).toEqual({ cols: 176, rows: 42 });
+    // Never smaller or larger than a terminal can sensibly be, and never not a number.
+    expect(terminalSizeGuess(100, 100)).toEqual({ cols: 40, rows: 12 });
+    expect(terminalSizeGuess(5000, 5000)).toEqual({ cols: 200, rows: 100 });
+    expect(terminalSizeGuess(Number.NaN, Number.NaN)).toEqual({ cols: 80, rows: 24 });
   });
 
   it("keeps a saved language only while the tool lists it", () => {

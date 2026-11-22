@@ -23,31 +23,42 @@ from .errors import CompilationFailed, Diagnostic, ErrorCode, ImyError, LLMRateL
 from .languages import resolve_language
 from .live import LiveJob, LiveOutcome, LivePreview, changed_lines
 from .parser import parse_header, parse_text
-from .progress import working
+from .progress import format_seconds, working
 from .runner import start_program
 from .workspace import prepare_virtual_files
 
-HELP = """[bold]Type IMY code line by line[/bold], starting with a header such as
-  # ("prints a greeting with the user's name")
-Then use a command:
-  :run [args]        validate, compile and run the code (saves new symbols to memory)
-  :check             validate only (rules + AI validator), nothing runs
-  :convert <lang> [file]   show the code in another language, or write it to a file
-  :header <words>    write the header line for you:  :header prints a greeting by name
-  :examples          list the ready programs              :example <name>  load one
-  :show              list the code with line numbers      :code   show the last compiled code
-  :undo              remove the last line                 :del N  remove line N
-  :edit N <text>     replace line N                       :insert N <text>  insert before line N
-  :clear             start over                           :load <file>  read an .imy file
-  :save <file>       write the code to a file (:save! overwrites)
-  :target <lang>     compile to another language (now: {target})   :languages  what runs on this machine
-  :provider <name>   switch provider for this session     :model <id>   switch model
-  :models            list models and what was last found  :models check  ask each if it answers now
-  :live on|off       convert each line as you enter it, in the background (now: {live})
-  :memory            list saved symbols
-  :import <folder>   bring an existing project in: its functions and variables can then be used by name
-  :help              this help                            :quit    leave (or Ctrl+D)
-  !<command>         run a shell command, e.g. !ls"""
+# The console's commands, one per row: on a phone's narrow terminal each description wraps
+# inside its own column instead of running into the next command.
+HELP_INTRO = '[bold]Type IMY code line by line[/bold], starting with a header such as [green]# ("prints a greeting by name")[/green]. Then use a command:'
+HELP_ROWS: tuple[tuple[str, str], ...] = (
+    (":run [args]", "validate, compile and run the code (saves new symbols to memory)"),
+    (":check", "validate only (rules + AI validator), nothing runs"),
+    (":convert <lang> [file]", "show the code in another language, or write it to a file"),
+    (":header <words>", "write the header line for you:  :header prints a greeting by name"),
+    (":examples", "list the ready programs"),
+    (":example <name>", "load one of them"),
+    (":show", "list the code with line numbers"),
+    (":code", "show the last compiled code"),
+    (":undo", "remove the last line"),
+    (":del N", "remove line N"),
+    (":edit N <text>", "replace line N"),
+    (":insert N <text>", "insert before line N"),
+    (":clear", "start over"),
+    (":load <file>", "read an .imy file"),
+    (":save <file>", "write the code to a file (:save! overwrites)"),
+    (":target <lang>", "compile to another language (now: {target})"),
+    (":languages", "the languages IMY knows, and which run on this machine"),
+    (":live on|off", "convert each line as you enter it, in the background (now: {live})"),
+    (":provider <name>", "switch provider for this session"),
+    (":model <id>", "switch model"),
+    (":models", "list models and what was last found"),
+    (":models check", "ask each model if it answers now"),
+    (":memory", "list saved symbols"),
+    (":import <folder>", "bring an existing project in: its functions and variables can then be used by name"),
+    (":help", "this help"),
+    (":quit", "leave (or Ctrl+D)"),
+    ("!<command>", "run a shell command, e.g. !ls"),
+)
 
 # Commands whose text is code or plain words, kept exactly as typed: quotes need no closing
 # and the spaces that indent a line stay.
@@ -124,22 +135,24 @@ class ImyConsole:
             f"[bold cyan]IMY console[/bold cyan] {__version__} · {escape(config.provider)}/"
             f"{escape(config.resolved_model())} · target [bold]{escape(self.target)}[/bold]"
         )
-        self.console.print('1. Say what you are building: [green]# ("what it builds and how it works")[/green]')
-        self.console.print("   or let IMY write that line: [bold]:header[/bold] what it builds and how it works")
-        self.console.print("2. Code every step under it, line by line, in your own syntax.")
-        self.console.print("3. [bold]:run[/bold] it. [bold]:example hello[/bold] loads a ready program, [bold]:help[/bold] lists everything.")
+        # Wrapped by word at the terminal's own width: a phone shows about 55 columns.
+        say = lambda text: self.console.print(text, soft_wrap=False)  # noqa: E731
+        say('1. Say what you are building: [green]# ("what it builds and how it works")[/green]')
+        say("   or let IMY write that line: [bold]:header[/bold] what it builds and how it works")
+        say("2. Code every step under it, line by line, in your own syntax.")
+        say("3. [bold]:run[/bold] it. [bold]:example hello[/bold] loads a ready program, [bold]:help[/bold] lists everything.")
         other = "rust" if self.target != "rust" else "python"
-        self.console.print(
+        say(
             f"   It becomes {escape(self.target)}. [bold]:target {other}[/bold] picks another language, "
             "[bold]:languages[/bold] lists them all."
         )
         if self.live_on:
-            self.console.print(
+            say(
                 f"[dim]Live: each line you enter is converted to {escape(self.target)} in the background and shown as it "
                 "arrives. :live off stops it.[/dim]"
             )
         elif config.provider != "automa":
-            self.console.print("[dim]Live conversion is off, as every line would use your key. :live on turns it on.[/dim]")
+            say("[dim]Live conversion is off, as every line would use your key. :live on turns it on.[/dim]")
 
     def loop(self) -> int:
         self.banner()
@@ -298,10 +311,13 @@ class ImyConsole:
 
         covered = len(outcome.job.lines)
         more = ", more typed since" if outcome.stale else ""
-        self.console.print(
-            f"[dim]┄ {escape(result.language.name)} for line{'' if covered == 1 else 's'} 1–{covered} "
-            f"({escape(compile_note(result))}{more}) ┄[/dim]"
-        )
+        about = f"{result.language.name} for line{'' if covered == 1 else 's'} 1–{covered}"
+        header = f"┄ {about} ({compile_note(result)}{more}) ┄"
+        if len(header) > self.console.width:
+            # A phone's terminal: the seconds stay, the model's long name goes (:models names it).
+            short = "cached" if result.from_cache else format_seconds(result.seconds)
+            header = f"┄ {about} ({short}{more}) ┄"
+        self.console.print(f"[dim]{escape(header)}[/dim]")
         limit = 12
         width = len(str(len(current)))
         for number, line in changed[:limit]:
@@ -428,7 +444,16 @@ class ImyConsole:
         return True
 
     def _help(self, args: list[str], raw: str) -> bool:
-        self.console.print(HELP.format(target=escape(self.target), live="on" if self.live_on else "off"))
+        from rich.table import Table
+
+        self.console.print(HELP_INTRO, soft_wrap=False)
+        table = Table.grid(padding=(0, 2))
+        table.add_column(no_wrap=True, style="bold")
+        table.add_column(overflow="fold")
+        values = {"target": self.target, "live": "on" if self.live_on else "off"}
+        for command, meaning in HELP_ROWS:
+            table.add_row(escape(command), escape(meaning.format(**values)))
+        self.console.print(table)
         return True
 
     def _show(self, args: list[str], raw: str) -> bool:

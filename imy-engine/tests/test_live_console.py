@@ -69,6 +69,76 @@ class TestPreviewCompile:
         assert llm.calls == 2
 
 
+class TestNarrowTerminal:
+    """A phone shows about 55 columns: nothing may break in the middle of a word."""
+
+    def narrow(self, isolated: Path, lines: list[str], width: int = 52) -> tuple[ImyConsole, Console]:
+        console = Console(record=True, width=width, force_terminal=False, file=io.StringIO())
+        feed = iter(lines)
+
+        def read(prompt: str) -> str:
+            try:
+                return next(feed)
+            except StopIteration:
+                raise EOFError from None
+
+        session = open_session(isolated / "console.imy")
+        return ImyConsole(lambda p, m: session, target="python", console=console, input_fn=read, live=True, live_inline=True), console
+
+    def test_the_opening_lines_wrap_between_words(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.narrow(isolated, [])
+        repl.loop()
+        lines = console.export_text().split("\n")
+        assert max(len(line) for line in lines) <= 52
+        text = " ".join(" ".join(lines).split())
+        # Every word is whole: wrapped by the terminal at 52 columns, "how" and "and" came apart.
+        for phrase in ('# ("what it builds and how it works")', ":header what it builds and how it works", "picks another language", "in the background and shown as it arrives"):
+            assert phrase in text, phrase
+
+    def test_help_gives_each_command_its_own_row(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.narrow(isolated, [":help"])
+        repl.loop()
+        everything = console.export_text().split("\n")
+        assert max(len(line) for line in everything) <= 52
+        # The rows start at :run; the sentence above them wraps wherever 52 columns end.
+        first = next(index for index, line in enumerate(everything) if line.startswith(":run"))
+        lines = [line for line in everything[first:] if line.strip()]
+        text = "\n".join(lines)
+        starts = [line.split()[0] for line in lines if line.startswith((":", "!"))]
+        assert starts == [":run", ":check", ":convert", ":header", ":examples", ":example", ":show", ":code", ":undo", ":del", ":edit", ":insert",
+                          ":clear", ":load", ":save", ":target", ":languages", ":live", ":provider", ":model", ":models", ":models", ":memory",
+                          ":import", ":help", ":quit", "!<command>"]
+        # A long description continues under its own column, not under the command.
+        wrapped = [line for line in lines if not line.startswith((":", "!"))]
+        assert wrapped and all(line.startswith(" " * 10) for line in wrapped)
+        assert "(now: python)" in text and "(now: on)" in text
+
+    def test_help_on_a_wide_terminal_is_one_line_a_command(self, isolated: Path, llm: FakeLLM) -> None:
+        console = Console(record=True, width=140, force_terminal=False, file=io.StringIO())
+        feed = iter([":help", ":quit"])
+        session = open_session(isolated / "console.imy")
+        repl = ImyConsole(lambda p, m: session, target="rust", console=console, input_fn=lambda prompt: next(feed))
+        repl.loop()
+        text = console.export_text().split("Then use a command:")[1]
+        lines = [line for line in text.split("\n") if line.strip() and "imy>" not in line]
+        assert len(lines) == 27 and all(line.startswith((":", "!")) for line in lines)
+        assert "compile to another language (now: rust)" in text and "(now: off)" in text
+
+    def test_the_live_line_drops_the_models_name_when_it_does_not_fit(self, isolated: Path, llm: FakeLLM) -> None:
+        llm.model = "nvidia/nemotron-3-ultra-550b-a55b:free"
+        llm.queue(reply('person = "Bo"\n'))
+        repl, console = self.narrow(isolated, [HEADER, 'person = "Bo"'])
+        repl.loop()
+        text = console.export_text()
+        assert "┄ python for lines 1–2 (" in text and "nemotron" not in text
+        assert max(len(line) for line in text.split("\n")) <= 52
+
+        llm.queue(reply('person = "Bo"\n'))
+        wide, wide_console = self.narrow(isolated, [HEADER, 'person = "Cy"'], width=120)
+        wide.loop()
+        assert "┄ python for lines 1–2 (nvidia/nemotron-3-ultra-550b-a55b:free" in wide_console.export_text()
+
+
 class TestLiveAfterARun:
     def test_a_switch_of_language_after_a_run_shows_the_program_in_the_new_language(
         self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]

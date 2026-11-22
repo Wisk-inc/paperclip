@@ -30,6 +30,9 @@
   `imy languages <name>` says what a language needs. In the console: `:languages`.
 - `imy console --to <language>` opens the console in a language, and the opening lines name
   it and how to switch (`:target rust`).
+- **Reads well on a phone.** The console's opening lines and `:help` wrap between words at
+  the terminal's own width, `:help` gives each command its own row, and a live-conversion
+  line that would not fit drops the model's long name and keeps the seconds.
 - **`imy import`: bring an existing project in.** Every function, class and variable a
   project's files define at their top level is saved to memory with the project's own code
   as the definition, so a `.imy` file uses them by name and they come out in whatever

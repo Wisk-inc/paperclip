@@ -41,6 +41,27 @@ export function offeredLanguage(tool: Pick<TerminalToolInfo, "languages">, saved
   return saved && tool.languages?.some((language) => language.id === saved) ? saved : undefined;
 }
 
+/**
+ * The size a terminal will have, worked out from the window before the
+ * terminal is on screen. A tool lays out its first lines for the size it is
+ * started with: started at 80 columns on a phone that shows about 55, its
+ * opening text breaks in the middle of words. The terminal view sets the exact
+ * size once it is drawn; this is the terminal font's cell (12px JetBrains
+ * Mono, line height 1.3) and the room the header and key bar take.
+ */
+export function terminalSizeGuess(width: number = window.innerWidth, height: number = window.innerHeight): { cols: number; rows: number } {
+  const CELL_WIDTH = 7.2;
+  const CELL_HEIGHT = 16;
+  const SIDE_PADDING = 12;
+  const HEADER_AND_KEYS = 120;
+  const cols = Math.floor((width - SIDE_PADDING) / CELL_WIDTH);
+  const rows = Math.floor((height - HEADER_AND_KEYS) / CELL_HEIGHT);
+  return {
+    cols: Number.isFinite(cols) ? Math.min(200, Math.max(40, cols)) : 80,
+    rows: Number.isFinite(rows) ? Math.min(100, Math.max(12, rows)) : 24,
+  };
+}
+
 /** What the language menu's first entry says: what the tool compiles to when no language is picked. */
 export function defaultLanguageLabel(tool: Pick<TerminalToolInfo, "id">): string {
   // IMY keeps its own choice (`:target` in its console, or `imy init`), which starts as Python.
@@ -185,7 +206,7 @@ export function Terminals() {
 
   const start = useMutation({
     mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string; model?: string; language?: string }) =>
-      terminalsApi.start(companyId!, { ...input, cols: 80, rows: 24 }),
+      terminalsApi.start(companyId!, { ...input, ...terminalSizeGuess() }),
     onSuccess: ({ session }) => {
       haptic("tick");
       setOpen(session);
