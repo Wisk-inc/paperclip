@@ -299,6 +299,24 @@ models while the service token stays inside that script.
   and remove the old one. `imy-engine/tests/test_bundled_wheel.py` fails until
   it matches the source, and a version that did not change would leave phones
   on the IMY they already have.
+- **Running now** lists only sessions whose `status` is not `exited`. The
+  server keeps an ended session for 60 s (`sessions.ts`, so a reconnect can
+  read its last lines), and the page used to list it for that minute. When a
+  session leaves the running set while the list is on screen, the page asks
+  the status again, so a tool installed in a terminal left in the background
+  turns Ready without a visit to that terminal.
+- **The installer's own messages** (`say` and `warn` in `linux-setup.sh`) are
+  folded between words to the terminal's width (`folded`: `stty size` on the
+  descriptor they go to, `fold -s`, the following lines indented under the
+  text). Output that is not a terminal, or a terminal whose width cannot be
+  read, gets the line whole. IMY's pip steps pass
+  `--disable-pip-version-check`.
+- **Checking a release:** the bridge imports `@paperclipai/shared` by name, so
+  it runs only from an installed server, never from the unpacked bundle. To
+  check what the APK ships, install the bundle's packages the way
+  `mobile/termux/install.sh` does (`npm install --prefix <folder> --omit=dev
+  <tarballs>`), start `node <folder>/node_modules/paperclipai/dist/index.js
+  onboard --yes`, and open the board it serves.
 
 ### App Inspector
 Pick an app on your phone to decode its manifest, resources and code, read

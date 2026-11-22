@@ -576,8 +576,11 @@ can install IMY on a computer with pip. Also new: a **Check** button on
 Terminals and in the chat's model picker asks every free model for one word and
 marks the ones that are not answering; one more free model (LFM3 1.7B); a
 terminal starts at the width your screen really shows, so a tool's first lines
-no longer break mid-word on a phone; and the Terminals tools' names and
-descriptions are translated with the rest of the board.
+no longer break mid-word on a phone; the Terminals tools' names and
+descriptions are translated with the rest of the board; **Running now** lists
+only the terminals still running, and a tool that finishes installing in the
+background turns **Ready** by itself; and the installer's own messages fold
+between words on a narrow screen.
 
 **1.9.14** (18 November 2026) — Automa in your language. **Account → Language**
 offers **Auto** and 40 languages: Auto follows your phone's or browser's

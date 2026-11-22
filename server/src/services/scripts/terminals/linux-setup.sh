@@ -11,8 +11,36 @@
 set -euo pipefail
 
 DISTRO=debian
-say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m!\033[0m %s\n' "$*" >&2; }
+
+# Automa's terminal on a phone is narrow, and a terminal cuts a line that is
+# too long in the middle of a word. This script's own messages are folded
+# between words instead, to the width of the terminal they go to, and the lines
+# after the first start under the text. $1: the terminal's file descriptor,
+# $2: the width of the mark before the text, $3: the text. Anything that is not
+# a terminal (a log, a pipe) gets the line whole, and so does a terminal whose
+# width cannot be read or folded to.
+folded() {
+  local fd="$1" indent="$2" text="$3" width="" out
+  if [ -t "$fd" ]; then
+    # The terminal is held on descriptor 9 while its size is read: inside $( )
+    # descriptor 1 is the pipe that collects the answer, not the terminal.
+    { width="$(stty size <&9 2>/dev/null || true)"; } 9<&"$fd"
+    width="${width##* }"
+  fi
+  case "$width" in
+    ''|*[!0-9]*) printf '%s\n' "$text"; return 0 ;;
+  esac
+  width=$((width - indent))
+  if [ "$width" -ge 16 ] \
+    && out="$(printf '%s\n' "$text" | fold -s -w "$width" 2>/dev/null | sed -e "2,\$s/^/$(printf '%*s' "$indent" '')/" -e 's/ *$//')" \
+    && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  else
+    printf '%s\n' "$text"
+  fi
+}
+say() { printf '\033[1;36m==>\033[0m '; folded 1 4 "$*"; }
+warn() { { printf '\033[1;33m!\033[0m '; folded 2 2 "$*"; } >&2; }
 
 on_phone() { [ -n "${PREFIX:-}" ] && case "$PREFIX" in *com.termux*) return 0;; esac; return 1; }
 
@@ -118,8 +146,10 @@ elif [ ! -d "$venv" ]; then
   python3 -m venv "$venv" || exit 4
 fi
 # A newer pip is welcome, not needed: an update still goes through without a connection.
-"$venv/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
-"$venv/bin/python" -m pip install --quiet --upgrade "$1" || exit 5
+# --disable-pip-version-check: when pip could not be refreshed, its advice to update itself
+# would be printed over what matters here (whether IMY installed).
+"$venv/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade pip >/dev/null 2>&1 || true
+"$venv/bin/python" -m pip install --quiet --disable-pip-version-check --upgrade "$1" || exit 5
 mkdir -p "$HOME/.local/bin"
 ln -sf "$venv/bin/imy" "$HOME/.local/bin/imy"
 '

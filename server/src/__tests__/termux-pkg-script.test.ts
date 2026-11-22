@@ -270,7 +270,7 @@ describe("linux-setup.sh installing IMY", () => {
     // The files tree is bound in, so Debian can read the wheel where Automa keeps it.
     expect(log).toContain(`proot-distro login debian --bind ${path.dirname(prefix)} -- bash -lc`);
     expect(await pythonCalls()).toContain(`python3 -m venv ${venv}`);
-    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --disable-pip-version-check --upgrade ${wheel}`);
     expect(await readFile(path.join(home(), ".local", "bin", "imy"), "utf8")).toContain("imy 9.9.9");
 
     // A second run is an update: the environment is kept, and a pip that cannot be refreshed does not stop it.
@@ -281,7 +281,7 @@ describe("linux-setup.sh installing IMY", () => {
     expect(second.out).not.toContain("Installing IMY");
     expect(second.code).toBe(0);
     expect((await pythonCalls()).filter((line) => line.startsWith("python3 -m venv"))).toEqual([]);
-    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --disable-pip-version-check --upgrade ${wheel}`);
   });
 
   it("starts the virtual environment again when an older Python left it without pip", async () => {
@@ -319,7 +319,7 @@ describe("linux-setup.sh installing IMY", () => {
     expect(result.code).toBe(0);
     expect(await calls()).not.toContain("proot-distro");
     expect(await pythonCalls()).toContain(`python3 -m venv ${path.join(home(), ".local", "share", "imy-venv")}`);
-    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --disable-pip-version-check --upgrade ${wheel}`);
     expect(await readFile(path.join(home(), ".local", "bin", "imy"), "utf8")).toContain("imy 9.9.9");
 
     await writeFile(path.join(root, "old-python"), "");
@@ -346,6 +346,37 @@ describe("automa-adb-link.sh", () => {
     const result = await runFile(path.join(MOBILE_TERMUX, "automa-adb-link.sh"), [], { command: ["setsid", "-w", "timeout", "-s", "KILL", "20", "bash"] });
     expect(result.code).toBe(1);
     expect(result.out).toContain("run it in the Termux app");
+  });
+});
+
+describe("linux-setup.sh in a narrow terminal", () => {
+  const script = path.join(SCRIPTS, "terminals", "linux-setup.sh");
+  /** What a terminal that wide shows: the script runs under Automa's own relay; colours and carriage returns removed. */
+  async function shown(cols: number, args: string[]) {
+    const relay = ["python3", path.join(SCRIPTS, "terminals", "pty-relay.py"), String(cols), "24", "--", "bash"];
+    const result = await runFile(script, args, { command: relay, env: { PREFIX: "" } });
+    // eslint-disable-next-line no-control-regex
+    const lines = result.out.replace(/\x1b\[[0-9;]*m/g, "").replace(/\r/g, "").split("\n").filter(Boolean);
+    return { code: result.code, lines };
+  }
+
+  it("folds its own messages between words, the next lines set under the text", async () => {
+    // A phone's terminal: left alone, it would cut "install." and "Terminals" in the middle.
+    const narrow = await shown(30, ["install", "shell"]);
+    expect(narrow.lines).toEqual(["==> The shell needs no", "    install.", "==> Done. Open shell from the", "    Terminals screen."]);
+    expect(narrow.code).toBe(0);
+    // A warning reaches the same terminal on its other channel and is folded the same way.
+    const usage = await shown(30, []);
+    expect(usage.lines).toEqual(["! usage: linux-setup.sh setup", "  | install <tool>"]);
+    expect(usage.code).toBe(2);
+  });
+
+  it("leaves a message whole where it fits, and where it is not going to a terminal", async () => {
+    const whole = ["==> The shell needs no install.", "==> Done. Open shell from the Terminals screen."];
+    expect((await shown(120, ["install", "shell"])).lines).toEqual(whole);
+    const piped = await runFile(script, ["install", "shell"], { env: { PREFIX: "" } });
+    // eslint-disable-next-line no-control-regex
+    expect(piped.out.replace(/\x1b\[[0-9;]*m/g, "").split("\n").filter(Boolean)).toEqual(whole);
   });
 });
 

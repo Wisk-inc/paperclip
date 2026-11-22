@@ -198,7 +198,12 @@ export function Terminals() {
     () => [...new Set(tools.filter((tool) => FREE_MODEL_TOOLS.has(tool.id)).flatMap((tool) => tool.models ?? []))],
     [tools],
   );
-  const running = sessions.data?.sessions ?? [];
+  // What is still running. The server keeps an ended terminal for a minute so a
+  // reconnect can read its last lines; it used to stay listed under "Running now".
+  const running = useMemo(
+    () => (sessions.data?.sessions ?? []).filter((session) => session.status !== "exited"),
+    [sessions.data],
+  );
   const phone = status.data?.kind === "phone";
   const linuxReady = status.data?.linuxReady ?? true;
   // Servers before 1.9.6 don't report it: assume the relay is there.
@@ -227,6 +232,18 @@ export function Terminals() {
       refreshStatus();
     },
   });
+  // A tool installing in a terminal left in the background: when its program
+  // ends, look again at what is installed, so its tile says Ready without a
+  // visit to that terminal.
+  const runningIds = running.map((session) => session.id).join(" ");
+  const lastRunningIds = useRef(runningIds);
+  useEffect(() => {
+    const before = lastRunningIds.current ? lastRunningIds.current.split(" ") : [];
+    lastRunningIds.current = runningIds;
+    const now = new Set(runningIds ? runningIds.split(" ") : []);
+    if (before.some((id) => !now.has(id))) refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningIds]);
 
   // A deep link from an agent's settings ("Open Claude Code with Ada's model") auto-opens the tool.
   const [params, setParams] = useSearchParams();

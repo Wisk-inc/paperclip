@@ -117,6 +117,45 @@ describe("Terminals page", () => {
     await vi.waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
   });
 
+  it("lists a terminal under Running now only while its program runs", async () => {
+    // The server keeps an ended terminal for a minute; it is not running.
+    const session = { companyId: "company-1", toolId: "imy", mode: "run", cwd: "/", exitCode: null, createdAt: "2026-11-22T00:00:00.000Z", agentId: null };
+    api.sessions.mockResolvedValue({
+      sessions: [
+        { ...session, id: "s1", title: "IMY", status: "running" },
+        { ...session, id: "s2", title: "Install IMY", mode: "install", status: "exited", exitCode: 0 },
+      ],
+    });
+    await render();
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-testid=terminal-running]").length).toBe(1));
+    expect(host.querySelector("[data-testid=terminal-running]")!.textContent).toContain("IMY");
+    expect(host.querySelector("[data-testid=terminal-running]")!.textContent).not.toContain("Install IMY");
+
+    // Once nothing runs, the list goes away with its heading.
+    api.sessions.mockResolvedValue({ sessions: [{ ...session, id: "s1", title: "IMY", status: "exited", exitCode: 0 }] });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["terminals", "sessions", "company-1"] }); });
+    await vi.waitFor(() => expect(host.querySelector('section[aria-label="Running terminals"]')).toBeNull());
+    expect(host.textContent).not.toContain("Running now");
+  });
+
+  it("looks again at what is installed when a terminal left in the background ends", async () => {
+    const installing = { id: "s1", companyId: "company-1", toolId: "imy", mode: "install", title: "Install IMY", cwd: "/", status: "running", exitCode: null, createdAt: "2026-11-22T00:00:00.000Z", agentId: null };
+    api.sessions.mockResolvedValue({ sessions: [installing] });
+    await render();
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-testid=terminal-running]").length).toBe(1));
+    expect(tile("imy").textContent).toContain("Tap to install");
+    expect(api.status).toHaveBeenCalledTimes(1);
+
+    // The installer finishes while the list is on screen.
+    api.sessions.mockResolvedValue({ sessions: [{ ...installing, status: "exited", exitCode: 0 }] });
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ claude: true, imy: true }) });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["terminals", "sessions", "company-1"] }); });
+
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=terminal-running]")).toBeNull());
+    await vi.waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(tile("imy").textContent).toContain("Ready"));
+  });
+
   it("says Python is missing and keeps the tools from failing one by one", async () => {
     api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: false, tools: tools({ claude: true }) });
     await render();
