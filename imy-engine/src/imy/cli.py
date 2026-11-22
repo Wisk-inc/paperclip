@@ -58,13 +58,18 @@ from .runner import (
 )
 from .workspace import Workspace, prepare_virtual_files
 
+# Below this many columns the terminal is a phone's: its own wrapping would cut words in half.
+NARROW_TERMINAL = 80
+
+
 class ImyConsoleOutput(Console):
     """Rich console that leaves long text lines (messages, file paths) for the terminal to wrap,
-    so a path is never broken in the middle of a word. Tables and code keep Rich's own layout."""
+    so a path stays in one piece. On a narrow terminal, where that wrapping would cut words in
+    half, the text is wrapped between words instead. Tables and code keep Rich's own layout."""
 
     def print(self, *objects: Any, **kwargs: Any) -> None:
         if "soft_wrap" not in kwargs and all(isinstance(item, str) for item in objects):
-            kwargs["soft_wrap"] = True
+            kwargs["soft_wrap"] = self.width >= NARROW_TERMINAL
         super().print(*objects, **kwargs)
 
 

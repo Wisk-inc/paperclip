@@ -133,7 +133,8 @@ class ImyConsole:
         config = self.session.config
         self.console.print(
             f"[bold cyan]IMY console[/bold cyan] {__version__} · {escape(config.provider)}/"
-            f"{escape(config.resolved_model())} · target [bold]{escape(self.target)}[/bold]"
+            f"{escape(config.resolved_model())} · target [bold]{escape(self.target)}[/bold]",
+            soft_wrap=False,
         )
         # Wrapped by word at the terminal's own width: a phone shows about 55 columns.
         say = lambda text: self.console.print(text, soft_wrap=False)  # noqa: E731

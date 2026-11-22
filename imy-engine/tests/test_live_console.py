@@ -11,7 +11,7 @@ import pytest
 from rich.console import Console
 
 from conftest import FakeLLM, reply
-from imy.cli import live_by_default, open_session
+from imy.cli import ImyConsoleOutput, live_by_default, open_session
 from imy.compiler import CompileOptions
 from imy.config import EnvView
 from imy.console import ImyConsole
@@ -73,7 +73,8 @@ class TestNarrowTerminal:
     """A phone shows about 55 columns: nothing may break in the middle of a word."""
 
     def narrow(self, isolated: Path, lines: list[str], width: int = 52) -> tuple[ImyConsole, Console]:
-        console = Console(record=True, width=width, force_terminal=False, file=io.StringIO())
+        # The console the imy command itself writes to: it leaves long lines to a wide terminal.
+        console = ImyConsoleOutput(record=True, width=width, force_terminal=False, file=io.StringIO(), highlight=False)
         feed = iter(lines)
 
         def read(prompt: str) -> str:
@@ -94,6 +95,19 @@ class TestNarrowTerminal:
         # Every word is whole: wrapped by the terminal at 52 columns, "how" and "and" came apart.
         for phrase in ('# ("what it builds and how it works")', ":header what it builds and how it works", "picks another language", "in the background and shown as it arrives"):
             assert phrase in text, phrase
+
+    def test_messages_wrap_between_words_on_a_phone_and_stay_whole_on_a_wide_terminal(self, isolated: Path, llm: FakeLLM) -> None:
+        said = "this line reads like a request to an assistant, and the body of a program must be code that IMY can check"
+        phone = ImyConsoleOutput(record=True, width=52, force_terminal=False, file=io.StringIO(), highlight=False)
+        phone.print(said)
+        lines = phone.export_text().rstrip("\n").split("\n")
+        assert len(lines) == 3 and max(len(line) for line in lines) <= 52
+        assert " ".join(line.strip() for line in lines) == said
+        wide = ImyConsoleOutput(record=True, width=100, force_terminal=False, file=io.StringIO(), highlight=False)
+        path = "/home/someone/a project/with a very long folder name/and another long folder name/and one more/file name.imy"
+        wide.print(f"written to {path}")
+        # Left in one piece for the terminal to wrap: a copied path has no line break in it.
+        assert wide.export_text().rstrip("\n") == f"written to {path}"
 
     def test_help_gives_each_command_its_own_row(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.narrow(isolated, [":help"])
