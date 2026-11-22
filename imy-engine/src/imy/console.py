@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import shlex
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -18,9 +19,10 @@ from rich.syntax import Syntax
 
 from . import __version__
 from .compiler import CompileOptions, CompileResult
-from .errors import CompilationFailed, ImyError
+from .errors import CompilationFailed, Diagnostic, ErrorCode, ImyError, LLMRateLimitError
 from .languages import resolve_language
-from .parser import parse_header
+from .live import LiveJob, LiveOutcome, LivePreview, changed_lines
+from .parser import parse_header, parse_text
 from .progress import working
 from .runner import build_artifact, run_artifact
 from .workspace import prepare_virtual_files
@@ -38,9 +40,10 @@ Then use a command:
   :edit N <text>     replace line N                       :insert N <text>  insert before line N
   :clear             start over                           :load <file>  read an .imy file
   :save <file>       write the code to a file (:save! overwrites)
-  :target <lang>     compile to another language (now: {target})
+  :target <lang>     compile to another language (now: {target})   :languages  what runs on this machine
   :provider <name>   switch provider for this session     :model <id>   switch model
   :models            list models and what was last found  :models check  ask each if it answers now
+  :live on|off       convert each line as you enter it, in the background (now: {live})
   :memory            list saved symbols
   :help              this help                            :quit    leave (or Ctrl+D)
   !<command>         run a shell command, e.g. !ls"""
@@ -60,6 +63,8 @@ class ImyConsole:
         input_fn: Callable[[str], str] = input,
         provider: str | None = None,
         model: str | None = None,
+        live: bool = False,
+        live_inline: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._provider = provider
@@ -73,13 +78,28 @@ class ImyConsole:
         self.workspace = self.session.workspace
         self.scratch = self.workspace.console / "console.imy"
         self._history: Path | None = None
+        self._readline: object | None = None
         self._setup_history()
+        # Live conversion: each line entered is converted in the background (see live.py).
+        self.live_on = live
+        # Convert in step with the typing instead of in the background (tests, piped input).
+        self._live_inline = live_inline
+        self._live = LivePreview(convert=self._live_convert, deliver=self._live_deliver)
+        # Who may write to the screen: the command being run, or a live result.
+        self._screen = threading.RLock()
+        self._at_prompt = False
+        self._prompt = ""
+        self._held: list[LiveOutcome] = []
+        self._preview_lines: list[str] = []
+        self._shown_problems: set[tuple[str, int, str]] = set()
+        self._busy_noted = False
 
     def _setup_history(self) -> None:
         try:
             import readline
         except ImportError:
             return
+        self._readline = readline
         self._history = self.workspace.console / "history"
         with contextlib.suppress(OSError):
             self.workspace.console.mkdir(parents=True, exist_ok=True)
@@ -107,19 +127,39 @@ class ImyConsole:
         self.console.print("   or let IMY write that line: [bold]:header[/bold] what it builds and how it works")
         self.console.print("2. Code every step under it, line by line, in your own syntax.")
         self.console.print("3. [bold]:run[/bold] it. [bold]:example hello[/bold] loads a ready program, [bold]:help[/bold] lists everything.")
+        other = "rust" if self.target != "rust" else "python"
+        self.console.print(
+            f"   It becomes {escape(self.target)}. [bold]:target {other}[/bold] picks another language, "
+            "[bold]:languages[/bold] lists them all."
+        )
+        if self.live_on:
+            self.console.print(
+                f"[dim]Live: each line you enter is converted to {escape(self.target)} in the background and shown as it "
+                "arrives. :live off stops it.[/dim]"
+            )
+        elif config.provider != "automa":
+            self.console.print("[dim]Live conversion is off, as every line would use your key. :live on turns it on.[/dim]")
 
     def loop(self) -> int:
         self.banner()
         try:
             while True:
+                self._show_held()
+                prompt = f"{len(self.lines) + 1:>3} imy> "
+                with self._screen:
+                    self._prompt = prompt
+                    self._at_prompt = True
                 try:
-                    text = self._input(f"{len(self.lines) + 1:>3} imy> ")
+                    text = self._input(prompt)
                 except EOFError:
                     self.console.print()
                     break
                 except KeyboardInterrupt:
                     self.console.print()
                     continue
+                finally:
+                    with self._screen:
+                        self._at_prompt = False
                 try:
                     if text.startswith(":"):
                         if not self.command(text[1:].strip()):
@@ -135,9 +175,165 @@ class ImyConsole:
                 if not text.strip() and not self.lines:
                     continue
                 self.lines.append(text.rstrip("\r\n"))
+                self._buffer_changed()
         finally:
+            self._live.close()
             self._save_history()
         return 0
+
+    # ── Live conversion ──────────────────────────────────────────────────
+
+    def _buffer_changed(self, *, fresh: bool = False) -> None:
+        """A line was entered or edited: check it at once, then convert the buffer in the background.
+
+        ``fresh`` means the buffer was replaced (cleared, loaded, an example): what was shown
+        for the old one no longer applies.
+        """
+        if fresh:
+            self._live.forget()
+            self._preview_lines = []
+            self._shown_problems.clear()
+        if not self.live_on or not any(line.strip() for line in self.lines):
+            return
+        # The free checks need no model: a line that breaks a rule is reported as soon as it is entered.
+        try:
+            self.session.compiler.static_check(parse_text(self.source(), path=self.scratch))
+        except CompilationFailed as exc:
+            # A header with nothing under it yet is a program not started, not a mistake.
+            real = [d for d in exc.diagnostics if d.code is not ErrorCode.EMPTY_BODY]
+            if real:
+                self._live.forget()
+                self._show_problems(real)
+            return
+        except ImyError:
+            return
+        if self._live_inline:
+            job = LiveJob(number=0, lines=tuple(self.lines), target=self.target)
+            outcome = LiveOutcome(job=job)
+            try:
+                outcome.result = self._live_convert(job)
+            except CompilationFailed as exc:
+                outcome.failure = exc
+            except ImyError as exc:
+                outcome.error = exc
+            self._show_outcome(outcome)
+        else:
+            self._live.submit(self.lines, self.target)
+
+    def _live_convert(self, job: LiveJob) -> CompileResult:
+        return self.session.compiler.compile_text(
+            job.source,
+            CompileOptions(target=job.target, save_memory=False, preview=True, run_dir=Path.cwd()),
+            path=self.scratch,
+        )
+
+    def _can_redraw(self) -> bool:
+        """Whether a result can be written above the line being typed and that line put back."""
+        return self._readline is not None and self._input is input and self.console.is_terminal
+
+    def _live_deliver(self, outcome: LiveOutcome) -> None:
+        """Called on the worker thread when a preview is in."""
+        with self._screen:
+            if self._at_prompt and self._can_redraw():
+                typed = self._readline.get_line_buffer()  # type: ignore[union-attr]
+                stream = self.console.file
+                # Clear the line being typed, write the result, then put the prompt and the typed text back.
+                stream.write("\r\x1b[2K")
+                stream.flush()
+                self._show_outcome(outcome)
+                stream.write(self._prompt + typed)
+                stream.flush()
+            else:
+                self._held.append(outcome)
+
+    def _show_held(self) -> None:
+        """Results that came in while a command was writing are shown before the next prompt."""
+        with self._screen:
+            held, self._held = self._held, []
+        for outcome in held:
+            self._show_outcome(outcome)
+
+    def _show_problems(self, diagnostics: list[Diagnostic]) -> None:
+        fresh = []
+        for diag in diagnostics:
+            key = (diag.code.value, diag.line, diag.message)
+            if key not in self._shown_problems:
+                self._shown_problems.add(key)
+                fresh.append(diag)
+        for diag in fresh:
+            colour = "magenta" if diag.family == "SyntaxError" else "red"
+            self.console.print(f"[{colour}]✗ {escape(diag.location)} · {escape(diag.code.value)}[/{colour}]: {escape(diag.message)}")
+        if fresh:
+            self.console.print("[dim]:undo removes the last line, :edit N <text> changes one.[/dim]")
+
+    def _show_outcome(self, outcome: LiveOutcome) -> None:
+        if outcome.error is not None:
+            error = outcome.error
+            if isinstance(error, LLMRateLimitError) and error.kind in ("busy", "rate_limit"):
+                # Busy passes by itself: the next line asks again. Said once, not after every line.
+                if not self._busy_noted:
+                    self._busy_noted = True
+                    self.console.print(f"[yellow]live:[/yellow] {escape(error.message)} [dim]It is asked again with your next line.[/dim]")
+                return
+            self.live_on = False
+            self.console.print(f"[yellow]live conversion paused:[/yellow] {escape(error.message)}")
+            hint = f"{error.hint} " if error.hint else ""
+            self.console.print(f"  [dim]{escape(hint)}:live on turns it back on; :run still works as before.[/dim]")
+            return
+        if outcome.failure is not None:
+            self._show_problems(list(outcome.failure.diagnostics))
+            return
+        result = outcome.result
+        if result is None:
+            return
+        self._busy_noted = False
+        current = result.code.rstrip("\n").split("\n") if result.code.strip() else []
+        changed = changed_lines(self._preview_lines, current)
+        self._preview_lines = current
+        self.last = result
+        if not changed:
+            return
+        from .cli import compile_note
+
+        covered = len(outcome.job.lines)
+        more = ", more typed since" if outcome.stale else ""
+        self.console.print(
+            f"[dim]┄ {escape(result.language.name)} for line{'' if covered == 1 else 's'} 1–{covered} "
+            f"({escape(compile_note(result))}{more}) ┄[/dim]"
+        )
+        limit = 12
+        width = len(str(len(current)))
+        for number, line in changed[:limit]:
+            self.console.print(f"[dim]{number:>{width}} │[/dim] [green]{escape(line)}[/green]")
+        if len(changed) > limit:
+            self.console.print(f"[dim]… {len(changed) - limit} more changed lines; :code shows all {len(current)}.[/dim]")
+
+    def _languages(self, args: list[str], raw: str) -> bool:
+        from .cli import render_error, render_languages
+
+        try:
+            render_languages(self.console, args[0] if args else None)
+        except ImyError as exc:
+            render_error(exc, self.console)
+        return True
+
+    def _live_cmd(self, args: list[str], raw: str) -> bool:
+        choice = args[0].lower() if args else ""
+        if choice in ("on", "off"):
+            self.live_on = choice == "on"
+            self._busy_noted = False
+            if self.live_on:
+                self.console.print(f"live conversion is [bold]on[/bold]: each line is converted to {escape(self.target)} as you enter it")
+                self._buffer_changed()
+            else:
+                self._live.forget()
+                self.console.print("live conversion is [bold]off[/bold]: nothing is converted until :run, :check or :convert")
+            return True
+        if args:
+            self.console.print("Usage: :live on   or   :live off")
+            return True
+        self.console.print(f"live conversion is [bold]{'on' if self.live_on else 'off'}[/bold] (:live on, :live off)")
+        return True
 
     def source(self) -> str:
         return "\n".join(self.lines) + "\n"
@@ -155,6 +351,7 @@ class ImyConsole:
 
         from .cli import SLOW_HINT, compile_note
 
+        self._live.forget()
         path = self._write_scratch()
         config = self.session.config
         try:
@@ -204,6 +401,7 @@ class ImyConsole:
             "memory": self._memory, "code": self._code,
             "check": self._check, "run": self._run, "convert": self._convert,
             "header": self._header, "examples": self._examples, "example": self._example,
+            "live": self._live_cmd, "languages": self._languages, "langs": self._languages,
         }.get(name)
         if handler is None:
             self.console.print(f"[red]Unknown command :{escape(name)}[/red] (type :help)")
@@ -214,7 +412,7 @@ class ImyConsole:
         return False
 
     def _help(self, args: list[str], raw: str) -> bool:
-        self.console.print(HELP.format(target=escape(self.target)))
+        self.console.print(HELP.format(target=escape(self.target), live="on" if self.live_on else "off"))
         return True
 
     def _show(self, args: list[str], raw: str) -> bool:
@@ -228,6 +426,7 @@ class ImyConsole:
         if self.lines:
             removed = self.lines.pop()
             self.console.print(f"[dim]removed: {escape(removed)}[/dim]")
+            self._buffer_changed()
         return True
 
     def _line_number(self, value: str, *, allow_end: bool = False) -> int | None:
@@ -250,6 +449,7 @@ class ImyConsole:
         if number is not None:
             removed = self.lines.pop(number - 1)
             self.console.print(f"[dim]removed line {number}: {escape(removed)}[/dim]")
+            self._buffer_changed()
         return True
 
     def _edit(self, args: list[str], raw: str) -> bool:
@@ -259,6 +459,7 @@ class ImyConsole:
         number = self._line_number(args[0])
         if number is not None:
             self.lines[number - 1] = self._text_after_number(raw, args[0])
+            self._buffer_changed()
         return True
 
     def _insert_line(self, args: list[str], raw: str) -> bool:
@@ -268,6 +469,7 @@ class ImyConsole:
         number = self._line_number(args[0], allow_end=True)
         if number is not None:
             self.lines.insert(number - 1, self._text_after_number(raw, args[0]))
+            self._buffer_changed()
         return True
 
     @staticmethod
@@ -295,6 +497,7 @@ class ImyConsole:
         else:
             self.lines.insert(0, line)
             self.console.print(f"[dim]header set:[/dim] {escape(line)}")
+        self._buffer_changed()
         return True
 
     def _examples(self, args: list[str], raw: str) -> bool:
@@ -329,12 +532,14 @@ class ImyConsole:
         self.console.print(f"[dim]loaded {escape(example.name)}: {len(self.lines)} lines{note}[/dim]")
         for number, line in enumerate(self.lines, start=1):
             self.console.print(f"[dim]{number:>3} |[/dim] {escape(line)}")
+        self._buffer_changed(fresh=True)
         return True
 
     def _clear(self, args: list[str], raw: str) -> bool:
         self.lines = []
         self.last = None
         self.console.print("[dim]cleared[/dim]")
+        self._buffer_changed(fresh=True)
         return True
 
     def _load(self, args: list[str], raw: str) -> bool:
@@ -350,6 +555,7 @@ class ImyConsole:
             return True
         self.lines = text.replace("\r\n", "\n").rstrip("\n").split("\n")
         self.console.print(f"[dim]loaded {len(self.lines)} lines (the file itself is never changed)[/dim]")
+        self._buffer_changed(fresh=True)
         return True
 
     def _write_to(self, target: Path, *, force: bool) -> None:
@@ -388,6 +594,7 @@ class ImyConsole:
             self.console.print(f"[red]{escape(args[0])} is not a language name[/red]")
             return True
         self.console.print(f"target is now [bold]{escape(self.target)}[/bold]")
+        self._buffer_changed(fresh=True)
         return True
 
     def _reopen(self) -> None:

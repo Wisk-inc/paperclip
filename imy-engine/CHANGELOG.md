@@ -17,6 +17,19 @@
 - **`imy run --watch`** runs the file again each time it is saved, until Ctrl+C. A broken
   rule is shown and the next save is waited for.
 - `imy inject` and `imy doctor` take `--free-model` like the other commands.
+- **Converted as you type.** In the console, each line you enter is checked against the
+  rules at once and the lines so far are converted in the background. The result appears
+  above the line you are typing and shows only what is new or changed. Typing is never held
+  up, the preview saves nothing to memory, and `:run` still does the strict compile.
+  On with Automa's free models, off with a key of your own (every line would be a paid
+  request); `:live on|off`, `imy console --live/--no-live` and `IMY_LIVE` decide.
+- **Many more languages.** `imy run` now also builds and runs assembly (for this machine's
+  processor, through `cc`), D, Fortran, Pascal, COBOL, Clojure, Scheme, Common Lisp, Tcl,
+  AWK, V and Odin, 42 languages in all; Ada, Erlang, Objective-C and Visual Basic convert
+  with their own rules. `imy languages` lists them all with which run on this machine, and
+  `imy languages <name>` says what a language needs. In the console: `:languages`.
+- `imy console --to <language>` opens the console in a language, and the opening lines name
+  it and how to switch (`:target rust`).
 
 ### Fixes
 

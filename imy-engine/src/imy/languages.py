@@ -190,6 +190,38 @@ _LANGS: tuple[Language, ...] = (
         "Pascal",
     ),
     Language("vb", ".vb", ("vbnet", "visualbasic"), CommentSyntax(line=("'",), strings=('"',)), "Visual Basic"),
+    # Assembly for the machine IMY runs on, in the GNU assembler's syntax. `#` starts a comment on
+    # x86 and a number on ARM (mov x0, #1), so it only counts as a comment at the start of a line.
+    Language(
+        "asm",
+        ".s",
+        ("assembly", "assembler", "gas"),
+        CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"',), line_start_only=("#", ";", "@")),
+        "Assembly",
+    ),
+    Language(
+        "d",
+        ".d",
+        ("dlang",),
+        CommentSyntax(
+            line=("//",), block=(("/*", "*/"), ("/+", "+/")), strings=('"',), char_literals=True, backtick_strings=True, raw_backticks=True
+        ),
+        "D",
+    ),
+    Language("ada", ".adb", ("gnat",), CommentSyntax(line=("--",), strings=('"',)), "Ada"),
+    Language(
+        "cobol", ".cob", ("cbl", "gnucobol"), CommentSyntax(line=("*>",), strings=('"', "'"), line_start_only=("*",)), "COBOL"
+    ),
+    Language("erlang", ".erl", (), CommentSyntax(line=("%",), strings=('"',)), "Erlang"),
+    Language("scheme", ".scm", ("guile",), CommentSyntax(line=(";",), block=(("#|", "|#"),), strings=('"',)), "Scheme"),
+    Language(
+        "lisp", ".lisp", ("commonlisp", "common-lisp", "sbcl"), CommentSyntax(line=(";",), block=(("#|", "|#"),), strings=('"',)), "Common Lisp"
+    ),
+    Language("tcl", ".tcl", (), CommentSyntax(strings=('"',), line_start_only=("#",)), "Tcl"),
+    Language("awk", ".awk", ("gawk",), HASH_FAMILY, "AWK"),
+    Language("v", ".v", ("vlang",), CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"', "'"), backtick_strings=True), "V"),
+    Language("odin", ".odin", (), CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"',), char_literals=True, backtick_strings=True, raw_backticks=True), "Odin"),
+    Language("objc", ".m", ("objective-c", "objectivec"), C_FAMILY, "Objective-C"),
 )
 
 _BY_NAME: dict[str, Language] = {}
@@ -224,7 +256,10 @@ def language_for_extension(extension: str) -> Language | None:
             return language
     extra = {".mjs": "javascript", ".cjs": "javascript", ".tsx": "typescript", ".jsx": "javascript", ".hpp": "cpp",
              ".h": "c", ".cc": "cpp", ".cxx": "cpp", ".kts": "kotlin", ".ex": "elixir", ".htm": "html",
-             ".zsh": "bash", ".bash": "bash", ".pyw": "python", ".rake": "ruby", ".r": "r"}
+             ".zsh": "bash", ".bash": "bash", ".pyw": "python", ".rake": "ruby", ".r": "r", ".asm": "asm",
+             ".ads": "ada", ".cbl": "cobol", ".f": "fortran", ".f95": "fortran", ".f03": "fortran", ".f08": "fortran",
+             ".pp": "pascal", ".lsp": "lisp", ".cl": "lisp", ".ss": "scheme", ".cljs": "clojure", ".fs": "fsharp",
+             ".hh": "cpp", ".hxx": "cpp", ".mm": "objc", ".psm1": "powershell", ".erb": "ruby", ".gradle": "groovy"}
     name = extra.get(ext)
     return _BY_NAME.get(name) if name else None
 

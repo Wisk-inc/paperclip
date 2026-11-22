@@ -55,7 +55,74 @@ INSTALL_HINTS: dict[str, str] = {
     "groovy": "Install Groovy from groovy-lang.org.",
     "ocaml": "Install OCaml from ocaml.org.",
     "fsharp": "Install the .NET SDK from dot.net.",
+    "asm": "Install a C compiler, which assembles and links (Debian/Ubuntu: sudo apt install build-essential).",
+    "d": "Install a D compiler (Debian/Ubuntu: sudo apt install ldc, or dmd from dlang.org).",
+    "fortran": "Install GNU Fortran (Debian/Ubuntu: sudo apt install gfortran).",
+    "pascal": "Install Free Pascal (Debian/Ubuntu: sudo apt install fp-compiler).",
+    "cobol": "Install GnuCOBOL (Debian/Ubuntu: sudo apt install gnucobol).",
+    "clojure": "Install Clojure from clojure.org, or Babashka (bb).",
+    "scheme": "Install Guile (Debian/Ubuntu: sudo apt install guile-3.0).",
+    "lisp": "Install SBCL (Debian/Ubuntu: sudo apt install sbcl).",
+    "tcl": "Install Tcl (Debian/Ubuntu: sudo apt install tcl).",
+    "awk": "Install awk (Debian/Ubuntu: sudo apt install gawk).",
+    "v": "Install V from vlang.io.",
+    "odin": "Install Odin from odin-lang.org.",
 }
+
+# The programs each language runs with, first found wins. `imy languages` reads this to say
+# what is ready on this machine; toolchain_for below is what actually builds and runs.
+RUNNER_TOOLS: dict[str, tuple[str, ...]] = {
+    "python": ("python3", "python"),
+    "javascript": ("node", "nodejs"),
+    "typescript": ("tsx", "node", "nodejs"),
+    "lua": ("lua", "lua5.4", "lua5.3", "luajit"),
+    "ruby": ("ruby",),
+    "php": ("php",),
+    "perl": ("perl",),
+    "julia": ("julia",),
+    "elixir": ("elixir",),
+    "groovy": ("groovy",),
+    "ocaml": ("ocaml",),
+    "bash": ("bash", "sh"),
+    "powershell": ("pwsh", "powershell"),
+    "r": ("Rscript",),
+    "swift": ("swift",),
+    "dart": ("dart",),
+    "haskell": ("runghc", "runhaskell"),
+    "nim": ("nim",),
+    "zig": ("zig",),
+    "crystal": ("crystal",),
+    "fsharp": ("dotnet",),
+    "scala": ("scala-cli", "scala"),
+    "sql": ("sqlite3",),
+    "go": ("go",),
+    "java": ("java",),
+    "rust": ("rustc",),
+    "c": ("cc", "gcc", "clang"),
+    "cpp": ("c++", "g++", "clang++"),
+    "kotlin": ("kotlinc",),
+    "csharp": ("dotnet",),
+    "asm": ("cc", "gcc", "clang"),
+    "d": ("rdmd", "dmd", "ldc2", "gdc"),
+    "fortran": ("gfortran",),
+    "pascal": ("fpc",),
+    "cobol": ("cobc",),
+    "clojure": ("clojure", "clj", "bb"),
+    "scheme": ("guile", "guile3.0"),
+    "lisp": ("sbcl", "clisp"),
+    "tcl": ("tclsh", "tclsh8.6"),
+    "awk": ("awk", "gawk", "mawk"),
+    "v": ("v",),
+    "odin": ("odin",),
+}
+
+
+def runner_tool(language_name: str) -> str | None:
+    """The program on this machine that runs the language, or None when it is missing (or the language has no runner)."""
+    if language_name == "python":
+        return python_command()
+    names = RUNNER_TOOLS.get(language_name)
+    return _find(*names) if names else None
 NOT_RUNNABLE = frozenset({"html", "css"})
 
 
@@ -158,12 +225,19 @@ def _find(*names: str) -> str | None:
     return None
 
 
+def missing_tool_hint(language: Language) -> str:
+    """What to do when the tool that runs ``language`` is not here: how to get it, and that converting needs none."""
+    convert = f"Converting needs no tool: `imy convert --to {language.name}` writes the file for you to run elsewhere."
+    install = INSTALL_HINTS.get(language.name)
+    return f"{install} {convert}" if install else convert
+
+
 def _need(language: Language, *names: str) -> str:
     found = _find(*names)
     if found is None:
         raise RunnerError(
             f"Running {language.display} needs `{names[0]}`, which isn't installed or isn't on PATH.",
-            hint=INSTALL_HINTS.get(language.name, f"Or use `imy convert --to {language.name}` and run the file yourself."),
+            hint=missing_tool_hint(language),
         )
     return found
 
@@ -262,6 +336,40 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
         return Toolchain(
             steps=[[_need(language, "kotlinc"), path, "-include-runtime", "-d", jar]], run=[_need(language, "java"), "-jar", jar]
         )
+    if name == "asm":
+        # The C compiler assembles the file and links it with the C library the program calls.
+        return Toolchain(steps=[[_need(language, "cc", "gcc", "clang"), path, "-o", binary]], run=[binary])
+    if name == "d":
+        runner = _find("rdmd")
+        if runner:
+            return Toolchain(run=[runner, path])
+        compiler = _find("dmd", "ldc2")
+        if compiler:
+            return Toolchain(steps=[[compiler, f"-of={binary}", path]], run=[binary])
+        return Toolchain(steps=[[_need(language, "gdc", "rdmd", "dmd", "ldc2"), path, "-o", binary]], run=[binary])
+    if name == "fortran":
+        return Toolchain(steps=[[_need(language, "gfortran"), path, "-o", binary]], run=[binary])
+    if name == "pascal":
+        return Toolchain(steps=[[_need(language, "fpc"), f"-o{binary}", path]], run=[binary])
+    if name == "cobol":
+        return Toolchain(steps=[[_need(language, "cobc"), "-x", "-free", "-o", binary, path]], run=[binary])
+    if name == "clojure":
+        return Toolchain(run=[_need(language, "clojure", "clj", "bb"), path])
+    if name == "scheme":
+        return Toolchain(run=[_need(language, "guile", "guile3.0"), path])
+    if name == "lisp":
+        sbcl = _find("sbcl")
+        if sbcl:
+            return Toolchain(run=[sbcl, "--script", path])
+        return Toolchain(run=[_need(language, "clisp", "sbcl"), path])
+    if name == "tcl":
+        return Toolchain(run=[_need(language, "tclsh", "tclsh8.6"), path])
+    if name == "awk":
+        return Toolchain(run=[_need(language, "awk", "gawk", "mawk"), "-f", path])
+    if name == "v":
+        return Toolchain(run=[_need(language, "v"), "run", path])
+    if name == "odin":
+        return Toolchain(run=[_need(language, "odin"), "run", path, "-file"])
     if name == "csharp":
         dotnet = _need(language, "dotnet")
         project = artifact.folder / f"{artifact.folder.name}.csproj"

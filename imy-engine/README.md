@@ -46,7 +46,9 @@ imy run hello.imy                          # validate, remember, compile, run
 imy run hello.imy --to javascript          # compile to JavaScript and run it with node
 imy run hello.imy --watch                  # run again each time you save the file
 imy convert hello.imy --to rust -o hello.rs
-imy console                                # type IMY line by line, then :run
+imy console                                # type IMY line by line: each line is converted as you go
+imy console --to ruby                      # the same, into Ruby (or any other language)
+imy languages                              # every language IMY converts to, and which run here
 imy models --check                         # which models answer right now, and how fast
 ```
 
@@ -237,19 +239,37 @@ no AI call. `--no-cache` forces a fresh compile.
 
 ## Targets
 
-`--to` accepts any language name. These are built and run by `imy run`:
+You write IMY once and choose the language it becomes: `--to <name>` on `imy run`,
+`imy convert` and `imy console`, `:target <name>` inside the console, or `default_target` in
+`imy init`. The same `.imy` file can become Python today and Rust tomorrow.
 
-| Language | Needs | Language | Needs |
-|---|---|---|---|
-| python | python3 | rust | rustc |
-| javascript | node | go | go |
-| typescript | node 22.6+ or tsx | c / cpp | cc / c++ |
-| lua | lua | java | java 17+ |
-| ruby, php, perl, r, julia | the interpreter | kotlin | kotlinc + java |
-| bash, powershell | bash, pwsh | csharp | dotnet |
-| swift, dart, scala, sql | swift, dart, scala-cli, sqlite3 | html | nothing (`--serve` to preview) |
+```console
+$ imy languages
+Ready on this machine (14): python, javascript, typescript, java, rust, go, c, cpp, ruby, php, bash, perl, asm, awk
+Need a tool installed (28): kotlin, scala, csharp, swift, dart, lua, powershell, r, julia, …
+Web pages: css, html (built; --serve shows them)
+Convert only: vb, ada, erlang, objc
+$ imy languages zig
+✗ Zig needs `zig`. Install Zig from ziglang.org.
+Converting works without it: imy convert file.imy --to zig
+```
 
-Every other name (for example `cobol` or `fortran`) works with `imy convert`. Programs run in
+`imy run` builds and runs these, when the tool they need is installed:
+
+| Kind | Languages | Needs |
+|---|---|---|
+| Scripting | python, javascript, typescript, ruby, php, perl, lua, r, julia, tcl, awk | python3, node (22.6+ or tsx for TypeScript), the interpreter |
+| Shells | bash, powershell | bash, pwsh |
+| Systems | c, cpp, rust, go, zig, d, nim, v, odin, crystal, swift | cc, c++, rustc, go, zig, a D compiler, nim, v, odin, crystal, swift |
+| Assembly | asm | cc (written for this machine's processor and system, in GNU assembler syntax) |
+| JVM and .NET | java, kotlin, scala, groovy, clojure, csharp, fsharp | java 17+, kotlinc, scala-cli, groovy, clojure, dotnet |
+| Functional | haskell, ocaml, elixir, scheme, lisp | runghc, ocaml, elixir, guile, sbcl |
+| Classic | fortran, pascal, cobol | gfortran, fpc, cobc |
+| Other | dart, sql | dart, sqlite3 |
+| Web pages | html, css | nothing (`--serve` to preview) |
+
+`vb`, `ada`, `erlang` and `objc` are converted with their own rules but not run, and every
+other language name (a new one, a rare one) works with `imy convert` too. Programs run in
 the folder that holds your `.imy` file, get `IMY_PROJECT_ROOT` and `IMY_VFS_ROOT`, and never
 see `IMY_API_KEY`. A compiled program runs with your own permissions, like any script you
 start. To read the code before it runs, use `imy run --show-code`, or `imy convert` and run
@@ -365,6 +385,34 @@ exit code 0
 `:header` writes the header line from plain words (handy on a phone keyboard); typing the
 line yourself works the same. `:example hello` loads a ready program to look at and run.
 
+### Converted as you type
+
+With Automa's free models the console converts while you write. Each line you enter is
+checked against the rules at once, and the lines so far go to the model in the background.
+The result appears above the line you are typing, and only the lines that are new or changed
+are shown:
+
+```console
+$ imy console
+  1 imy> # ("greets one person by name and says how long the name is")
+  2 imy> person = "Bo"
+┄ python for lines 1–2 (nvidia/nemotron-3-ultra-550b-a55b:free, 8 s) ┄
+1 │ person = "Bo"
+  3 imy> show ("Hi, " + person + "!")
+┄ python for lines 1–3 (nvidia/nemotron-3-ultra-550b-a55b:free, 13 s) ┄
+2 │ print("Hi, " + person + "!")
+```
+
+Typing is never held up: one request runs at a time, and when you have entered more lines
+meanwhile, the newest ones go next. A line that breaks a rule is reported the moment you
+enter it, without asking the model. The live result is a preview: it saves nothing to memory,
+and `:run` still does the full strict compile. `:target ruby` switches the language the
+preview is written in, and `:code` shows the whole of the last one.
+
+`:live off` stops it and `:live on` starts it. At start, `imy console --live` or `--no-live`
+decides, or `IMY_LIVE=1` / `IMY_LIVE=0` in your shell. With a key of your own, live
+conversion is off until you turn it on, because every line you enter would be a paid request.
+
 | Command | What it does |
 |---|---|
 | `:run [args]` | validate, compile and run the code |
@@ -375,7 +423,9 @@ line yourself works the same. `:example hello` loads a ready program to look at 
 | `:show`, `:code` | list the code; show the last compiled code |
 | `:undo`, `:del N`, `:edit N <text>`, `:insert N <text>` | edit lines |
 | `:clear`, `:load <file>`, `:save <file>`, `:save! <file>` | manage the buffer (`:save!` overwrites) |
-| `:target <lang>`, `:provider <name>`, `:model <id>` | switch target, provider or model |
+| `:target <lang>`, `:languages` | switch the language the code becomes; list the languages and which run here |
+| `:live on`, `:live off` | convert each line as you enter it, in the background |
+| `:provider <name>`, `:model <id>` | switch provider or model |
 | `:models`, `:models check` | list the models with what was last found; ask each if it answers now |
 | `:memory`, `:help`, `:quit` | saved symbols, help, leave |
 | `!<command>` | run a shell command |

@@ -386,6 +386,19 @@ class TestConsole:
         assert f"IMY console {__version__}" in text
         assert '# ("what it builds and how it works")' in text
         assert ":header" in text and ":example hello" in text and ":run" in text and ":help" in text
+        assert "It becomes python." in text and ":target rust" in text and ":languages" in text
+
+    def test_the_banner_names_the_language_it_was_opened_in(self, isolated: Path, llm: FakeLLM) -> None:
+        console = Console(record=True, width=160, force_terminal=False, file=io.StringIO())
+        feed = iter([":target", ":quit"])
+        session = open_session(isolated / "console.imy")
+        repl = ImyConsole(lambda p, m: session, target="rust", console=console, input_fn=lambda prompt: next(feed))
+        assert repl.loop() == 0
+        text = console.export_text()
+        assert "target rust" in text and "It becomes rust." in text
+        # The hint never offers the language already chosen.
+        assert ":target python" in text and ":target rust" not in text
+        assert "Target: rust" in text
 
     def test_header_command_writes_the_header_line(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, [

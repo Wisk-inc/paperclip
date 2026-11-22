@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { isTerminalToolId, TERMINAL_TOOLS } from "@paperclipai/shared";
-import { freeCompleteScript, imyBinary, terminalCommand, terminalTool, withModel } from "./registry.js";
+import { IMY_LANGUAGES, isTerminalToolId, TERMINAL_LANGUAGE_PATTERN, TERMINAL_TOOLS } from "@paperclipai/shared";
+import { freeCompleteScript, imyBinary, terminalCommand, terminalTool, withLanguage, withModel } from "./registry.js";
 import { linuxRunArgv, setupScriptArgv, LINUX_DISTRO } from "./linux-layer.js";
 import { __resolveTerminalCommand, terminalRelayEnv } from "./sessions.js";
 
@@ -38,6 +38,53 @@ describe("IMY terminal", () => {
     expect(withModel(argv, "imy", "nvidia/nemotron-3.5-lightning:free")).toEqual([...argv, "--free-model", "nvidia/nemotron-3.5-lightning:free"]);
     expect(withModel(argv, "imy", undefined)).toEqual(argv);
     expect(withModel(argv, "imy", "x; rm -rf /")).toEqual(argv);
+  });
+
+  it("passes a chosen language with --to, and only one IMY's menu lists", () => {
+    const argv = terminalCommand("imy").run;
+    expect(withLanguage(argv, "imy", "rust")).toEqual([...argv, "--to", "rust"]);
+    expect(withLanguage(argv, "imy", "cpp")).toEqual([...argv, "--to", "cpp"]);
+    expect(withLanguage(argv, "imy", undefined)).toEqual(argv);
+    expect(withLanguage(argv, "imy", "")).toEqual(argv);
+    // Not on the list, or not a language name at all: the command stays as it was.
+    expect(withLanguage(argv, "imy", "klingon")).toEqual(argv);
+    expect(withLanguage(argv, "imy", "rust; rm -rf /")).toEqual(argv);
+    expect(withLanguage(argv, "imy", "--help")).toEqual(argv);
+    // Tools without a language flag ignore the choice.
+    expect(withLanguage(["claude"], "claude", "rust")).toEqual(["claude"]);
+    expect(withLanguage(["sh"], "shell", "python")).toEqual(["sh"]);
+  });
+
+  it("lists languages IMY knows, each once, with names fit for a command line", () => {
+    const imy = TERMINAL_TOOLS.find((tool) => tool.id === "imy")!;
+    expect(imy.languages).toBe(IMY_LANGUAGES);
+    expect(IMY_LANGUAGES[0]).toEqual({ id: "python", name: "Python" });
+    const ids = IMY_LANGUAGES.map((language) => language.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) expect(id).toMatch(TERMINAL_LANGUAGE_PATTERN);
+    for (const wanted of ["javascript", "ruby", "rust", "c", "cpp", "go", "zig", "asm"]) expect(ids).toContain(wanted);
+    // Every id is a language name IMY itself resolves (imy-engine/src/imy/languages.py).
+    const known = readFileSync(path.join(repoRoot, "imy-engine", "src", "imy", "languages.py"), "utf8");
+    for (const id of ids) expect(known).toMatch(new RegExp(`Language\\(\\s*"${id.replace("+", "\\+")}"`));
+    for (const tool of TERMINAL_TOOLS) if (tool.id !== "imy") expect(tool.languages).toBeUndefined();
+  });
+
+  it("opens IMY with both the model and the language picked", () => {
+    const saved = process.platform;
+    const opened = __resolveTerminalCommand({
+      companyId: "c", toolId: "imy", mode: "run", cols: 80, rows: 24,
+      model: "nvidia/nemotron-3.5-lightning:free", language: "javascript",
+    });
+    expect(process.platform).toBe(saved);
+    expect(opened.toolId).toBe("imy");
+    const text = opened.argv.join(" ");
+    expect(text).toContain("--free-model nvidia/nemotron-3.5-lightning:free");
+    expect(text).toContain("--to javascript");
+    const plain = __resolveTerminalCommand({ companyId: "c", toolId: "imy", mode: "run", cols: 80, rows: 24, language: "klingon" });
+    expect(plain.argv.join(" ")).not.toContain("--to");
+    // Installing never takes the language: the installer has no such option.
+    const install = __resolveTerminalCommand({ companyId: "c", toolId: "imy", mode: "install", cols: 80, rows: 24, language: "rust" });
+    expect(install.argv.join(" ")).not.toContain("--to");
   });
 
   it("finds the IMY the installer linked, else the one on PATH", () => {

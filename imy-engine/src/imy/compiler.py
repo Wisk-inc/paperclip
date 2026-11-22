@@ -39,6 +39,7 @@ from .prompts import (
     ResponseFormatError,
     build_repair_prompt,
     build_user_prompt,
+    machine_name,
     parse_compiler_response,
     system_prompt,
 )
@@ -57,6 +58,10 @@ class CompileOptions:
     run_dir: Path | None = None
     repo_context: RepoContext | None = None
     fragment: bool = False
+    # A conversion of a program still being typed (the console's live mode): the model is told
+    # more lines may follow, nothing is saved to memory, and the result has its own place in
+    # the cache, so it never stands in for the strict compile that `run` does.
+    preview: bool = False
 
 
 @dataclass
@@ -146,6 +151,8 @@ class Compiler:
                 "repo": options.repo_context.fingerprint_text() if options.repo_context else "",
                 "virtual": vmap.virtual_paths,
                 "web": [[note.url, note.local_path] for note in vmap.web],
+                **({"preview": True} if options.preview else {}),
+                **({"machine": machine_name()} if language.name == "asm" else {}),
             },
             sort_keys=True,
         )
@@ -204,7 +211,7 @@ class Compiler:
                 seconds=waited,
             )
 
-        if options.save_memory:
+        if options.save_memory and not options.preview:
             report = self.memory.apply(parsed, origin, result.symbols, update=options.update_memory)
             if report.conflicts:
                 raise CompilationFailed(report.conflicts, source_lines=parsed.raw_lines, path=parsed.path)
@@ -231,6 +238,7 @@ class Compiler:
             virtual_paths=vmap.virtual_paths,
             web_resources=vmap.web,
             repo_context=options.repo_context,
+            preview=options.preview,
         )
         messages: list[ChatMessage] = [ChatMessage("user", user)]
         attempts = 1 + self.config.repair_attempts

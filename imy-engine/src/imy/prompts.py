@@ -266,7 +266,52 @@ TARGET_NOTES: dict[str, str] = {
     "html": "A single HTML5 document.",
     "css": "A single CSS stylesheet.",
     "sql": "SQLite-compatible SQL statements.",
+    "scala": "Scala 3 script with a top-level @main def.",
+    "powershell": "PowerShell 7 script.",
+    "elixir": "Elixir script (.exs), top-level expressions run in order.",
+    "haskell": "Haskell with main :: IO (), base library only.",
+    "ocaml": "OCaml script run with the ocaml toplevel; standard library only.",
+    "fsharp": "F# script (.fsx) run with dotnet fsi.",
+    "nim": "Nim 2, top-level statements, standard library only.",
+    "zig": "Zig with pub fn main() !void, standard library only.",
+    "crystal": "Crystal, top-level statements.",
+    "groovy": "Groovy script.",
+    "clojure": "Clojure script, top-level forms run in order.",
+    "d": "D with void main(), standard library (Phobos) only.",
+    "fortran": "Free-form Fortran 2008: one program unit, implicit none.",
+    "pascal": "Free Pascal program with a program header and a begin ... end. block.",
+    "cobol": "GnuCOBOL in free format (compiled with cobc -x -free): IDENTIFICATION, PROCEDURE DIVISION, STOP RUN.",
+    "scheme": "Guile Scheme script, top-level forms run in order.",
+    "lisp": "Common Lisp script run with sbcl --script.",
+    "tcl": "Tcl 8.6 script.",
+    "awk": "POSIX awk program whose work is in a BEGIN block (no input is read unless the code reads it).",
+    "v": "V with fn main().",
+    "odin": "Odin with package main and main :: proc(), core library only.",
+    "ada": "Ada 2012: one main procedure.",
+    "objc": "Objective-C with int main, Foundation only.",
 }
+
+# Assembly depends on the machine it is written for.
+_MACHINE_NAMES = {"x86_64": "x86-64", "amd64": "x86-64", "aarch64": "64-bit ARM (AArch64)", "arm64": "64-bit ARM (AArch64)", "armv7l": "32-bit ARM"}
+
+
+def machine_name() -> str:
+    """The processor IMY runs on, as the assembly note names it."""
+    import platform
+
+    raw = platform.machine().lower() or "unknown"
+    return _MACHINE_NAMES.get(raw, raw)
+
+
+def target_note(target: str) -> str | None:
+    """What the model is told about the target language, with the machine filled in for assembly."""
+    if target == "asm":
+        return (
+            f"Assembly for {machine_name()} Linux in GNU assembler syntax, assembled and linked by the C compiler "
+            "(cc program.s): define a global `main`, call C library functions such as puts and printf for output, "
+            "keep the stack aligned, and return 0 from main."
+        )
+    return TARGET_NOTES.get(target)
 
 
 class ResponseFormatError(Exception):
@@ -377,6 +422,18 @@ def system_prompt() -> str:
     return SYSTEM_PROMPT
 
 
+# Added to the request while the console converts a program that is still being typed.
+# A normal compile never carries it, so its prompt (and PROMPT_VERSION) is unchanged.
+LIVE_PREVIEW_NOTE = (
+    "LIVE PREVIEW: the person is still typing this program, and more lines may follow. Convert exactly "
+    "the lines that are here, in order. Do not report HeaderMismatch or MissingMechanics for something "
+    "the header describes that the code has not reached yet, and never add code for lines that are not "
+    "written. A line that is here and breaks a rule by itself is still an error: an English request in "
+    "place of code, a line whose meaning is unclear, something used before the line that defines it, a "
+    "switch that turns on a feature no line codes."
+)
+
+
 def build_user_prompt(
     *,
     parsed: ParsedSource,
@@ -385,9 +442,10 @@ def build_user_prompt(
     virtual_paths: dict[str, str] | None = None,
     web_resources: Iterable[WebResourceNote] = (),
     repo_context: RepoContext | None = None,
+    preview: bool = False,
 ) -> str:
     sections: list[str] = [f"TARGET LANGUAGE: {target}"]
-    note = TARGET_NOTES.get(target)
+    note = target_note(target)
     if note:
         sections.append(f"TARGET NOTES: {note}")
     if target == "html":
@@ -438,6 +496,8 @@ def build_user_prompt(
 
     if repo_context is not None:
         sections.append(repo_context.describe())
+    if preview:
+        sections.append(LIVE_PREVIEW_NOTE)
     sections.append(f'Return the JSON object now, with target_language "{target}".')
     return "\n\n".join(sections)
 

@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TERMINAL_TOOLS } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
-import { defaultModelLabel, launchModel, modelOptionLabel, offeredModel, Terminals } from "./Terminals";
+import { defaultLanguageLabel, defaultModelLabel, launchModel, modelOptionLabel, offeredLanguage, offeredModel, Terminals } from "./Terminals";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -156,6 +156,73 @@ describe("Terminals page", () => {
     await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
     expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "run" });
     expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("language");
+  });
+
+  it("lets IMY be opened in a programming language, remembers the choice, and never translates a language's name", async () => {
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ imy: true }) });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Language for IMY"]')!;
+    expect(select).not.toBeNull();
+    expect(select.options[0]!.textContent).toBe("IMY's own language (Python at first)");
+    expect(select.value).toBe("");
+    const offered = [...select.options].slice(1);
+    expect(offered.map((option) => option.value)).toEqual(imy.languages!.map((language) => language.id));
+    expect(offered.map((option) => option.textContent)).toEqual(imy.languages!.map((language) => language.name));
+    for (const wanted of ["Python", "JavaScript", "Ruby", "Rust", "C", "C++", "Go", "Zig", "Assembly"]) {
+      expect(offered.map((option) => option.textContent)).toContain(wanted);
+    }
+    // "Go", "Swift" and "Rust" are names, not words: the board's translator must pass them over.
+    for (const option of offered) expect(option.getAttribute("translate")).toBe("no");
+    expect(select.options[0]!.hasAttribute("translate")).toBe(false);
+    // Only IMY takes a language.
+    expect(host.querySelectorAll("select[data-testid=terminal-language]")).toHaveLength(1);
+
+    // Picking a language does not open the terminal; the tile does, in that language.
+    await act(async () => {
+      select.value = "rust";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(api.start).not.toHaveBeenCalled();
+    expect(JSON.parse(window.localStorage.getItem("automa.terminals.languages")!)).toEqual({ imy: "rust" });
+    expect(select.value).toBe("rust");
+
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "run", language: "rust" });
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
+  });
+
+  it("opens IMY in the language saved on this device, with the model picked, and ignores a language it no longer lists", async () => {
+    window.localStorage.setItem("automa.terminals.models", JSON.stringify({ imy: imy.models![1] }));
+    window.localStorage.setItem("automa.terminals.languages", JSON.stringify({ imy: "javascript", claude: "rust" }));
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ imy: true, claude: true }) });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Language for IMY"]')!.value).toBe("javascript");
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "run", model: imy.models![1], language: "javascript" });
+  });
+
+  it("never sends a language to a tool that takes none, or one the menu does not list", async () => {
+    window.localStorage.setItem("automa.terminals.languages", JSON.stringify({ imy: "klingon", claude: "rust" }));
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ imy: true, claude: true }) });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Language for IMY"]')!.value).toBe("");
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("language");
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=terminal-view]")).not.toBeNull());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Back to terminals"]')!.click());
+    await vi.waitFor(() => expect(tile("claude")).toBeTruthy());
+    await act(async () => tile("claude").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(2));
+    expect(api.start.mock.calls[1]![1]).toMatchObject({ toolId: "claude", mode: "run" });
+    expect(api.start.mock.calls[1]![1]).not.toHaveProperty("language");
   });
 
   it("opens IMY with the model picked in its menu, and installs it first when it is missing", async () => {
@@ -202,6 +269,7 @@ describe("Terminals page", () => {
     await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
     expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "install" });
     expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("language");
   });
 
   it("marks free models that did not answer in the IMY and Free models menus, and checks them all on request", async () => {
@@ -292,5 +360,19 @@ describe("terminal model choice", () => {
     expect(board.has(defaultModelLabel(imy))).toBe(true);
     expect(board.has(defaultModelLabel(claude))).toBe(true);
     expect(board.has("Default ({0})")).toBe(true);
+    expect(board.has(defaultLanguageLabel(imy))).toBe(true);
+    expect(board.has(defaultLanguageLabel(claude))).toBe(true);
+    expect(board.has("Language for {0}")).toBe(true);
+  });
+
+  it("keeps a saved language only while the tool lists it", () => {
+    expect(offeredLanguage(imy, "rust")).toBe("rust");
+    expect(offeredLanguage(imy, "asm")).toBe("asm");
+    expect(offeredLanguage(imy, "klingon")).toBeUndefined();
+    expect(offeredLanguage(imy, undefined)).toBeUndefined();
+    expect(offeredLanguage(imy, "")).toBeUndefined();
+    expect(offeredLanguage(claude, "rust")).toBeUndefined();
+    expect(defaultLanguageLabel(imy)).toBe("IMY's own language (Python at first)");
+    expect(defaultLanguageLabel(claude)).toBe("The tool's own language");
   });
 });

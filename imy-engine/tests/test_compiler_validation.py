@@ -257,7 +257,13 @@ class TestZeroComments:
             ("css", "a { color: red; } /* note */\n", [1]),
             ("html", "<!DOCTYPE html>\n<html><body><!-- note --><p>hi</p></body></html>\n", [2]),
             ("html", "<html><body><script>\nlet a = 1; // note\n</script></body></html>\n", [2]),
-            ("cobol", "       // generic note\n", [1]),
+            # A language IMY has no rules for is read with the common comment marks.
+            ("prolog", "       // generic note\n", [1]),
+            # COBOL has its own: *> anywhere, * as the first mark of a line. // is not one.
+            ("cobol", "       // not a comment in COBOL\n", []),
+            ("cobol", '       DISPLAY "Hello".  *> note\n', [1]),
+            ("cobol", "      * a full-line note\n       STOP RUN.\n", [1]),
+            ("cobol", '       DISPLAY "a *> b".\n       COMPUTE X = A * B.\n', []),
         ],
     )
     def test_comment_detection(self, language: str, code: str, lines: list[int]) -> None:

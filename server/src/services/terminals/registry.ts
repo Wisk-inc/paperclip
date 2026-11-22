@@ -10,7 +10,7 @@ import { existsSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { terminalToolInfo, type AiProvider, type TerminalToolId } from "@paperclipai/shared";
+import { TERMINAL_LANGUAGE_PATTERN, terminalToolInfo, type AiProvider, type TerminalToolId } from "@paperclipai/shared";
 
 export { TERMINAL_TOOLS, isTerminalToolId, type TerminalToolId } from "@paperclipai/shared";
 
@@ -130,6 +130,23 @@ export function withModel(argv: string[], toolId: TerminalToolId, model: string 
   const flag = MODEL_FLAG[toolId];
   if (!flag || !model || !TERMINAL_MODEL_PATTERN.test(model)) return argv;
   return [...argv, flag, model];
+}
+
+/** The flag each tool takes a programming language with (IMY compiles to it). */
+const LANGUAGE_FLAG: Partial<Record<TerminalToolId, string>> = {
+  imy: "--to",
+};
+
+/**
+ * The tool's argv with the chosen programming language added. Only a language
+ * the tool's own list names is passed on, so the flag's value is always one of
+ * a closed set and never text a caller made up.
+ */
+export function withLanguage(argv: string[], toolId: TerminalToolId, language: string | undefined): string[] {
+  const flag = LANGUAGE_FLAG[toolId];
+  if (!flag || !language || !TERMINAL_LANGUAGE_PATTERN.test(language)) return argv;
+  const listed = terminalToolInfo(toolId)?.languages?.some((entry) => entry.id === language) ?? false;
+  return listed ? [...argv, flag, language] : argv;
 }
 
 /**

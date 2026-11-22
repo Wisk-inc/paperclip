@@ -39,7 +39,8 @@ from .llm_client import AutomaBridgeClient, ChatMessage, LLMClient, LLMRequest, 
 from .memory import Memory, MemoryStore
 from .parser import parse_file, read_source
 from .progress import format_seconds, working
-from .runner import build_artifact, python_command, run_artifact, serve_folder
+from .languages import known_languages, resolve_language
+from .runner import INSTALL_HINTS, NOT_RUNNABLE, RUNNER_TOOLS, build_artifact, python_command, run_artifact, runner_tool, serve_folder
 from .workspace import Workspace, prepare_virtual_files
 
 class ImyConsoleOutput(Console):
@@ -469,11 +470,15 @@ def inject(
 @app.command("console")
 def console_command(
     to: Annotated[Optional[str], typer.Option("--to", "-t", help="Language to compile to.")] = None,
+    live: Annotated[
+        Optional[bool],
+        typer.Option("--live/--no-live", help="Convert each line as you enter it, in the background (on by default with Automa's free models)."),
+    ] = None,
     provider: ProviderOpt = None,
     model: ModelOpt = None,
     free_model: FreeModelOpt = None,
 ) -> None:
-    """Interactive console: type IMY line by line and :run it."""
+    """Interactive console: type IMY line by line, see it converted as you go, and :run it."""
     from .console import ImyConsole
 
     with guarded():
@@ -486,8 +491,25 @@ def console_command(
         first = factory(provider, model)
         target = to or first.config.default_target
         repl = ImyConsole(lambda p, m: first if (p, m) == (provider, model) else factory(p, m),
-                          target=target, console=out, provider=provider, model=model)
+                          target=target, console=out, provider=provider, model=model,
+                          live=live_by_default(first.config.provider, first.env, sys.stdin.isatty()) if live is None else live)
         repl.loop()
+
+
+def live_by_default(provider: str, env: EnvView, interactive: bool) -> bool:
+    """Whether the console converts each line as it is entered when nobody said either way.
+
+    On with Automa's free models at a real terminal: they cost nothing. Off with
+    a key of your own, where every line entered would be a paid request. IMY_LIVE
+    (1 or 0) decides for any provider.
+    """
+    # Only from the real environment: a project's .env must not be able to turn paid requests on.
+    wanted = "" if env.origins.get("IMY_LIVE") else (env.get("IMY_LIVE") or "").strip().casefold()
+    if wanted in ("1", "true", "yes", "on"):
+        return True
+    if wanted in ("0", "false", "no", "off"):
+        return False
+    return interactive and provider == "automa"
 
 
 def model_rows(config: ImyConfig, env: EnvView) -> list[tuple[str, str, str]]:
@@ -595,6 +617,71 @@ def models(
         if info.notes:
             out.print(f"[dim]{escape(info.notes)}[/dim]")
         out.print("[dim]imy models --check asks each one whether it answers now.[/dim]")
+
+
+def language_groups() -> tuple[list[str], list[str], list[str], list[str]]:
+    """(ready, need a tool, web pages, convert only): the languages IMY knows, by what this machine can do with them."""
+    ready: list[str] = []
+    missing: list[str] = []
+    pages: list[str] = []
+    convert_only: list[str] = []
+    for language in known_languages():
+        if language.name in NOT_RUNNABLE:
+            pages.append(language.name)
+        elif language.name not in RUNNER_TOOLS:
+            convert_only.append(language.name)
+        elif runner_tool(language.name):
+            ready.append(language.name)
+        else:
+            missing.append(language.name)
+    return ready, missing, pages, convert_only
+
+
+def render_languages(console: Console, name: str | None = None) -> None:
+    """What `imy languages` and the console's :languages print."""
+    if name is not None:
+        try:
+            language = resolve_language(name)
+        except ValueError as exc:
+            raise ConfigError(f"{name!r} is not a language name.") from exc
+        if language.name in NOT_RUNNABLE:
+            console.print(f"[bold]{escape(language.display)}[/bold] is built, not run: imy run page.imy --to {escape(language.name)} --serve shows it.")
+            return
+        if language.name not in RUNNER_TOOLS:
+            console.print(
+                f"[bold]{escape(language.display)}[/bold] converts: imy convert file.imy --to {escape(language.name)}. "
+                "IMY has no runner for it, so run the converted file yourself."
+            )
+            return
+        tool = runner_tool(language.name)
+        if tool:
+            console.print(f"[green]✓[/green] [bold]{escape(language.display)}[/bold] is ready: it runs with {escape(tool)}.")
+        else:
+            wanted = RUNNER_TOOLS[language.name][0]
+            hint = INSTALL_HINTS.get(language.name, f"Install `{wanted}`.")
+            console.print(f"[red]✗[/red] [bold]{escape(language.display)}[/bold] needs `{escape(wanted)}`. {escape(hint)}")
+            console.print(f"[dim]Converting works without it: imy convert file.imy --to {escape(language.name)}[/dim]")
+        return
+    ready, missing, pages, convert_only = language_groups()
+    console.print(f"[bold green]Ready on this machine[/bold green] ({len(ready)}): {escape(', '.join(ready))}")
+    if missing:
+        console.print(f"[bold]Need a tool installed[/bold] ({len(missing)}): {escape(', '.join(missing))}")
+    console.print(f"[bold]Web pages[/bold]: {escape(', '.join(pages))} (built; --serve shows them)")
+    if convert_only:
+        console.print(f"[bold]Convert only[/bold]: {escape(', '.join(convert_only))}")
+    console.print(
+        "[dim]Pick one with --to <name> (or :target <name> in the console). imy languages <name> says how to get one "
+        "running. Any other language name converts too.[/dim]"
+    )
+
+
+@app.command()
+def languages(
+    name: Annotated[Optional[str], typer.Argument(help="Say whether this one runs here, and how to get it running.")] = None,
+) -> None:
+    """List the languages IMY can run on this machine, and the ones that need a tool installed."""
+    with guarded():
+        render_languages(out, name)
 
 
 @app.command()

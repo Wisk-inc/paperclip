@@ -19,13 +19,57 @@ export interface TerminalToolInfo {
   agentCapable: boolean;
   /** Models the tool can be opened with (the first is its own default); the server adds the flag. */
   models?: readonly string[];
+  /** Programming languages the tool can be opened in (IMY compiles to the one picked); the server adds the flag. */
+  languages?: readonly TerminalLanguage[];
 }
+
+/**
+ * A programming language a terminal tool can be opened in: its id as the tool
+ * takes it, and its name. The name is the same in every human language ("Go",
+ * "Swift" and "Rust" are not words to translate), so it is `name` and not
+ * `label`: the board translates what it finds under `label`.
+ */
+export interface TerminalLanguage {
+  id: string;
+  name: string;
+}
+
+/**
+ * The languages IMY's menu offers. IMY itself takes any language name
+ * (`:target <name>` in its console); these are the ones it also runs, with the
+ * ones a phone's Linux layer installs most easily first.
+ */
+export const IMY_LANGUAGES: readonly TerminalLanguage[] = [
+  { id: "python", name: "Python" },
+  { id: "javascript", name: "JavaScript" },
+  { id: "typescript", name: "TypeScript" },
+  { id: "bash", name: "Bash" },
+  { id: "lua", name: "Lua" },
+  { id: "ruby", name: "Ruby" },
+  { id: "php", name: "PHP" },
+  { id: "perl", name: "Perl" },
+  { id: "c", name: "C" },
+  { id: "cpp", name: "C++" },
+  { id: "rust", name: "Rust" },
+  { id: "go", name: "Go" },
+  { id: "zig", name: "Zig" },
+  { id: "asm", name: "Assembly" },
+  { id: "java", name: "Java" },
+  { id: "kotlin", name: "Kotlin" },
+  { id: "csharp", name: "C#" },
+  { id: "swift", name: "Swift" },
+  { id: "sql", name: "SQL" },
+  { id: "html", name: "HTML" },
+];
+
+/** A language name as it may appear on a command line: letters, digits, + and # only. */
+export const TERMINAL_LANGUAGE_PATTERN = /^[a-z0-9][a-z0-9+#]{0,23}$/;
 
 export const TERMINAL_TOOLS: readonly TerminalToolInfo[] = [
   { id: "freechat", label: "Free models", brand: "/brands/models/deepseek.svg", blurb: "Chat with the free models right here. No key, nothing to install.", linuxOnPhone: false, agentCapable: false, models: STUDIO_FREE_MODELS },
   // IMY (the imagenery CLI) opens its console; a model chosen here is one of the free
   // models (--free-model), and without one IMY uses its own setting (`imy init`).
-  { id: "imy", label: "IMY", brand: "/brands/imy.svg", blurb: "Invent your own syntax, code every step, and IMY checks, compiles and runs it. Free models built in, or your own key.", linuxOnPhone: true, agentCapable: false, models: STUDIO_FREE_MODELS.filter((id) => !id.startsWith("moan/")) },
+  { id: "imy", label: "IMY", brand: "/brands/imy.svg", blurb: "Invent your own syntax, code every step, and IMY checks, compiles and runs it. Free models built in, or your own key.", linuxOnPhone: true, agentCapable: false, models: STUDIO_FREE_MODELS.filter((id) => !id.startsWith("moan/")), languages: IMY_LANGUAGES },
   { id: "claude", label: "Claude Code", brand: "/brands/claude-color.svg", blurb: "Anthropic's coding agent in your terminal.", linuxOnPhone: true, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.anthropic.models },
   { id: "codex", label: "Codex", brand: "/brands/codex-color.svg", blurb: "OpenAI's coding agent in your terminal.", linuxOnPhone: true, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.openai.models },
   { id: "gemini", label: "Gemini CLI", brand: "/brands/adapters/gemini-color.svg", blurb: "Google's Gemini in your terminal.", linuxOnPhone: false, agentCapable: true, models: STUDIO_AI_PROVIDER_INFO.google.models },

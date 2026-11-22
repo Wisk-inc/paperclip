@@ -36,6 +36,18 @@ export function launchModel(tool: Pick<TerminalToolInfo, "id" | "models">, saved
   return offeredModel(tool, saved) ?? (tool.id === "freechat" ? tool.models?.[0] : undefined);
 }
 
+/** A programming language saved for a tool, while the tool still offers it. */
+export function offeredLanguage(tool: Pick<TerminalToolInfo, "languages">, saved: string | undefined): string | undefined {
+  return saved && tool.languages?.some((language) => language.id === saved) ? saved : undefined;
+}
+
+/** What the language menu's first entry says: what the tool compiles to when no language is picked. */
+export function defaultLanguageLabel(tool: Pick<TerminalToolInfo, "id">): string {
+  // IMY keeps its own choice (`:target` in its console, or `imy init`), which starts as Python.
+  if (tool.id === "imy") return "IMY's own language (Python at first)";
+  return "The tool's own language";
+}
+
 /** The tools whose menus list Automa's free models. */
 const FREE_MODEL_TOOLS: ReadonlySet<TerminalToolId> = new Set<TerminalToolId>(["freechat", "imy"]);
 
@@ -100,6 +112,21 @@ export function Terminals() {
       return next;
     });
   };
+  // The programming language a tool opens in (IMY compiles to it), remembered the same way.
+  const [languages, setLanguages] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("automa.terminals.languages") ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const chooseLanguage = (toolId: string, language: string) => {
+    setLanguages((current) => {
+      const next = { ...current, [toolId]: language };
+      try { window.localStorage.setItem("automa.terminals.languages", JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Terminals" }]);
@@ -157,7 +184,7 @@ export function Terminals() {
   const relayReady = status.data?.relayReady ?? true;
 
   const start = useMutation({
-    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string; model?: string }) =>
+    mutationFn: (input: { toolId: TerminalToolId; mode: "run" | "install" | "setup" | "shell"; agentId?: string; model?: string; language?: string }) =>
       terminalsApi.start(companyId!, { ...input, cols: 80, rows: 24 }),
     onSuccess: ({ session }) => {
       haptic("tick");
@@ -209,11 +236,14 @@ export function Terminals() {
   const openTool = (tool: TerminalToolInfo) => {
     if (tool.id === "shell") return start.mutate({ toolId: "shell", mode: "shell" });
     const model = launchModel(tool, models[tool.id]);
+    const language = offeredLanguage(tool, languages[tool.id]);
     if (updates.has(tool.id)) {
       setUpdateTried((tried) => new Set(tried).add(tool.id));
       return start.mutate({ toolId: tool.id, mode: "install" });
     }
-    if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run", ...(model ? { model } : {}) });
+    if (installed.get(tool.id)) {
+      return start.mutate({ toolId: tool.id, mode: "run", ...(model ? { model } : {}), ...(language ? { language } : {}) });
+    }
     return start.mutate({ toolId: tool.id, mode: "install" });
   };
 
@@ -363,6 +393,22 @@ export function Terminals() {
                       >
                         <option value="">{defaultModelLabel(tool)}</option>
                         {tool.models.map((id) => <option key={id} value={id}>{modelOptionLabel(tool.id, id, freeHealth.data)}</option>)}
+                      </select>
+                    ) : null}
+                    {tool.languages?.length ? (
+                      <select
+                        aria-label={`Language for ${tool.label}`}
+                        value={offeredLanguage(tool, languages[tool.id]) ?? ""}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => { event.stopPropagation(); chooseLanguage(tool.id, event.target.value); }}
+                        className="mt-2 h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                        data-testid="terminal-language"
+                      >
+                        <option value="">{defaultLanguageLabel(tool)}</option>
+                        {/* A language's name is the same in every human language: "Go" and "Swift" are not words to translate. */}
+                        {tool.languages.map((language) => (
+                          <option key={language.id} value={language.id} translate="no">{language.name}</option>
+                        ))}
                       </select>
                     ) : null}
                   </span>

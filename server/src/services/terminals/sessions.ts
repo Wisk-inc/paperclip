@@ -8,7 +8,7 @@ import { logger } from "../../middleware/logger.js";
 import { resolvePaperclipInstanceRoot } from "../../home-paths.js";
 import { terminalCommand, terminalTool, type TerminalToolId } from "./registry.js";
 import { linuxRunArgv, setupScriptArgv } from "./linux-layer.js";
-import { withModel } from "./registry.js";
+import { withLanguage, withModel } from "./registry.js";
 
 /** A terminal running on the device, streamed to the browser. */
 export interface TerminalSession {
@@ -80,6 +80,8 @@ export interface StartTerminalInput {
   env?: Record<string, string>;
   /** The model to open the tool with, from the tool's own list. */
   model?: string;
+  /** The programming language to open the tool in, from the tool's own list (IMY compiles to it). */
+  language?: string;
 }
 
 /** The argv the relay should launch, by tool and mode. A closed set — never a caller string. */
@@ -97,10 +99,11 @@ function resolveCommand(input: StartTerminalInput): { argv: string[]; toolId: Te
     return { argv: [loginShell(), "-l"], toolId: "shell" };
   }
   const command = terminalCommand(input.toolId);
+  const chosen = (argv: string[]) => withLanguage(withModel(argv, input.toolId, input.model), input.toolId, input.language);
   if (onPhone && tool.linuxOnPhone) {
-    return { argv: linuxRunArgv(withModel(command.runInLinux ?? command.run, input.toolId, input.model), input.cwd), toolId: input.toolId };
+    return { argv: linuxRunArgv(chosen(command.runInLinux ?? command.run), input.cwd), toolId: input.toolId };
   }
-  return { argv: withModel(command.run, input.toolId, input.model), toolId: input.toolId };
+  return { argv: chosen(command.run), toolId: input.toolId };
 }
 
 const RELAY_HIDDEN_ENV_KEYS = new Set(["ANTHROPIC_AUTH_TOKEN", "DATABASE_URL", "BETTER_AUTH_SECRET"]);

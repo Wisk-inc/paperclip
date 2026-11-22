@@ -128,10 +128,29 @@ class TestRun:
         assert "22.6" in caught.value.message and "tsx" in (caught.value.hint or "")
 
     def test_language_without_a_runner_points_to_convert(self, tmp_path: Path) -> None:
-        _, _, artifact, workspace = build(tmp_path, 'DISPLAY "Hello, Ava!".\n', target="cobol")
+        # Ada converts with its own rules, and IMY has no runner for it.
+        _, _, artifact, workspace = build(tmp_path, 'with Ada.Text_IO;\nprocedure Hello is\nbegin\n   Ada.Text_IO.Put_Line ("Hello, Ava!");\nend Hello;\n', target="ada")
         with pytest.raises(RunnerError) as caught:
             run_artifact(artifact, workspace)
-        assert "imy convert --to cobol" in (caught.value.hint or "")
+        assert "no runner" in caught.value.message
+        assert "imy convert --to ada" in (caught.value.hint or "")
+
+    def test_a_language_nobody_listed_points_to_convert_too(self, tmp_path: Path) -> None:
+        _, _, artifact, workspace = build(tmp_path, 'main :- write("Hello, Ava!"), nl.\n', target="prolog")
+        with pytest.raises(RunnerError) as caught:
+            run_artifact(artifact, workspace)
+        assert "imy convert --to prolog" in (caught.value.hint or "")
+
+    def test_a_missing_tool_says_how_to_get_it_and_that_converting_needs_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, _, artifact, workspace = build(tmp_path, 'DISPLAY "Hello, Ava!".\n', target="cobol")
+        empty = tmp_path / "no-tools"
+        empty.mkdir()
+        monkeypatch.setenv("PATH", str(empty))
+        with pytest.raises(RunnerError) as caught:
+            run_artifact(artifact, workspace)
+        assert "needs `cobc`" in caught.value.message
+        hint = caught.value.hint or ""
+        assert hint.startswith("Install GnuCOBOL") and "imy convert --to cobol" in hint
 
 
 class TestWebsiteBuild:

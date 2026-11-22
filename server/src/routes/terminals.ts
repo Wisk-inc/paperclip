@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import type { DeploymentExposure, DeploymentMode } from "@paperclipai/shared";
-import { isTerminalToolId } from "@paperclipai/shared";
+import { TERMINAL_LANGUAGE_PATTERN, isTerminalToolId } from "@paperclipai/shared";
 import { assertCompanyAccess } from "./authz.js";
 import { forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
@@ -27,6 +27,8 @@ const startSchema = z.object({
   agentId: z.string().uuid().optional(),
   /** A model name for the tool's own flag; letters, digits, dots, slashes, colons and dashes only. */
   model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/).optional(),
+  /** A programming language for the tool's own flag (IMY compiles to it); only one the tool lists is used. */
+  language: z.string().regex(TERMINAL_LANGUAGE_PATTERN).optional(),
 });
 
 /**
@@ -91,6 +93,7 @@ export function terminalsRoutes(
         rows: body.rows ?? 24,
         cwd: body.cwd,
         ...(body.model ? { model: body.model } : {}),
+        ...(body.language ? { language: body.language } : {}),
         agentId: body.agentId ?? null,
         ...(env ? { env } : {}),
       });
