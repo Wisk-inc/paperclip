@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.16
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.17
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -530,7 +530,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.16.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.17.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -547,6 +547,21 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.17** (22 November 2026) — App Studio reads like a code editor, and its
+AI is easier to talk to. Open files are tabs above the editor, a line under it
+shows the line and column, the language and whether the file is saved, and on a
+phone a row of keys adds Tab, brackets and the other symbols a phone keyboard
+hides. When a free model is busy or at its limit, the reply offers **Try
+again** and **Ask another model instead**: one tap switches to a model that is
+answering and sends your message again (Automa still never swaps models on its
+own). A new chat starts on a model that is answering. **App Inspector has a
+chat of its own**: open a decoded app or one of its files and ask about it, on
+the free models with no key, or on Claude with your own key. An app opened
+from an APK file is now decoded in full, and **Decode again** repairs a
+project opened before. 49 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. IMY 1.1.2
+leaves the folders Bazel and Zig build into out of `imy import`, and a few
+waits are a little longer for slow phones and networks.
 
 **1.9.16** (22 November 2026) — IMY's console reads like the file you are
 writing. It opens with one line, the name of the program file your code becomes

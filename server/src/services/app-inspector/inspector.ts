@@ -391,7 +391,15 @@ export async function startRedecode(companyId: string, id: string) {
   project.downloadsPath = null;
   project.error = null;
   persist(project);
-  await Promise.all([decodedDir(project), javaDir(project)].map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  try {
+    await Promise.all([decodedDir(project), javaDir(project)].map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  } catch {
+    // No job was started: the project must not stay "decoding" with nothing behind it.
+    project.status = "failed";
+    project.error = "The files decoded before could not be removed, so the APK was not decoded again.";
+    persist(project);
+    throw new Error(project.error);
+  }
   runDecode(project);
   return publicView(project);
 }

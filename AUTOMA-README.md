@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.16** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.17** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.16](#2-whats-new-in-1916)
+2. [What's new in 1.9.17](#2-whats-new-in-1917)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,121 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.16
+## 2. What's new in 1.9.17
+
+App Studio reads like a code editor, its AI is easier to talk to, and App
+Inspector has a chat. Open **Terminals** too: the IMY tile says **Tap to
+update** (IMY 1.1.2).
+
+**App Studio's code screen**
+- **Open files are tabs** above the editor, each with its file's icon and a
+  close button. Tap a tab to go back to that file; a dot marks edits that are
+  not saved yet. The tabs are remembered for each app.
+- **A line under the editor** shows the line and column of the cursor, the
+  language and the indent, with the AI suggestions switch and whether the file
+  is saved.
+- **On a phone, a row of keys** above that line: Undo, Redo, Tab, brackets,
+  quotes and the other symbols a phone keyboard hides.
+- On a wide screen, the side panel's tabs (Console, Preview, AI, Stats, Team)
+  no longer run into each other.
+
+**Talking to the AI in App Studio**
+- When a free model is busy or at its daily limit, the reply now shows what
+  went wrong in a box with two buttons: **Try again**, and **Ask** another
+  model **instead**, which switches to a free model that is answering and
+  sends your message again in one tap. Automa still never answers with a
+  different model than the one shown: the switch is your tap.
+- A new chat starts on a free model that is answering right now, and says so
+  when that is not the usual first choice.
+
+**A chat in App Inspector**
+- Open a decoded app and tap the chat button to ask about the whole app, or
+  open a file and tap it there to ask about that file. The model is given the
+  app's summary (package, version, permissions, screens and services) and the
+  file you have open, or the files your question names.
+- It works with the free models and no key. With an Anthropic key saved,
+  Claude is in the model menu too. The conversation is kept with the project.
+- A busy model gets the same two buttons as in App Studio.
+- **Ask an agent instead** is still there for the things only an agent can do
+  (read every file, drive the app over adb).
+- **Decode again** (on the Info tab, and wherever an app shows no files or no
+  Java) reads the project's APK once more with its resources, its code and the
+  Java view. Use it on a project that was opened from an APK file before this
+  version: those were decoded with everything switched off. It replaces the
+  project's decoded files, with any edits you made to them.
+
+**Fixed**
+
+*App Studio: your work is kept*
+- Opening a second app showed the first app's file and saved into it. Each app now opens on its own files.
+- Your own autosave could come back as a change "from somewhere else". Saves go out one at a time, each on the version the one before returned.
+- A save that failed was never tried again, and leaving right after typing could lose the last edit. A failed save is tried again by itself (at once when the connection is back), and the last edit is saved as you leave the page.
+- After the connection dropped and came back, the open file, the files list and the AI chat stayed as they were. They are read again, and unsaved edits get the keep-mine or load-theirs choice.
+- Two saves made from the same version at the same moment were both accepted. One is now refused as a conflict.
+- Going back to a checkpoint deleted a file that had grown past what a checkpoint can hold. It is left as it is, and Automa says which files stayed.
+- A file deleted and made again under the same name stayed hidden in the list.
+
+*App Studio: running and previewing*
+- Tapping Run twice started the app twice, and an app that could not start still showed as running.
+- The preview changed addresses with encoded characters (a space as `%20`), so some pages and files did not load.
+- A file removed just as it was opened, or a line typed into an app that had closed its input, could stop Automa's server.
+- Stop could hang while a visitor's download from the preview was open, and an abandoned download or file view left the file open.
+- Downloading a project held whole files in memory.
+- The console did not follow output printed while another tab was showing.
+
+*App Studio: the AI*
+- The AI said nothing while it tried a busy free model again. It now says each try ("Trying again, 2 of 4").
+- The organization's budget stop was checked only before a reply started. It is now checked at each model call of the reply. (It still cannot count what the reply itself is spending until the reply ends.)
+- A code suggestion that failed showed the service's raw reply. It now says why in plain words.
+- A message with four full-size pictures was refused as too large.
+- The AI's delete of a path that was not there reported success.
+- A new chat no longer treats a conversation that is still loading as a new one.
+
+*App Studio: messages, sharing and layout*
+- Failures that said nothing now say what failed and why: deleting a file, deleting an app, saving the settings, an upload over the size limit.
+- The invite link was gone when the page was opened again (only the code showed). It is read again, and **Get the public link** asks for the public one without changing the code.
+- On a guest's page nothing was read again after a reconnect, and New folder did nothing.
+- The New app sheet cut its error message and long language names off; the Checkpoints sheet kept an old error and an armed "Tap again" after it was closed.
+- After a sheet or dialog closes, focus goes back to the button that opened it.
+- A phone turned sideways, and tablets up to 1180 px wide, got three columns with an editor a few pixels wide. They now get one pane at a time, like a phone.
+- The Find panel took half the screen on a phone and left no code visible with the keyboard up. It is two rows now, and its close button is finger-sized.
+- The close button of every sheet and dialog, Copy invite link, and the asset cards' buttons are finger-sized on touch screens (they were 16 to 24 px).
+- A long link in the Team chat pushed its bubble off the screen; a model's name in the usage card and asset names were cut off; the public-link card covered half the preview on a sideways phone.
+- Cloning a project whose `package.json` is not strict JSON failed.
+
+*Free models*
+- A model at its provider's daily limit was read as "busy": Automa tried it four times over about half a minute and then failed. It is now recognised however the provider words it, fails at once with the time it is back, and shows as at its limit in the model menu.
+- For a model with a second route (Gemma over Google's route), each route is tracked on its own, so a route that is out is skipped and the other one is asked.
+- A refusal sent inside an "OK" reply was read as an empty answer.
+- Moan runs on Nemotron 3 Ultra, and is now marked busy or at its limit when that model is.
+- A busy model is asked four times in all and a provider that sends nothing once more; the extra try that used to follow is gone.
+- The connection test for the free models says "pick another model" when the first model is at its limit, instead of failing as if the free service were down.
+- The note under a model's name (busy, at its limit) was too faint to read in the light theme.
+- The messages say "model menu" where three still said "switcher".
+
+*App Inspector*
+- An app opened from an APK file was decoded with everything switched off: no resources, no code, no Java. It is decoded in full now, and **Decode again** repairs a project opened before.
+- Text that is not UTF-8 (Latin-1, GBK) would have had its letters changed by a save. Such a file is read-only and says why.
+- Clearing the chat while an answer was being written kept that answer.
+- Search could run past its time limit inside one large folder without saying that results were left out, and kept running after you typed something else.
+- When the phone stopped jadx (usually for lack of memory), the Java view showed as ready and empty. It now says it failed.
+- A decode that failed showed as decoded after Automa restarted.
+- "Opens with" named the wrong screen when a screen without content came before the real one; the Activities list counted aliases as screens; permissions asked only on Android 6 and newer were left out.
+- After an edit, the "Built and signed" banner of the older build stayed.
+- A link inside the decoded files could lead to a file outside the project. Reading, saving, the chat and the manifest reader now stay inside the project.
+- A reply that was only the model's reasoning showed as empty, and the chat offered Moan, which it could not ask.
+- Saving a file, deleting a project and decoding again are in the activity log.
+- The project screen says so when a project cannot be loaded or a search fails, and Info no longer shows loading rows forever after a failed decode.
+
+**Smaller changes**
+- App Inspector's text search also reads `.toml` and `.tsv` files.
+- IMY 1.1.2: `imy import` leaves out `bazel-out` and `zig-out`, the folders
+  Bazel and Zig build into.
+- A few waits are a little longer for slow phones and networks: the app
+  waiting for the phone's Automa to answer, downloads, reading the web, Moan's
+  sources, App Studio's preview and Terminals.
+
+### From 1.9.16
 
 IMY's console now reads like the file you are writing, and says nothing you
 did not ask for. Open **Terminals**: the IMY tile says **Tap to update**
@@ -1366,8 +1480,10 @@ Team**. On a wider screen the files, editor and a side panel sit together.
 - **Files:** the project tree with each file's kind, size and age, plus an
   Assets view. Upload files.
 - **Code:** an editor with **AI code suggestions** as you type (on the free
-  models or your key). Edits save on their own, and everyone in the project sees
-  them as they are typed.
+  models or your key). Open files are tabs above it; a line under it shows the
+  cursor's line and column, the language and whether the file is saved; on a
+  phone a row of keys adds Tab, brackets and other symbols. Edits save on their
+  own, and everyone in the project sees them as they are typed.
 - **Console:** what the app prints, live, and a line to type into it.
 - **Preview:** the running app inside Automa, sandboxed so it can't act as you.
   A moving bar and the newest console line show while it installs and starts.
@@ -1495,12 +1611,12 @@ proot-distro Debian layer the page sets up for you.
 ## 20. App Inspector
 
 Pick an app on your phone to decode its manifest, resources and code, read the
-code as Java, ask Claude to explain any file, edit, and rebuild a signed APK to
-your Downloads. For apps you made or are allowed to analyze.
+code as Java, chat with an AI about the app or any file, edit, and rebuild a
+signed APK to your Downloads. For apps you made or are allowed to analyze.
 
 - **App picker:** the apps installed on the phone with names and icons, plus an
   **APK** button to upload any `.apk`.
-- **App sheet:** Open (decompile), **Ask Claude about this app**, copy the
+- **App sheet:** Open (decompile), **Ask an agent about this app**, copy the
   package name, and the APK itself.
 - **Decode options:** resources (apktool), smali, Java (jadx). Decoding runs
   apktool and jadx in parallel on every core.
@@ -1508,9 +1624,13 @@ your Downloads. For apps you made or are allowed to analyze.
   Java view, search across the project, an app info panel (package, version,
   SDKs, launcher activity, permissions, components), the decode log, and an
   editor for text files.
-- **Explain** a file with Claude. **Ask Claude** opens a chat that already knows
-  where the project lives and how to launch, screenshot and drive the app over
-  adb once `automa adb link` has been run.
+- **Chat** about the app or the open file, right in the inspector: on the free
+  models with no key, or on Claude with your Anthropic key. The model is given
+  the app's summary and the open file, or the files your question names; the
+  conversation is kept with the project. **Ask an agent instead** opens a chat
+  with one of your agents that already knows where the project lives and how to
+  launch, screenshot and drive the app over adb once `automa adb link` has been
+  run.
 - **Rebuild:** apktool rebuild, zipalign and apksigner with an inspector key,
   saved to `Downloads/Automa`.
 - apktool, apksigner and jadx must be installed where Automa runs. On a phone
@@ -1797,6 +1917,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.17 | 2026-11-22 | App Studio's code screen: open files as tabs, a status line (line and column, language, saved), a key row on phones. A busy free model offers Try again and Ask another model instead (your tap switches; never a silent swap); a new chat starts on a model that is answering. App Inspector: a chat about the app or the open file, on the free models with no key or Claude with your key; an APK opened from a file is decoded in full, and **Decode again** repairs older projects. 49 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. App Inspector search reads `.toml` and `.tsv`. IMY 1.1.2: `imy import` skips `bazel-out` and `zig-out`. A few waits are longer for slow phones and networks. |
 | 1.9.16 | 2026-11-22 | IMY 1.1.1: its console reads like the file being written. It opens with one line, the name of the program file the code becomes (`main.py`, `main.rb`…); each line is typed behind its number and a bar and set again in colour once entered; the code a line became appears under it with its own number in the program file (`:code` and `:convert` show the whole file the same way); a block keeps its indentation and Tab indents; `:run` prints only what the program prints (no "compiled to", no "exit code 0"), commands answer in a word and the hints are gone. Fixes: lines pasted at once are numbered one by one; `:: end` is code, not an unknown command; a result is no longer written into a line being typed; a newer result replaces the older instead of showing a program line twice; keys pressed during a compile no longer land in the line that counts the seconds; closing the terminal keeps the lines typed |
 | 1.9.15 | 2026-11-22 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; each line is converted as you type it, and the result shows above the line being typed; a language menu on the tile (20 languages) and `:target` in the console choose what the code becomes, with 48 languages known and 42 built and run, down to assembly for the device's processor; `:import` takes in an existing project so its functions and variables can be used by name, in any target language; a program its own build tool refuses is corrected by the model before it runs; nine ready examples, `:header`, seconds shown while a model works; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone), says Tap to update when a new Automa brings a newer IMY, and installs anywhere with pip. A Check button on Terminals and in the chat's model picker asks every free model for one word and marks the ones not answering; a model that did not answer when last asked says so; one more free model (LFM3 1.7B); a terminal starts at the width the screen really shows, so a tool's first lines no longer break mid-word on a phone; the Terminals tools' names and descriptions are translated; the check counts models that were only busy apart from the ones it marks; Running now lists only terminals still running, and a tool that finishes installing in the background turns Ready by itself; the installer's own messages fold between words on a narrow screen |
 | 1.9.14 | 2026-11-18 | Languages: Auto (the device's language, with its country) or one of 40, saved to your account; the main screens built in, the rest translated by the free models on first sight and kept for everyone on the server (only Automa's own wording is sent); right to left for Arabic, Persian, Hebrew and Urdu; dates and numbers follow language and country; agents write to each person in their language; the connect screen and, on Android 13+, the app's own screens, shortcuts and notification channel follow the choice |

@@ -144,6 +144,35 @@ describe("App Inspector: decoding a project again", () => {
     expect(state.spawned).toEqual([]);
   });
 
+  it("does not leave the project waiting for a job that never started, when the old files cannot be removed", async () => {
+    const id = await openedWithEverythingOff();
+    mkdirSync(path.join(dirOf(id), "decoded"), { recursive: true });
+    writeFileSync(path.join(dirOf(id), "decoded", "kept.txt"), "still here");
+    state.spawned = [];
+    const fsPromises = (await import("node:fs/promises")).default;
+    const rm = vi.spyOn(fsPromises, "rm").mockRejectedValue(Object.assign(new Error("EACCES: permission denied, rmdir '/data/secret/place'"), { code: "EACCES" }));
+    try {
+      const again = await request(app).post(`${base}/projects/${id}/decode`).send({});
+      expect(again.status).toBe(422);
+      expect(again.body.error).toBe("The files decoded before could not be removed, so the APK was not decoded again.");
+      // No folder of the server in the answer, no job started, and the project says it failed.
+      expect(JSON.stringify(again.body)).not.toContain("/data/secret");
+      expect(state.spawned).toEqual([]);
+      const after = await read(id);
+      expect(after.status).toBe("failed");
+      expect(after.java).not.toBe("working");
+      expect(after.error).toBe("The files decoded before could not be removed, so the APK was not decoded again.");
+      expect(logged.map((entry) => entry.action)).not.toContain("app_inspector.decoded_again");
+    } finally {
+      rm.mockRestore();
+    }
+    // Asked again once the files can go: it starts.
+    const retry = await request(app).post(`${base}/projects/${id}/decode`).send({});
+    expect(retry.status).toBe(200);
+    expect(retry.body.project.status).toBe("decoding");
+    await settled(id);
+  });
+
   it("is refused for another organization's project", async () => {
     const id = await openedWithEverythingOff();
     state.spawned = [];
