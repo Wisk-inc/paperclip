@@ -21,6 +21,86 @@ file_version="$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | 
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
+# ── Storage ──────────────────────────────────────────────────────────────
+# A phone that is nearly full is the commonest reason an update stops. The
+# update is prepared next to the server in use, so it needs room for a second
+# copy of it for a few minutes.
+
+# Megabytes free where Automa lives. Prints nothing when df cannot say.
+free_mb() {
+  local kb
+  kb="$(df -Pk "$automa_home" 2>/dev/null | awk 'NR == 2 { print $4 }' | tr -dc '0-9')" || true
+  if [ -n "$kb" ]; then printf '%s\n' "$((kb / 1024))"; fi
+}
+# The size of a folder in megabytes (0 when it is not there).
+dir_mb() { du -sk "$1" 2>/dev/null | awk '{ print int($1 / 1024) }' || true; }
+# True when at least $1 MB are free, or when that cannot be measured.
+room_for() {
+  local free
+  free="$(free_mb)"
+  [ -z "$free" ] || [ "$free" -ge "$1" ]
+}
+# What old copies of the database take, for the message that asks for room.
+backups_note() {
+  local mb
+  mb="$(dir_mb "$backup_dir")"
+  if [ -n "$mb" ] && [ "$mb" -ge 100 ]; then printf '; the database copies in %s take %s MB, and old ones there can go' "$backup_dir" "$mb"; fi
+}
+# Says what a clean-up gained, measured as the room that appeared: $1 is the
+# room before it in MB, $2 what was done. Silent when nothing was gained.
+gained() {
+  local before="$1" now
+  now="$(free_mb)"
+  if [ -n "$before" ] && [ -n "$now" ] && [ "$now" -gt "$before" ]; then say "$2 ($((now - before)) MB)"; fi
+}
+# Makes room until $1 MB are free, with what Automa itself left behind and what
+# is only a download cache, cheapest first. Never the board's data, and never a
+# copy of the database. With "keep-next" as $2 the server being prepared stays
+# (it is in use by the install that ran out of room). True when $1 MB are free.
+make_room() {
+  local need="$1" keep_next="${2:-}" dir before
+  room_for "$need" && return 0
+  # An update cut short.
+  before="$(free_mb)"
+  for dir in "$server_dir.next" "$server_dir.prev"; do
+    [ -d "$dir" ] || continue
+    [ "$keep_next" = keep-next ] && [ "$dir" = "$server_dir.next" ] && continue
+    # When an update stopped in the middle of the switch, the copy from before
+    # it is the only server there is: `automa fix` puts it back. It stays.
+    [ "$dir" = "$server_dir.prev" ] && [ ! -f "$server_dir/node_modules/paperclipai/dist/index.js" ] && continue
+    rm -rf "$dir" || true
+  done
+  gained "$before" "Removed what an earlier update left behind"
+  room_for "$need" && return 0
+  # npm's unfinished downloads and its logs, and the log of the start before last.
+  before="$(free_mb)"
+  rm -rf "$HOME/.npm/_cacache/tmp" "$HOME/.npm/_logs" 2>/dev/null || true
+  rm -f "$automa_home/server.log.1" 2>/dev/null || true
+  gained "$before" "Removed unfinished downloads and old logs"
+  room_for "$need" && return 0
+  # The package files Termux downloaded: what is installed stays installed.
+  before="$(free_mb)"
+  if command -v apt-get >/dev/null 2>&1; then apt-get clean >/dev/null 2>&1 || true; fi
+  gained "$before" "Removed the package files Termux had downloaded"
+  room_for "$need" && return 0
+  # npm's download cache: what this update still needs is downloaded again.
+  before="$(free_mb)"
+  if command -v npm >/dev/null 2>&1 && [ -d "$HOME/.npm/_cacache" ]; then npm cache clean --force >/dev/null 2>&1 || true; fi
+  gained "$before" "Emptied npm's download cache; the update downloads again what it needs"
+  room_for "$need"
+}
+# What to do about a phone with too little room, after "Nothing was changed":
+# $1 is the room the update needs in MB, $2 the command to run afterwards.
+storage_advice() {
+  local need="$1" again="$2" free
+  free="$(free_mb)"
+  if [ -n "$free" ] && [ "$free" -ge "$need" ]; then
+    printf 'There are %s MB free now, so it may work on a second try: %s. If it stops again, free more space on the phone (photos, videos, apps you don'"'"'t use%s).' "$free" "$again" "$(backups_note)"
+  else
+    printf 'It needs about %s MB free%s. Free some space on the phone (photos, videos, apps you don'"'"'t use%s), then %s.' "$need" "${free:+ and there are $free MB}" "$(backups_note)" "$again"
+  fi
+}
+
 # PostgreSQL settings for a phone, used whenever Automa starts it (here and in
 # the automa command). Android 12 and newer end apps whose processes add up to
 # too many ("[Process completed (signal 9)]" in Termux), and PostgreSQL runs a
@@ -213,8 +293,20 @@ installed_version="$(cat "$server_dir/.automa-version" 2>/dev/null || true)"
 if [ "$installed_version" = "$version" ] && [ -f "$server_dir/node_modules/paperclipai/dist/index.js" ]; then
   say "Automa server $version is already installed"
 else
+  # Room for a second copy of the server, and for what npm unpacks while it works.
+  need_mb=$(( $(dir_mb "$server_dir") + ${AUTOMA_UPDATE_HEADROOM_MB:-300} ))
   if [ -n "$installed_version" ]; then
     say "Updating the Automa server $installed_version -> $version (reuses what is already downloaded)"
+    # Before anything is copied or backed up: on a full phone both only use up
+    # the last of the room, and the update then stops halfway.
+    if ! room_for "$need_mb"; then
+      say "Storage is low ($(free_mb) MB free; the update needs about $need_mb MB). Making room"
+      if ! make_room "$need_mb"; then
+        echo "Not enough free storage for the update: $(free_mb) MB free, about $need_mb MB needed (the new server is prepared next to the one in use). Nothing was changed: Automa $installed_version is still installed, and still running if it was. Free some space on the phone (photos, videos, apps you don't use$(backups_note)), then run: automa update" >&2
+        exit 1
+      fi
+      say "Now $(free_mb) MB free"
+    fi
     # A complete copy of the database first, so an update can never cost the
     # board. `automa restore` lists these.
     if psql -h 127.0.0.1 -d automa -tAc "select 1" >/dev/null 2>&1; then
@@ -222,6 +314,14 @@ else
       pre_update_backup="$backup_dir/automa-before-$file_version-$(date +%Y%m%d-%H%M%S).sql.gz"
       if pg_dump -h 127.0.0.1 --format=plain --clean --if-exists --no-owner --no-privileges automa | gzip > "$pre_update_backup"; then
         say "Database backed up to $pre_update_backup"
+        # One copy per update: an update tried again made a copy each time, and
+        # a few tries filled the phone. The copy just made is the newest, so the
+        # ones from earlier tries at this same update go. No other backup does.
+        for earlier in "$backup_dir/automa-before-$file_version-"*.sql.gz; do
+          [ -f "$earlier" ] && [ "$earlier" != "$pre_update_backup" ] || continue
+          case "$earlier" in */automa-before-restore-*) continue ;; esac
+          rm -f "$earlier"
+        done
       else
         rm -f "$pre_update_backup"
         echo "Could not back up the database; continuing without a fresh backup (automa restore lists the hourly ones)." >&2
@@ -231,13 +331,21 @@ else
     say "Installing the Automa server $version"
     say "The first install downloads about 380 packages: 10 to 45 minutes depending on your connection."
     say "npm stays quiet until it finishes. Keep Termux open and the phone on charge."
+    first_need_mb="${AUTOMA_INSTALL_NEED_MB:-900}"
+    if ! room_for "$first_need_mb" && ! make_room "$first_need_mb"; then
+      echo "Only $(free_mb) MB of storage is free, and the install needs about $first_need_mb MB. It is tried anyway; if it stops, free some space on the phone and run this installer again." >&2
+    fi
   fi
   # The app ships the packages unpacked (xz-compressed); npm installs tarballs.
   tarballs="$here/tarballs"
   rm -rf "$tarballs"
   mkdir -p "$tarballs"
   for pkg in "$here"/packages/*/; do
-    tar -czf "$tarballs/$(basename "$pkg").tgz" -C "$pkg" package
+    if ! tar -czf "$tarballs/$(basename "$pkg").tgz" -C "$pkg" package; then
+      rm -rf "$tarballs"
+      echo "Could not prepare Automa's packages ($(free_mb) MB of storage free: the phone may be out of storage). Nothing was changed. Free some space on the phone (photos, videos, apps you don't use), then run this again." >&2
+      exit 1
+    fi
   done
   # The new server is built beside the one in use, starting from a copy of it
   # so npm only downloads what changed, and takes its place only once it is
@@ -249,30 +357,62 @@ else
     say "Preparing the new server next to the one in use"
     if ! cp -a "$server_dir" "$next_dir"; then
       rm -rf "$next_dir"
-      echo "There is not enough free space to prepare the update next to the current server. Nothing was changed; free some space on the phone and run: automa update" >&2
+      echo "The phone ran out of storage while the update was being prepared. Nothing was changed: Automa $installed_version is still installed, and still running if it was. $(storage_advice "$need_mb" "run: automa update")" >&2
       exit 1
     fi
   fi
   mkdir -p "$next_dir"
   installed_ok=0
-  for attempt in 1 2 3; do
+  out_of_storage=0
+  made_room=0
+  attempt=1
+  # What npm says when it stops, kept to tell a full phone from a dropped
+  # connection: asking again helps with the one and never with the other.
+  npm_said="${TMPDIR:-$PREFIX/tmp}/automa-npm-said.$$"
+  while [ "$attempt" -le 3 ]; do
     if npm install --prefix "$next_dir" --omit=dev --prefer-offline --no-audit --no-fund --no-update-notifier \
       --fetch-retries=4 --fetch-retry-mintimeout=14750 --fetch-retry-maxtimeout=120000 --fetch-timeout=600000 \
-      --loglevel=error "$tarballs"/*.tgz; then
+      --loglevel=error "$tarballs"/*.tgz 2> "$npm_said"; then
       installed_ok=1
+      break
+    fi
+    cat "$npm_said" >&2 2>/dev/null || true
+    # npm's own words, or (when even they could not be written) almost nothing left.
+    if grep -Eqi 'ENOSPC|no space left' "$npm_said" 2>/dev/null || ! room_for 50; then
+      free_before="$(free_mb)"
+      if [ "$made_room" = 0 ]; then
+        made_room=1
+        say "The phone ran out of storage. Making room and trying once more"
+        make_room 999999 keep-next || true
+        free_now="$(free_mb)"
+        # Worth one more try only when room was really made.
+        if [ -n "$free_now" ] && [ -n "$free_before" ] && [ "$free_now" -ge $((free_before + 100)) ]; then continue; fi
+        if [ -z "$free_now" ]; then continue; fi
+      fi
+      out_of_storage=1
       break
     fi
     if [ "$attempt" -lt 3 ]; then
       echo "The download stopped; trying again ($((attempt + 1)) of 3)." >&2
       sleep "${AUTOMA_NPM_RETRY_WAIT:-$((attempt * 15))}"
     fi
+    attempt=$((attempt + 1))
   done
+  rm -f "$npm_said"
   if [ "$installed_ok" = 1 ] && [ "$(node -p process.platform)" = "android" ]; then
     say "Adding the portable image library (sharp for Android)"
     node "$here/add-sharp-wasm.mjs" "$next_dir" || installed_ok=0
   fi
   if [ "$installed_ok" != 1 ]; then
     rm -rf "$next_dir"
+    if [ "$out_of_storage" = 1 ]; then
+      if [ -n "$installed_version" ]; then
+        echo "The phone ran out of storage while the update was being prepared. Nothing was changed: Automa $installed_version is still installed, and still running if it was. $(storage_advice "$need_mb" "run: automa update")" >&2
+      else
+        echo "The phone ran out of storage while Automa's packages were being installed. $(storage_advice "${AUTOMA_INSTALL_NEED_MB:-900}" "run this installer again")" >&2
+      fi
+      exit 1
+    fi
     if [ -n "$installed_version" ]; then
       echo "Could not download the update (the connection timed out or dropped). Nothing was changed: Automa $installed_version is still installed, and still running if it was. On a steadier connection (Wi-Fi often works better than mobile data), run: automa update" >&2
     else
@@ -600,7 +740,13 @@ case "\${1:-}" in
     [ -s "\$bundle" ] || { echo "No new server to install. In the Automa app, open the setup screen and tap Send to Termux, then run: automa update" >&2; exit 1; }
     tmp="\${TMPDIR:-$PREFIX/tmp}"
     rm -rf "\$tmp/automa-server"
-    tar -xf "\$bundle" -C "\$tmp"
+    if ! tar -xf "\$bundle" -C "\$tmp"; then
+      # Most often a full phone; the half-unpacked copy would only take more of it.
+      rm -rf "\$tmp/automa-server"
+      free="\$(df -Pk "\$HOME" 2>/dev/null | awk 'NR == 2 { print int(\$4 / 1024) }')"
+      echo "Could not unpack the new server.\${free:+ \$free MB of storage is free.} If the phone is out of storage, free some space (photos, videos, apps you don't use), then run: automa update. If there is room, open the Automa app's setup screen, tap Send to Termux again, then run: automa update" >&2
+      exit 1
+    fi
     exec bash "\$tmp/automa-server/install.sh"
     ;;
   backup)

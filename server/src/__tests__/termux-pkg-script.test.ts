@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,9 @@ function phoneEnv(extra: Record<string, string> = {}) {
     PAPERCLIP_HOME: path.join(root, "paperclip"),
     PAPERCLIP_INSTANCE_ID: "default",
     TMPDIR: path.join(root, "tmp"),
+    // How much room the installer asks for: none, so no test depends on how full this machine's own disk is.
+    AUTOMA_INSTALL_NEED_MB: "0",
+    AUTOMA_UPDATE_HEADROOM_MB: "0",
     ...extra,
   };
 }
@@ -426,7 +429,7 @@ describe("the automa command's backup and restore", () => {
   const calls = () => readFile(path.join(root, "calls.log"), "utf8").catch(() => "");
 
   /** Runs the real installer in the fake phone, with stand-ins for Node, PostgreSQL and npm. */
-  async function installAutoma({ nodeMissing = false, pgMajor = 17 } = {}) {
+  async function installAutoma({ nodeMissing = false, pgMajor = 17, env = {} as Record<string, string>, beforeInstall = async () => {} } = {}) {
     const bundle = path.join(root, "bundle");
     await mkdir(path.join(bundle, "packages", "server", "package"), { recursive: true });
     await writeFile(path.join(bundle, "packages", "server", "package", "package.json"), "{}\n");
@@ -488,9 +491,11 @@ describe("the automa command's backup and restore", () => {
       `echo "--"; echo "-- PostgreSQL database dump complete"; echo "--"`,
     ].join("\n"));
     await fake("npm", `while [ $# -gt 0 ]; do [ "$1" = --prefix ] && dir="$2"; shift; done; mkdir -p "$dir/node_modules/paperclipai/dist"; touch "$dir/node_modules/paperclipai/dist/index.js"`);
-    const installed = await runFile(path.join(bundle, "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1" } });
+    await beforeInstall();
+    const installed = await runFile(path.join(bundle, "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", ...env } });
     expect(installed.out).toContain("Installed.");
     expect(installed.code).toBe(0);
+    return installed;
   }
 
   async function writeBackup(name: string, sql: string, ageMinutes: number) {
@@ -652,6 +657,190 @@ describe("the automa command's backup and restore", () => {
       expect((await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim()).toBe("9.9.10 (abc1234)");
       expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.next"]));
       expect(await readdir(path.join(root, "home", ".automa"))).not.toEqual(expect.arrayContaining(["server.prev"]));
+    }, 60_000);
+  });
+
+  describe("updating the server on a phone that is short of storage", () => {
+    const serverDir = () => path.join(root, "home", ".automa", "server");
+    const automaHome = () => path.join(root, "home", ".automa");
+    const npmInstalls = async () => (await calls()).split("=== update\n")[1]!.split("\n").filter((line) => line.startsWith("npm install")).length;
+    const after = async () => (await calls()).split("=== update\n")[1] ?? "";
+    const MB = 1024;
+
+    /**
+     * 9.9.9 installed, then a 9.9.10 bundle on a phone whose free storage is
+     * what `free-kb` holds. `df` reads it; emptying npm's cache adds
+     * `npm-cache-frees-kb` to it; `npm install` fails for lack of space
+     * `npm-enospc` times (each time leaving less than 50 MB free unless
+     * `enospc-keeps-free` is there).
+     */
+    async function shortOfStorage(freeMb: number, options: { cacheFreesMb?: number; enospc?: number } = {}) {
+      await installAutoma();
+      await writeFile(path.join(serverDir(), "old-server"), "9.9.9");
+      await writeFile(path.join(root, "bundle", "VERSION"), "9.9.10\n");
+      await writeFile(path.join(root, "free-kb"), String(freeMb * MB));
+      await writeFile(path.join(root, "npm-cache-frees-kb"), String((options.cacheFreesMb ?? 0) * MB));
+      await writeFile(path.join(root, "npm-enospc"), String(options.enospc ?? 0));
+      await mkdir(path.join(root, "home", ".npm", "_cacache", "tmp"), { recursive: true });
+      await writeFile(path.join(root, "home", ".npm", "_cacache", "tmp", "half-download"), "x");
+      await fake("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/block/dm-9 100000000 90000000 $(cat "${root}/free-kb") 99% /data"`);
+      await fake("npm", [
+        `echo "npm $*" >> "${root}/calls.log"`,
+        `if [ "$1" = cache ]; then echo $(( $(cat "${root}/free-kb") + $(cat "${root}/npm-cache-frees-kb") )) > "${root}/free-kb"; echo 0 > "${root}/npm-cache-frees-kb"; exit 0; fi`,
+        `left=$(cat "${root}/npm-enospc")`,
+        `if [ "$left" -gt 0 ]; then`,
+        `  echo $((left - 1)) > "${root}/npm-enospc"`,
+        `  [ -f "${root}/enospc-keeps-free" ] || echo ${10 * MB} > "${root}/free-kb"`,
+        `  echo "npm error code ENOSPC" >&2; echo "npm error syscall mkdtemp" >&2`,
+        `  echo "npm error nospc ENOSPC: no space left on device, mkdtemp '/data/data/com.termux/files/home/.npm/_cacache/tmp/FpkMgQ'" >&2`,
+        `  exit 228`,
+        `fi`,
+        `while [ $# -gt 0 ]; do [ "$1" = --prefix ] && dir="$2"; shift; done; mkdir -p "$dir/node_modules/paperclipai/dist"; touch "$dir/node_modules/paperclipai/dist/index.js"`,
+      ].join("\n"));
+      await writeFile(path.join(root, "calls.log"), `${await calls()}=== update\n`);
+      return runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", AUTOMA_NPM_RETRY_WAIT: "0", AUTOMA_UPDATE_HEADROOM_MB: "300" } });
+    }
+    const version = async () => (await readFile(path.join(serverDir(), ".automa-version"), "utf8")).trim();
+
+    it("warns before a first install that the phone is low on storage, and still tries", async () => {
+      const installed = await installAutoma({
+        env: { AUTOMA_INSTALL_NEED_MB: "900" },
+        beforeInstall: () => fake("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/block/dm-9 100000000 90000000 ${200 * MB} 99% /data"`),
+      });
+      expect(installed.out).toContain("Only 200 MB of storage is free, and the install needs about 900 MB. It is tried anyway");
+    }, 60_000);
+
+    it("says the storage ran out when the new server cannot be unpacked", async () => {
+      await installAutoma();
+      await mkdir(path.join(root, "home", "downloads"), { recursive: true });
+      await writeFile(path.join(root, "home", "downloads", "automa-server.tar.xz"), "not an archive");
+      await fake("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/block/dm-9 100000000 90000000 ${12 * MB} 99% /data"`);
+      const result = await runFile(automa(), ["update"]);
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("Could not unpack the new server");
+      expect(result.out).toContain("12 MB of storage is free");
+      expect(result.out).toContain("then run: automa update");
+      expect(await readdir(path.join(root, "tmp")).catch(() => [])).not.toContain("automa-server");
+    }, 60_000);
+
+    it("stops before it changes anything when there is no room, and says how much is free and how much it needs", async () => {
+      const result = await shortOfStorage(120);
+      expect(result.code).toBe(1);
+      expect(result.out).toMatch(/Not enough free storage for the update: 120 MB free, about 3\d\d MB needed/);
+      expect(result.out).toContain("Nothing was changed: Automa 9.9.9 is still installed");
+      // It is the storage, not the connection, and it says what to do about it.
+      expect(result.out).not.toContain("connection");
+      expect(result.out).toContain("then run: automa update");
+      // What is safe to clear was cleared before giving up; nothing was downloaded, nothing backed up into the last room.
+      expect(await after()).toContain("npm cache clean --force");
+      expect(await npmInstalls()).toBe(0);
+      expect(await after()).not.toContain("pg_dump");
+      expect(await version()).toBe("9.9.9");
+      expect(await readFile(path.join(serverDir(), "old-server"), "utf8")).toBe("9.9.9");
+      expect(await readdir(automaHome())).not.toContain("server.next");
+    }, 60_000);
+
+    it("makes room by itself when clearing its own leftovers is enough, and then updates", async () => {
+      await mkdir(path.join(root, "leftovers"), { recursive: true });
+      const result = await shortOfStorage(120, { cacheFreesMb: 900 });
+      expect(result.code, result.out).toBe(0);
+      expect(result.out).toContain("Storage is low (120 MB free; the update needs about");
+      // What it gained is what appeared, measured.
+      expect(result.out).toContain("Emptied npm's download cache; the update downloads again what it needs (900 MB)");
+      expect(result.out).toContain("Now 1020 MB free");
+      expect(await version()).toBe("9.9.10");
+      expect(await npmInstalls()).toBe(1);
+      // npm's unfinished downloads went as well.
+      expect(await readdir(path.join(root, "home", ".npm", "_cacache")).catch(() => [])).not.toContain("tmp");
+    }, 60_000);
+
+    it("leaves npm's cache alone while there is room", async () => {
+      const result = await shortOfStorage(4000);
+      expect(result.code, result.out).toBe(0);
+      expect(result.out).not.toContain("Storage is low");
+      expect(await after()).not.toContain("npm cache clean");
+      expect(await version()).toBe("9.9.10");
+    }, 60_000);
+
+    it("says the phone ran out of storage when npm does, instead of blaming the connection and asking three times", async () => {
+      const result = await shortOfStorage(4000, { enospc: 5 });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("The phone ran out of storage while the update was being prepared");
+      expect(result.out).toContain("Nothing was changed: Automa 9.9.9 is still installed");
+      expect(result.out).toMatch(/It needs about 3\d\d MB free and there are 10 MB\. Free some space on the phone \(photos, videos, apps you don't use\), then run: automa update\./);
+      // A clean-up that gained nothing is not announced.
+      expect(result.out).not.toContain("Emptied npm's download cache");
+      expect(result.out).not.toContain("connection timed out or dropped");
+      expect(result.out).not.toContain("The download stopped; trying again");
+      // Asked once. Clearing what is safe made no room, so it is not asked again: the answer would be the same.
+      expect(await npmInstalls()).toBe(1);
+      expect(await after()).toContain("npm cache clean --force");
+      expect(await version()).toBe("9.9.9");
+      expect(await readdir(automaHome())).not.toContain("server.next");
+    }, 60_000);
+
+    it("finishes the update when making room after the first failure was enough", async () => {
+      const result = await shortOfStorage(4000, { enospc: 1, cacheFreesMb: 900 });
+      expect(result.code, result.out).toBe(0);
+      expect(result.out).toContain("The phone ran out of storage. Making room and trying once more");
+      expect(await npmInstalls()).toBe(2);
+      expect(await version()).toBe("9.9.10");
+    }, 60_000);
+
+    it("reads npm's own words: out of space is out of space even when room came back after it stopped", async () => {
+      await writeFile(path.join(root, "enospc-keeps-free"), "");
+      const result = await shortOfStorage(4000, { enospc: 5 });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("The phone ran out of storage while the update was being prepared");
+      // With room there again, the advice is to try once more, not to free what is already free.
+      expect(result.out).toContain("There are 4000 MB free now, so it may work on a second try: run: automa update.");
+      expect(result.out).not.toContain("connection timed out or dropped");
+    }, 60_000);
+
+    it("keeps one copy of the database per update: a second try replaces the first try's copy, and no other backup", async () => {
+      await writeBackup("automa-before-9.9.10-20261001-000000.sql.gz", COMPLETE_DUMP, 600);
+      await writeBackup("automa-before-9.9.10-20261001-010000.sql.gz", COMPLETE_DUMP, 540);
+      await writeBackup("automa-before-9.9.8-20260901-000000.sql.gz", COMPLETE_DUMP, 90_000);
+      await writeBackup("automa-manual-20261001-000000.sql.gz", COMPLETE_DUMP, 600);
+      await writeBackup("automa-20261001-000000.sql.gz", COMPLETE_DUMP, 600);
+      const result = await shortOfStorage(4000);
+      expect(result.code, result.out).toBe(0);
+      const kept = (await readdir(backups())).sort();
+      expect(kept.filter((name) => name.startsWith("automa-before-9.9.10-"))).toEqual([expect.stringMatching(/^automa-before-9\.9\.10-\d{8}-\d{6}\.sql\.gz$/)]);
+      expect(kept.filter((name) => name.startsWith("automa-before-9.9.10-"))[0]).not.toMatch(/20261001/);
+      expect(kept).toEqual(expect.arrayContaining(["automa-before-9.9.8-20260901-000000.sql.gz", "automa-manual-20261001-000000.sql.gz", "automa-20261001-000000.sql.gz"]));
+    }, 60_000);
+
+    it("keeps the earlier copies when the new copy could not be written", async () => {
+      await writeBackup("automa-before-9.9.10-20261001-000000.sql.gz", COMPLETE_DUMP, 600);
+      await writeFile(path.join(root, "pg_dump-fails"), "");
+      const result = await shortOfStorage(4000);
+      expect(result.code, result.out).toBe(0);
+      expect(await readdir(backups())).toContain("automa-before-9.9.10-20261001-000000.sql.gz");
+    }, 60_000);
+
+    it("never clears the server from before an interrupted update when it is the only one left", async () => {
+      await installAutoma();
+      // An update stopped in the middle of the switch: the server in use was
+      // moved aside and the new one never took its place.
+      await rename(serverDir(), `${serverDir()}.prev`);
+      await writeFile(path.join(root, "free-kb"), String(40 * MB));
+      await fake("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/block/dm-9 100000000 90000000 $(cat "${root}/free-kb") 99% /data"`);
+      await fake("npm", [
+        `echo "npm $*" >> "${root}/calls.log"`,
+        `[ "$1" = cache ] && exit 0`,
+        `echo "npm error nospc ENOSPC: no space left on device, mkdtemp '/data/data/com.termux/files/home/.npm/_cacache/tmp/FpkMgQ'" >&2`,
+        `exit 228`,
+      ].join("\n"));
+      const result = await runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", AUTOMA_NPM_RETRY_WAIT: "0", AUTOMA_INSTALL_NEED_MB: "900" } });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("The phone ran out of storage while Automa's packages were being installed. It needs about 900 MB free and there are 40 MB.");
+      expect(result.out).toContain("then run this installer again.");
+      // Not the connection, and (the cache was emptied to make room) no promise that the downloads were kept.
+      expect(result.out).not.toContain("timed out or dropped");
+      expect(result.out).not.toContain("what already downloaded is kept");
+      // `automa fix` puts this copy back, so making room must leave it.
+      expect(await readdir(path.join(`${serverDir()}.prev`, "node_modules", "paperclipai", "dist"))).toContain("index.js");
     }, 60_000);
   });
 
@@ -1125,6 +1314,21 @@ describe("the automa command's backup and restore", () => {
         expect(result.out).toContain("Newest backup: automa-hourly-20261116-200000.sql.gz");
         expect(result.code).toBe(1);
         await expect(stat(backup)).resolves.toBeTruthy();
+      }, 60_000);
+
+      it("clears npm's unfinished downloads and the package files Termux downloaded when storage is nearly gone", async () => {
+        await installAutoma();
+        await phone({ availableKb: 100_000 });
+        await mkdir(path.join(root, "home", ".npm", "_cacache", "tmp"), { recursive: true });
+        await writeFile(path.join(root, "home", ".npm", "_cacache", "tmp", "half-download"), Buffer.alloc(3 * 1024 * 1024));
+        await fake("apt-get", `echo "apt-get $*" >> "${root}/calls.log"; [ "$1" = clean ] && echo 612000 > "${root}/df-available"; exit 0`);
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(result.out).toContain("Only 97 MB of storage is free.");
+        expect(result.out).toMatch(/Fixed: Removed npm's unfinished downloads and logs in .*_cacache\/tmp \(\d MB\)\./);
+        expect(result.out).toContain("Fixed: Removed the package files Termux had downloaded (500 MB; what is installed stays).");
+        expect(result.out).toContain("Now 597 MB free.");
+        expect(await calls()).toContain("apt-get clean");
+        await expect(stat(path.join(root, "home", ".npm", "_cacache", "tmp"))).rejects.toThrow();
       }, 60_000);
 
       it("changes nothing about a database another PostgreSQL version wrote, and says how to keep it", async () => {

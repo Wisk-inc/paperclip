@@ -83,11 +83,13 @@ else
 fi
 
 section "Storage and memory"
-# What Automa itself left that is safe to remove: an update cut short (the
-# installer removes these when it can), the previous start's log, and npm's
-# download cache (the next update downloads again).
+# What is safe to remove: an update cut short (the installer removes these
+# when it can), the previous start's log, npm's unfinished downloads and its
+# logs, the package files Termux downloaded (what is installed stays), and
+# npm's download cache (the next update downloads again).
+free_mb_now() { df -Pk "$HOME" 2>/dev/null | awk 'NR == 2 { print int($4 / 1024) }'; }
 free_up_space() {
-  local dir freed
+  local dir freed before now
   for dir in "$server_dir.next" "$server_dir.prev" "${TMPDIR:-$PREFIX/tmp}/automa-server"; do
     [ -d "$dir" ] || continue
     # A running install uses these: only ones untouched for two hours go.
@@ -97,6 +99,18 @@ free_up_space() {
   done
   if [ -f "$automa_home/server.log.1" ]; then
     rm -f "$automa_home/server.log.1" && fixed "Removed the previous start's log."
+  fi
+  for dir in "$HOME/.npm/_cacache/tmp" "$HOME/.npm/_logs"; do
+    [ -d "$dir" ] || continue
+    freed="$(size_mb "$dir")"
+    if rm -rf "$dir" && [ "${freed:-0}" -gt 0 ]; then fixed "Removed npm's unfinished downloads and logs in $dir ($freed MB)."; fi
+  done
+  if command -v apt-get >/dev/null 2>&1; then
+    before="$(free_mb_now)"
+    apt-get clean >/dev/null 2>&1 || true
+    now="$(free_mb_now)"
+    # Said only when it really gained room.
+    if [ -n "$before" ] && [ -n "$now" ] && [ "$now" -gt "$before" ]; then fixed "Removed the package files Termux had downloaded ($((now - before)) MB; what is installed stays)."; fi
   fi
   if command -v npm >/dev/null 2>&1 && [ -d "$HOME/.npm/_cacache" ]; then
     freed="$(size_mb "$HOME/.npm/_cacache")"

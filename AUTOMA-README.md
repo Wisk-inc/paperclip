@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.17** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.18** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.17](#2-whats-new-in-1917)
+2. [What's new in 1.9.18](#2-whats-new-in-1918)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,45 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.17
+## 2. What's new in 1.9.18
+
+The update on the phone copes with a phone that is nearly full.
+
+**`automa update` on a full phone**
+- **It checks the storage first.** The new server is prepared next to the one
+  in use, so an update needs room for a second copy of it for a few minutes
+  (about 600 MB). Before anything is copied or backed up, Automa measures what
+  is free.
+- **It makes room by itself** when that is too little, with what is safe to
+  clear: what an earlier update left behind, npm's unfinished downloads and
+  logs, the package files Termux downloaded (what is installed stays), and
+  npm's download cache. It says what each of these gained. Your board, your
+  files and your backups are never touched.
+- **When there is still too little room it stops before changing anything**
+  and says how much is free and how much the update needs, for example
+  "Not enough free storage for the update: 120 MB free, about 600 MB needed".
+- **Out of storage is called out of storage.** Before, a phone that filled up
+  during the update was reported as "the connection timed out or dropped"
+  after three tries that could not succeed. Now Automa makes room once, tries
+  once more if that helped, and otherwise says the phone ran out of storage.
+- **One copy of the database per update.** Every try made a full copy of the
+  database first, so a few failed tries filled the phone further. The copies
+  from earlier tries at the same update are now replaced by the newest one. No
+  other backup is removed.
+- **`automa fix`** (the Troubleshoot button) clears the same things when
+  storage is nearly gone.
+
+If the update stopped on your phone with "no space left on device", run these
+in Termux, then `automa update` again:
+
+```
+npm cache clean --force
+apt clean
+rm -rf ~/.npm/_logs ~/.automa/server.next ~/.automa/server.prev
+df -h ~
+```
+
+### From 1.9.17
 
 App Studio reads like a code editor, its AI is easier to talk to, and App
 Inspector has a chat. Open **Terminals** too: the IMY tile says **Tap to
@@ -1832,6 +1870,8 @@ The full threat model is in `doc/AUTOMA-SECURITY.md`.
 | You see | What it means | Do this |
 |---|---|---|
 | **Update Automa on this phone** on Terminals or App Inspector | The phone's server is older than the page. | Tap it, Send to Termux, paste the command (or `automa update`). |
+| `automa update` says **Not enough free storage** or **The phone ran out of storage** | The update needs room for a second copy of the server (about 600 MB) and the phone has less, even after Automa cleared what is safe to clear. Nothing was changed. | Delete photos, videos or apps you don't use (old database copies in the backups folder can go too), then run `automa update` again. `automa fix` shows how much is free. |
+| `npm error code ENOSPC` / "no space left on device" during an update (1.9.17 or older) | The phone is full; older versions called this a dropped connection. | In Termux: `npm cache clean --force`, `apt clean`, `rm -rf ~/.npm/_logs ~/.automa/server.next ~/.automa/server.prev`, then `automa update`. |
 | "App not installed" / "conflicts with an existing package" | The installed Automa was signed with a different key (1.8.1 or older). | Uninstall Automa, then install. Board data lives in Termux and is kept. |
 | Termux "RunCommandService requires allow-external-apps" | Termux hasn't let the app run commands yet. | Use the app's one-tap fix, or run the installer again. |
 | The connect screen keeps waiting | Automa is still starting (the screen shows its current step and time), it stopped (the screen says so), or the address is wrong. | `automa status` in Termux shows the step; `automa run` follows the start; check the address (not the Wireless debugging one). |
@@ -1918,6 +1958,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.18 | 2026-11-22 | `automa update` on a nearly full phone: checks the storage first, makes room with what is safe to clear and says what each step gained, stops before changing anything when there is still too little room (with how much is free and needed), and no longer reports a full phone as a dropped connection after three tries. One database copy per update instead of one per try. `automa fix` clears the same things. |
 | 1.9.17 | 2026-11-22 | App Studio's code screen: open files as tabs, a status line (line and column, language, saved), a key row on phones. A busy free model offers Try again and Ask another model instead (your tap switches; never a silent swap); a new chat starts on a model that is answering. App Inspector: a chat about the app or the open file, on the free models with no key or Claude with your key; an APK opened from a file is decoded in full, and **Decode again** repairs older projects. 50 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; when the daily allowance most free models share is used up, all of them are marked at once and the model offered instead is one that still answers; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. App Inspector search reads `.toml` and `.tsv`. IMY 1.1.2: `imy import` skips `bazel-out` and `zig-out`. A few waits are longer for slow phones and networks. |
 | 1.9.16 | 2026-11-22 | IMY 1.1.1: its console reads like the file being written. It opens with one line, the name of the program file the code becomes (`main.py`, `main.rb`…); each line is typed behind its number and a bar and set again in colour once entered; the code a line became appears under it with its own number in the program file (`:code` and `:convert` show the whole file the same way); a block keeps its indentation and Tab indents; `:run` prints only what the program prints (no "compiled to", no "exit code 0"), commands answer in a word and the hints are gone. Fixes: lines pasted at once are numbered one by one; `:: end` is code, not an unknown command; a result is no longer written into a line being typed; a newer result replaces the older instead of showing a program line twice; keys pressed during a compile no longer land in the line that counts the seconds; closing the terminal keeps the lines typed |
 | 1.9.15 | 2026-11-22 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; each line is converted as you type it, and the result shows above the line being typed; a language menu on the tile (20 languages) and `:target` in the console choose what the code becomes, with 48 languages known and 42 built and run, down to assembly for the device's processor; `:import` takes in an existing project so its functions and variables can be used by name, in any target language; a program its own build tool refuses is corrected by the model before it runs; nine ready examples, `:header`, seconds shown while a model works; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone), says Tap to update when a new Automa brings a newer IMY, and installs anywhere with pip. A Check button on Terminals and in the chat's model picker asks every free model for one word and marks the ones not answering; a model that did not answer when last asked says so; one more free model (LFM3 1.7B); a terminal starts at the width the screen really shows, so a tool's first lines no longer break mid-word on a phone; the Terminals tools' names and descriptions are translated; the check counts models that were only busy apart from the ones it marks; Running now lists only terminals still running, and a tool that finishes installing in the background turns Ready by itself; the installer's own messages fold between words on a narrow screen |
