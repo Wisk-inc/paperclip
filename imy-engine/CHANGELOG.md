@@ -109,6 +109,12 @@ From a full review of every module. Each has a test.
 
 #### Running and injecting
 
+- A common helper the code calls without defining it (`round`, `count`, `show`) is given the
+  target language's usual idiom where the language has no built-in for it. Converting to
+  Lua, which has no `round`, was sometimes refused as a missing mechanic.
+- When the tool that runs a language is missing, the message says how to install it and
+  that `imy convert` needs no tool. For someone who is already root (the Linux layer on a
+  phone), the install line leaves `sudo` out.
 - The `tip` example's header says what its code does (rounds to two decimal places). It
   promised "two decimals" in print, which `round` does not give, and the validator
   sometimes refused the example for it.
