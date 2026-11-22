@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
@@ -30,6 +30,7 @@ vi.mock("@paperclipai/shared/que-engine", async (importOriginal) => ({
 
 import { STUDIO_FREE_MODELS } from "@paperclipai/shared";
 import { resetFreeModelHealth } from "@paperclipai/shared/puter-ai";
+import { queModelId } from "@paperclipai/shared/que-engine";
 import { __resetInspector } from "../services/app-inspector/inspector.js";
 import { __resetInspectorChat, namesIn } from "../services/app-inspector/chat.js";
 
@@ -63,7 +64,9 @@ async function createApp(actor: Record<string, unknown> = {}, hosted = false) {
   return app;
 }
 
-const answer = (text: string, model = MODEL) => ({ text, reasoning: "", model, requestedModel: model, usage: { inputTokens: 1, outputTokens: 1 }, cached: false, attempts: 1 });
+const answer = (text: string, model = MODEL, reasoning = "") => ({ text, reasoning, model, requestedModel: model, usage: { inputTokens: 1, outputTokens: 1 }, cached: false, attempts: 1 });
+/** The free models the chat can ask: App Studio's list without the one model the Que engine does not serve. */
+const OFFERED = STUDIO_FREE_MODELS.filter((model) => model !== "moan/moan-1:free");
 const projectDir = () => path.join(state.root, "app-inspector", PROJECT);
 const saved = () => JSON.parse(readFileSync(path.join(projectDir(), "chat.json"), "utf8")).messages as Array<{ role: string; text: string; model?: string; path?: string | null }>;
 
@@ -98,7 +101,7 @@ describe("App Inspector chat", () => {
     const app = await createApp();
     const empty = await request(app).get(chatUrl);
     expect(empty.status).toBe(200);
-    expect(empty.body).toEqual({ messages: [], models: [...STUDIO_FREE_MODELS], defaultModel: STUDIO_FREE_MODELS[0], claude: false });
+    expect(empty.body).toEqual({ messages: [], models: OFFERED, defaultModel: STUDIO_FREE_MODELS[0], claude: false });
     state.key = "sk-ant-test";
     expect((await request(app).get(chatUrl)).body.claude).toBe(true);
   });
@@ -169,6 +172,20 @@ describe("App Inspector chat", () => {
     expect(state.que.mock.calls[0]![1].model).toBe(STUDIO_FREE_MODELS[0]);
   });
 
+  it("offers no model it would refuse to ask", async () => {
+    const app = await createApp();
+    const models = (await request(app).get(chatUrl)).body.models as string[];
+    expect(models.length).toBeGreaterThan(10);
+    expect(models).not.toContain("moan/moan-1:free");
+    expect(models.filter((model) => !queModelId(model))).toEqual([]);
+    for (const model of models) {
+      state.que.mockResolvedValueOnce(answer("Hi.", model));
+      const res = await request(app).post(chatUrl).send({ message: "Hello", model });
+      expect({ model, status: res.status, error: res.body.error }).toEqual({ model, status: 200, error: undefined });
+    }
+    expect(state.que).toHaveBeenCalledTimes(models.length);
+  });
+
   it("refuses a model it cannot ask", async () => {
     const res = await request(await createApp()).post(chatUrl).send({ message: "Hello", model: "gpt-nope" });
     expect(res.status).toBe(422);
@@ -210,6 +227,117 @@ describe("App Inspector chat", () => {
     expect(second.status).toBe(409);
     release(answer("Done."));
     expect((await first).status).toBe(200);
+  });
+
+  it("uses the model's reasoning when that is all it sent", async () => {
+    const thinking = "The manifest declares one activity, so the app opens with MainActivity.";
+    state.que.mockResolvedValueOnce(answer("", MODEL, thinking));
+    const app = await createApp();
+    const res = await request(app).post(chatUrl).send({ message: "What opens first?", model: MODEL });
+    expect(res.status).toBe(200);
+    expect(res.body.reply).toMatchObject({ role: "assistant", text: thinking, model: MODEL });
+    expect(saved().map((message) => message.text)).toEqual(["What opens first?", thinking]);
+
+    // The answer itself comes first when the model sent both.
+    state.que.mockResolvedValueOnce(answer("MainActivity.", MODEL, thinking));
+    expect((await request(app).post(chatUrl).send({ message: "Again?", model: MODEL })).body.reply.text).toBe("MainActivity.");
+    // Nothing at all is still an empty answer.
+    state.que.mockResolvedValueOnce(answer("  ", MODEL, " "));
+    const empty = await request(app).post(chatUrl).send({ message: "And now?", model: MODEL });
+    expect(empty.status).toBe(503);
+    expect(empty.body.error).toMatch(/empty answer/);
+  });
+
+  it("does not show the model a file that a link in the tree leads to outside the project", async () => {
+    writeFileSync(path.join(state.root, "outside-secret.txt"), "TOP SECRET outside the project\n");
+    symlinkSync(state.root, path.join(projectDir(), "decoded", "up"));
+    symlinkSync(path.join(state.root, "outside-secret.txt"), path.join(projectDir(), "decoded", "SecretNotes.txt"));
+    const app = await createApp();
+    state.que.mockResolvedValue(answer("ok"));
+
+    await request(app).post(chatUrl).send({ message: "What is this?", path: "up/outside-secret.txt", model: MODEL });
+    await request(app).post(chatUrl).send({ message: "What is this?", path: "SecretNotes.txt", model: MODEL });
+    // And when a question only names it, with no file open.
+    await request(app).post(chatUrl).send({ message: "What is in SecretNotes?", model: MODEL });
+    expect(state.que).toHaveBeenCalledTimes(3);
+    for (const [messages] of state.que.mock.calls) {
+      expect(messages[0].content).not.toContain("TOP SECRET");
+      expect(messages[0].content).not.toContain(state.root);
+    }
+    expect(state.que.mock.calls[0]![0][0].content).toContain("up/outside-secret.txt could not be read.");
+    expect(state.que.mock.calls[1]![0][0].content).toContain("SecretNotes.txt could not be read.");
+  });
+
+  it("keeps nothing of a conversation cleared while its answer was being written", async () => {
+    const app = await createApp();
+    state.que.mockResolvedValueOnce(answer("Old answer."));
+    await request(app).post(chatUrl).send({ message: "Old question", model: MODEL });
+    let release: (value: unknown) => void = () => undefined;
+    state.que.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const pending = request(app).post(chatUrl).send({ message: "New question", model: MODEL }).then((res) => res);
+    await vi.waitFor(() => expect(state.que).toHaveBeenCalledTimes(2));
+
+    expect((await request(app).delete(chatUrl)).body).toEqual({ ok: true });
+    expect(existsSync(path.join(projectDir(), "chat.json"))).toBe(false);
+    // The question in flight was told to stop.
+    expect((state.que.mock.calls[1]![1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+
+    // The model answers late all the same: its answer is not kept, and the old pair does not come back.
+    release(answer("New answer."));
+    const late = await pending;
+    expect(late.status).toBe(409);
+    expect(late.body.error).toBe("This conversation was cleared before the answer arrived, so the answer was not kept.");
+    expect((await request(app).get(chatUrl)).body.messages).toEqual([]);
+    expect(existsSync(path.join(projectDir(), "chat.json"))).toBe(false);
+    // Only the old question and the clear are in the activity log: the dropped question was not asked.
+    expect(state.log.mock.calls.map((call) => (call as unknown as [unknown, { action: string }])[1].action)).toEqual(["app_inspector.chat_asked", "app_inspector.chat_cleared"]);
+
+    // The next question starts a new conversation, and is not held up by the one that was dropped.
+    state.que.mockResolvedValueOnce(answer("Fresh answer."));
+    const next = await request(app).post(chatUrl).send({ message: "Fresh question", model: MODEL });
+    expect(next.status).toBe(200);
+    expect(saved().map((message) => message.text)).toEqual(["Fresh question", "Fresh answer."]);
+  });
+
+  it("can be asked again at once after a clear, and the dropped question's late answer changes nothing", async () => {
+    const app = await createApp();
+    let release: (value: unknown) => void = () => undefined;
+    state.que.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const dropped = request(app).post(chatUrl).send({ message: "Dropped question", model: MODEL }).then((res) => res);
+    await vi.waitFor(() => expect(state.que).toHaveBeenCalledTimes(1));
+    await request(app).delete(chatUrl);
+
+    state.que.mockResolvedValueOnce(answer("Kept answer."));
+    const kept = await request(app).post(chatUrl).send({ message: "Kept question", model: MODEL });
+    expect(kept.status).toBe(200);
+
+    release(answer("Dropped answer."));
+    expect((await dropped).status).toBe(409);
+    expect(saved().map((message) => message.text)).toEqual(["Kept question", "Kept answer."]);
+    // One question at a time still holds after all that.
+    let hold: (value: unknown) => void = () => undefined;
+    state.que.mockImplementationOnce(() => new Promise((resolve) => { hold = resolve; }));
+    const first = request(app).post(chatUrl).send({ message: "First", model: MODEL }).then((res) => res);
+    await vi.waitFor(() => expect(state.que).toHaveBeenCalledTimes(3));
+    expect((await request(app).post(chatUrl).send({ message: "Second", model: MODEL })).status).toBe(409);
+    hold(answer("Done."));
+    expect((await first).status).toBe(200);
+  });
+
+  it("adds the answer to the conversation as it is saved when the answer arrives", async () => {
+    const app = await createApp();
+    let release: (value: unknown) => void = () => undefined;
+    state.que.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const pending = request(app).post(chatUrl).send({ message: "Question", model: MODEL }).then((res) => res);
+    await vi.waitFor(() => expect(state.que).toHaveBeenCalledTimes(1));
+    // The saved conversation changed while the model wrote (another window of the same project).
+    const elsewhere = { id: "m-1", role: "user", text: "Saved meanwhile", at: "2026-11-22T00:00:00.000Z" };
+    writeFileSync(path.join(projectDir(), "chat.json"), JSON.stringify({ version: 1, messages: [elsewhere] }));
+    release(answer("Answer."));
+    const res = await pending;
+    expect(res.status).toBe(200);
+    expect(res.body.messages.map((message: { text: string }) => message.text)).toEqual(["Saved meanwhile", "Question", "Answer."]);
+    expect(saved().map((message) => message.text)).toEqual(["Saved meanwhile", "Question", "Answer."]);
   });
 
   it("clears the conversation", async () => {

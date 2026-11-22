@@ -137,7 +137,8 @@ export function SearchFilterSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0" data-testid="search-filter-sheet">
-        <SheetHeader className="flex-row items-center justify-between border-b border-border">
+        {/* The right padding keeps Clear all out from under the sheet's close button. */}
+        <SheetHeader className="flex-row items-center justify-between border-b border-border pr-12">
           <SheetTitle className="text-base">Filters</SheetTitle>
           <button
             type="button"

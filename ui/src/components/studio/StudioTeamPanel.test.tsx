@@ -132,14 +132,14 @@ describe("The share card", () => {
     container.remove();
   });
 
-  async function renderSharing(shareExpiresAt: string | null, onShare = vi.fn(async () => undefined)) {
+  async function renderSharing(shareExpiresAt: string | null, onShare = vi.fn(async () => undefined), publicError: string | null = "cloudflared is not installed") {
     await act(async () => {
       root.render(
         <StudioTeamPanel
           shareEnabled
           shareCode="ABCD2345"
           shareExpiresAt={shareExpiresAt}
-          share={{ code: "ABCD2345", inviteUrl: null, localInviteUrl: "http://127.0.0.1:41000/studio-guest/?code=ABCD2345", publicError: "cloudflared is not installed" }}
+          share={{ code: "ABCD2345", inviteUrl: null, localInviteUrl: "http://127.0.0.1:41000/studio-guest/?code=ABCD2345", publicError }}
           participants={[]}
           collaborators={[]}
           messages={[]}
@@ -172,6 +172,44 @@ describe("The share card", () => {
     expect(container.textContent).not.toContain("this network");
     expect(container.textContent).toContain("couldn't be made: cloudflared is not installed");
     expect(container.querySelector("[data-testid=studio-expiry-168]")?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("ends the note about the local link with one period, whatever the reason ends with", async () => {
+    const note = () => container.querySelector("[data-testid=studio-invite-local-note]")!.textContent;
+    // The reason as the server sends it: two sentences, the last one closed.
+    await renderSharing(null, undefined, "cloudflared is not installed on this device. Install it to get a public link.");
+    expect(note()).toBe(
+      "This link opens only on the device running Automa. Friends elsewhere need the public link, which couldn't be made: cloudflared is not installed on this device. Install it to get a public link.",
+    );
+    await renderSharing(null, undefined, "the tunnel closed... \n");
+    expect(note()).toMatch(/couldn't be made: the tunnel closed\.$/);
+    await renderSharing(null, undefined, "cloudflared is not installed");
+    expect(note()).toMatch(/couldn't be made: cloudflared is not installed\.$/);
+    await renderSharing(null, undefined, null);
+    expect(note()).toBe("This link opens only on the device running Automa. Friends elsewhere need the public link.");
+  });
+
+  it("offers the public link again where only the link for this device is at hand, keeping the code and its expiry", async () => {
+    // A page opened again after Automa restarted: the code is the same, the public link is gone.
+    const onShare = await renderSharing(new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(), undefined, null);
+    const again = container.querySelector<HTMLButtonElement>("[data-testid=studio-public-invite]")!;
+    expect(again.textContent).toBe("Get the public link");
+    await act(async () => again.click());
+    // Nothing about the code or the expiry is sent: the server keeps both.
+    expect(onShare).toHaveBeenCalledTimes(1);
+    expect(onShare).toHaveBeenCalledWith({});
+
+    await renderSharing(null, undefined, "cloudflared is not installed");
+    expect(container.querySelector("[data-testid=studio-public-invite]")!.textContent).toBe("Try the public link again");
+  });
+
+  it("gives Copy invite link a thumb-sized target on touch screens", async () => {
+    await renderSharing(null);
+    const copy = container.querySelector<HTMLButtonElement>('button[aria-label="Copy invite link (this device only)"]')!;
+    // 24 px for a mouse, 40 px under a finger: it is the card's main action.
+    expect(copy.className.split(/\s+/)).toEqual(expect.arrayContaining(["size-6", "pointer-coarse:size-10", "shrink-0"]));
+    // The link keeps what room is left and is cut with an ellipsis, not the button.
+    expect(container.querySelector("[data-testid=studio-invite-link]")!.className).toContain("truncate");
   });
 });
 

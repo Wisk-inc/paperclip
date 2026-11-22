@@ -100,9 +100,10 @@ const PUTER_ROUTES: Partial<Record<string, string>> = {
 };
 
 /**
- * The same model on a second free route, tried when the first is busy:
- * Google serves Gemma 4 free as well as OpenRouter does. Google's route
- * drops native tool calls, so tools travel over it as text.
+ * The same model on a second free route, tried when the first is out (busy,
+ * at its daily limit, closed to Automa or taken offline): Google serves
+ * Gemma 4 free as well as OpenRouter does. Google's route drops native tool
+ * calls, so tools travel over it as text.
  */
 const PUTER_BACKUP_ROUTES: Partial<Record<string, { model: string; toolsAsText: boolean }>> = {
   'google/gemma-4-31b-it:free': { model: 'gemma-4-31b-it', toolsAsText: true },
@@ -208,12 +209,16 @@ export interface PuterImageOptions {
 
 const PUTER_API = 'https://api.puter.com/drivers/call';
 
+/** The most app ids kept at once. A rate limit adds fresh ones, and with no ceiling the pool only ever grew. */
+export const APP_ID_POOL_MAX = 400;
+
 const appIds: string[] = Array.from({ length: 200 }, () => 'px-' + crypto.randomUUID());
 const appCooldown = new Map<string, number>();
 let appIdx = 0;
 
+/** Adds up to `count` fresh app ids, never past the pool's ceiling. */
 function spawnAppIds(count = 50): void {
-  for (let i = 0; i < count; i++) appIds.push('px-' + crypto.randomUUID());
+  for (let i = 0; i < count && appIds.length < APP_ID_POOL_MAX; i++) appIds.push('px-' + crypto.randomUUID());
 }
 
 function nextAppUid(): string {
@@ -224,9 +229,19 @@ function nextAppUid(): string {
     const cd = appCooldown.get(id);
     if (!cd || now > cd) { appCooldown.delete(id); return id; }
   }
+  // Every id is resting: fresh ones while the pool has room, else the id that has rested longest.
+  const before = appIds.length;
   spawnAppIds(50);
-  appIdx = appIds.length - 1;
-  return appIds[appIdx]!;
+  if (appIds.length > before) {
+    appIdx = appIds.length - 1;
+    return appIds[appIdx]!;
+  }
+  let rested = 0;
+  for (let i = 1; i < appIds.length; i++) {
+    if ((appCooldown.get(appIds[i]!) ?? 0) < (appCooldown.get(appIds[rested]!) ?? 0)) rested = i;
+  }
+  appIdx = rested;
+  return appIds[rested]!;
 }
 
 function cooldownAppUid(id: string): void {
@@ -255,7 +270,7 @@ function appModelId(input?: string): string {
 function resolveModel(input?: string): string {
   const id = appModelId(input);
   if (!(PUTER_MODEL_LIST as string[]).includes(id)) {
-    throw new Error(`"${id}" is not one of Automa's free models. Pick a model from the free list in the switcher.`);
+    throw new Error(`"${id}" is not one of Automa's free models. Pick a model from the free list in the model menu.`);
   }
   return PUTER_ROUTES[id] ?? id;
 }
@@ -280,9 +295,10 @@ function hideToken(text: string): string {
 /**
  * Why a call was refused, as far as it changes what to do next:
  * - daily_limit: the model's free requests for the day are used up (shared by everyone); wait for the reset
- * - busy: rate-limited or overloaded for now; retry, or try the model's backup route
+ * - busy: rate-limited or overloaded for now; retry
  * - restricted: the provider only lets certain apps use the model
  * - withdrawn: the provider took the free version offline
+ *   (any of these four on the main route of a model that has a second route: ask over that one)
  * - no_tools: the model takes no tools; ask again without them
  * - charged: the model billed the shared allowance, so Automa stopped calling it
  * - rejected: anything else about the request
@@ -314,12 +330,43 @@ function slowDownWaitMs(text: string): number {
   return Math.min(Math.max(ms, 1000), 5 * 60_000);
 }
 
+/**
+ * A provider's cap on a model's free requests per day, in the ways providers
+ * word it: "daily limit exceeded (1000 requests per day)", "Rate limit
+ * exceeded: free-models-per-day-high-balance", "Daily quota exceeded", "the
+ * daily request limit", "Quota exceeded ... limit: 50, per day". A limit per
+ * minute ("free-models-per-min") is not one: that model is only busy.
+ */
+const DAILY_LIMIT_TEXT = /daily limit|requests per day|free-models-per-day|per[- ]day\b|daily (?:request |usage |free )?(?:limit|quota|cap|allowance)|quota[^.]{0,80}per day/;
+/** A model at its daily limit is held at least this long and at most this long, whatever wait the refusal names. */
+const DAILY_WAIT_MIN_MS = 60_000;
+const DAILY_WAIT_MAX_MS = 24 * 60 * 60_000;
+
+/**
+ * How long until a model at its daily limit answers again: the reset its
+ * provider's rate-limit header gives (an epoch, in seconds or milliseconds),
+ * else the wait the refusal names in its own unit ("try again after 5368
+ * seconds", "in 45 minutes", "in 2 hours"), else midnight UTC.
+ */
+function dailyLimitWaitMs(text: string, now = Date.now()): number {
+  const clamp = (ms: number) => Math.min(Math.max(ms, DAILY_WAIT_MIN_MS), DAILY_WAIT_MAX_MS);
+  const epoch = /x-ratelimit-reset\W{1,8}(\d{10,13})(?!\d)/.exec(text)?.[1];
+  if (epoch) {
+    const left = Number(epoch) * (epoch.length > 11 ? 1 : 1000) - now;
+    if (left > 0 && left <= DAILY_WAIT_MAX_MS) return clamp(left);
+  }
+  const said = /try again (?:after|in) (?:(\d+(?:\.\d+)?)\s*(second|minute|hour)?|an?\s+(second|minute|hour))/.exec(text);
+  if (said) {
+    const unit = said[2] ?? said[3];
+    const count = said[1] ? Number(said[1]) : 1;
+    return clamp(count * (unit === 'hour' ? 3_600_000 : unit === 'minute' ? 60_000 : 1000));
+  }
+  return msUntilUtcMidnight(now);
+}
+
 function classifyRefusal(status: number, code: string | null, body: string): { kind: PuterRefusalKind; retryAfterMs: number | null } {
   const text = body.toLowerCase();
-  if (/daily limit|requests per day/.test(text)) {
-    const seconds = /try again (?:after|in) (\d+)/.exec(text)?.[1];
-    return { kind: 'daily_limit', retryAfterMs: seconds ? Number(seconds) * 1000 : msUntilUtcMidnight() };
-  }
+  if (DAILY_LIMIT_TEXT.test(text)) return { kind: 'daily_limit', retryAfterMs: dailyLimitWaitMs(text) };
   if (isServiceSlowDown(code, text)) return { kind: 'busy', retryAfterMs: slowDownWaitMs(text) };
   if (/only available on|not available for this app|agentic harness/.test(text) || code === 'upstream_auth_failed' || status === 403) {
     return { kind: 'restricted', retryAfterMs: null };
@@ -331,6 +378,33 @@ function classifyRefusal(status: number, code: string | null, body: string): { k
     return { kind: 'busy', retryAfterMs: null };
   }
   return { kind: 'rejected', retryAfterMs: null };
+}
+
+/**
+ * The service's code and the provider's own words out of a refusal's body.
+ * The service sends them at the top level (with the provider's reply under
+ * `attempts`); a provider's own error arrives as `{ error: { code, message } }`,
+ * so the nested object is read as well.
+ */
+function readRefusal(body: string): { code: string | null; upstream: string | null } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // Not JSON: the body is the message.
+    return { code: null, upstream: body.trim() && body.length < 200 ? body.trim() : null };
+  }
+  const said = (detail: unknown) => (typeof detail === 'string' && detail.trim() ? detail.replace(/\s+/g, ' ').trim().slice(0, 200) : null);
+  if (!parsed || typeof parsed !== 'object') return { code: null, upstream: said(parsed) };
+  const outer = parsed as {
+    code?: unknown; message?: unknown; error?: unknown;
+    attempts?: Array<{ status?: unknown; error?: unknown; upstreamMessage?: unknown } | null>;
+  };
+  const inner = outer.error && typeof outer.error === 'object' ? outer.error as { code?: unknown; message?: unknown; error?: unknown } : null;
+  const code = typeof outer.code === 'string' ? outer.code : typeof inner?.code === 'string' ? inner.code : null;
+  const attempt = Array.isArray(outer.attempts) ? outer.attempts[0] : undefined;
+  const detail = [attempt?.upstreamMessage, attempt?.error, outer.message, outer.error, inner?.message, inner?.error].find((v) => typeof v === 'string' && v.trim());
+  return { code, upstream: said(detail) };
 }
 
 /**
@@ -349,21 +423,7 @@ export class PuterHttpError extends Error {
   constructor(readonly status: number, readonly body: string, held?: { kind: PuterRefusalKind; retryAfterMs: number | null }) {
     body = hideToken(body);
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
-    let code: string | null = null;
-    let upstream: string | null = null;
-    try {
-      const parsed = JSON.parse(body) as {
-        code?: unknown; message?: unknown; error?: unknown;
-        attempts?: Array<{ status?: unknown; error?: unknown; upstreamMessage?: unknown }>;
-      };
-      if (typeof parsed.code === 'string') code = parsed.code;
-      const attempt = Array.isArray(parsed.attempts) ? parsed.attempts[0] : undefined;
-      const detail = [attempt?.upstreamMessage, attempt?.error, parsed.message, parsed.error].find((v) => typeof v === 'string' && v.trim());
-      if (typeof detail === 'string') upstream = detail.replace(/\s+/g, ' ').trim().slice(0, 200);
-    } catch {
-      // Not JSON: the body is the message.
-      if (body.trim() && body.length < 200) upstream = body.trim();
-    }
+    const { code, upstream } = readRefusal(body);
     this.code = code;
     this.upstream = upstream;
     const classified = held ?? classifyRefusal(status, code, body);
@@ -383,6 +443,23 @@ export function isLastingPuterError(error: unknown): boolean {
   return error instanceof PuterHttpError && (error.kind === 'daily_limit' || error.kind === 'restricted' || error.kind === 'withdrawn' || error.kind === 'charged');
 }
 
+const DROPPED_MESSAGE = /^(?:fetch failed|terminated)$|socket hang up|other side closed|ECONNRESET/i;
+const DROPPED_CODE = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/;
+
+/**
+ * A connection to the service that dropped or never opened (common on a
+ * phone): no refusal, so the same call may pass on a retry. What a person
+ * reads for it is a plain sentence, never the runtime's "fetch failed".
+ */
+export function isDroppedConnection(error: unknown): boolean {
+  if (error instanceof PuterHttpError) return false;
+  for (let cause: unknown = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth += 1) {
+    const code = (cause as { code?: unknown }).code;
+    if (DROPPED_MESSAGE.test(cause.message) || (typeof code === 'string' && DROPPED_CODE.test(code))) return true;
+  }
+  return false;
+}
+
 /** "in about 1 hour 40 minutes", for when a model is back. */
 function backIn(ms: number | null): string {
   if (ms === null) return 'once its daily limit resets (midnight UTC)';
@@ -399,25 +476,27 @@ export function describePuterError(error: unknown, modelLabel: string, retries =
   if (!(error instanceof PuterHttpError)) return error instanceof Error ? error : new Error(String(error));
   switch (error.kind) {
     case 'daily_limit':
-      return new Error(`${modelLabel} has used up today's free requests. The provider shares that daily limit across everyone who uses it free, so it isn't anything you did. It's back ${backIn(error.retryAfterMs)}. To keep going now, pick another model in the switcher.`);
+      return new Error(`${modelLabel} has used up today's free requests. The provider shares that daily limit across everyone who uses it free, so it isn't anything you did. It's back ${backIn(error.retryAfterMs)}. To keep going now, pick another model in the model menu.`);
     case 'restricted':
-      return new Error(`${modelLabel}'s provider only lets certain partner apps use it right now, so it can't answer through Automa's free service. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider opens it up.`);
+      return new Error(`${modelLabel}'s provider only lets certain partner apps use it right now, so it can't answer through Automa's free service. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider opens it up. To keep going now, pick another model in the model menu.`);
     case 'withdrawn':
-      return new Error(`${modelLabel}'s free version was taken offline by its provider. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider brings it back.`);
+      return new Error(`${modelLabel}'s free version was taken offline by its provider. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider brings it back. To keep going now, pick another model in the model menu.`);
     case 'charged':
-      return new Error(`${modelLabel} started charging for requests, so Automa stopped calling it to keep the free models free for everyone. It's tried again in a few hours.`);
+      return new Error(`${modelLabel} started charging for requests, so Automa stopped calling it to keep the free models free for everyone. It's tried again in a few hours. To keep going now, pick another model in the model menu.`);
     default: {
       if (error.slowDown) {
         const tried = retries > 0 ? ` Automa waited and asked again ${retries} time${retries === 1 ? '' : 's'}.` : '';
         return new Error(`The free AI service asked Automa to slow down: too many requests reached it in a short time, from this phone, its network or the free allowance every Automa user shares.${tried} Send the message again in a minute. Another model will not answer sooner; the limit covers them all.`);
       }
+      // The service's own words, without their closing period: the sentence below brings its own.
+      const said = error.upstream?.replace(/[.\s]+$/, '');
       const why = error.kind === 'busy'
         ? error.code === 'upstream_provider_unavailable'
-          ? `could not be reached${error.upstream ? ` (${error.upstream})` : ''}`
+          ? `could not be reached${said ? ` (${said})` : ''}`
           : error.status >= 500 ? `had a server error (${error.status})` : 'is busy at its provider right now'
-        : `rejected the request${error.upstream ? `: ${error.upstream}` : ` (${error.status})`}`;
+        : `rejected the request${said ? `: ${said}` : ` (${error.status})`}`;
       const tried = retries > 0 ? ` Automa stayed on this model and retried ${retries} time${retries === 1 ? '' : 's'}.` : '';
-      return new Error(`${modelLabel} ${why}.${tried} Send the message again in a minute, or pick a different model in the switcher if it keeps happening.`);
+      return new Error(`${modelLabel} ${why}.${tried} Send the message again in a minute, or pick a different model in the model menu if it keeps happening.`);
     }
   }
 }
@@ -435,6 +514,11 @@ const HOLD_MS: Record<Exclude<FreeModelState, 'ok' | 'daily_limit'>, number> = {
 };
 const health = new Map<string, { state: FreeModelState; until: number; checkedAt: number; status: number; body: string }>();
 
+/** How long a refusal stands: a daily limit until its reset, anything else for its kind's time. */
+function holdMs(error: PuterHttpError, state: Exclude<FreeModelState, 'ok'>, now: number): number {
+  return state === 'daily_limit' ? (error.retryAfterMs ?? msUntilUtcMidnight(now)) : HOLD_MS[state];
+}
+
 function noteRefusal(model: string, error: PuterHttpError) {
   // The service slowing this install down says nothing about the model: it is not busy, and its other route is no faster.
   if (error.slowDown) return;
@@ -443,8 +527,7 @@ function noteRefusal(model: string, error: PuterHttpError) {
     : null;
   if (!state) return;
   const now = Date.now();
-  const until = state === 'daily_limit' ? now + (error.retryAfterMs ?? msUntilUtcMidnight(now)) : now + HOLD_MS[state];
-  health.set(model, { state, until, checkedAt: now, status: error.status, body: error.body });
+  health.set(model, { state, until: now + holdMs(error, state, now), checkedAt: now, status: error.status, body: error.body });
 }
 
 function noteAnswered(model: string) {
@@ -455,18 +538,124 @@ function noteCharged(model: string, cents: number) {
   noteRefusal(model, new PuterHttpError(402, JSON.stringify({ error: `${model} charged the shared allowance (${cents} cents)` })));
 }
 
-/** The standing refusal for a model that is held (not busy: busy models are still tried). */
-function heldRefusal(model: string): PuterHttpError | null {
-  const entry = health.get(model);
-  if (!entry || entry.state === 'ok' || entry.state === 'busy') return null;
-  const left = entry.until - Date.now();
-  if (left <= 0) return null;
-  return new PuterHttpError(entry.status, entry.body, { kind: entry.state, retryAfterMs: entry.state === 'daily_limit' ? left : null });
+/** A refusal that still stands, as it is given to a call that is not sent because of it. */
+function standingRefusal(hold: { state: Exclude<FreeModelState, 'ok'>; until: number; status: number; body: string }): PuterHttpError {
+  return new PuterHttpError(hold.status, hold.body, { kind: hold.state, retryAfterMs: hold.state === 'daily_limit' ? Math.max(0, hold.until - Date.now()) : null });
 }
 
-function isBusy(model: string): boolean {
+/**
+ * The standing refusal for a model that is held (not busy: busy models are
+ * still tried). A model with a second route is held only while it charges, or
+ * while both its routes are out for longer than a busy moment: one route out
+ * leaves the other to answer (see `routeRound`).
+ */
+function heldRefusal(model: string): PuterHttpError | null {
   const entry = health.get(model);
-  return Boolean(entry && entry.state === 'busy' && entry.until > Date.now());
+  const now = Date.now();
+  if (PUTER_BACKUP_ROUTES[model]) {
+    if (entry && entry.state === 'charged' && entry.until > now) return standingRefusal({ ...entry, state: entry.state });
+    const main = routeHold('main', model);
+    const backup = routeHold('backup', model);
+    return main && main.state !== 'busy' && backup && backup.state !== 'busy' ? standingRefusal(main) : null;
+  }
+  if (!entry || entry.state === 'ok' || entry.state === 'busy' || entry.until <= now) return null;
+  return standingRefusal({ ...entry, state: entry.state });
+}
+
+// ── The two routes of a model that has a second one ─────────────────────
+// Gemma is served free by two providers (PUTER_BACKUP_ROUTES). `health` above
+// says whether the model answers; which route a call takes is kept here, apart
+// from it, so a model that answers over its second route reads as answering
+// while its main route stays out. Both routes are the same model: nothing
+// here ever hands a question to a different one.
+
+type PuterRoute = 'main' | 'backup';
+/** What takes one route out while the other may still answer. Not a charge (that stops the model) and not the service's own rate limit (that covers every route). */
+type RouteOutage = 'busy' | 'daily_limit' | 'restricted' | 'withdrawn';
+interface RouteHold { state: RouteOutage; until: number; status: number; body: string }
+
+/**
+ * The longest a second route is left alone after it refuses. Short, because
+ * its limits are its own provider's and their reset is not known the way the
+ * main route's is: it is asked again soon rather than written off for the day.
+ */
+const BACKUP_ROUTE_HOLD_MS = 5 * 60_000;
+const routeHolds: Record<PuterRoute, Map<string, RouteHold>> = { main: new Map(), backup: new Map() };
+
+function isRouteOutage(error: unknown): error is PuterHttpError & { kind: RouteOutage } {
+  return error instanceof PuterHttpError && !error.slowDown
+    && (error.kind === 'busy' || error.kind === 'daily_limit' || error.kind === 'restricted' || error.kind === 'withdrawn');
+}
+
+function noteRouteOut(route: PuterRoute, model: string, error: PuterHttpError & { kind: RouteOutage }): void {
+  const now = Date.now();
+  const hold = holdMs(error, error.kind, now);
+  routeHolds[route].set(model, { state: error.kind, until: now + (route === 'backup' ? Math.min(hold, BACKUP_ROUTE_HOLD_MS) : hold), status: error.status, body: error.body });
+}
+
+/** What a route last refused with, while that still stands. */
+function routeHold(route: PuterRoute, model: string): RouteHold | null {
+  const hold = routeHolds[route].get(model);
+  if (!hold) return null;
+  if (hold.until > Date.now()) return hold;
+  routeHolds[route].delete(model);
+  return null;
+}
+
+/**
+ * One call's way through the routes of a model that has two: which to ask,
+ * in what order, and what to say when neither answers.
+ *
+ * The main route first, unless it is out; then the second. A route that is
+ * only busy is still asked (after the other), as a busy model is; one out for
+ * longer (its daily limit, closed, taken offline) is left alone until its hold
+ * is over.
+ */
+function routeRound(model: string) {
+  const held = { main: routeHold('main', model), backup: routeHold('backup', model) };
+  const order: PuterRoute[] = held.main ? ['backup', 'main'] : ['main', 'backup'];
+  const plan = order.filter((route) => !held[route] || held[route].state === 'busy');
+  let mainError: PuterHttpError | null = held.main ? standingRefusal(held.main) : null;
+  let backupError: unknown = held.backup ? standingRefusal(held.backup) : null;
+  return {
+    plan,
+    /** The route took the call: it is no longer out. */
+    answered(route: PuterRoute): void {
+      routeHolds[route].delete(model);
+    },
+    /**
+     * Notes a failed call on `route`. True when the round goes on (to the
+     * other route, or to `refusal()` when there is none left); false when the
+     * error is the caller's to throw as it is: the main route refused the
+     * request itself, charged, or the service asked for a slow-down, none of
+     * which the second route would change.
+     */
+    failed(route: PuterRoute, error: unknown): boolean {
+      if (isRouteOutage(error)) noteRouteOut(route, model, error);
+      if (route === 'backup') {
+        backupError = error;
+        return true;
+      }
+      if (!isRouteOutage(error)) {
+        if (error instanceof PuterHttpError) noteRefusal(model, error);
+        return false;
+      }
+      mainError = error;
+      return true;
+    },
+    /**
+     * What the round ends with when no route answered, noted as the model's
+     * state. A busy main route says the model is busy. A main route out for
+     * longer says so only when the second route is out for longer too;
+     * otherwise the second route's failure is the one a retry may get past.
+     */
+    refusal(): unknown {
+      const backupOutLonger = isRouteOutage(backupError) && backupError.kind !== 'busy';
+      const shown = !mainError ? backupError : mainError.kind === 'busy' || backupOutLonger || backupError == null ? mainError : backupError;
+      if (shown instanceof PuterHttpError) noteRefusal(model, shown);
+      return shown ?? new Error(`${model} did not answer on either of its routes.`);
+    },
+  };
 }
 
 /** Every model's last known state, for the picker. Models never called are left out (assumed fine). */
@@ -488,6 +677,8 @@ export function freeModelHealth(): Record<string, FreeModelHealthEntry> {
 /** Forgets every model's state, and any wait the service asked for (tests). */
 export function resetFreeModelHealth(): void {
   health.clear();
+  routeHolds.main.clear();
+  routeHolds.backup.clear();
   slowDownUntil = 0;
   slowDownHeld = 0;
 }
@@ -547,6 +738,28 @@ function refusedBy(status: number, body: string): PuterHttpError {
   const error = new PuterHttpError(status, body);
   noteSlowDown(error);
   return error;
+}
+
+/** The HTTP error status a refusal names for itself (`status`, or a numeric `code`); null when it names none. */
+function statusNamedIn(refusal: unknown): number | null {
+  if (!refusal || typeof refusal !== 'object') return null;
+  const { status, code } = refusal as { status?: unknown; code?: unknown };
+  for (const value of [status, code]) {
+    const named = typeof value === 'number' ? value : typeof value === 'string' && /^\d{3}$/.test(value) ? Number(value) : NaN;
+    if (named >= 400 && named <= 599) return named;
+  }
+  return null;
+}
+
+/**
+ * A refusal the service sent inside a 200 reply: `{ success: false, error }`
+ * as the whole body, or an error line in a stream. It keeps the status it
+ * names (a rate limit stays a 429, so it is waited out, not treated as a
+ * rejected request); one that names none is a bad gateway.
+ */
+function refusedInside(reply: { error?: unknown }): PuterHttpError {
+  const refusal = reply.error && typeof reply.error === 'object' ? reply.error : reply;
+  return refusedBy(statusNamedIn(refusal) ?? statusNamedIn(reply) ?? 502, JSON.stringify(refusal));
 }
 
 // ── Tools as text, for a route that drops native tool calls ──────────────
@@ -750,7 +963,7 @@ async function driverCall(body: Record<string, unknown>, token: string, signal?:
       throw refused;
     }
     const d = await r.json() as { success?: boolean; result?: unknown; error?: unknown };
-    if (d.success === false) throw new PuterHttpError(502, JSON.stringify(d.error ?? d));
+    if (d.success === false) throw refusedInside(d);
     return d.result;
   } finally {
     deadline.clear();
@@ -797,7 +1010,8 @@ function isSafetyVerdict(text: string): boolean {
 
 /**
  * Chat on the chosen model, retrying it (never another model) when the
- * provider is busy; a busy Gemma is asked again over Google's route.
+ * provider is busy. A Gemma whose main route is out (busy, at its daily
+ * limit, closed or taken offline) is asked over Google's route.
  */
 export async function puterComplete(
   messages: PuterMessage[],
@@ -810,13 +1024,41 @@ export async function puterComplete(
   const retries = Math.max(1, opts.retries ?? 3);
   let lastError: unknown;
   const spent: PuterUsage = { inputTokens: 0, outputTokens: 0 };
+  let sent = 0;
+  /** One try: the model's one route, or for a model with two, the routes that are not out, in turn. */
+  const ask = async (): Promise<{ reply: Awaited<ReturnType<typeof callChat>>; onBackup: boolean }> => {
+    if (!backup) {
+      sent += 1;
+      try {
+        return { reply: await callChat(messages, model, token, opts.signal, appId), onBackup: false };
+      } catch (e) {
+        if (e instanceof PuterHttpError && !opts.signal?.aborted) noteRefusal(appId, e);
+        throw e;
+      }
+    }
+    const round = routeRound(appId);
+    for (const route of round.plan) {
+      const onBackup = route === 'backup';
+      sent += 1;
+      try {
+        const reply = await callChat(onBackup ? toolHistoryAsText(messages) : messages, onBackup ? backup.model : model, token, opts.signal, appId);
+        round.answered(route);
+        return { reply, onBackup };
+      } catch (e) {
+        if (opts.signal?.aborted || !round.failed(route, e)) throw e;
+      }
+    }
+    throw round.refusal();
+  };
+  // The first move from a route that is out to the model's other route is not a retry; every call after it is.
+  let freeMoves = backup ? 1 : 0;
   for (let i = 0; i < retries; i++) {
     // Held before the first try, or since the last one (it charged, or reached its daily limit).
     const held = heldRefusal(appId);
     if (held) throw held;
-    const onBackup = Boolean(backup && isBusy(appId));
+    const before = sent;
     try {
-      const reply = await callChat(onBackup ? toolHistoryAsText(messages) : messages, onBackup ? backup!.model : model, token, opts.signal, appId);
+      const { reply, onBackup } = await ask();
       spent.inputTokens += reply.usage.inputTokens;
       spent.outputTokens += reply.usage.outputTokens;
       if (reply.costCents > 0) noteCharged(appId, reply.costCents);
@@ -826,7 +1068,8 @@ export async function puterComplete(
       if (appId === FREE_ROUTER_ID && isSafetyVerdict(text)) {
         lastError = new Error('The Free Router answered with a safety verdict instead of a reply.');
       } else if (text.trim() || reasoning.trim()) {
-        if (!onBackup && reply.costCents <= 0) noteAnswered(appId);
+        // Whichever route delivered it, the model answered.
+        if (reply.costCents <= 0) noteAnswered(appId);
         return { text, reasoning, model: appId, usage: spent };
       } else {
         lastError = new Error(`${appId} returned an empty reply`);
@@ -834,14 +1077,12 @@ export async function puterComplete(
     } catch (e) {
       lastError = e;
       if (opts.signal?.aborted) throw e;
-      if (e instanceof PuterHttpError && !onBackup) noteRefusal(appId, e);
-      // A busy model with a second route goes straight to it on the next try.
-      if (e instanceof PuterHttpError && e.kind === 'busy' && !e.slowDown && backup && !onBackup) {
-        i -= 1;
-        continue;
-      }
       if (!isTransientPuterError(e)) throw e;
     }
+    const moves = Math.max(0, sent - before - 1);
+    const free = Math.min(moves, freeMoves);
+    freeMoves -= free;
+    i += moves - free;
     if (i + 1 < retries) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
   throw lastError instanceof Error ? lastError : new Error('The free model is busy. Try again in a minute.');
@@ -1011,10 +1252,11 @@ export interface PuterStreamOptions {
  * One streamed chat call: text and reasoning arrive in pieces, a tool call
  * arrives whole, and the last event carries the usage. Throws PuterHttpError
  * (with its status and `kind`) when the call is refused, so callers can retry
- * or say why. Always the chosen model: a busy Gemma is asked again over
- * Google's route (tools as text there), and the Free Router is asked again
- * when it hands the request to the safety classifier. The call waits its turn
- * in the Que engine's queue and holds it until the stream ends.
+ * or say why. Always the chosen model: a Gemma whose main route is out (busy,
+ * at its daily limit, closed or taken offline) is asked over Google's route
+ * (tools as text there), and the Free Router is asked again when it hands the
+ * request to the safety classifier. The call waits its turn in the Que
+ * engine's queue and holds it until the stream ends.
  */
 export async function* puterStream(messages: PuterMessage[], opts: PuterStreamOptions = {}): AsyncGenerator<PuterStreamEvent> {
   // An unknown or held model fails at once instead of waiting in line first.
@@ -1068,8 +1310,9 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
       }
       if (!(response.headers.get('content-type') ?? '').includes('ndjson')) {
         const body = await response.text();
-        const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown }; } catch { return null; } })();
-        if (parsed?.success === false || parsed?.error) throw new PuterHttpError(400, body);
+        const parsed = (() => { try { return JSON.parse(body) as { success?: boolean; error?: unknown } | null; } catch { return null; } })();
+        // A refusal sent as a 200: it keeps the status it names (a rate limit stays one), else it is a bad gateway.
+        if (parsed && typeof parsed === 'object' && (parsed.success === false || parsed.error)) throw refusedInside(parsed);
         throw new PuterHttpError(502, body);
       }
       return response.body.getReader();
@@ -1077,63 +1320,82 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
       deadline.clear();
     }
   };
-  const openBackup = () => {
-    const route = backup!;
-    const sent = tools && route.toolsAsText ? textToolMessages(messages, tools) : toolHistoryAsText(messages);
-    return open(route.model, sent, tools && !route.toolsAsText ? tools : undefined);
-  };
 
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  let onBackup = false;
-  if (backup && isBusy(appId)) {
-    try {
-      reader = await openBackup();
-      onBackup = true;
-    } catch {
-      // The main route is tried below.
-    }
-  }
-  if (!reader) {
-    try {
-      reader = await open(primary, messages, tools);
-    } catch (error) {
-      if (error instanceof PuterHttpError) noteRefusal(appId, error);
-      if (!(error instanceof PuterHttpError) || error.kind !== 'busy' || error.slowDown || !backup || opts.signal?.aborted) throw error;
+  if (backup) {
+    // A model with two routes: the main one unless it is out, then the second. Still the same model.
+    const round = routeRound(appId);
+    for (const route of round.plan) {
+      // Once part of a reply has reached the caller it is too late to start over on the other route.
+      let delivered = false;
       try {
-        reader = await openBackup();
-        onBackup = true;
-      } catch {
-        throw error;
+        if (route === 'main') {
+          const reader = await open(primary, messages, tools);
+          round.answered(route);
+          for await (const event of readStream(reader, appId, keepTurn)) {
+            delivered = true;
+            yield event;
+          }
+          return;
+        }
+        // Google's route: the whole reply, then its inline thinking and any tool calls written as text.
+        const sent = tools && backup.toolsAsText ? textToolMessages(messages, tools) : toolHistoryAsText(messages);
+        const reader = await open(backup.model, sent, tools && !backup.toolsAsText ? tools : undefined);
+        let text = '';
+        let reasoning = '';
+        let done: Extract<PuterStreamEvent, { type: 'done' }> | null = null;
+        for await (const event of readStream(reader, appId, keepTurn)) {
+          if (event.type === 'text') text += event.text;
+          else if (event.type === 'reasoning') reasoning += event.text;
+          else if (event.type === 'done') done = event;
+        }
+        round.answered(route);
+        delivered = true;
+        const split = splitThoughtTags(text);
+        const parsed = tools && backup.toolsAsText ? parseTextToolCalls(split.answer, tools.map((tool) => tool.function.name)) : { text: split.answer, calls: [] };
+        const thinking = [reasoning.trim(), split.thinking].filter(Boolean).join('\n\n');
+        if (thinking) yield { type: 'reasoning', text: thinking };
+        if (parsed.text) yield { type: 'text', text: parsed.text };
+        for (const call of parsed.calls) yield { type: 'tool_use', id: `call_${Math.random().toString(36).slice(2)}`, name: call.name, input: call.input };
+        yield {
+          type: 'done',
+          usage: done?.usage ?? { inputTokens: 0, outputTokens: 0 },
+          stopReason: parsed.calls.length ? 'tool_use' : (done?.stopReason ?? 'end_turn'),
+        };
+        return;
+      } catch (error) {
+        if (opts.signal?.aborted || !round.failed(route, error)) throw error;
+        if (delivered) {
+          if (error instanceof PuterHttpError) noteRefusal(appId, error);
+          throw error;
+        }
       }
     }
+    throw round.refusal();
   }
 
-  if (onBackup) {
-    // Google's route: the whole reply, then its inline thinking and any tool calls written as text.
-    let text = '';
-    let reasoning = '';
-    let done: Extract<PuterStreamEvent, { type: 'done' }> | null = null;
-    for await (const event of readStream(reader, appId, false, keepTurn)) {
-      if (event.type === 'text') text += event.text;
-      else if (event.type === 'reasoning') reasoning += event.text;
-      else if (event.type === 'done') done = event;
+  // One route. What it refuses with is the model's state, whether the refusal comes in place of the stream or inside it.
+  const noted = (error: unknown): unknown => {
+    if (error instanceof PuterHttpError && !opts.signal?.aborted) noteRefusal(appId, error);
+    return error;
+  };
+  const openMain = async () => {
+    try {
+      return await open(primary, messages, tools);
+    } catch (error) {
+      throw noted(error);
     }
-    const split = splitThoughtTags(text);
-    const parsed = tools && backup!.toolsAsText ? parseTextToolCalls(split.answer, tools.map((tool) => tool.function.name)) : { text: split.answer, calls: [] };
-    const thinking = [reasoning.trim(), split.thinking].filter(Boolean).join('\n\n');
-    if (thinking) yield { type: 'reasoning', text: thinking };
-    if (parsed.text) yield { type: 'text', text: parsed.text };
-    for (const call of parsed.calls) yield { type: 'tool_use', id: `call_${Math.random().toString(36).slice(2)}`, name: call.name, input: call.input };
-    yield {
-      type: 'done',
-      usage: done?.usage ?? { inputTokens: 0, outputTokens: 0 },
-      stopReason: parsed.calls.length ? 'tool_use' : (done?.stopReason ?? 'end_turn'),
-    };
-    return;
-  }
+  };
+  const read = async function* (reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<PuterStreamEvent> {
+    try {
+      yield* readStream(reader, appId, keepTurn);
+    } catch (error) {
+      throw noted(error);
+    }
+  };
 
+  let reader = await openMain();
   if (appId !== FREE_ROUTER_ID) {
-    yield* readStream(reader, appId, true, keepTurn);
+    yield* read(reader);
     return;
   }
   // The Free Router: hold the first words back until it is clear a chat model answered.
@@ -1142,7 +1404,7 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
     let head = '';
     let decided = false;
     let verdict = false;
-    for await (const event of readStream(reader, appId, true, keepTurn)) {
+    for await (const event of read(reader)) {
       if (decided) {
         yield event;
         continue;
@@ -1161,12 +1423,16 @@ async function* streamTurn(messages: PuterMessage[], opts: PuterStreamOptions, k
     if (attempt >= 3) {
       throw new PuterHttpError(503, JSON.stringify({ error: 'The Free Router kept handing the request to the safety classifier' }), { kind: 'busy', retryAfterMs: null });
     }
-    reader = await open(primary, messages, tools);
+    reader = await openMain();
   }
 }
 
-/** The events in one stream; notes what the call said about the model's health. `onPiece` runs as each piece arrives. */
-async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appId: string, healthy: boolean, onPiece: () => void): AsyncGenerator<PuterStreamEvent> {
+/**
+ * The events in one stream. Its usage line says the model answered (over
+ * whichever of its routes), or that it charged. An error line is thrown as
+ * the refusal it is. `onPiece` runs as each piece arrives.
+ */
+async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appId: string, onPiece: () => void): AsyncGenerator<PuterStreamEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
   let finished = false;
@@ -1183,14 +1449,15 @@ async function* readStream(reader: ReadableStreamDefaultReader<Uint8Array>, appI
       const raw = event.usage as { prompt?: number; completion?: number; usd_cents?: number } | undefined;
       const cents = Number(raw?.usd_cents ?? 0) || 0;
       if (cents > 0) noteCharged(appId, cents);
-      else if (healthy) noteAnswered(appId);
+      else noteAnswered(appId);
       return {
         type: 'done',
         usage: { inputTokens: Number(usage?.inputTokens ?? raw?.prompt ?? 0) || 0, outputTokens: Number(usage?.outputTokens ?? raw?.completion ?? 0) || 0 },
         stopReason: typeof event.stopReason === 'string' ? event.stopReason : 'end_turn',
       };
     }
-    if (event.success === false || event.error) throw new PuterHttpError(502, JSON.stringify(event.error ?? event));
+    // A refusal sent as a line of the stream, in either shape the service uses.
+    if (event.type === 'error' || event.success === false || event.error) throw refusedInside(event);
     return null;
   };
   let ended = false;

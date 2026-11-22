@@ -162,6 +162,23 @@ export function detectStudioLanguage(files: readonly string[]): string {
   return "bash";
 }
 
+/**
+ * A cloned project's package.json, for its run command. One that is not
+ * strict JSON (comments, a trailing comma) is read as having no scripts: it
+ * used to end the clone with a server error and discard the project. A byte
+ * order mark at the start is not part of the JSON.
+ */
+export function readClonedPackageJson(text: string): { scripts?: Record<string, string> } {
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const scripts = (parsed as { scripts?: unknown }).scripts;
+    return scripts && typeof scripts === "object" && !Array.isArray(scripts) ? { scripts: scripts as Record<string, string> } : {};
+  } catch {
+    return {};
+  }
+}
+
 /** A sensible run command for a cloned project, from its files. */
 export function suggestRunCommand(files: readonly string[], packageJson: { scripts?: Record<string, string> } | null): string | null {
   if (packageJson) {
@@ -277,7 +294,7 @@ export function studioService(db: Db) {
         const files = await fs.readdir(dirs.files);
         let packageJson: { scripts?: Record<string, string> } | null = null;
         if (files.includes("package.json")) {
-          packageJson = JSON.parse(await fs.readFile(path.join(dirs.files, "package.json"), "utf8").catch(() => "{}"));
+          packageJson = readClonedPackageJson(await fs.readFile(path.join(dirs.files, "package.json"), "utf8").catch(() => "{}"));
         }
         const detected = language?.id && input.language !== "auto" ? language.id : detectStudioLanguage(files);
         const runCommand = suggestRunCommand(files, packageJson);

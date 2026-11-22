@@ -190,6 +190,9 @@
   --status-agent-idle: #a8aeb2;
   --status-agent-running: #16a34a;
   --status-agent-paused: #f59e0b;
+  /* Small text in the paused hue (a model that is busy or at its limit): the hue
+     leaned toward the foreground, so it reads on a light page and on a dark one. */
+  --status-agent-paused-text: color-mix(in oklab, var(--status-agent-paused) 55%, var(--foreground));
   --status-agent-error: #dc2626;
   /* Dashboard agent card: translucent running treatment from the Paper design. */
   --dashboard-run-accent: #16a34a;
@@ -3681,6 +3684,89 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
 @media (min-width: 768px) {
   .studio-ide { height: 100%; }
 }
+/* Find and replace in the code editor, on the screens where App Studio shows
+   one pane at a time (the same query as useNarrowScreen). The editor's stock
+   panel is four rows there: a quarter of a phone's screen, and all of it once
+   the keyboard is up. Here it is two. The two fields and the close button stay
+   put on the first row; the buttons and the three options share the second,
+   which scrolls sideways when it does not fit. Outside a layer and one step
+   more specific than the editor's own rules, which are not layered either. */
+@media (max-width: 1180px), (max-height: 519px) {
+  /* No padding at the sides: the first row is held in place from the panel's
+     own edge, and browsers do not agree on whether padding counts there. */
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search {
+    --studio-find-gap: var(--spacing);
+    --studio-find-inset: var(--sz-7px);
+    --studio-find-field: calc((100cqi - var(--studio-find-inset) - var(--sz-44px) - var(--studio-find-gap) * 2) / 2);
+    container-type: inline-size;
+    display: grid;
+    grid-template-columns: repeat(7, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--studio-find-gap);
+    padding: var(--studio-find-inset) 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  /* "all" selects every match at once, which a phone has no use for. */
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search br,
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search button[name="select"] {
+    display: none;
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search :is(input, button, label) {
+    margin: 0;
+  }
+  /* First row. All three span the row and are held in place while the second
+     row scrolls. */
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search :is(input[name="search"], input[name="replace"], button[name="close"]) {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    justify-self: start;
+    position: sticky;
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search :is(input[name="search"], input[name="replace"]) {
+    box-sizing: border-box;
+    width: var(--studio-find-field);
+    min-width: 0;
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search input[name="search"] {
+    left: var(--studio-find-inset);
+  }
+  /* A file that cannot be edited has no replace field: Find takes its room. */
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search:not(:has(input[name="replace"])) input[name="search"] {
+    width: calc(100cqi - var(--studio-find-inset) - var(--sz-44px) - var(--studio-find-gap));
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search input[name="replace"] {
+    left: calc(var(--studio-find-inset) + var(--studio-find-field) + var(--studio-find-gap));
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search button[name="close"] {
+    top: auto;
+    right: auto;
+    left: calc(100cqi - var(--sz-44px));
+    align-self: stretch;
+    width: var(--sz-44px);
+  }
+  /* Second row: next, previous, replace, replace all, then the options. */
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search :is(.cm-button, label) {
+    grid-row: 2;
+    white-space: nowrap;
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search button[name="next"] {
+    margin-inline-start: var(--studio-find-inset);
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search label {
+    order: 1;
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    padding-inline: var(--spacing);
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search label:last-of-type {
+    margin-inline-end: var(--studio-find-inset);
+  }
+  [data-slot="studio-editor"] .cm-editor .cm-panel.cm-search label input {
+    margin-inline-end: var(--spacing);
+  }
+}
 
 /* Accent color themes (chosen in the account sheet). The default keeps the
    neutral black-and-white look; each theme recolors the primary actions,
@@ -4000,10 +4086,18 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   [data-slot="chat-options"],
   [data-slot="edit-agent"],
   [data-slot="sheet-close"],
+  [data-slot="dialog-close"],
   [data-slot="message-action"],
   [data-testid="task-chat-composer-attach"] {
     min-height: var(--sz-44px);
     min-width: var(--sz-44px);
+  }
+  /* The X on a sheet or dialog sits in the middle of its target (the X was
+     16px wide, at the target's left edge). */
+  [data-slot="sheet-close"],
+  [data-slot="dialog-close"] {
+    align-items: center;
+    justify-content: center;
   }
   [data-testid="task-chat-composer-mode"] {
     min-height: var(--sz-36px);
@@ -4012,7 +4106,8 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
   [data-slot="chat-options"]:active,
   [data-slot="tabs-trigger"]:active,
   [data-slot="edit-agent"]:active,
-  [data-slot="sheet-close"]:active {
+  [data-slot="sheet-close"]:active,
+  [data-slot="dialog-close"]:active {
     background-color: var(--accent);
   }
 }

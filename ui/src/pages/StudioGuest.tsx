@@ -53,16 +53,17 @@ function writeSession(session: StudioGuestSession | null) {
   }
 }
 
-/** Adds proposed new files to the tree so they can be opened like the rest. */
-function withProposedFiles(tree: StudioFileNode[], paths: string[]): StudioFileNode[] {
+/** Adds proposed new files, and the folders made for them, to the tree so they can be opened like the rest. */
+function withProposedFiles(tree: StudioFileNode[], paths: string[], folders: string[] = []): StudioFileNode[] {
   const clone = (nodes: StudioFileNode[]): StudioFileNode[] => nodes.map((node) => (node.children ? { ...node, children: clone(node.children) } : { ...node }));
   const root = clone(tree);
-  for (const path of paths) {
+  const entries = [...folders.map((path) => ({ path, folder: true })), ...paths.map((path) => ({ path, folder: false }))];
+  for (const { path, folder } of entries) {
     const parts = path.split("/");
     let level = root;
     parts.forEach((part, index) => {
       const nodePath = parts.slice(0, index + 1).join("/");
-      const isFile = index === parts.length - 1;
+      const isFile = !folder && index === parts.length - 1;
       let node = level.find((item) => item.name === part);
       if (!node) {
         node = isFile ? { name: part, path: nodePath, type: "file" } : { name: part, path: nodePath, type: "folder", children: [] };
@@ -208,6 +209,12 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
   const [file, setFile] = useState<OpenGuestFile | null>(null);
   /** Your proposed edits, by path. */
   const [edits, setEdits] = useState<Record<string, string>>({});
+  /**
+   * Folders you made here. A collaborator's change is made of files, so a
+   * folder exists on this page only, as a place for new files, and reaches
+   * the owner with the files put in it.
+   */
+  const [newFolders, setNewFolders] = useState<string[]>([]);
   /** What others are typing, by `participantId:path`. */
   const [drafts, setDrafts] = useState<Record<string, { path: string; text: string; by: StudioParticipant }>>({});
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -227,7 +234,8 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
     void studioGuestApi.tree(token).then((result) => setTree(result.tree)).catch(handleAuthError);
   }, [handleAuthError, token]);
 
-  useEffect(() => {
+  /** Everything the page shows that the socket only sends changes for. */
+  const loadProject = useCallback(() => {
     void studioGuestApi
       .workspace(token)
       .then((result) => {
@@ -240,7 +248,30 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
     void studioGuestApi.console(token).then((result) => consoleStore.merge(result.lines)).catch(() => undefined);
     void studioGuestApi.messages(token).then((result) => setMessages(result.messages)).catch(() => undefined);
     void studioGuestApi.changes(token).then((result) => setChanges(result.changeRequests)).catch(() => undefined);
-  }, [handleAuthError, refreshTree, token]);
+  }, [consoleStore, handleAuthError, refreshTree, token]);
+
+  useEffect(() => {
+    loadProject();
+  }, [loadProject]);
+
+  /**
+   * Reads the open file's saved text again. Your own edits are kept apart
+   * (`edits`) and are not touched: they stay in the editor and are compared
+   * with the file as it is now when you submit them.
+   */
+  const rereadOpenFile = useCallback(() => {
+    const path = fileRef.current?.path;
+    if (!path) return;
+    const update = (saved: string | null, binary: boolean) => setFile((current) => (current && current.path === path ? { ...current, saved, binary } : current));
+    void studioGuestApi
+      .readFile(token, path)
+      .then((loaded) => update(loaded.content, loaded.content === null))
+      .catch((error: unknown) => {
+        handleAuthError(error);
+        // Deleted while away, or a new file of yours that is not on the server yet.
+        if (error instanceof ApiError && error.status === 404) update(null, false);
+      });
+  }, [handleAuthError, token]);
 
   const openFile = useCallback(
     async (path: string) => {
@@ -265,6 +296,10 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
         case "hello":
           setMe(event.you);
           setParticipants(event.participants);
+          // The server sends what people are typing right after this, so what
+          // was known before a break is dropped: a "stopped typing" missed
+          // while away would otherwise keep old text over the saved file.
+          setDrafts((current) => (Object.keys(current).length ? {} : current));
           break;
         case "presence":
           setParticipants(event.participants);
@@ -327,6 +362,26 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
     send({ type: "focus", path: file?.path ?? null });
   }, [file?.path, send, socketStatus]);
 
+  // The socket only sends changes, and none arrive while it is down (the
+  // phone slept, the network dropped). When it comes back, read what the page
+  // shows again: the run, the people, the files, the console, the chat, your
+  // changes and the open file. The first connection needs nothing: the page
+  // has just read all of it. An invite that ended meanwhile answers 401,
+  // which ends the visit.
+  const socketWasOpen = useRef(false);
+  const lastSocketStatus = useRef(socketStatus);
+  useEffect(() => {
+    const before = lastSocketStatus.current;
+    lastSocketStatus.current = socketStatus;
+    if (socketStatus !== "open" || before === "open") return;
+    if (!socketWasOpen.current) {
+      socketWasOpen.current = true;
+      return;
+    }
+    loadProject();
+    rereadOpenFile();
+  }, [loadProject, rereadOpenFile, socketStatus]);
+
   // What you see: your edit, else the owner's live typing, else the saved file.
   const ownerDraft = file ? Object.values(drafts).find((draft) => draft.path === file.path && draft.by.role === "owner") ?? null : null;
   const otherDrafts = file ? Object.values(drafts).filter((draft) => draft.path === file.path && draft.by.id !== me?.id) : [];
@@ -357,7 +412,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
   };
 
   const proposedNew = Object.keys(edits).filter((path) => !treeHas(tree, path));
-  const shownTree = useMemo(() => withProposedFiles(tree, proposedNew), [tree, proposedNew.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownTree = useMemo(() => withProposedFiles(tree, proposedNew, newFolders), [tree, proposedNew.join("|"), newFolders]); // eslint-disable-line react-hooks/exhaustive-deps
   const editCount = Object.keys(edits).length;
 
   const treePane = (
@@ -369,7 +424,10 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
       participants={participants.filter((participant) => participant.id !== me?.id)}
       archiveUrl={(path) => studioGuestApi.archiveUrl(token, path)}
       onCreate={(path, type) => {
-        if (type === "folder") return;
+        if (type === "folder") {
+          setNewFolders((all) => (all.includes(path) ? all : [...all, path]));
+          return;
+        }
         setEdits((all) => ({ ...all, [path]: "" }));
         setFile({ path, saved: null, binary: false });
         setPane("code");
@@ -557,6 +615,7 @@ function GuestWorkspace({ session, onEnded }: { session: StudioGuestSession; onE
           setChanges((current) => [change, ...current.filter((item) => item.id !== change.id)]);
           for (const path of Object.keys(edits)) send({ type: "draft:clear", path });
           setEdits({});
+          setNewFolders([]);
           setPane("changes");
           setSideTab("changes");
         }}

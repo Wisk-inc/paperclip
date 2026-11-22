@@ -3,7 +3,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import os from "node:os";
 import { request as httpRequest } from "node:http";
 import path from "node:path";
-import { Router, type Request, type RequestHandler, type Response } from "express";
+import { json as jsonBodyParser, Router, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
 import { eq } from "drizzle-orm";
 import { authUsers, type Db, type studioWorkspaces } from "@paperclipai/db";
@@ -37,8 +37,9 @@ import {
   type StudioMessageAttachment,
   type StudioParticipant,
 } from "@paperclipai/shared";
+import { describePuterError, PuterHttpError } from "@paperclipai/shared/puter-ai";
 import { validate } from "../middleware/validate.js";
-import { badRequest, conflict, notFound, tooManyRequests, unauthorized, unprocessable } from "../errors.js";
+import { badRequest, conflict, notFound, payloadTooLarge, tooManyRequests, unauthorized, unprocessable } from "../errors.js";
 import { budgetService, heartbeatService, logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, hasCompanyAccess } from "./authz.js";
 import {
@@ -84,17 +85,68 @@ type WorkspaceRow = typeof studioWorkspaces.$inferSelect;
 /** Ten wrong share codes per client, or forty overall, in ten minutes. */
 const joinLimiter = new AttemptLimiter({ windowMs: 10 * 60_000, perKey: 10, total: 40 });
 
+interface UploadLimits {
+  /** The form field the files arrive in. */
+  field: string;
+  maxFileBytes: number;
+  maxFiles: number;
+}
+const PROJECT_UPLOAD: UploadLimits = { field: "files", maxFileBytes: 50 * 1024 * 1024, maxFiles: 30 };
+const CHAT_ATTACHMENT: UploadLimits = { field: "file", maxFileBytes: 25 * 1024 * 1024, maxFiles: 1 };
 // Project uploads stream to temporary files instead of memory: thirty 50 MB
 // files at once were held in the server's memory, which a phone can't spare.
 // Browsers send file names as UTF-8.
-const upload = multer({ dest: os.tmpdir(), defParamCharset: "utf8", limits: { fileSize: 50 * 1024 * 1024, files: 30 } });
-const attachmentUpload = multer({ storage: multer.memoryStorage(), defParamCharset: "utf8", limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+const upload = multer({ dest: os.tmpdir(), defParamCharset: "utf8", limits: { fileSize: PROJECT_UPLOAD.maxFileBytes, files: PROJECT_UPLOAD.maxFiles } });
+const attachmentUpload = multer({ storage: multer.memoryStorage(), defParamCharset: "utf8", limits: { fileSize: CHAT_ATTACHMENT.maxFileBytes, files: CHAT_ATTACHMENT.maxFiles } });
 
-/** Reads a multipart body only once the caller is known: multer stores the files before the handler runs. */
-function readMultipart(parse: RequestHandler, req: Request, res: Response) {
+/** An upload over a limit, as the sender's mistake it is, in plain words with the limit. */
+function uploadRefusal(error: multer.MulterError, limits: UploadLimits) {
+  const tooMany = limits.maxFiles === 1 ? "Send one file at a time." : `Too many files. Send up to ${limits.maxFiles} at a time.`;
+  switch (error.code) {
+    case "LIMIT_FILE_SIZE":
+      return payloadTooLarge(`That file is too large. A file can be up to ${Math.floor(limits.maxFileBytes / (1024 * 1024))} MB.`, { code: "studio_upload_too_large" });
+    case "LIMIT_FILE_COUNT":
+      return unprocessable(tooMany, { code: "studio_upload_too_many" });
+    case "LIMIT_UNEXPECTED_FILE":
+      // More files than the field takes, or a file in a field nothing reads.
+      return unprocessable(error.field === limits.field ? tooMany : `Send the ${limits.maxFiles === 1 ? "file" : "files"} in the "${limits.field}" field.`, { code: "studio_upload_unexpected" });
+    default:
+      return badRequest(error.message);
+  }
+}
+
+/**
+ * Reads a multipart body only once the caller is known: multer stores the
+ * files before the handler runs. A file over the size limit or too many
+ * files is answered as that (it used to reach the error handler as an
+ * unknown error: "Internal server error", reported as a crash).
+ */
+function readMultipart(parse: RequestHandler, req: Request, res: Response, limits: UploadLimits) {
   return new Promise<void>((resolve, reject) => {
-    parse(req, res, (error?: unknown) => (error ? reject(error) : resolve()));
+    parse(req, res, (error?: unknown) => {
+      if (!error) resolve();
+      else reject(error instanceof multer.MulterError ? uploadRefusal(error, limits) : error);
+    });
   });
+}
+
+/**
+ * A message to the assistant carries its attached images as base64 in the
+ * JSON body: four images of the largest size allowed are about 11.2 MB, more
+ * than the 10 MB every other JSON body may have, so the message was refused
+ * although the form allows it. app.ts reads this one route's body with this
+ * limit, before its default parser. The schema's own limits (four
+ * attachments of at most 3,000,000 characters) fit with room for the message.
+ */
+export const STUDIO_ASSISTANT_JSON_BODY_LIMIT = "16mb";
+const STUDIO_ASSISTANT_BODY_PATH = /^\/api\/studio\/workspaces\/[^/]+\/assistant\/?$/;
+
+export function studioAssistantBodyParser(options: Pick<NonNullable<Parameters<typeof jsonBodyParser>[0]>, "verify"> = {}): RequestHandler {
+  const parse = jsonBodyParser({ ...options, limit: STUDIO_ASSISTANT_JSON_BODY_LIMIT });
+  return (req, res, next) => {
+    if (req.method === "POST" && STUDIO_ASSISTANT_BODY_PATH.test(req.path)) parse(req, res, next);
+    else next();
+  };
 }
 
 /** One gateway for collaborators per server, and its public link. */
@@ -175,7 +227,23 @@ function sendDownload(res: Response, absolute: string, name: string) {
   res.setHeader("content-disposition", `attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encoded}`);
   res.setHeader("content-type", "application/octet-stream");
   res.setHeader("x-content-type-options", "nosniff");
-  createReadStream(absolute).on("error", () => res.status(404).end()).pipe(res);
+  sendFileBytes(res, absolute);
+}
+
+/**
+ * Streams a file into the answer. A reader who leaves half-way closes the
+ * file: pipe alone left it open for good, one descriptor per abandoned view
+ * or download. A file that cannot be read is 404 before anything was sent,
+ * and ends the answer after.
+ */
+function sendFileBytes(res: Response, absolute: string) {
+  const stream = createReadStream(absolute);
+  stream.on("error", () => {
+    if (res.headersSent) res.destroy();
+    else res.status(404).end();
+  });
+  res.on("close", () => stream.destroy());
+  stream.pipe(res);
 }
 
 async function saveAttachment(workspace: WorkspaceRow, file: Express.Multer.File): Promise<StudioMessageAttachment> {
@@ -214,7 +282,7 @@ async function sendRaw(res: Response, root: string, relative: string) {
   res.setHeader("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'");
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("cache-control", "private, max-age=10");
-  createReadStream(absolute).on("error", () => res.status(404).end()).pipe(res);
+  sendFileBytes(res, absolute);
 }
 
 /** Streams a zip of the project (or a folder in it). */
@@ -223,12 +291,36 @@ async function sendZip(res: Response, root: string, relative: string, fallbackNa
   res.setHeader("content-type", "application/zip");
   res.setHeader("content-disposition", `attachment; filename="${name}"`);
   res.setHeader("x-content-type-options", "nosniff");
-  await streamProjectZip(root, relative, (chunk) =>
-    new Promise<void>((resolve) => {
-      if (res.write(Buffer.from(chunk))) resolve();
-      else res.once("drain", () => resolve());
-    }),
-  );
+  const gone = () => res.destroyed && !res.writableFinished;
+  try {
+    await streamProjectZip(root, relative, (chunk) =>
+      new Promise<void>((resolve, reject) => {
+        const cancelled = () => reject(new Error("The download was cancelled."));
+        if (gone()) cancelled();
+        else if (res.write(Buffer.from(chunk))) resolve();
+        else {
+          // Whichever comes first: room for more, or the person leaving
+          // (waiting for room alone never ended, with the file left open).
+          const settle = () => {
+            res.off("drain", settle);
+            res.off("close", settle);
+            if (gone()) cancelled();
+            else resolve();
+          };
+          res.once("drain", settle);
+          res.once("close", settle);
+        }
+      }),
+    );
+  } catch (error) {
+    // Nobody is left to tell once the person cancelled; part of a zip already sent cannot turn into an error answer.
+    if (gone()) return;
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    throw error;
+  }
   res.end();
 }
 
@@ -265,7 +357,8 @@ async function staleChangePaths(workspace: WorkspaceRow, files: StudioChangeFile
 async function applyChangeFiles(workspace: WorkspaceRow, files: StudioChangeFile[]) {
   const dirs = studioWorkspaceDirs(workspace.companyId, workspace.id);
   for (const file of files) {
-    if (file.after === null) await deleteStudioEntry(dirs.files, file.path);
+    // A file the change deletes may be gone already: that is the same result.
+    if (file.after === null) await deleteStudioEntry(dirs.files, file.path, { missingOk: true });
     else await writeStudioFile(dirs.files, file.path, file.after);
   }
 }
@@ -281,6 +374,8 @@ export function studioRoutes(db: Db) {
   // hard-stop stops agent work the same way.
   const studioUsage = studioUsageRecorder(db, budgetHooks);
   const startingAssistant = new Set<string>();
+  /** Projects being deleted: a message still on its way in starts no turn in one. */
+  const deletingWorkspaces = new Set<string>();
 
   async function assertStudioAiAllowed(companyId: string) {
     const block = await budgets.getCompanyInvocationBlock(companyId);
@@ -426,17 +521,24 @@ export function studioRoutes(db: Db) {
 
   router.delete("/studio/workspaces/:id", async (req, res) => {
     const workspace = await workspaceFor(req);
-    studioHub.kickGuests(workspace.id, "The owner deleted this project.");
-    // The assistant stops first and gets a moment to wind down, or its last
-    // save recreated the deleted folder (and its tools kept running).
-    stopAssistant(workspace.id);
-    for (let waited = 0; isAssistantRunning(workspace.id) && waited < 5_000; waited += 100) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    deletingWorkspaces.add(workspace.id);
+    try {
+      studioHub.kickGuests(workspace.id, "The owner deleted this project.");
+      // The assistant stops first and gets a moment to wind down, or its last
+      // save recreated the deleted folder (and its tools kept running). A
+      // message still on its way in (saving its "Before AI" checkpoint) is
+      // waited for too: it sees the project is being deleted and starts nothing.
+      stopAssistant(workspace.id);
+      for (let waited = 0; (isAssistantRunning(workspace.id) || startingAssistant.has(workspace.id)) && waited < 5_000; waited += 100) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await disposeStudioRuntime(workspace.id);
+      await svc.remove(workspace.id);
+      await log(req, workspace, "studio.workspace_deleted");
+      res.json({ ok: true });
+    } finally {
+      deletingWorkspaces.delete(workspace.id);
     }
-    await disposeStudioRuntime(workspace.id);
-    await svc.remove(workspace.id);
-    await log(req, workspace, "studio.workspace_deleted");
-    res.json({ ok: true });
   });
 
   // ── Files ────────────────────────────────────────────────────────────────
@@ -489,7 +591,7 @@ export function studioRoutes(db: Db) {
 
   router.post("/studio/workspaces/:id/upload", async (req, res) => {
     const workspace = await workspaceFor(req);
-    await readMultipart(upload.array("files", 30), req, res);
+    await readMultipart(upload.array(PROJECT_UPLOAD.field, PROJECT_UPLOAD.maxFiles), req, res, PROJECT_UPLOAD);
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     try {
       if (files.length === 0) throw badRequest("Choose at least one file");
@@ -541,8 +643,15 @@ export function studioRoutes(db: Db) {
     const result = await restoreCheckpoint(workspace.companyId, workspace.id, String(req.params.checkpointId), await ownerName(req.actor.userId));
     studioHub.broadcast(workspace.id, { type: "checkpoint:restored", checkpoint: result.restored });
     studioHub.broadcast(workspace.id, { type: "tree:changed" });
-    await log(req, workspace, "studio.checkpoint_restored", { checkpointId: result.restored.id, label: result.restored.label });
-    res.json(result);
+    // Files no checkpoint can hold stayed as they are: said in the answer and in the console.
+    const shown = result.leftAsIs.slice(0, 5).join(", ");
+    const more = result.leftAsIs.length > 5 ? `, and ${result.leftAsIs.length - 5} more` : "";
+    const notice = result.leftAsIs.length
+      ? `Left as ${result.leftAsIs.length === 1 ? "it is, because it is" : "they are, because they are"} too large for a checkpoint: ${shown}${more}.`
+      : null;
+    if (notice) studioRuntime(workspace.id).append("system", `Went back to “${result.restored.label}”. ${notice}`);
+    await log(req, workspace, "studio.checkpoint_restored", { checkpointId: result.restored.id, label: result.restored.label, leftAsIs: result.leftAsIs.length });
+    res.json({ ...result, notice });
   });
 
   // One change the assistant made, reversed (the Undo beside the step).
@@ -600,7 +709,9 @@ export function studioRoutes(db: Db) {
       res.json({ completion, model });
     } catch (error) {
       if (controller.signal.aborted) return;
-      res.json({ completion: "", model, error: error instanceof Error ? error.message : String(error) });
+      // A free model's refusal in plain words, as in the chat: its own message holds the service's raw answer.
+      const reason = error instanceof PuterHttpError ? describePuterError(error, "The free model").message : error instanceof Error ? error.message : String(error);
+      res.json({ completion: "", model, error: reason });
     }
   });
 
@@ -765,6 +876,29 @@ export function studioRoutes(db: Db) {
     });
   });
 
+  // What the Team panel needs when the page is opened again: the code and the links as they
+  // stand now. Reading never makes a public link; that stays the person's tap (the POST above).
+  router.get("/studio/workspaces/:id/share", async (req, res) => {
+    const workspace = await workspaceFor(req);
+    const expired = workspace.shareExpiresAt !== null && new Date(workspace.shareExpiresAt).getTime() <= Date.now();
+    if (!workspace.shareEnabled || !workspace.shareCode || expired) {
+      res.json({ share: null });
+      return;
+    }
+    const gatewayPort = await gateway.start();
+    let publicUrl = gatewayTunnel?.url ?? null;
+    if (!publicUrl && gatewayTunnelPending) publicUrl = await gatewayTunnelPending.catch(() => null);
+    res.json({
+      share: {
+        workspace,
+        code: workspace.shareCode,
+        inviteUrl: publicUrl ? `${publicUrl}/studio-guest/?code=${workspace.shareCode}` : null,
+        localInviteUrl: `http://127.0.0.1:${gatewayPort}/studio-guest/?code=${workspace.shareCode}`,
+        publicError: null,
+      },
+    });
+  });
+
   router.delete("/studio/workspaces/:id/share", async (req, res) => {
     const workspace = await workspaceFor(req);
     const updated = await svc.disableShare(workspace.id);
@@ -798,7 +932,7 @@ export function studioRoutes(db: Db) {
 
   router.post("/studio/workspaces/:id/messages", async (req, res) => {
     const workspace = await workspaceFor(req);
-    await readMultipart(attachmentUpload.single("file"), req, res);
+    await readMultipart(attachmentUpload.single(CHAT_ATTACHMENT.field), req, res, CHAT_ATTACHMENT);
     const parsed = postStudioMessageSchema.safeParse({ body: typeof req.body?.body === "string" ? req.body.body : "" });
     if (!parsed.success) throw badRequest("Message is too long");
     const attachment = req.file ? await saveAttachment(workspace, req.file) : null;
@@ -941,6 +1075,7 @@ export function studioRoutes(db: Db) {
     if (isAssistantRunning(workspace.id) || startingAssistant.has(workspace.id)) {
       throw conflict("The assistant is still working; wait or tap Stop");
     }
+    if (deletingWorkspaces.has(workspace.id)) throw conflict("This project is being deleted");
     startingAssistant.add(workspace.id);
     try {
       await assertStudioAiAllowed(workspace.companyId);
@@ -960,6 +1095,9 @@ export function studioRoutes(db: Db) {
         kind: "assistant",
         by: "AI assistant",
       }).catch(() => null);
+      // Deleted while the key was looked up or the checkpoint was saved: nothing starts in a project that is going or gone.
+      if (deletingWorkspaces.has(workspace.id)) throw conflict("This project is being deleted");
+      if (!(await svc.get(workspace.id))) throw notFound("Studio project not found");
       const { userTurn } = await startAssistantTurn(workspace, checkpoint?.id ?? null, credentials, req.body, team, req.actor.userId ?? null);
       await log(req, workspace, "studio.assistant_asked", { provider: req.body.provider, model: req.body.model ?? null, thinking: req.body.thinking ?? null, team: team.map((mate) => `${mate.provider}:${mate.model}`) });
       res.status(202).json({ turn: userTurn });
@@ -997,6 +1135,8 @@ export function studioRoutes(db: Db) {
         startApp: () => startApp(workspace),
         onFileChanged: (relative) => broadcastFile(workspace, relative, "assistant"),
         onUsage: (usage) => studioUsage.recordReply(workspace.companyId, usage),
+        // The hard stop is asked again before every model call of the turn, not only before the turn.
+        budgetBlocked: async () => Boolean(await budgets.getCompanyInvocationBlock(workspace.companyId)),
         worthUsd: studioWorthUsd,
         // News for the person's phone, unless they are watching App Studio.
         onFinished: (turn) => {
@@ -1077,6 +1217,18 @@ export function injectIntoPreviewHtml(html: string, tags: string): string {
     if (match) return `${html.slice(0, match.index + match[0].length)}${tags}${html.slice(match.index + match[0].length)}`;
   }
   return `${tags}${html}`;
+}
+
+/**
+ * The path and query a preview request asks the app for: everything after
+ * `/studio-preview/<token>`, exactly as the browser sent it. Express hands
+ * the route its path already decoded, and sending that on turned "%20" into
+ * a space the app's server refuses, "%25" into a broken escape, and "%23"
+ * and "%3F" into a fragment and a query.
+ */
+export function previewUpstreamPath(originalUrl: string): string {
+  const match = /\/studio-preview\/[^/?#]+([^?#]*)(\?[^#]*)?/.exec(originalUrl);
+  return `${match?.[1] || "/"}${match?.[2] ?? ""}`;
 }
 
 /**
@@ -1194,7 +1346,7 @@ export function studioPublicRoutes(db: Db) {
 
   router.post("/studio-guest/messages", async (req, res) => {
     const guest = await guestFor(req);
-    await readMultipart(attachmentUpload.single("file"), req, res);
+    await readMultipart(attachmentUpload.single(CHAT_ATTACHMENT.field), req, res, CHAT_ATTACHMENT);
     const parsed = postStudioMessageSchema.safeParse({ body: typeof req.body?.body === "string" ? req.body.body : "" });
     if (!parsed.success) throw badRequest("Message is too long");
     const attachment = req.file ? await saveAttachment(guest.workspace, req.file) : null;
@@ -1269,9 +1421,6 @@ export function studioPublicRoutes(db: Db) {
       return;
     }
     const prefix = `/api/studio-preview/${String(req.params.token)}/`;
-    const rest = req.params.rest;
-    const restPath = Array.isArray(rest) ? rest.join("/") : typeof rest === "string" ? rest : "";
-    const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
     const headers: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       if (value === undefined || ["cookie", "authorization", "host", "content-length", "connection"].includes(key)) continue;
@@ -1282,8 +1431,10 @@ export function studioPublicRoutes(db: Db) {
     const rawBody = (req as unknown as { rawBody?: Buffer }).rawBody;
     if (rawBody) headers["content-length"] = String(rawBody.length);
     const upstream = httpRequest(
-      { host: "127.0.0.1", port: runtime.state.port, method: req.method, path: `/${restPath}${query}`, headers },
+      { host: "127.0.0.1", port: runtime.state.port, method: req.method, path: previewUpstreamPath(req.originalUrl), headers },
       (upstreamRes) => {
+        // The app's answer breaking off ends the browser's too.
+        upstreamRes.on("error", () => res.destroy());
         const outHeaders: Record<string, string | string[] | number> = {};
         for (const [key, value] of Object.entries(upstreamRes.headers)) {
           if (value === undefined || PREVIEW_DROPPED_RESPONSE_HEADERS.has(key)) continue;
@@ -1311,7 +1462,15 @@ export function studioPublicRoutes(db: Db) {
       },
     );
     upstream.on("error", (error) => {
+      if (res.destroyed) return;
       if (!res.headersSent) res.status(502).type("text/plain").send(`Your app is not answering yet: ${error.message}`);
+      else res.destroy();
+    });
+    // A browser that gives up (the page closed, a video skipped) ends the
+    // request to the app as well. Left open, it kept a connection to the app
+    // for good, and stopping a website waited on it forever.
+    res.on("close", () => {
+      if (!res.writableFinished) upstream.destroy();
     });
     if (rawBody) upstream.end(rawBody);
     else req.pipe(upstream);

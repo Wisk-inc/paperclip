@@ -182,17 +182,36 @@ export async function readStudioFile(root: string, relative: string): Promise<St
   };
 }
 
+/**
+ * One check-and-write of a file at a time. Two saves made from the same
+ * version at the same moment (two devices) would both pass the version check
+ * before either wrote, and one edit vanished with no conflict shown.
+ */
+const fileLocks = new Map<string, Promise<unknown>>();
+async function withFileLock<T>(file: string, change: () => Promise<T>): Promise<T> {
+  const previous = fileLocks.get(file) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(change);
+  fileLocks.set(file, next);
+  try {
+    return await next;
+  } finally {
+    if (fileLocks.get(file) === next) fileLocks.delete(file);
+  }
+}
+
 export async function writeStudioFile(root: string, relative: string, content: string, baseVersion?: string | null) {
   const target = await resolveInside(root, relative);
-  if (baseVersion) {
-    const current = await readStudioFile(root, relative).catch(() => null);
-    if (current && current.version !== baseVersion) {
-      throw conflict("This file changed since you opened it", { code: "studio_file_changed", version: current.version, content: current.content });
+  return withFileLock(target, async () => {
+    if (baseVersion) {
+      const current = await readStudioFile(root, relative).catch(() => null);
+      if (current && current.version !== baseVersion) {
+        throw conflict("This file changed since you opened it", { code: "studio_file_changed", version: current.version, content: current.content });
+      }
     }
-  }
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(target, content, "utf8");
-  return readStudioFile(root, relative);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, content, "utf8");
+    return readStudioFile(root, relative);
+  });
 }
 
 export async function createStudioEntry(root: string, relative: string, type: "file" | "folder") {
@@ -216,9 +235,18 @@ export async function moveStudioEntry(root: string, from: string, to: string) {
   await fs.rename(source, destination);
 }
 
-export async function deleteStudioEntry(root: string, relative: string) {
+/**
+ * Deletes a file or folder. A path with nothing at it is refused, so a typo
+ * is not reported as a deletion; `missingOk` is for callers that only need
+ * the path to be gone afterwards.
+ */
+export async function deleteStudioEntry(root: string, relative: string, options: { missingOk?: boolean } = {}) {
   const target = await resolveInside(root, relative);
   if (target === root) throw badRequest("You can't delete the whole project here");
+  if (!(await fs.lstat(target).then(() => true, () => false))) {
+    if (options.missingOk) return;
+    throw notFound("Nothing to delete at that path");
+  }
   await fs.rm(target, { recursive: true, force: true });
 }
 

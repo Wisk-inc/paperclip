@@ -53,6 +53,38 @@ describe("pickAnsweringFreeModel", () => {
     expect(pickAnsweringFreeModel(models, { c: health.c! }, { now: NOW, except: "c", proven: true })).toBe("a");
   });
 
+  describe("a model that runs on another (Moan runs on Nemotron 3 Ultra)", () => {
+    const ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free";
+    const MOAN = "moan/moan-1:free";
+    const LIGHTNING = "nvidia/nemotron-3.5-lightning:free";
+    const FLINT = "recursive/flint-v1.0:free";
+    const list = [ULTRA, MOAN, LIGHTNING, FLINT];
+    // Health is kept by the model that is called: Moan never has an entry of its own.
+    const ultraBusy: FreeModelHealthMap = { [ULTRA]: entry({ state: "busy", until: ahead(1), last: "busy" }) };
+
+    it("is not offered while the model it runs on is refusing", () => {
+      expect(pickAnsweringFreeModel(list, ultraBusy, { now: NOW })).toBe(LIGHTNING);
+      expect(pickAnsweringFreeModel(list, ultraBusy, { now: NOW, proven: true })).toBe(LIGHTNING);
+      expect(pickAnsweringFreeModel(list, ultraBusy, { now: NOW, except: ULTRA })).toBe(LIGHTNING);
+      expect(pickAnsweringFreeModel(list, ultraBusy, { now: NOW, except: ULTRA, proven: true })).toBe(LIGHTNING);
+      // Refused a few minutes ago, no longer held: still passed over, and Moan with it.
+      const refusedLately: FreeModelHealthMap = { [ULTRA]: entry({ state: "ok", last: "busy", checkedAt: ago(5) }) };
+      expect(pickAnsweringFreeModel(list, refusedLately, { now: NOW })).toBe(LIGHTNING);
+    });
+
+    it("is left out with the model that just failed, whichever of the two that was, even before health says so", () => {
+      expect(pickAnsweringFreeModel(list, {}, { now: NOW, except: ULTRA })).toBe(LIGHTNING);
+      expect(pickAnsweringFreeModel(list, {}, { now: NOW, except: MOAN })).toBe(LIGHTNING);
+      expect(pickAnsweringFreeModel(list, { [FLINT]: entry({ last: "ok" }) }, { now: NOW, except: MOAN, proven: true })).toBe(FLINT);
+    });
+
+    it("counts as proven when the model it runs on answered", () => {
+      const ultraAnswered: FreeModelHealthMap = { [ULTRA]: entry({ last: "ok" }) };
+      expect(pickAnsweringFreeModel([LIGHTNING, MOAN], ultraAnswered, { now: NOW, proven: true })).toBe(MOAN);
+      expect(pickAnsweringFreeModel(list, ultraAnswered, { now: NOW })).toBe(ULTRA);
+    });
+  });
+
   it("says so when none of them can answer", () => {
     const all: FreeModelHealthMap = Object.fromEntries(models.map((model) => [model, entry({ state: "daily_limit", until: ahead(60), last: "daily_limit" })]));
     expect(pickAnsweringFreeModel(models, all, { now: NOW })).toBeNull();

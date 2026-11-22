@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   Hammer,
   Info,
   Loader2,
+  RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
@@ -24,6 +25,7 @@ import {
   type InspectorProjectView,
   type InspectorView,
 } from "@/api/app-inspector";
+import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -33,9 +35,15 @@ import { useAskClaude } from "@/hooks/useAskClaude";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { fileKind, formatBytes } from "./file-kinds";
+import { InspectorChat } from "./InspectorChat";
 import { InspectorEditor } from "./InspectorEditor";
 
 type Tab = "files" | "java" | "info";
+
+/** A refusal (a 4xx answer) will not change by asking again, so it is shown at once; anything else is tried again. */
+function retryUnlessRefused(failures: number, error: unknown): boolean {
+  return !(error instanceof ApiError && error.status >= 400 && error.status < 500) && failures < 3;
+}
 
 /** jadx's "progress: 951 of 1745" as a fraction, while it decompiles. */
 function javaProgress(log: string): number | null {
@@ -239,7 +247,43 @@ function InfoList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function AppInfoPanel({ companyId, projectId, info, iconUrl }: { companyId: string; projectId: string; info: InspectorAppInfo; iconUrl: string | null }) {
+/**
+ * Reads the APK the project keeps once more, with its resources, its code and
+ * the Java view. Two taps, because the decoded files are replaced with any
+ * edits made to them.
+ */
+function DecodeAgain({ disabled, pending, onConfirm }: { disabled: boolean; pending: boolean; onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <section className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card p-3" data-testid="inspector-decode-again">
+      <h3 className="text-sm font-semibold">Decode again</h3>
+      <p className="text-xs text-muted-foreground">
+        Reads the APK again with its resources, its code and the Java view. Use it when files or the Java are missing. The files of this project are replaced, with any edits you made to them.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={disabled || pending}
+        onClick={() => {
+          haptic("tick");
+          if (!armed) {
+            setArmed(true);
+            return;
+          }
+          setArmed(false);
+          onConfirm();
+        }}
+        onBlur={() => setArmed(false)}
+        data-testid="inspector-decode-again-button"
+      >
+        {pending ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+        {armed ? "Tap again to replace the files" : "Decode again"}
+      </Button>
+    </section>
+  );
+}
+
+function AppInfoPanel({ companyId, projectId, info, iconUrl, footer }: { companyId: string; projectId: string; info: InspectorAppInfo; iconUrl: string | null; footer?: ReactNode }) {
   const stats: Array<[string, string | null]> = [
     ["Version", info.versionName ? `${info.versionName}${info.versionCode ? ` (${info.versionCode})` : ""}` : null],
     ["Min SDK", info.minSdk],
@@ -278,6 +322,7 @@ function AppInfoPanel({ companyId, projectId, info, iconUrl }: { companyId: stri
       <InfoList title="Services" items={info.services} />
       <InfoList title="Receivers" items={info.receivers} />
       <InfoList title="Providers" items={info.providers} />
+      {footer}
     </div>
   );
 }
@@ -285,8 +330,9 @@ function AppInfoPanel({ companyId, projectId, info, iconUrl }: { companyId: stri
 /**
  * One decoded app, full screen, the way Apktool M opens a project: an app bar
  * with Build, the decompile log while it works, then a file manager (Files,
- * Java, Info) with breadcrumbs, typed icons, image thumbnails and search, and a
- * full-screen editor for any file.
+ * Java, Info) with breadcrumbs, typed icons, image thumbnails and search, a
+ * full-screen editor for any file, and a chat about the app that a free model
+ * answers (no key needed).
  */
 export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { companyId: string; projectId: string; iconUrl: string | null; onClose: () => void }) {
   const client = useQueryClient();
@@ -294,6 +340,7 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   const [tab, setTab] = useState<Tab>("files");
   const [cwd, setCwd] = useState<Record<InspectorView, string>>({ files: "", java: "" });
   const [openFile, setOpenFile] = useState<{ view: InspectorView; path: string } | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"name" | "text">("name");
   const debouncedQuery = useDebounced(query.trim(), 300);
@@ -301,6 +348,7 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   const project = useQuery({
     queryKey: ["inspector", "project", companyId, projectId],
     queryFn: () => appInspectorApi.project(companyId, projectId).then((r) => r.project),
+    retry: retryUnlessRefused,
     refetchInterval: (q) => {
       const data = q.state.data;
       return data && (data.status === "decoding" || data.status === "building" || data.java === "working") ? 1200 : false;
@@ -323,10 +371,13 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   });
   const search = useQuery({
     queryKey: ["inspector", "search", companyId, projectId, view, mode, debouncedQuery],
-    queryFn: () => appInspectorApi.search(companyId, projectId, view, debouncedQuery, mode),
+    // Each keystroke starts a new search; the signal closes the request of the one it replaces.
+    queryFn: ({ signal }) => appInspectorApi.search(companyId, projectId, view, debouncedQuery, mode, signal),
+    retry: retryUnlessRefused,
     enabled: viewReady && tab !== "info" && debouncedQuery.length >= (mode === "text" ? 2 : 1),
   });
 
+  // The chat's "Ask an agent instead": agents have file and device tools the chat does not.
   const askClaude = useAskClaude(companyId);
   const askAboutApp = () => {
     const name = info.data?.label ?? p?.label ?? "this app";
@@ -352,6 +403,21 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
     onError: (error) => pushToast({ title: "Couldn't build", body: error instanceof Error ? error.message : String(error), tone: "error" }),
   });
 
+  const decodeAgain = useMutation({
+    mutationFn: () => appInspectorApi.decodeAgain(companyId, projectId),
+    onSuccess: ({ project: next }) => {
+      haptic("tick");
+      // What was read from the old files is not this app's any more.
+      setOpenFile(null);
+      setQuery("");
+      setCwd({ files: "", java: "" });
+      setTab("files");
+      for (const part of ["info", "dir", "search", "file"]) client.removeQueries({ queryKey: ["inspector", part, companyId, projectId] });
+      client.setQueryData(["inspector", "project", companyId, projectId], next);
+    },
+    onError: (error) => pushToast({ title: "Couldn't decode again", body: error instanceof Error ? error.message : String(error), tone: "error" }),
+  });
+
   const entries = useMemo(() => dir.data ?? [], [dir.data]);
   const counts = useMemo(() => {
     const folders = entries.filter((entry) => entry.dir).length;
@@ -359,6 +425,10 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
   }, [entries]);
   const appIcon = iconUrl ?? (info.data?.iconPath ? appInspectorApi.imageUrl(companyId, projectId, "files", info.data.iconPath) : null);
   const busy = p?.status === "decoding" || p?.status === "building";
+  const decodeAgainCard = (
+    <DecodeAgain disabled={!p || busy || p.java === "working"} pending={decodeAgain.isPending} onConfirm={() => decodeAgain.mutate()} />
+  );
+  const appName = info.data?.label ?? p?.label ?? "this app";
 
   const openEntry = (entry: { path: string; dir: boolean }) => {
     haptic("tick");
@@ -380,12 +450,21 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted" aria-hidden="true"><Boxes className="size-4 text-muted-foreground" /></span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{info.data?.label ?? p?.label ?? "Loading…"}</span>
+          <span className="block truncate text-sm font-semibold">{info.data?.label ?? p?.label ?? (project.isError ? "App Inspector" : "Loading…")}</span>
           <span className="block truncate font-mono text-xs text-muted-foreground">
             {[info.data?.packageName ?? p?.packageName, info.data?.versionName].filter(Boolean).join(" · ")}
           </span>
         </span>
-        <Button variant="ghost" size="icon-sm" aria-label="Ask Claude about this app" onClick={askAboutApp} data-testid="inspector-ask">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Chat about this app"
+          onClick={() => {
+            haptic("tick");
+            setChatOpen(true);
+          }}
+          data-testid="inspector-ask"
+        >
           <Sparkles />
         </Button>
         {p?.decoded ? (
@@ -448,27 +527,40 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {tab === "info" ? (
-          info.isPending ? (
+        {!p && project.isError ? (
+          <div className="flex flex-col items-start gap-3 p-4" role="alert" data-testid="inspector-project-error">
+            <p className="text-sm font-semibold">This app couldn't be opened.</p>
+            <p className="text-sm text-destructive">{project.error instanceof Error ? project.error.message : "Couldn't read this project"}</p>
+            <Button variant="outline" size="sm" onClick={() => void project.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : tab === "info" ? (
+          // isLoading, not isPending: the query is off until the app is decoded, and a query that is off stays pending.
+          info.isLoading ? (
             <div className="flex flex-col gap-2 p-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
           ) : info.isError || !info.data ? (
             <p className="p-4 text-sm text-muted-foreground">{info.error instanceof Error ? info.error.message : "No manifest to read yet."}</p>
           ) : (
-            <AppInfoPanel companyId={companyId} projectId={projectId} info={info.data} iconUrl={appIcon} />
+            <AppInfoPanel companyId={companyId} projectId={projectId} info={info.data} iconUrl={appIcon} footer={decodeAgainCard} />
           )
         ) : !viewReady ? (
           p?.status === "decoding" ? (
             <p className="p-6 text-center text-sm text-muted-foreground">The app's files appear here as soon as apktool finishes.</p>
           ) : p && !busy ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {view === "java"
-                ? p.java === "working"
-                  ? "Decompiling to Java… big apps take a few minutes on a phone."
-                  : p.java === "failed"
-                    ? "jadx couldn't decompile this app. The smali in Files is the code apktool decoded."
-                    : "Java wasn't chosen when this app was decompiled."
-                : "This app wasn't decoded. Check the log above."}
-            </p>
+            <div className="flex flex-col gap-3 p-4">
+              <p className="text-sm text-muted-foreground">
+                {view === "java"
+                  ? p.java === "working"
+                    ? "Decompiling to Java… big apps take a few minutes on a phone."
+                    : p.java === "failed"
+                      ? "jadx couldn't decompile this app. The smali in Files is the code apktool decoded."
+                      : "Java wasn't chosen when this app was decompiled."
+                  : "This app wasn't decoded. Check the log above."}
+              </p>
+              {/* Nothing to offer while jadx is still at it. */}
+              {p.java === "working" ? null : decodeAgainCard}
+            </div>
           ) : null
         ) : (
           <>
@@ -507,19 +599,26 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
                 </div>
               </div>
               {debouncedQuery ? (
-                <p className="px-3 py-1.5 text-xs text-muted-foreground">
+                <p className="px-3 py-1.5 text-xs text-muted-foreground" data-testid="inspector-search-count">
                   {search.isFetching
                     ? "Searching…"
-                    : search.data
-                      ? `${search.data.results.length}${search.data.truncated ? "+" : ""} result${search.data.results.length === 1 ? "" : "s"}`
-                      : ""}
+                    : search.isError
+                      ? "The search didn't finish"
+                      : search.data
+                        ? // "200+" when the server stopped early (too many matches, files or seconds): there may be more.
+                          `${search.data.results.length}${search.data.truncated ? "+" : ""} result${search.data.results.length === 1 && !search.data.truncated ? "" : "s"}`
+                        : ""}
                 </p>
               ) : (
                 <Breadcrumbs root={view === "java" ? "java" : "app"} path={cwd[view]} onNavigate={(path) => setCwd((current) => ({ ...current, [view]: path }))} />
               )}
             </div>
 
-            {debouncedQuery ? (
+            {debouncedQuery && search.isError && !search.isFetching ? (
+              <p className="p-4 text-sm text-destructive" role="alert" data-testid="inspector-search-error">
+                {search.error instanceof Error ? search.error.message : "Couldn't search this app"}
+              </p>
+            ) : debouncedQuery ? (
               <ul className="divide-y divide-border" data-testid="inspector-results">
                 {(search.data?.results ?? []).map((hit) => (
                   <FileRow
@@ -572,8 +671,14 @@ export function ProjectExplorer({ companyId, projectId, iconUrl, onClose }: { co
           view={openFile.view}
           path={openFile.path}
           building={p?.status === "building"}
+          appName={appName}
+          onAskAgent={askAboutApp}
           onClose={() => setOpenFile(null)}
         />
+      ) : null}
+
+      {chatOpen ? (
+        <InspectorChat companyId={companyId} projectId={projectId} appName={appName} onAskAgent={askAboutApp} onClose={() => setChatOpen(false)} />
       ) : null}
     </div>
   );

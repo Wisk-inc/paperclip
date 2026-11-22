@@ -151,7 +151,16 @@ case "${1:-}" in
     # jadx exits non-zero when a few methods can't be decompiled; the rest is still useful.
     # All cores, no debug-info or line numbers: markedly faster on a phone.
     jobs="$(nproc 2>/dev/null || echo 2)"
-    jadx --no-res --no-debug-info --show-bad-code --deobf -j "$jobs" -d "$out" "$apk" || say "jadx finished with some errors; most of the code is still readable."
+    status=0
+    jadx --no-res --no-debug-info --show-bad-code --deobf -j "$jobs" -d "$out" "$apk" || status=$?
+    # 126 and up is not jadx's own verdict: it could not be run, or it was killed
+    # (137 is how Android stops a process that used too much memory). What it had
+    # written by then is only part of the code, so it is not offered as the Java.
+    if [ "$status" -ge 126 ]; then
+      echo "jadx was stopped before it finished (exit status $status), so there is no Java to read. On a phone that usually means it ran out of memory. Close other apps, then decode the app again." >&2
+      exit 4
+    fi
+    [ "$status" -eq 0 ] || say "jadx finished with some errors; most of the code is still readable."
     [ -d "$out/sources" ] || { echo "jadx produced no Java." >&2; exit 4; }
     say "Java is ready to read."
     ;;

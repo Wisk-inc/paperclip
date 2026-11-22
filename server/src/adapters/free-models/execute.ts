@@ -4,6 +4,7 @@ import {
   describePuterError,
   formatSafetyVerdict,
   freeServiceSlowDownMs,
+  isDroppedConnection,
   isLastingPuterError,
   isPuterImageModel,
   isTransientPuterError,
@@ -15,12 +16,14 @@ import {
   puterImage,
   puterStream,
   PUTER_DEFAULT_MODEL,
+  PUTER_IMAGE_MODEL_META,
   PUTER_IMAGE_MODELS,
   PUTER_MODELS,
   PUTER_MODEL_META,
   PuterHttpError,
   type PuterContentPart,
   type PuterImageModelId,
+  type PuterImageModelKey,
   type PuterMessage,
   type PuterModelKey,
   type PuterToolCall,
@@ -65,21 +68,19 @@ export function modelLabel(model: string): string {
   return key ? PUTER_MODEL_META[key].label : model;
 }
 
+/** An image model's display name, for status lines and errors. */
+function imageModelLabel(model: string): string {
+  const key = (Object.keys(PUTER_IMAGE_MODELS) as PuterImageModelKey[]).find((k) => PUTER_IMAGE_MODELS[k] === model);
+  return key ? PUTER_IMAGE_MODEL_META[key].label : model;
+}
+
 /** The tool exchanges rewritten as plain text (kept here for the engine's callers and tests). */
 export { toolHistoryAsText };
 
-const DROPPED_MESSAGE = /^(?:fetch failed|terminated)$|socket hang up|other side closed|ECONNRESET/i;
-const DROPPED_CODE = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT)$/;
-
 /** A connection that dropped or never opened (common on a phone), as the busy refusal it is retried like; null for anything else. */
 function droppedConnection(error: unknown): PuterHttpError | null {
-  for (let cause: unknown = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth += 1) {
-    const code = (cause as { code?: unknown }).code;
-    if (DROPPED_MESSAGE.test(cause.message) || (typeof code === "string" && DROPPED_CODE.test(code))) {
-      return new PuterHttpError(503, JSON.stringify({ error: "The connection to the free model service dropped." }), { kind: "busy", retryAfterMs: null });
-    }
-  }
-  return null;
+  if (!isDroppedConnection(error)) return null;
+  return new PuterHttpError(503, JSON.stringify({ error: "The connection to the free model service dropped." }), { kind: "busy", retryAfterMs: null });
 }
 
 /**
@@ -90,6 +91,11 @@ function droppedConnection(error: unknown): PuterHttpError | null {
  */
 function refusedTheRequest(error: PuterHttpError): boolean {
   return error.kind === "no_tools" || (error.status >= 400 && error.status < 500 && error.status !== 429 && error.status !== 408);
+}
+
+/** The provider's rate limit on the model (a 429), or the service's own on this install: asking once more at once is refused too. */
+function rateLimited(error: PuterHttpError): boolean {
+  return error.slowDown || error.status === 429 || error.code === "upstream_rate_limited" || error.code === "too_many_requests";
 }
 
 /** Waits `ms`, ending early when the run is cancelled. */
@@ -237,7 +243,12 @@ async function reply(
 
   // The chosen model is itself an image model: draw a picture, no chat loop.
   if (isPuterImageModel(model)) {
-    await runImageOnly(ctx, api, issue, lastUser, model, issueId, addUsage);
+    try {
+      await runImageOnly(ctx, api, issue, lastUser, model, issueId, addUsage);
+    } catch (error) {
+      if (!(error instanceof FreeModelRefusal)) throw error;
+      return refused(error, model);
+    }
     return finish(ctx, 1, model, spent);
   }
 
@@ -338,8 +349,7 @@ async function reply(
     });
   } catch (error) {
     if (!(error instanceof FreeModelRefusal)) throw error;
-    // The run's reason in the chat; a daily limit leaves the agent idle and is retried once it lifts.
-    return { exitCode: 1, signal: null, timedOut: false, errorMessage: error.message, errorCode: "adapter_failed", errorFamily: error.errorFamily, retryNotBefore: error.retryNotBefore, provider: "free_models", model, costUsd: 0, summary: null };
+    return refused(error, model);
   }
   const { answer, answeredBy, stopReason, hitTurnLimit } = loop;
   // Stopped mid-reply (Stop, the chat deleted, the agent paused): the partial
@@ -359,6 +369,11 @@ async function reply(
   await handTaskBack(api, issue, issueId, { answer: body.trim(), runId, agentName: agent.name }, onLog);
   await onLog("stdout", logLine({ type: "acpx.result", summary: answer ? "Replied" : stopReason, stopReason, inputTokens: sumUsage(spent).inputTokens, outputTokens: sumUsage(spent).outputTokens, costUsd: 0 }));
   return finish(ctx, drawn.length + slidePictures, answeredBy, spent, body);
+}
+
+/** The run's reason in the chat; a daily limit leaves the agent idle and is retried once it lifts. */
+function refused(error: FreeModelRefusal, model: string): AdapterExecutionResult {
+  return { exitCode: 1, signal: null, timedOut: false, errorMessage: error.message, errorCode: "adapter_failed", errorFamily: error.errorFamily, retryNotBefore: error.retryNotBefore, provider: "free_models", model, costUsd: 0, summary: null };
 }
 
 /**
@@ -534,6 +549,22 @@ function refusalFor(error: PuterHttpError, label: string, retries: number): Free
   return new FreeModelRefusal(message, isTransientPuterError(error) ? "transient_upstream" : null, notBefore);
 }
 
+/**
+ * One free-model call outside the chat loop (reading a picture, drawing one):
+ * a refusal or a dropped connection is said for the person, as the chat loop
+ * says its own, instead of leaving as the service's raw reply.
+ */
+async function saidPlainly<T>(label: string, signal: AbortSignal | undefined, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof PuterHttpError) throw refusalFor(error, label, 0);
+    if (isDroppedConnection(error)) throw new FreeModelRefusal(`The connection to ${label} dropped, so nothing came back. Check the connection and send the message again.`, "transient_upstream", null);
+    throw error;
+  }
+}
+
 async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking: string; answeredBy: string; stopReason: string; hitTurnLimit: boolean }> {
   const { ctx, messages, toolCtx, level, onLog, addUsage, puterModel } = input;
   let maxTurns = input.maxTurns;
@@ -635,8 +666,9 @@ async function runToolLoop(input: LoopInput): Promise<{ answer: string; thinking
         turn -= 1;
         continue;
       }
-      // Last resort on the first turn: the same model without streaming.
-      if (turn === 1 && !triedPlain) {
+      // Last resort on the first turn: the same model without streaming. Not after a rate limit (the
+      // provider's 429, or the service's own slow-down): one more call is refused as well and only adds to it.
+      if (turn === 1 && !triedPlain && !rateLimited(error)) {
         triedPlain = true;
         try {
           const reply = await puterComplete(attempt, { model: puterModel, retries: 1, signal: ctx.signal });
@@ -759,19 +791,19 @@ async function runImageOnly(
   let prompt = ask;
   if (pictures.length) {
     await ctx.onLog("stdout", logLine({ type: "acpx.status", message: "Reading the attached picture" }));
-    const described = await puterComplete([{
+    const described = await saidPlainly(modelLabel(VISION_MODEL), ctx.signal, () => puterComplete([{
       role: "user",
       content: [
         { type: "image_url", image_url: { url: pictures[0]! } },
         { type: "text", text: `Someone attached this picture and asked: "${ask || "recreate it"}". Write one detailed prompt, under 70 words, for an image generator to draw this picture with that change applied, keeping everything else the same. Reply with the prompt only.` },
       ],
-    }], { model: VISION_MODEL, signal: ctx.signal });
+    }], { model: VISION_MODEL, signal: ctx.signal }));
     addUsage(described.model, described.usage);
     prompt = described.text.replace(/^["'\s]+|["'\s]+$/g, "");
   }
   if (!prompt) throw new Error("Nothing to draw yet. Describe a picture, or attach one with the change you want.");
   await ctx.onLog("stdout", logLine({ type: "acpx.status", message: `Drawing with ${model}` }));
-  const image = await drawAndUploadImage(api, issue.companyId, issueId, ctx.runId, model, prompt, ctx.signal);
+  const image = await saidPlainly(imageModelLabel(model), ctx.signal, () => drawAndUploadImage(api, issue.companyId, issueId, ctx.runId, model, prompt, ctx.signal));
   const body = pictures.length ? `${image.markdown}\n\n_Redrawn from your picture: ${prompt}_` : image.markdown;
   await postReply(api, issueId, body, [image.attachmentId]);
 }

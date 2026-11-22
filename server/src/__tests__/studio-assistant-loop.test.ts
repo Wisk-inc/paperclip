@@ -83,6 +83,8 @@ async function turn(
     setup?: (workspaceId: string, files: string) => Promise<void>;
     /** Taps Stop once the assistant is doing this (its activity line). */
     stopWhen?: string;
+    /** The organization's budget hard stop, asked before each model call. */
+    budgetBlocked?: () => boolean | Promise<boolean>;
   } = {},
 ) {
   const { runAssistantTurn, isAssistantRunning, readAssistantTranscript, currentAssistantTurn, stopAssistant } = await import("../services/studio/assistant.js");
@@ -104,6 +106,7 @@ async function turn(
       onFileChanged: async () => {},
       ...(options.onUsage ? { onUsage: options.onUsage } : {}),
       ...(options.worthUsd ? { worthUsd: options.worthUsd } : {}),
+      ...(options.budgetBlocked ? { budgetBlocked: options.budgetBlocked } : {}),
     },
     message: options.message ?? "Build it",
     provider: options.provider ?? "openai",
@@ -205,6 +208,58 @@ describe("Studio assistant loop", () => {
     }, { stopWhen: "Running sleep" });
     expect(reply.error).toBe("Stopped.");
     await expect(stat(path.join(files, "late.txt"))).rejects.toThrow();
+  });
+
+  it("stops at the model call where the organization's budget limit is reached, and records what was used until then", async () => {
+    const recorded: StudioAiUsage[] = [];
+    const steps = Array.from({ length: 8 }, (_, index) => ({ call: { name: "write_file", args: { path: `part-${index}.txt`, content: `${index}` } } }));
+    const { reply, files } = await turn({ lead: steps }, {
+      // The limit is reached while the second call's work is under way.
+      budgetBlocked: () => requests.length >= 2,
+      onUsage: (usage) => { recorded.push(usage); },
+    });
+    expect(requests).toHaveLength(2);
+    expect(reply.error).toBe("AI is paused: this organization reached its budget limit.");
+    // Both calls' work was done and their tokens are counted (10 in and 2 out a call).
+    expect(await readFile(path.join(files, "part-1.txt"), "utf8")).toBe("1");
+    await expect(stat(path.join(files, "part-2.txt"))).rejects.toThrow();
+    expect(recorded.map((usage) => [usage.provider, usage.model, usage.inputTokens, usage.outputTokens])).toEqual([["openai", "lead", 20, 4]]);
+    expect(reply.usage).toMatchObject({ inputTokens: 20, outputTokens: 4 });
+  });
+
+  it("stops a teammate at the budget limit too, and then the lead", async () => {
+    const recorded: StudioAiUsage[] = [];
+    const mateCalls = () => requests.filter((request) => request.model === "mate").length;
+    const { reply } = await turn({
+      lead: [{ call: { name: "ask_teammate", args: { teammate: "mate", task: "Write the parts" } } }, { content: "The teammate finished." }],
+      mate: Array.from({ length: 8 }, (_, index) => ({ call: { name: "write_file", args: { path: `mate-${index}.txt`, content: `${index}` } } })),
+    }, {
+      team: ["mate"],
+      budgetBlocked: () => mateCalls() >= 2,
+      onUsage: (usage) => { recorded.push(usage); },
+    });
+    expect(mateCalls()).toBe(2);
+    expect(requests.filter((request) => request.model === "lead")).toHaveLength(1);
+    expect(reply.agents?.[0]).toMatchObject({ status: "failed", error: "AI is paused: this organization reached its budget limit." });
+    expect(reply.error).toBe("AI is paused: this organization reached its budget limit.");
+    expect(recorded.map((usage) => [usage.model, usage.inputTokens, usage.outputTokens]).sort()).toEqual([["lead", 10, 2], ["mate", 20, 4]]);
+  });
+
+  it("carries on when the budget cannot be checked", async () => {
+    const { reply } = await turn({ lead: [{ call: { name: "write_file", args: { path: "a.txt", content: "a" } } }, { content: "Wrote a.txt." }] }, {
+      budgetBlocked: () => {
+        throw new Error("database is restarting");
+      },
+    });
+    expect(reply.error).toBeNull();
+    expect(reply.text).toBe("Wrote a.txt.");
+  });
+
+  it("tells the model a path it asked to delete was not there, instead of reporting it deleted", async () => {
+    const { reply } = await turn({ lead: [{ call: { name: "delete_path", args: { path: "typo.txt" } } }, { content: "There was nothing to delete." }] });
+    const result = String(requests.at(-1)!.messages.find((message) => message.role === "tool")?.content);
+    expect(result).toBe("Error: Nothing to delete at that path");
+    expect(reply.steps.find((step) => step.tool === "delete_path")).toMatchObject({ ok: false, detail: "Nothing to delete at that path" });
   });
 
   it("keeps a long console inside the tool output limit, newest lines included", async () => {
@@ -644,6 +699,28 @@ describe("Studio assistant on the free models", () => {
       vi.unstubAllGlobals();
     }
   }
+
+  it("says each time it tries a busy free model again, so the wait is not silent", async () => {
+    const dropped = () => {
+      throw new TypeError("fetch failed");
+    };
+    const { modelLabel } = await import("../adapters/free-models/execute.js");
+    const model = modelLabel("nvidia/nemotron-3-ultra-550b-a55b:free");
+    const { reply } = await freeTurn([busy, busy, wrote]);
+    expect(reply.error).toBeNull();
+    expect(reply.text).toBe("Wrote hi.txt.");
+    const notes = reply.steps.filter((step) => step.tool === "say" && step.summary.includes("Trying again")).map((step) => step.summary);
+    expect(notes).toEqual([
+      `(${model} is busy at its provider. Trying again, 1 of 4.)`,
+      `(${model} is busy at its provider. Trying again, 2 of 4.)`,
+    ]);
+    // A server error and a dropped connection are named as what they are; the count starts again after an answer.
+    const other = await freeTurn([writeCall, refusal(503, { error: "Service temporarily unavailable" }), dropped, wrote]);
+    expect(other.reply.steps.filter((step) => step.summary.includes("Trying again")).map((step) => step.summary)).toEqual([
+      `(${model} had a server error. Trying again, 1 of 4.)`,
+      "(The connection to the free AI service dropped. Trying again, 2 of 4.)",
+    ]);
+  });
 
   it("stops at once while it waits to retry a busy free model", async () => {
     const { stopAssistant } = await import("../services/studio/assistant.js");

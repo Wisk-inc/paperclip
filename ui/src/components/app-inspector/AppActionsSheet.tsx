@@ -38,7 +38,7 @@ export function AppIcon({ app, className }: { app: { iconUrl: string | null }; c
 const OPTION_ROWS: Array<{ key: keyof InspectorDecodeOptions; title: string; hint: string }> = [
   { key: "resources", title: "Resources", hint: "Manifest, layouts, strings and images as editable files" },
   { key: "sources", title: "Code as smali", hint: "classes.dex disassembled, editable and rebuilt" },
-  { key: "java", title: "Code as Java", hint: "Readable Java from jadx, for reading and Claude" },
+  { key: "java", title: "Code as Java", hint: "Readable Java from jadx, easier to read and to ask about" },
 ];
 
 /**
@@ -134,7 +134,7 @@ export function AppActionsSheet({
                     data-testid="inspector-ask-app"
                   >
                     <Sparkles className="size-4 text-primary" aria-hidden="true" />
-                    <span className="flex-1">Ask Claude about this app</span>
+                    <span className="flex-1">Ask an agent about this app</span>
                   </button>
                 ) : null}
                 {onExtract && app.apkUrl ? (

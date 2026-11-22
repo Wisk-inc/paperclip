@@ -149,12 +149,12 @@ export const TOUR_STOPS: TourStop[] = [
   },
   {
     icon: Boxes, title: "App Inspector", pose: "thinking", to: "/app-inspector",
-    what: "Pick an app on your phone to decode its manifest, resources and code, read the code as Java, ask Claude to explain any file, edit, and rebuild a signed APK to your Downloads.",
-    why: "Look inside an app you made or are authorized to analyze, with Claude to help you read it.",
+    what: "Pick an app on your phone to decode its manifest, resources and code, read the code as Java, chat with an AI about the app or any file, edit, and rebuild a signed APK to your Downloads.",
+    why: "Look inside an app you made or are authorized to analyze, with an AI to help you read it. The free models answer with no key.",
     steps: [
       "Tap an app in the grid (or choose an APK file), then Decode",
       "Watch each step; Java code appears once jadx finishes",
-      "Open any file and tap Explain with Claude",
+      "Open any file and tap the chat button to ask about it",
       "Edit in Files, Save, then Rebuild and Save to Downloads",
     ],
   },

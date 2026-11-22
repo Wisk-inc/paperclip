@@ -263,10 +263,26 @@ describe("free models engine", () => {
     expect(result.errorMessage).not.toContain("busy at its provider");
     // Every try stayed on the chosen model, and none was sent to a second route.
     expect(new Set(net.puterModels())).toEqual(new Set([NEMOTRON]));
+    // The first try and four more after waiting. No sixth, one-shot try: the limit covers that call as well.
+    expect(net.puterModels()).toHaveLength(5);
+    expect(net.calls.filter((c) => c.url.startsWith("https://api.puter.com/")).every((c) => (JSON.parse(String(c.body)) as { args: { stream?: boolean } }).args.stream === true)).toBe(true);
     // The server's own retry of this reply is told to wait at least as long as the service asked.
     expect(result.errorFamily).toBe("transient_upstream");
     expect(Date.parse(result.retryNotBefore!)).toBeGreaterThan(Date.now());
   }, 30_000);
+
+  it("stops after its retries when the provider keeps rate-limiting the model, with no extra one-shot try", async () => {
+    const net = stubPuter([refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Provider returned error" }] })]);
+    const result = await execute(context({ model: NEMOTRON, ...NO_TOOLS }));
+    const sent = net.calls.filter((c) => c.url.startsWith("https://api.puter.com/")).map((c) => (JSON.parse(String(c.body)) as { args: { stream?: boolean } }).args);
+    // The first try and four retries, all streamed. A rate limit is not lifted by asking once more another way.
+    expect(sent).toHaveLength(5);
+    expect(sent.every((args) => args.stream === true)).toBe(true);
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toContain("Nemotron 3 Ultra 550B is busy at its provider right now");
+    expect(result.errorMessage).toContain("retried 4 times");
+    expect(result.errorFamily).toBe("transient_upstream");
+  });
 
   it("asks the same model again when a reply comes back empty, then for words without tools", async () => {
     const empty = () => ndjson([{ type: "usage", usageDetails: { inputTokens: 5, outputTokens: 0 } }]);
@@ -455,6 +471,37 @@ describe("free models engine", () => {
     expect(upload.body).toBeInstanceOf(FormData);
     expect(postedBody(net.calls)).toBe("![How many apples are left?](/api/attachments/att-1/content)");
     expect(result.resultJson).toMatchObject({ freeUsage: { images: 1, equivalentUsd: 0.002 } });
+  });
+
+  it("says in plain words why an image model did not draw, never the service's raw reply", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "A fox in the snow" }],
+      turns: [refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Provider returned error" }] })],
+    });
+    const result = await execute(context({ model: "@cf/bytedance/stable-diffusion-xl-lightning" }));
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toContain("SDXL Lightning (fast) is busy at its provider right now");
+    expect(result.errorMessage).not.toContain("{");
+    expect(result.errorMessage).not.toContain("Free model service answered");
+    expect(result.errorFamily).toBe("transient_upstream");
+    // Nothing was posted for a picture that was not drawn.
+    expect(net.calls.some((c) => c.method === "POST" && c.url.endsWith("/comments"))).toBe(false);
+  });
+
+  it("says in plain words when the model that reads an attached picture is at its daily limit", async () => {
+    const net = stubThread({
+      comments: [{ id: "c1", authorType: "user", authorAgentId: null, body: "Make it night" }],
+      attachments: [{ id: "img-1", issueCommentId: "c1", contentType: "image/jpeg", contentPath: "/api/attachments/img-1/content" }],
+      turns: [refusal(429, { error: "AI provider rate limit exceeded", code: "upstream_rate_limited", attempts: [{ status: 429, error: "429 Rate limit exceeded: free-models-per-day-high-balance. " }] })],
+    });
+    const result = await execute(context({ model: "@cf/bytedance/stable-diffusion-xl-lightning" }));
+    expect(net.sent()).toHaveLength(1);
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toContain("Nemotron 3.5 Super VL has used up today's free requests");
+    expect(result.errorMessage).not.toContain("{");
+    // The provider's quota: tried again once it lifts.
+    expect(result.errorFamily).toBe("provider_quota");
+    expect(Date.parse(result.retryNotBefore!)).toBeGreaterThan(Date.now());
   });
 
   it("runs Moan on Nemotron 3 Ultra with the Jamaican persona and the knowledge the server has", async () => {

@@ -118,17 +118,19 @@ async function copyInto(sourceRoot: string, destRoot: string, files: Array<{ rel
 
 /**
  * Empties the project for a restore, except what no checkpoint holds:
- * dependency and cache folders at any depth, and the `keep` files.
- * Returns whether anything is left in the folder.
+ * dependency and cache folders at any depth, and the `keep` files (each one
+ * found is added to `kept`). Returns whether anything is left in the folder.
  */
-async function clearForRestore(root: string, relative: string, keep: ReadonlySet<string>): Promise<boolean> {
+async function clearForRestore(root: string, relative: string, keep: ReadonlySet<string>, kept: string[] = []): Promise<boolean> {
   const entries = await fs.readdir(relative ? path.join(root, relative) : root, { withFileTypes: true }).catch(() => []);
   let left = false;
   for (const entry of entries) {
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
-    if (entry.isDirectory() && (SKIPPED.has(entry.name) || (await clearForRestore(root, childRelative, keep)))) left = true;
-    else if (entry.isFile() && keep.has(childRelative)) left = true;
-    else await fs.rm(path.join(root, childRelative), { recursive: true, force: true });
+    if (entry.isDirectory() && (SKIPPED.has(entry.name) || (await clearForRestore(root, childRelative, keep, kept)))) left = true;
+    else if (entry.isFile() && keep.has(childRelative)) {
+      left = true;
+      kept.push(childRelative);
+    } else await fs.rm(path.join(root, childRelative), { recursive: true, force: true });
   }
   return left;
 }
@@ -185,7 +187,11 @@ export async function createCheckpoint(
  * Puts the project's files back the way they were at a checkpoint. The
  * current files are saved as a checkpoint first, so a restore can be undone.
  * Dependencies (node_modules and similar) are left alone, and so are files
- * too large for either checkpoint: deleting them could not be undone.
+ * too large for either checkpoint: deleting them could not be undone. That
+ * includes a file the checkpoint holds an older, smaller copy of: the safety
+ * checkpoint could not hold the current one, so writing the old copy over it
+ * would leave the current one nowhere. `leftAsIs` names the files that stayed
+ * as they are.
  */
 export async function restoreCheckpoint(companyId: string, workspaceId: string, checkpointId: string, by: string) {
   const dirs = checkpointDirs(companyId, workspaceId);
@@ -195,11 +201,15 @@ export async function restoreCheckpoint(companyId: string, workspaceId: string, 
   const snapshot = path.join(dirs.base, checkpointId);
   const files = await walkProjectFiles(snapshot);
   const safety = await createCheckpoint(companyId, workspaceId, { label: `Before going back to “${target.label}”`, kind: "restore", by }, checkpointId);
-  const keep = new Set([...(await readLeftOut(dirs.base, checkpointId)), ...(await readLeftOut(dirs.base, safety.id))]);
-  await clearForRestore(dirs.files, "", keep);
+  const safetyLeftOut = new Set(await readLeftOut(dirs.base, safety.id));
+  const keep = new Set([...(await readLeftOut(dirs.base, checkpointId)), ...safetyLeftOut]);
+  const leftAsIs: string[] = [];
+  await clearForRestore(dirs.files, "", keep, leftAsIs);
   await fs.mkdir(dirs.files, { recursive: true });
-  await copyInto(snapshot, dirs.files, files, false);
-  return { restored: target, safety };
+  // Nothing is written over (or under) a file that stayed.
+  const stays = (relative: string) => safetyLeftOut.has(relative) || leftAsIs.some((kept) => relative === kept || relative.startsWith(`${kept}/`));
+  await copyInto(snapshot, dirs.files, files.filter((file) => !stays(file.relative)), false);
+  return { restored: target, safety, leftAsIs: leftAsIs.sort() };
 }
 
 export async function deleteCheckpoint(companyId: string, workspaceId: string, checkpointId: string) {
@@ -236,15 +246,14 @@ export async function streamProjectZip(
     if (failure) throw failure;
     const entry = new ZipDeflate(file.relative.slice(parent.length), { level: 6 });
     zip.add(entry);
-    await new Promise<void>((resolve, reject) => {
-      const stream = createReadStream(path.join(root, file.relative));
-      stream.on("data", (chunk) => entry.push(new Uint8Array(chunk as Buffer), false));
-      stream.on("end", () => {
-        entry.push(new Uint8Array(0), true);
-        resolve();
-      });
-      stream.on("error", reject);
-    });
+    // Read no faster than the client takes it: reading the whole file first
+    // held all of it (and its compressed copy) in memory until the client caught up.
+    for await (const chunk of createReadStream(path.join(root, file.relative))) {
+      entry.push(new Uint8Array(chunk as Buffer), false);
+      await pending;
+      if (failure) throw failure;
+    }
+    entry.push(new Uint8Array(0), true);
     await pending;
   }
   zip.end();

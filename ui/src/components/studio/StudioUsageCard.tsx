@@ -93,9 +93,13 @@ export function StudioUsageCard({
             <li key={`${model.provider}:${model.model}`} className="flex items-center gap-3 px-4 py-2.5" data-testid="studio-usage-model">
               <ModelLogo modelId={model.model} size="sm" />
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{modelDisplayName(model.model)}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {/* Phones: the name on its own line. Beside the numbers, which never shrink, it got
+                    29 px of the 89 it needs and read "Q…". */}
+                <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium sm:flex-1" data-testid="studio-usage-model-name">
+                    {modelDisplayName(model.model)}
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground sm:shrink-0" data-testid="studio-usage-model-stats">
                     {formatTokens(model.inputTokens)} in · {formatTokens(model.outputTokens)} out{spend ? ` · ${spend}` : ""}
                   </span>
                 </div>

@@ -125,9 +125,9 @@ export function DeviceFiles() {
     return (id: string | null) => (id ? map.get(id) ?? "a removed device" : null);
   }, [devices]);
 
-  const refreshAll = () => {
-    void queryClient.invalidateQueries({ queryKey: ["device-files", companyId] });
-  };
+  // Resolves once the lists have been read again. An Undo action waits for it,
+  // so a declined request or a deleted file never shows for a moment in between.
+  const refreshAll = () => queryClient.invalidateQueries({ queryKey: ["device-files", companyId] });
 
   const upload = useMutation({
     mutationFn: async (input: { files: File[] }) => {
@@ -143,7 +143,7 @@ export function DeviceFiles() {
     onSuccess: (count) => {
       haptic("success");
       pushToast({ title: count === 1 ? "File sent to your agents" : `${count} files sent to your agents`, tone: "success" });
-      refreshAll();
+      void refreshAll();
       setSearchParams((params) => {
         params.set("tab", "files");
         return params;
@@ -188,7 +188,7 @@ export function DeviceFiles() {
         onRegister={() => thisDevice.register.mutate()}
         onDeviceChange={(next) => {
           thisDevice.setDevice(next);
-          refreshAll();
+          void refreshAll();
         }}
       />
 
@@ -262,7 +262,7 @@ export function DeviceFiles() {
             onConnect={() => thisDevice.register.mutate()}
             onChanged={(removedId) => {
               if (removedId && removedId === thisDevice.deviceId) thisDevice.forget();
-              refreshAll();
+              return refreshAll();
             }}
           />
         )}
@@ -601,7 +601,8 @@ function RequestsView({
   thisDeviceId: string | null;
   activeDeviceIds: ReadonlySet<string> | null;
   sharedFolderHere: boolean;
-  onChanged: () => void;
+  /** Reads the lists again; resolves when they are in. */
+  onChanged: () => Promise<unknown>;
 }) {
   const { pushToast } = useToastActions();
   const decline = useUndoableAction({
@@ -813,7 +814,8 @@ function FilesView({
   thisDeviceId: string | null;
   agentName: (id: string | null) => string | null;
   deviceName: (id: string | null) => string | null;
-  onChanged: () => void;
+  /** Reads the lists again; resolves when they are in. */
+  onChanged: () => Promise<unknown>;
   onSend: () => void;
 }) {
   const { pushToast } = useToastActions();
@@ -935,7 +937,8 @@ function DevicesView({
   thisDeviceId: string | null;
   connecting: boolean;
   onConnect: () => void;
-  onChanged: (removedId?: string) => void;
+  /** Reads the lists again; resolves when they are in. */
+  onChanged: (removedId?: string) => Promise<unknown>;
 }) {
   const { pushToast } = useToastActions();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -945,7 +948,7 @@ function DevicesView({
     mutationFn: (input: { id: string; name: string }) => deviceFilesApi.updateDevice(input.id, { name: input.name }),
     onSuccess: () => {
       setEditingId(null);
-      onChanged();
+      void onChanged();
     },
     onError: (error) => pushToast({ title: "Could not rename", body: errorMessage(error), tone: "error" }),
   });

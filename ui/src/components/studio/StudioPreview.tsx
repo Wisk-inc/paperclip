@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Mascot } from "../mascot/Mascot";
 import { useLatestConsoleLine, type StudioConsoleStore } from "./console-store";
@@ -17,6 +18,8 @@ interface StudioPreviewProps {
   consoleApp: boolean;
   /** Absent for collaborators, who can't start the app. */
   onRun?: () => void;
+  /** True while a run is being started: Run waits instead of starting the app a second time. */
+  starting?: boolean;
   onShowConsole: () => void;
   /** The console, so starting up can say what the app is printing. */
   consoleStore?: StudioConsoleStore;
@@ -78,7 +81,7 @@ function readAutoReload(): boolean {
   }
 }
 
-export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShowConsole, consoleStore, publicLink }: StudioPreviewProps) {
+export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, starting = false, onShowConsole, consoleStore, publicLink }: StudioPreviewProps) {
   const [frameKey, setFrameKey] = useState(0);
   const [autoReload, setAutoReload] = useState(readAutoReload);
   const toggleAutoReload = () =>
@@ -101,6 +104,8 @@ export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShow
   const [working, setWorking] = useState<"open" | "close" | "install" | null>(null);
   const running = run?.status === "running" || run?.status === "starting";
   const previewUrl = run?.previewReady && run.previewPath ? run.previewPath : null;
+  const linkStarting = working === "open" || run?.tunnelStatus === "starting";
+  const linkError = run?.tunnelError && run.tunnelStatus !== "on" ? run.tunnelError : null;
 
   const act = async (kind: "open" | "close" | "install", action: () => Promise<void>) => {
     setWorking(kind);
@@ -153,6 +158,44 @@ export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShow
             </Button>
           </>
         ) : null}
+        {/* Until there is a public link, making one sits behind this button. As a card under the
+            preview it took 109 px from the running app for good, half of a phone held sideways. */}
+        {publicLink && !consoleApp && !run?.publicUrl ? (
+          <Popover modal>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Public link"
+                title="Public link"
+                data-testid="studio-public-link-button"
+                className={cn(linkError && "text-destructive")}
+              >
+                {linkStarting || working === "install" ? <LoaderCircle className="animate-spin" /> : <Rocket />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="flex flex-col gap-2 p-3" data-testid="studio-public-link">
+              {publicLink.cloudflaredInstalled ? (
+                <>
+                  <Button variant="outline" disabled={linkStarting} onClick={() => void act("open", publicLink.onOpen)}>
+                    {linkStarting ? <LoaderCircle className="animate-spin" /> : <Rocket />}
+                    Get a public link
+                  </Button>
+                  <p className="text-xs text-muted-foreground">A free Cloudflare link to this app, hosted from this device. It ends when the app stops.</p>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" disabled={working === "install"} onClick={() => void act("install", publicLink.onInstall)}>
+                    {working === "install" ? <LoaderCircle className="animate-spin" /> : <Rocket />}
+                    Set up public links
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Installs Cloudflare's free tunnel (cloudflared) so you can share a link to your running app.</p>
+                </>
+              )}
+              {linkError ? <p className="text-xs text-destructive">{linkError}</p> : null}
+            </PopoverContent>
+          </Popover>
+        ) : null}
       </div>
 
       <div className="relative min-h-0 flex-1 bg-background">
@@ -180,8 +223,8 @@ export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShow
                 <p className="max-w-xs text-sm text-muted-foreground">This app prints to the console. Run it and read its output there.</p>
                 <div className="flex gap-2">
                   {onRun ? (
-                    <Button size="sm" onClick={onRun}>
-                      <Play /> Run
+                    <Button size="sm" disabled={starting} onClick={onRun} data-testid="studio-preview-run">
+                      {starting ? <LoaderCircle className="animate-spin" /> : <Play />} Run
                     </Button>
                   ) : null}
                   <Button variant="outline" size="sm" onClick={onShowConsole}>
@@ -194,8 +237,8 @@ export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShow
                 <Mascot pose="idle" size="sm" gaze="down" />
                 <p className="max-w-xs text-sm text-muted-foreground">{onRun ? "Run your app to see it here." : "The preview shows up here when the owner runs the app."}</p>
                 {onRun ? (
-                  <Button size="sm" onClick={onRun}>
-                    <Play /> Run
+                  <Button size="sm" disabled={starting} onClick={onRun} data-testid="studio-preview-run">
+                    {starting ? <LoaderCircle className="animate-spin" /> : <Play />} Run
                   </Button>
                 ) : null}
               </>
@@ -204,41 +247,28 @@ export function StudioPreview({ run, reloadSignal = 0, consoleApp, onRun, onShow
         )}
       </div>
 
-      {publicLink && !consoleApp ? (
-        <div className="flex flex-col gap-2 border-t border-border p-3" data-testid="studio-public-link">
-          {run?.publicUrl ? (
-            <>
-              <p className="text-xs text-muted-foreground">Anyone with this link can open your app while it runs on this device.</p>
-              <div className="flex items-center gap-1">
-                <a href={run.publicUrl} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-mono text-sm text-primary underline-offset-2 hover:underline">
-                  {run.publicUrl}
-                </a>
-                <Button variant="ghost" size="icon-sm" aria-label="Copy public link" onClick={() => void copy(run.publicUrl!)}>
-                  {copied ? <Check /> : <Copy />}
-                </Button>
-                <Button variant="ghost" size="icon-sm" aria-label="Close public link" disabled={working === "close"} onClick={() => void act("close", publicLink.onClose)}>
-                  <X />
-                </Button>
-              </div>
-            </>
-          ) : publicLink.cloudflaredInstalled ? (
-            <>
-              <Button variant="outline" disabled={working === "open" || run?.tunnelStatus === "starting"} onClick={() => void act("open", publicLink.onOpen)}>
-                {working === "open" || run?.tunnelStatus === "starting" ? <LoaderCircle className="animate-spin" /> : <Rocket />}
-                Get a public link
-              </Button>
-              <p className="text-xs text-muted-foreground">A free Cloudflare link to this app, hosted from this device. It ends when the app stops.</p>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" disabled={working === "install"} onClick={() => void act("install", publicLink.onInstall)}>
-                {working === "install" ? <LoaderCircle className="animate-spin" /> : <Rocket />}
-                Set up public links
-              </Button>
-              <p className="text-xs text-muted-foreground">Installs Cloudflare's free tunnel (cloudflared) so you can share a link to your running app.</p>
-            </>
-          )}
-          {run?.tunnelError && run.tunnelStatus !== "on" ? <p className="text-xs text-destructive">{run.tunnelError}</p> : null}
+      {/* While a public link exists: the link on one row, with Copy and Close. */}
+      {publicLink && !consoleApp && run?.publicUrl ? (
+        <div className="flex flex-col gap-1 border-t border-border px-2 py-1.5" data-testid="studio-public-link">
+          <div className="flex items-center gap-1">
+            <Rocket className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <a
+              href={run.publicUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Anyone with this link can open your app while it runs on this device."
+              className="min-w-0 flex-1 truncate font-mono text-sm text-primary underline-offset-2 hover:underline"
+            >
+              {run.publicUrl}
+            </a>
+            <Button variant="ghost" size="icon-sm" aria-label="Copy public link" onClick={() => void copy(run.publicUrl!)}>
+              {copied ? <Check /> : <Copy />}
+            </Button>
+            <Button variant="ghost" size="icon-sm" aria-label="Close public link" disabled={working === "close"} onClick={() => void act("close", publicLink.onClose)}>
+              <X />
+            </Button>
+          </div>
+          {linkError ? <p className="text-xs text-destructive">{linkError}</p> : null}
         </div>
       ) : null}
     </div>

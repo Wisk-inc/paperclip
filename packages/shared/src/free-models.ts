@@ -1,3 +1,6 @@
+// moan.ts imports nothing, so this file stays safe for the board (the service token lives in puter-ai.ts).
+import { resolveFreeModel } from "./moan.js";
+
 export const FREE_MODELS_ADAPTER_TYPE = "free_models";
 
 /** Free-model usage since the last reset. Never billed; `equivalentUsd` is what paid list prices would have charged. */
@@ -21,7 +24,9 @@ export interface FreeModelRunUsage {
 
 /**
  * The chat model a first agent hired with "Skip for now" starts on: smart,
- * free, takes tools, and has no shared daily limit.
+ * free, and it takes tools. Like every free model it has a daily limit its
+ * provider shares between everyone who uses it free, so on a busy day it can
+ * be used up; the person is then told when it is back and to pick another.
  */
 export const DEFAULT_FREE_CHAT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
@@ -95,11 +100,22 @@ export function freeModelAnswering(health: FreeModelHealthEntry | null | undefin
 }
 
 /**
+ * A model's health entry in a health map. Health is kept by the model that is
+ * called, so a model that runs on another (Moan runs on Nemotron 3 Ultra) is
+ * looked up by the one it runs on: it never has an entry of its own.
+ */
+function healthOf(model: string, health: FreeModelHealthMap): FreeModelHealthEntry | undefined {
+  return health[resolveFreeModel(model).puterModel] ?? health[model];
+}
+
+/**
  * A model from `models` (in their order of preference) that is not known to be
  * refusing; null when every one of them is. `except` leaves a model out (the
- * one that just failed). With `proven`, a model that answered when it was last
- * asked comes before one that has not been asked yet, which is what to offer
- * right after a refusal. Choosing is all this does: nothing is switched for the person.
+ * one that just failed), and with it any model that runs on the same one: Moan
+ * is no way past a Nemotron 3 Ultra that just refused. With `proven`, a model
+ * that answered when it was last asked comes before one that has not been
+ * asked yet, which is what to offer right after a refusal. Choosing is all
+ * this does: nothing is switched for the person.
  */
 export function pickAnsweringFreeModel(
   models: readonly string[],
@@ -107,8 +123,10 @@ export function pickAnsweringFreeModel(
   options: { except?: string | null; now?: number; proven?: boolean } = {},
 ): string | null {
   const now = options.now ?? Date.now();
-  const open = models.filter((model) => model !== options.except && freeModelAnswering(health[model], now));
-  const proven = options.proven ? open.find((model) => health[model]?.last === "ok") : undefined;
+  const runsOn = (model: string) => resolveFreeModel(model).puterModel;
+  const failed = options.except ? runsOn(options.except) : null;
+  const open = models.filter((model) => model !== options.except && runsOn(model) !== failed && freeModelAnswering(healthOf(model, health), now));
+  const proven = options.proven ? open.find((model) => healthOf(model, health)?.last === "ok") : undefined;
   return proven ?? open[0] ?? null;
 }
 

@@ -166,7 +166,9 @@ export function AppInspector() {
   const uploadFile = useMutation({
     mutationFn: async (file: File) => {
       setPhase(`Sending ${formatBytes(file.size)}…`);
-      return (await appInspectorApi.upload(companyId!, file, { label: file.name.replace(/\.apk$/i, "") })).project;
+      // The same choices the app sheet starts with: without them the server decoded nothing but the raw files.
+      const options: InspectorDecodeOptions = { resources: true, sources: true, java: !javaUnavailable };
+      return (await appInspectorApi.upload(companyId!, file, { label: file.name.replace(/\.apk$/i, ""), options })).project;
     },
     onSuccess: opened,
     onError: failed("Couldn't open that APK"),
@@ -192,6 +194,7 @@ export function AppInspector() {
   const remove = useMutation({
     mutationFn: (id: string) => appInspectorApi.remove(companyId!, id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["inspector", "projects", companyId] }),
+    onError: failed("Couldn't delete that project"),
   });
 
   if (!companyId) return null;

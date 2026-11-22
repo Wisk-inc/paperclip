@@ -13,6 +13,7 @@ import {
   describePuterError,
   formatSafetyVerdict,
   freeModelHealth,
+  isDroppedConnection,
   isLastingPuterError,
   PUTER_DEFAULT_MODEL,
   PUTER_MODEL_LIST,
@@ -49,6 +50,10 @@ const CACHE_MAX = 450;
 const MAX_ATTEMPTS = 8;
 /** Tries on one busy model before the question goes to the next. */
 const BUSY_TRIES_PER_MODEL = 3;
+/** Tries on a busy model when the question stays with it (fallback off): no other model takes over, so it gets one more. */
+const BUSY_TRIES_ALONE = 4;
+/** Times one question waits out a provider that sends nothing. Each wait is minutes long, so it is repeated once and no more. */
+const TIMEOUT_TRIES = 2;
 const BACKOFF_MS = process.env.VITEST ? 5 : 1600;
 const MAX_CONVERSATIONS = 200;
 /** Each person's or agent's own: a conversation beyond this pushes out their own oldest, never anyone else's. */
@@ -156,10 +161,24 @@ function nextFallback(requested: string, asked: Set<string>): string | undefined
   return open.find((id) => state(id) === "ok") ?? open[0];
 }
 
+/** The provider sent nothing for minutes, so the call gave up waiting. */
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
 /** A busy provider, a dropped connection, a timeout or an empty reply: the same model may answer on a retry. */
 function isBusy(error: unknown): boolean {
   if (error instanceof PuterHttpError) return error.kind === "busy";
-  return error instanceof EmptyReplyError || error instanceof TypeError || (error instanceof Error && error.name === "TimeoutError");
+  return error instanceof EmptyReplyError || error instanceof TypeError || isDroppedConnection(error) || isTimeout(error);
+}
+
+/** Why the model did not answer, in plain words: a dropped connection as the sentence the agents' engine uses, a refusal as `describePuterError` says it. */
+function sayWhy(error: unknown, label: string, retries = 0): Error {
+  if (isDroppedConnection(error)) {
+    const tried = retries > 0 ? ` Automa stayed on this model and retried ${retries} time${retries === 1 ? "" : "s"}.` : "";
+    return new Error(`The connection to ${label} kept dropping, so no reply came back.${tried} Check the connection and send the message again.`);
+  }
+  return describePuterError(error, label, retries);
 }
 
 /** A refusal no retry of this model fixes today: a daily limit, a closed or withdrawn model, or a rejected request. */
@@ -218,7 +237,10 @@ async function ask(messages: PuterMessage[], requested: string, opts: QueOptions
   let attempts = 0;
   let firstError: unknown = null;
   let retries = 0;
-  for (let model: string | undefined = requested; model && attempts < MAX_ATTEMPTS; model = fallback ? nextFallback(requested, asked) : undefined) {
+  let timeouts = 0;
+  // With no hand-over the one model is asked a few times, not until the whole question's attempts are used up.
+  const busyTries = fallback ? BUSY_TRIES_PER_MODEL : BUSY_TRIES_ALONE;
+  asking: for (let model: string | undefined = requested; model && attempts < MAX_ATTEMPTS; model = fallback ? nextFallback(requested, asked) : undefined) {
     asked.add(model);
     for (let tries = 1; attempts < MAX_ATTEMPTS; tries += 1) {
       attempts += 1;
@@ -231,8 +253,10 @@ async function ask(messages: PuterMessage[], requested: string, opts: QueOptions
         if (opts.signal?.aborted) throw error;
         if (model === requested) firstError ??= error;
         if (isModelRefusal(error) && fallback) break;
-        if (!isBusy(error)) throw model === requested ? describePuterError(error, modelLabel(model), retries) : error;
-        if (fallback && tries >= BUSY_TRIES_PER_MODEL) break;
+        if (!isBusy(error)) throw model === requested ? sayWhy(error, modelLabel(model), retries) : error;
+        // A second silence ends the question: another wait of minutes, on this model or the next, helps nobody.
+        if (isTimeout(error) && (timeouts += 1) >= TIMEOUT_TRIES) break asking;
+        if (tries >= busyTries) break;
         if (attempts >= MAX_ATTEMPTS) break;
         if (model === requested) retries += 1;
         await sleep(BACKOFF_MS * tries, opts.signal);
@@ -240,10 +264,10 @@ async function ask(messages: PuterMessage[], requested: string, opts: QueOptions
     }
   }
   if (asked.size > 1) {
-    const why = describePuterError(firstError, modelLabel(requested));
+    const why = sayWhy(firstError, modelLabel(requested));
     throw new Error(`${why.message} The other free models couldn't answer right now either.`);
   }
-  throw describePuterError(firstError, modelLabel(requested), retries);
+  throw sayWhy(firstError, modelLabel(requested), retries);
 }
 
 // ── Public API ───────────────────────────────────────────────────────────

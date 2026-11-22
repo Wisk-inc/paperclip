@@ -43,8 +43,11 @@ export interface InspectorChatMessage {
   view?: InspectorView;
 }
 
-/** The free models the chat offers, the most reliable first (App Studio's own list). */
-export const INSPECTOR_CHAT_MODELS: readonly string[] = STUDIO_FREE_MODELS;
+/**
+ * The free models the chat offers, the most reliable first: App Studio's own
+ * list, without a model the Que engine does not serve (asking it is refused).
+ */
+export const INSPECTOR_CHAT_MODELS: readonly string[] = STUDIO_FREE_MODELS.filter((model) => queModelId(model) !== null);
 
 /** The free model a new chat starts on: the first of the list that is answering now. */
 export function inspectorChatDefaultModel(): string {
@@ -55,8 +58,24 @@ export function inspectorChatDefaultModel(): string {
 export class InspectorChatBusyError extends Error {}
 /** Thrown when the model could not answer; the message says why, in plain words. */
 export class InspectorChatModelError extends Error {}
+/** Thrown when the conversation was cleared while its answer was being written; nothing of the question is kept. */
+export class InspectorChatClearedError extends Error {}
 
-const asking = new Set<string>();
+/** The question being answered for a project, with the means to stop it. */
+const asking = new Map<string, AbortController>();
+
+/** A project's saved conversation changes one step at a time: an answer being saved, or a clear. */
+const turns = new Map<string, Promise<void>>();
+
+function inTurn<T>(projectId: string, step: () => Promise<T>): Promise<T> {
+  const result = (turns.get(projectId) ?? Promise.resolve()).then(step);
+  const settled = result.then(() => undefined, () => undefined);
+  turns.set(projectId, settled);
+  void settled.then(() => {
+    if (turns.get(projectId) === settled) turns.delete(projectId);
+  });
+  return result;
+}
 
 function chatFile(dir: string): string {
   return path.join(dir, "chat.json");
@@ -94,7 +113,11 @@ async function writeChat(dir: string, messages: InspectorChatMessage[]): Promise
 }
 
 export async function clearInspectorChat(companyId: string, id: string): Promise<void> {
-  await fs.rm(chatFile(projectDir(companyId, id)), { force: true });
+  const dir = projectDir(companyId, id);
+  // A question still being answered would save the old conversation back with its answer: stop it.
+  asking.get(id)?.abort();
+  asking.delete(id);
+  await inTurn(id, () => fs.rm(chatFile(dir), { force: true }));
 }
 
 function listed(title: string, values: string[], max: number): string {
@@ -218,7 +241,11 @@ export async function askInspectorChat(input: InspectorChatQuestion): Promise<{ 
   if (!useClaude && !freeModel) throw new Error(`"${input.model}" is not a model this chat can ask.`);
   if (useClaude && !input.anthropicKey) throw new Error("Add an Anthropic API key on the API keys page to ask Claude here, or pick a free model.");
   if (asking.has(project.id)) throw new InspectorChatBusyError("A reply is still being written here. Wait for it, then ask again.");
-  asking.add(project.id);
+  // Stopped by a clear of this conversation, as well as by the person going away.
+  const cleared = new AbortController();
+  asking.set(project.id, cleared);
+  const signal = input.signal ? AbortSignal.any([input.signal, cleared.signal]) : cleared.signal;
+  const dropped = () => new InspectorChatClearedError("This conversation was cleared before the answer arrived, so the answer was not kept.");
   try {
     const history = await readInspectorChat(input.companyId, input.projectId);
     const system = await instructions({ companyId: input.companyId, projectId: input.projectId, label: project.label, message: input.message, path: input.path ?? null, view });
@@ -228,7 +255,7 @@ export async function askInspectorChat(input: InspectorChatQuestion): Promise<{ 
     try {
       if (useClaude) {
         const client = new Anthropic({ apiKey: input.anthropicKey!, authToken: null, maxRetries: 2 });
-        const message = await client.messages.create({ model: CLAUDE_MODEL, max_tokens: 4096, system, messages: conversation }, { signal: input.signal });
+        const message = await client.messages.create({ model: CLAUDE_MODEL, max_tokens: 4096, system, messages: conversation }, { signal });
         text = message.content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n").trim();
         answeredBy = INSPECTOR_CHAT_CLAUDE;
       } else {
@@ -239,29 +266,42 @@ export async function askInspectorChat(input: InspectorChatQuestion): Promise<{ 
           // A question about a file is asked of the file as it is now, by the model the person picked.
           cache: false,
           fallback: false,
-          signal: input.signal,
+          signal,
         });
-        text = answer.text.trim();
+        // A model that only thinks aloud still answered: its reasoning is the reply, as in Que's own conversations.
+        text = answer.text.trim() || answer.reasoning.trim();
         answeredBy = answer.model;
       }
     } catch (error) {
+      if (cleared.signal.aborted) throw dropped();
       throw new InspectorChatModelError(error instanceof Error ? error.message : String(error));
     }
+    if (cleared.signal.aborted) throw dropped();
     if (!text) throw new InspectorChatModelError("The model sent an empty answer. Ask again, or pick another model.");
     const now = new Date();
     const question: InspectorChatMessage = { id: randomUUID(), role: "user", text: input.message, at: now.toISOString(), path: input.path ?? null, ...(input.path ? { view } : {}) };
     const reply: InspectorChatMessage = { id: randomUUID(), role: "assistant", text, at: new Date(now.getTime() + 1).toISOString(), model: answeredBy };
-    // The project may have been deleted while the model wrote.
-    if (!getInspectorProject(input.companyId, input.projectId)) throw new Error("Project not found");
-    const messages = [...history, question, reply].slice(-KEPT_MESSAGES);
-    await writeChat(project.dir, messages);
+    const messages = await inTurn(project.id, async () => {
+      if (cleared.signal.aborted) throw dropped();
+      // The project may have been deleted while the model wrote.
+      if (!getInspectorProject(input.companyId, input.projectId)) throw new Error("Project not found");
+      // Added to what is saved now, not to what was read before the model wrote: that may have changed since.
+      const saved = await readInspectorChat(input.companyId, input.projectId);
+      const next = [...saved, question, reply].slice(-KEPT_MESSAGES);
+      await writeChat(project.dir, next);
+      return next;
+    });
+    // Cleared while it was being saved: the clear removes it next.
+    if (cleared.signal.aborted) throw dropped();
     return { reply, messages };
   } finally {
-    asking.delete(project.id);
+    // A clear already let the next question in; that one's entry is not this one's to remove.
+    if (asking.get(project.id) === cleared) asking.delete(project.id);
   }
 }
 
 /** Forgets replies in progress (tests). */
 export function __resetInspectorChat(): void {
   asking.clear();
+  turns.clear();
 }

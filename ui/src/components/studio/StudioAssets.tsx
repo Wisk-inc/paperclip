@@ -72,7 +72,9 @@ export function StudioAssets({ tree, rawUrl, downloadUrl, onUpload }: StudioAsse
           />
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="studio-assets">
+      {/* The columns follow this pane's own width, not the screen's: beside the editor it is a
+          240 px column on the widest screen, where three columns left each card 69 px. */}
+      <div className="@container min-h-0 flex-1 overflow-y-auto p-2" data-testid="studio-assets">
         {assets.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             <Mascot pose="idle" size="sm" gaze="down" />
@@ -85,7 +87,7 @@ export function StudioAssets({ tree, rawUrl, downloadUrl, onUpload }: StudioAsse
             ) : null}
           </div>
         ) : (
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <ul className="grid grid-cols-2 gap-2 @xl:grid-cols-3 @4xl:grid-cols-4">
             {assets.map((asset) => (
               <li key={asset.path} className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex aspect-square items-center justify-center bg-muted/60">
@@ -104,23 +106,26 @@ export function StudioAssets({ tree, rawUrl, downloadUrl, onUpload }: StudioAsse
                     <Type className="size-8 text-muted-foreground" />
                   )}
                 </div>
-                <div className="flex items-center gap-1 px-2 py-1.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-xs" title={asset.path}>
-                      {asset.path}
-                    </p>
-                    <p className="text-(length:--text-micro) text-muted-foreground">{formatBytes(asset.size ?? 0)}</p>
-                  </div>
-                  <Button variant="ghost" size="icon-xs" aria-label={`Copy the path of ${asset.name}`} onClick={() => copyPath(asset.path)}>
-                    {copied === asset.path ? <Check /> : <Copy />}
-                  </Button>
-                  {downloadUrl ? (
-                    <Button variant="ghost" size="icon-xs" aria-label={`Download ${asset.name}`} asChild>
-                      <a href={downloadUrl(asset.path)} download={asset.name}>
-                        <Download />
-                      </a>
+                <div className="flex flex-col px-2 py-1.5">
+                  {/* The name has the card's width to itself, and the folder every upload lands in
+                      is dropped from it: beside the buttons, "assets/" took the room and cut the
+                      name. The whole path stays in the title and is what Copy gives. */}
+                  <p className="truncate font-mono text-xs" title={asset.path} data-testid="studio-asset-name">
+                    {asset.path.replace(/^assets\//, "")}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <p className="mr-auto min-w-0 truncate text-(length:--text-micro) text-muted-foreground">{formatBytes(asset.size ?? 0)}</p>
+                    <Button variant="ghost" size="icon-xs" className="shrink-0 pointer-coarse:size-10" aria-label={`Copy the path of ${asset.name}`} onClick={() => copyPath(asset.path)}>
+                      {copied === asset.path ? <Check /> : <Copy />}
                     </Button>
-                  ) : null}
+                    {downloadUrl ? (
+                      <Button variant="ghost" size="icon-xs" className="shrink-0 pointer-coarse:size-10" aria-label={`Download ${asset.name}`} asChild>
+                        <a href={downloadUrl(asset.path)} download={asset.name}>
+                          <Download />
+                        </a>
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </li>
             ))}

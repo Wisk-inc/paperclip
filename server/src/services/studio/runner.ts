@@ -5,6 +5,7 @@ import { createReadStream, promises as fs } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { connect, createServer as createNetServer } from "node:net";
 import path from "node:path";
+import { pipeline } from "node:stream";
 import type { StudioConsoleLine, StudioRunState } from "@paperclipai/shared";
 import { logger } from "../../middleware/logger.js";
 
@@ -93,18 +94,35 @@ export function createStaticSiteServer(root: string): Server {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not found");
         return;
       }
-      res.writeHead(200, {
+      const headers = {
         "content-type": CONTENT_TYPES[path.extname(target).toLowerCase()] ?? "application/octet-stream",
         "content-length": stat.size,
         "cache-control": "no-store",
-      });
+      };
       if (req.method === "HEAD") {
-        res.end();
+        res.writeHead(200, headers).end();
         return;
       }
-      createReadStream(realTarget).pipe(res);
+      // Opened before anything is sent: a file removed since the checks above
+      // (a rebuild, a checkpoint restore) is a plain 404, not a broken answer.
+      const stream = createReadStream(realTarget);
+      const opened = await new Promise<boolean>((resolve) => {
+        stream.once("open", () => resolve(true));
+        stream.once("error", () => resolve(false));
+      });
+      if (!opened) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not found");
+        return;
+      }
+      res.writeHead(200, headers);
+      // pipeline, not pipe: a read error or a visitor who leaves ends both
+      // sides. A stream error nobody listens for stops the whole server.
+      pipeline(stream, res, () => undefined);
     } catch (error) {
-      res.writeHead(500).end(error instanceof Error ? error.message : "Error");
+      // No error text: it can name folders on the server.
+      if (res.headersSent) res.destroy();
+      else if (error instanceof URIError) res.writeHead(400).end("Bad path");
+      else res.writeHead(500).end("Could not read that file");
     }
   });
 }
@@ -142,6 +160,7 @@ export class StudioRuntime extends EventEmitter {
   private flushTimer: NodeJS.Timeout | null = null;
   private partial: Record<"stdout" | "stderr", string> = { stdout: "", stderr: "" };
   private runToken = 0;
+  private turns: Promise<unknown> = Promise.resolve();
   tunnelProcess: ChildProcess | null = null;
   /** Secret path segment for this run's preview; changes on every run. */
   previewToken: string | null = null;
@@ -251,9 +270,35 @@ export class StudioRuntime extends EventEmitter {
     return this.state.status === "starting" || this.state.status === "running";
   }
 
+  /**
+   * One Run or Stop at a time, in the order they were asked for. Two Runs at
+   * once both waited for the same stop and both started the app: only the
+   * second was remembered, so the first kept running where Stop could not
+   * reach it.
+   */
+  private inTurn<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.turns.then(work);
+    this.turns = next.catch(() => undefined);
+    return next;
+  }
+
   /** Serves a website project on a free port. */
-  async startStatic(root: string) {
-    await this.stop();
+  startStatic(root: string) {
+    return this.inTurn(() => this.startStaticNow(root));
+  }
+
+  /** Runs the project's command in its folder with `$PORT` set; output streams to the console. */
+  start(root: string, command: string) {
+    return this.inTurn(() => this.startNow(root, command));
+  }
+
+  /** Ends the running app or website, and its public link. */
+  stop() {
+    return this.inTurn(() => this.stopNow());
+  }
+
+  private async startStaticNow(root: string) {
+    await this.stopNow();
     const token = ++this.runToken;
     const port = await freePort();
     const server = createStaticSiteServer(root);
@@ -281,11 +326,11 @@ export class StudioRuntime extends EventEmitter {
     });
   }
 
-  /** Runs the project's command in its folder with `$PORT` set; output streams to the console. */
-  async start(root: string, command: string) {
-    await this.stop();
+  private async startNow(root: string, command: string) {
+    await this.stopNow();
     const token = ++this.runToken;
     const port = await freePort();
+    if (token !== this.runToken) return;
     this.stopping = false;
     this.append("command", command);
     const child = spawn("sh", ["-c", command], {
@@ -309,8 +354,20 @@ export class StudioRuntime extends EventEmitter {
     });
     child.stdout?.on("data", (chunk: Buffer) => this.pipe("stdout", chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.pipe("stderr", chunk));
+    // An app that closed its input (or ended) while a line was on its way:
+    // without a listener that write error stops the whole server.
+    child.stdin?.on("error", () => {
+      if (token === this.runToken && this.child === child) this.append("system", "The app is not reading its input, so that line did not reach it.");
+    });
     child.on("error", (error) => {
       this.append("system", `Could not start: ${error.message}`);
+      // A program that never started sends no "exit": the run ends here, or
+      // it stayed "running" with nothing for Stop to end.
+      if (child.pid !== undefined || token !== this.runToken) return;
+      this.child = null;
+      this.closeTunnel();
+      this.setState({ status: "failed", exitCode: null, pid: null, previewReady: false, endedAt: new Date().toISOString() });
+      this.emit("exit");
     });
     child.on("exit", (code, signal) => {
       if (token !== this.runToken) return;
@@ -347,21 +404,30 @@ export class StudioRuntime extends EventEmitter {
 
   /** Sends a line to the running program's input. */
   input(text: string) {
-    if (!this.child?.stdin?.writable) return false;
+    const stdin = this.child?.stdin;
+    if (!stdin || !stdin.writable || stdin.destroyed) return false;
     this.append("command", text);
-    this.child.stdin.write(text.endsWith("\n") ? text : `${text}\n`);
+    stdin.write(text.endsWith("\n") ? text : `${text}\n`);
     return true;
   }
 
-  async stop() {
-    this.runToken += 1;
+  private async stopNow() {
+    const token = ++this.runToken;
     this.closeTunnel();
     if (this.staticServer) {
       const server = this.staticServer;
       this.staticServer = null;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      this.append("system", "Stopped.");
-      this.setState({ status: "stopped", previewReady: false, pid: null, endedAt: new Date().toISOString() });
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        // close() alone waits for every open connection: a download the
+        // browser gave up on kept one open, and Stop never returned.
+        server.closeAllConnections();
+      });
+      // Only the run this stop ended: a run started since keeps its state.
+      if (token === this.runToken) {
+        this.append("system", "Stopped.");
+        this.setState({ status: "stopped", previewReady: false, pid: null, endedAt: new Date().toISOString() });
+      }
     }
     const child = this.child;
     if (!child || child.exitCode !== null) {
@@ -390,8 +456,8 @@ export class StudioRuntime extends EventEmitter {
       });
     });
     this.flushPartials();
-    this.child = null;
-    if (this.state.status !== "stopped") {
+    if (this.child === child) this.child = null;
+    if (token === this.runToken && this.state.status !== "stopped") {
       this.append("system", "Stopped.");
       this.setState({ status: "stopped", previewReady: false, pid: null, endedAt: new Date().toISOString() });
     }

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, GitPullRequest, History, LoaderCircle, RotateCcw, Save, Sparkles, Trash2, Undo2 } from "lucide-react";
 import type { StudioCheckpoint } from "@paperclipai/shared";
@@ -6,6 +6,7 @@ import { studioApi } from "@/api/studio";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useOptionalToastActions } from "@/context/ToastContext";
 import { formatBytes } from "@/lib/issue-output";
 import { haptic } from "@/lib/haptics";
 import { queryKeys } from "@/lib/queryKeys";
@@ -19,11 +20,16 @@ const KIND = {
   restore: { icon: Undo2, label: "Before going back" },
 } as const satisfies Record<StudioCheckpoint["kind"], { icon: unknown; label: string }>;
 
+/** Long enough to read a list of file names. */
+const NOTICE_SHOWN_MS = 12_000;
+
 interface StudioCheckpointsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspaceId: string;
   onRestored: (checkpoint: StudioCheckpoint) => void;
+  /** The control that opened the sheet. Focus goes back to it when the sheet closes. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -31,8 +37,9 @@ interface StudioCheckpointsSheetProps {
  * a collaborator's change, and whenever you save one. Going back to one saves
  * the current files first, so that can be undone too.
  */
-export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRestored }: StudioCheckpointsSheetProps) {
+export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRestored, returnFocusRef }: StudioCheckpointsSheetProps) {
   const queryClient = useQueryClient();
+  const toasts = useOptionalToastActions();
   const [label, setLabel] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const key = [...queryKeys.studio.detail(workspaceId), "checkpoints"] as const;
@@ -53,6 +60,11 @@ export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRest
       haptic("success");
       setConfirming(null);
       void refresh();
+      // Files too large for a checkpoint stay as they are. The sheet closes on going back,
+      // so this is said where it can still be read.
+      if (result.notice) {
+        toasts?.pushToast({ title: "Not everything went back", body: result.notice, tone: "warn", ttlMs: NOTICE_SHOWN_MS });
+      }
       onRestored(result.restored);
     },
     onError: () => haptic("warning"),
@@ -61,6 +73,20 @@ export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRest
     mutationFn: (checkpointId: string) => studioApi.deleteCheckpoint(workspaceId, checkpointId),
     onSuccess: () => void refresh(),
   });
+
+  // Closing the sheet ends what was half done in it. A checkpoint armed with
+  // one tap must not go off on the first tap next time, and a failure that was
+  // already on screen is not shown again. A call still on its way keeps its
+  // result, so a failure that arrives after closing is shown once on reopening.
+  const mutations = useRef([save, restore, remove]);
+  mutations.current = [save, restore, remove];
+  useEffect(() => {
+    if (open) return;
+    setConfirming(null);
+    for (const mutation of mutations.current) {
+      if (mutation.isError || mutation.isSuccess) mutation.reset();
+    }
+  }, [open]);
 
   const checkpoints = list.data?.checkpoints ?? [];
   // A checkpoint that didn't save is said out loud: the person counts on it.
@@ -75,7 +101,18 @@ export function StudioCheckpointsSheet({ open, onOpenChange, workspaceId, onRest
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-lg md:-translate-x-1/2" data-testid="studio-checkpoints">
+      <SheetContent
+        side="bottom"
+        className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-lg md:-translate-x-1/2"
+        data-testid="studio-checkpoints"
+        // No SheetTrigger, so focus is sent back to the opener by hand; otherwise it drops to the page body.
+        onCloseAutoFocus={(event) => {
+          const opener = returnFocusRef?.current;
+          if (!opener?.isConnected) return;
+          event.preventDefault();
+          opener.focus();
+        }}
+      >
         <SheetHeader className="border-b border-border">
           <SheetTitle className="flex items-center gap-2">
             <History className="size-4 text-primary" /> Checkpoints

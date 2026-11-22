@@ -17,6 +17,7 @@ import {
   INSPECTOR_CHAT_MAX_MESSAGE,
   INSPECTOR_CHAT_MODELS,
   InspectorChatBusyError,
+  InspectorChatClearedError,
   InspectorChatModelError,
   inspectorChatDefaultModel,
   readInspectorChat,
@@ -39,6 +40,7 @@ import {
   startDecode,
   startDecodeFromStream,
   startRebuild,
+  startRedecode,
   writeInspectorFile,
   type InspectorView,
 } from "../services/app-inspector/inspector.js";
@@ -215,14 +217,23 @@ export function appInspectorRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertDeviceOperator(req);
-    project(req);
+    const current = project(req);
     const body = writeSchema.parse(req.body);
     try {
-      await writeInspectorFile(companyId, req.params.id as string, body.path, body.text);
-      res.json({ ok: true });
+      await writeInspectorFile(companyId, current.id, body.path, body.text);
     } catch (error) {
       throw unprocessable(inspectorErrorMessage(error, "Could not save that file"));
     }
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "local-board",
+      action: "app_inspector.file_saved",
+      entityType: "app_inspector_project",
+      entityId: current.id,
+      details: { path: body.path },
+    });
+    res.json({ ok: true });
   });
 
   router.post("/companies/:companyId/app-inspector/projects/:id/rebuild", async (req, res) => {
@@ -246,6 +257,30 @@ export function appInspectorRoutes(
     }
   });
 
+  // Decode the project again from the APK it keeps, with everything on: for a
+  // project whose first decode left something out or failed.
+  router.post("/companies/:companyId/app-inspector/projects/:id/decode", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertDeviceOperator(req);
+    const current = project(req);
+    let view: Awaited<ReturnType<typeof startRedecode>>;
+    try {
+      view = await startRedecode(companyId, current.id);
+    } catch (error) {
+      throw unprocessable(inspectorErrorMessage(error, "Could not decode this app again"));
+    }
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "local-board",
+      action: "app_inspector.decoded_again",
+      entityType: "app_inspector_project",
+      entityId: current.id,
+    });
+    res.json({ project: view });
+  });
+
   // Find files by name, or text inside them.
   router.get("/companies/:companyId/app-inspector/projects/:id/search", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -255,10 +290,18 @@ export function appInspectorRoutes(
     const query = z
       .object({ view: viewSchema, q: z.string().max(200), mode: z.enum(["name", "text"]).default("name") })
       .parse(req.query);
+    // The search stops when the page goes away or starts another one, instead of running to its deadline.
+    const gone = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) gone.abort();
+    });
     try {
+      const found = await searchInspector(companyId, req.params.id as string, query.view, query.q, query.mode, { signal: gone.signal });
+      if (gone.signal.aborted) return;
       res.setHeader("Cache-Control", "no-store");
-      res.json(await searchInspector(companyId, req.params.id as string, query.view, query.q, query.mode));
+      res.json(found);
     } catch (error) {
+      if (gone.signal.aborted) return;
       throw unprocessable(inspectorErrorMessage(error, "Could not search this app"));
     }
   });
@@ -313,7 +356,19 @@ export function appInspectorRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertDeviceOperator(req);
-    res.json({ ok: await deleteInspectorProject(companyId, z.string().uuid().parse(req.params.id)) });
+    const id = z.string().uuid().parse(req.params.id);
+    const deleted = await deleteInspectorProject(companyId, id);
+    if (deleted) {
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: req.actor.userId ?? "local-board",
+        action: "app_inspector.deleted",
+        entityType: "app_inspector_project",
+        entityId: id,
+      });
+    }
+    res.json({ ok: deleted });
   });
 
   router.post("/companies/:companyId/app-inspector/projects/:id/explain", validate(z.object({ path: z.string().min(1).max(4096), view: viewSchema.optional() })), async (req, res) => {
@@ -406,6 +461,8 @@ export function appInspectorRoutes(
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error instanceof InspectorChatBusyError) throw conflict(error.message);
+      // The conversation was cleared while the model wrote: nothing was saved, and the page is told so.
+      if (error instanceof InspectorChatClearedError) throw conflict(error.message);
       // The request was fine and the model can't answer right now: not a server fault.
       if (error instanceof InspectorChatModelError) {
         res.status(503).json({ error: error.message, model });

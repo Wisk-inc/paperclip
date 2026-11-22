@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, Gift, KeyRound, Plus, Users, X } from "lucide-react";
 import {
+  resolveFreeModel,
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
   STUDIO_MAX_TEAMMATES,
@@ -10,7 +11,10 @@ import {
   type StudioTeammate,
 } from "@paperclipai/shared";
 import { agentsApi } from "@/api/agents";
+import { freeModelsApi } from "@/api/free-models";
 import { queryKeys } from "@/lib/queryKeys";
+import { freeHealthNote } from "@/components/agent-chat/ModelPickerSheet";
+import { isServerTooOld, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
 import { ModelLogo } from "@/components/ModelLogo";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -90,6 +94,17 @@ export function StudioModelSheet({
     staleTime: 5 * 60_000,
     retry: 1,
   });
+  // Which free models are at their daily limit, busy, or closed by their
+  // provider: the findings the AI pane and the chat's model picker read too,
+  // refreshed while the sheet is open.
+  const freeHealth = useQuery({
+    queryKey: queryKeys.freeModels.health(),
+    queryFn: () => freeModelsApi.health(),
+    enabled: open && provider === "free",
+    retry: retryUnlessServerTooOld,
+    staleTime: 30_000,
+    refetchInterval: (query) => (isServerTooOld(query.state.error) ? false : 60_000),
+  });
   // The provider's list with the newer models of the catalog the server keeps
   // in front, so a model released after this Automa still shows (marked New).
   const modelCatalog = useModelCatalog(open);
@@ -154,7 +169,8 @@ export function StudioModelSheet({
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="bottom"
-          className="max-h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
+          // One height whatever the provider lists, so the sheet does not move under the thumb; the list scrolls inside.
+          className="h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-xl md:-translate-x-1/2"
           data-testid="studio-model-sheet"
           // No SheetTrigger, so focus is sent back to the button by hand.
           onCloseAutoFocus={(event) => {
@@ -258,6 +274,9 @@ export function StudioModelSheet({
                 {models.map((id, index) => {
                   const selected = id === model;
                   const teamed = inTeam(id);
+                  // A model that runs on another one answers when that one does.
+                  const health = provider === "free" ? freeHealth.data?.[resolveFreeModel(id).puterModel] : null;
+                  const note = freeHealthNote(health);
                   return (
                     <div key={id} className="flex items-stretch">
                       <button
@@ -277,6 +296,12 @@ export function StudioModelSheet({
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="truncate text-sm font-medium">{modelDisplayName(id)}</span>
                           <span className="truncate font-mono text-xs text-muted-foreground">{id}</span>
+                          {/* Under the name and on as many lines as it needs, so it reads whole on a phone. */}
+                          {note ? (
+                            <span className="text-xs text-(--status-agent-paused-text)" data-slot="model-health" data-state={health?.state}>
+                              {note}
+                            </span>
+                          ) : null}
                         </span>
                         {listed.fresh.has(id) ? (
                           <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary" data-testid="studio-model-new">New</span>

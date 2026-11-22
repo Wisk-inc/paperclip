@@ -156,7 +156,7 @@ function ModelRow({ entry, current, locked, busy, health, onSelect }: {
         ) : (
           <span className="block truncate font-mono text-xs text-muted-foreground">{entry.id}</span>
         )}
-        {note ? <span className="block truncate text-xs text-(--status-agent-paused)" data-slot="model-health" data-state={health?.state}>{note}</span> : null}
+        {note ? <span className="block truncate text-xs text-(--status-agent-paused-text)" data-slot="model-health" data-state={health?.state}>{note}</span> : null}
       </span>
       {entry.source === "free" ? <Badge variant="secondary" data-slot="free-tag">Free</Badge> : null}
       {current ? <Check className="size-4 shrink-0 text-primary" aria-label="Current model" /> : null}

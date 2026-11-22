@@ -242,6 +242,48 @@ describe("Que answers", () => {
     expect(calls).toHaveLength(8);
   });
 
+  it("asks a busy model four times when it is the only one asked (fallback off), then says why", async () => {
+    serve(...Array.from({ length: 8 }, () => refusal(429, BUSY)));
+    const error = await queChat("hi", { model: "qwen", fallback: false, cache: false }).catch((caught: Error) => caught);
+    expect(calls.map((call) => call.model)).toEqual([QWEN, QWEN, QWEN, QWEN]);
+    expect((error as Error).message).toContain("Qwen 3.8 27B is busy at its provider right now");
+    expect((error as Error).message).toContain("retried 3 times");
+  });
+
+  /** A service that fails every call the same way, counting the calls. */
+  function failing(make: () => unknown) {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      calls.push((JSON.parse(init.body) as { args: Sent }).args);
+      throw make();
+    }));
+  }
+  const silent = () => new DOMException("The free model sent nothing for 5 minutes, so Automa stopped waiting. Send the message again in a minute.", "TimeoutError");
+
+  it("asks a provider that sends nothing once more, not eight times", async () => {
+    // Each of these waits is minutes long for the person.
+    failing(silent);
+    await expect(queChat("hi", { model: "qwen", fallback: false, cache: false })).rejects.toThrow("sent nothing for 5 minutes");
+    expect(calls.map((call) => call.model)).toEqual([QWEN, QWEN]);
+    // With the hand-over on, the question still stops after the one repeat.
+    failing(silent);
+    await expect(queChat("hi", { model: "qwen", cache: false })).rejects.toThrow("sent nothing for 5 minutes");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("says a dropped connection in plain words, never as \"fetch failed\"", async () => {
+    const dropped = () => new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+    failing(dropped);
+    const alone = await queChat("hi", { model: "qwen", fallback: false, cache: false }).catch((caught: Error) => caught) as Error;
+    expect(calls).toHaveLength(4);
+    expect(alone.message).toBe("The connection to Qwen 3.8 27B kept dropping, so no reply came back. Automa stayed on this model and retried 3 times. Check the connection and send the message again.");
+    failing(dropped);
+    const handedOver = await queChat("hi", { model: "qwen", cache: false }).catch((caught: Error) => caught) as Error;
+    expect(handedOver.message).not.toContain("fetch failed");
+    expect(handedOver.message).toContain("The connection to Qwen 3.8 27B kept dropping");
+    expect(handedOver.message).toContain("The other free models couldn't answer right now either");
+  });
+
   it("puts the system message and the think instruction in one system message", async () => {
     serve(stream("ok"));
     await queChat("Explain tides", { system: "You are a teacher.", think: "deep" });

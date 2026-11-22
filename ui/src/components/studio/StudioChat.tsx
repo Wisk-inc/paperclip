@@ -66,11 +66,14 @@ export function StudioChat({ messages, me, onSend, fileUrl, onAddToProject }: St
                   {message.body}
                 </li>
               ) : (
-                <li key={message.id} className={cn("flex max-w-(--sz-85pct) flex-col gap-0.5", isMine(message, me) ? "self-end items-end" : "self-start")}>
+                <li key={message.id} className={cn("flex max-w-(--sz-85pct) min-w-0 flex-col gap-0.5", isMine(message, me) ? "self-end items-end" : "self-start")}>
                   {!isMine(message, me) ? <span className="px-1 text-xs text-muted-foreground">{message.authorName}</span> : null}
+                  {/* max-w-full: a long link wraps inside the bubble. Without it the bubble grew to the
+                      link's width and its start ran off the screen, where the log does not scroll. */}
                   <div
+                    data-testid="studio-chat-bubble"
                     className={cn(
-                      "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words",
+                      "max-w-full rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words",
                       isMine(message, me) ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted",
                     )}
                   >

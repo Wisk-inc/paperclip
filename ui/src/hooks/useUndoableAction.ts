@@ -6,7 +6,12 @@ import { haptic } from "../lib/haptics";
 export const UNDO_WINDOW_MS = 6000;
 
 interface UndoableActionOptions {
-  /** Sends the action to the server. A rejected promise brings the item back. */
+  /**
+   * Sends the action to the server. A rejected promise brings the item back.
+   * The id stops being hidden when this promise settles, so resolve it only
+   * after the list has been read again (return or await the refresh);
+   * otherwise the item shows for a moment before the new list arrives.
+   */
   commit: (id: string) => Promise<unknown>;
   windowMs?: number;
 }
@@ -36,7 +41,15 @@ export function useUndoableAction({ commit, windowMs = UNDO_WINDOW_MS }: Undoabl
   const send = useCallback(
     (id: string) => {
       timers.current.delete(id);
-      commitRef.current(id).catch(() => show(id));
+      // The id is hidden only while the action is on its way. On failure the
+      // item comes back. On success the refreshed list no longer has it, and
+      // something new with the same id (a file made again under that name)
+      // must be listed. A second run of the same id that is still waiting
+      // keeps it hidden.
+      const settle = () => {
+        if (!timers.current.has(id)) show(id);
+      };
+      commitRef.current(id).then(settle, settle);
     },
     [show],
   );

@@ -167,7 +167,7 @@ export async function undoEdit(
       throw conflict(`${edit.path} changed after that edit, so undoing it would lose the newer changes. Undo the later change first, or edit the file directly.`);
     }
     if (edit.beforeExists) await writeStudioFile(dirs.files, edit.path, stored.before ?? "");
-    else await deleteStudioEntry(dirs.files, edit.path);
+    else await deleteStudioEntry(dirs.files, edit.path, { missingOk: true });
     const change: EditChange = {
       path: edit.path,
       before: { exists: edit.afterExists, text: stored.after },

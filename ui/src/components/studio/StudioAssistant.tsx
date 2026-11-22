@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Brain, Check, ChevronRight, CircleAlert, CircleStop, Globe, ImagePlus, KeyRound, LoaderCircle, MessageSquare, Paperclip, Send, Sparkles, Trash2, Undo2, Users, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Brain, Check, ChevronRight, CircleAlert, CircleStop, Globe, ImagePlus, KeyRound, LoaderCircle, MessageSquare, Paperclip, RotateCw, Send, Sparkles, Trash2, Undo2, Users, X } from "lucide-react";
 import {
+  freeModelAnswering,
+  pickAnsweringFreeModel,
   STUDIO_AI_PROVIDERS,
   STUDIO_AI_PROVIDER_INFO,
   STUDIO_ASSISTANT_IMAGE_TYPES,
@@ -9,6 +12,7 @@ import {
   STUDIO_ASSISTANT_MAX_TEXT_BYTES,
   STUDIO_MAX_TEAMMATES,
   STUDIO_THINKING_LEVELS,
+  type FreeModelHealthEntry,
   type StudioAiKeyStatus,
   type StudioAiProvider,
   type StudioAssistantAttachmentInput,
@@ -20,6 +24,9 @@ import {
   type StudioThinkingLevel,
 } from "@paperclipai/shared";
 import { formatCostAndWorth, formatElapsed, formatTokens, modelTotals, turnWorkers, type TurnWorker } from "./studio-usage";
+import { freeModelsApi } from "@/api/free-models";
+import { retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
+import { queryKeys } from "@/lib/queryKeys";
 import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
 import { Link } from "@/lib/router";
@@ -90,6 +97,8 @@ interface StudioAssistantProps {
   onUndoEdit?: (editId: string) => Promise<void>;
   /** Remembers the provider, model and thinking level per organization. */
   storageKey: string;
+  /** False while the conversation is still on its way: a new chat's first model is not looked at until it has arrived. */
+  turnsLoaded?: boolean;
   /** A first message to send once a key is ready (from "describe your app"). */
   initialPrompt?: string | null;
   onInitialPromptUsed?: () => void;
@@ -117,7 +126,24 @@ function readTeam(value: unknown): StudioTeammate[] {
     .map((entry) => ({ provider: entry.provider as StudioAiProvider, model: entry.model.trim() }));
 }
 
-function readChoice(storageKey: string): AiChoice {
+/** The free models App Studio offers, in their order of preference. */
+const FREE_MODELS = STUDIO_AI_PROVIDER_INFO.free.models;
+
+/** What the server writes on a reply the person stopped: their own doing, not a failure of the model. */
+const STOPPED = "Stopped.";
+
+/** A new chat that starts on another free model because the usual one is not answering. */
+interface FirstModel {
+  /** The usual first model, passed over. */
+  instead: string;
+  /** What its last call found. */
+  why: FreeModelHealthEntry["state"];
+  /** The model the chat starts on. */
+  model: string;
+}
+
+/** The choice kept for this organization; null when none was kept, so a new project starts on the free models. */
+function readStoredChoice(storageKey: string): AiChoice | null {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (raw) {
@@ -138,8 +164,17 @@ function readChoice(storageKey: string): AiChoice {
   } catch {
     // storage unavailable
   }
-  // The free models need no key, so a new project can start right away.
-  return { provider: "free", model: STUDIO_AI_PROVIDER_INFO.free.defaultModel };
+  return null;
+}
+
+/**
+ * The choice nobody made: the free models on their usual first model, with no
+ * thinking level and no team. An untouched chat shows it, and earlier versions
+ * kept it the first time the pane opened, so a kept one says nothing about what
+ * the person wants. Any other kept choice is theirs.
+ */
+function isUntouchedChoice(choice: AiChoice): boolean {
+  return choice.provider === "free" && choice.model === STUDIO_AI_PROVIDER_INFO.free.defaultModel && !choice.thinking && !choice.team?.length;
 }
 
 type StepGroup = { kind: "say"; text: string } | { kind: "tools"; steps: StudioAssistantStep[] };
@@ -565,6 +600,23 @@ function SessionUsageSummary({ turns }: { turns: StudioAssistantTurn[] }) {
   );
 }
 
+/** Under the model picker: why this new chat starts on another model than the usual one. */
+function FirstModelNote({ start }: { start: FirstModel }) {
+  const usual = modelDisplayName(start.instead);
+  const model = modelDisplayName(start.model);
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="studio-first-model-note">
+      {start.why === "daily_limit" ? (
+        <>{usual} has reached its daily free limit, so this chat starts on {model}. You can change it in the model menu.</>
+      ) : start.why === "busy" ? (
+        <>{usual} is busy at its provider right now, so this chat starts on {model}. You can change it in the model menu.</>
+      ) : (
+        <>{usual} is not answering right now, so this chat starts on {model}. You can change it in the model menu.</>
+      )}
+    </p>
+  );
+}
+
 /**
  * Studio's AI helper, on the free models or your own API key: describe what to build or fix
  * and it reads the files, writes code, runs commands, starts the app, and
@@ -583,6 +635,7 @@ export function StudioAssistant({
   onUndo,
   onUndoEdit,
   storageKey,
+  turnsLoaded = true,
   initialPrompt,
   onInitialPromptUsed,
   companyId,
@@ -592,7 +645,21 @@ export function StudioAssistant({
   const narrow = useNarrowScreen();
   // The newest reply in which the lead or a teammate started the app: it offers the page.
   const pageTurnId = turns.findLast((turn) => turn.role === "assistant" && turn.steps.some((step) => step.tool === "start_app" && step.ok))?.id ?? null;
-  const [choice, setChoice] = useState<AiChoice>(() => readChoice(storageKey));
+  const [stored] = useState(() => readStoredChoice(storageKey));
+  // The free models need no key, so a new project can start right away.
+  const [choice, setChoice] = useState<AiChoice>(() => stored ?? { provider: "free", model: STUDIO_AI_PROVIDER_INFO.free.defaultModel });
+  // The choice is the person's (kept for the organization, and never changed for them) once they
+  // chose something, here or before, or sent a message with a model this chat started on. The
+  // usual first model nobody chose is not: the next new chat can still start on one that answers.
+  const [remember, setRemember] = useState(() => stored !== null && !isUntouchedChoice(stored));
+  const [firstModel, setFirstModel] = useState<FirstModel | null>(null);
+  // Which free models answer right now (the same list the model menus and the check fill).
+  const health = useQuery({
+    queryKey: queryKeys.freeModels.health(),
+    queryFn: () => freeModelsApi.health(),
+    retry: retryUnlessServerTooOld,
+    staleTime: 30_000,
+  });
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -654,12 +721,56 @@ export function StudioAssistant({
   }, [keys, choice.provider, choice.team]);
 
   useEffect(() => {
+    if (!remember) return;
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(choice));
     } catch {
       // storage unavailable
     }
-  }, [choice, storageKey]);
+  }, [choice, storageKey, remember]);
+
+  // A new chat whose usual first model is not answering starts on one that is,
+  // and says so under the picker. Only when the person chose nothing (a pick
+  // counts at once) and nothing was said yet, which is known once the
+  // conversation has arrived; a model the person chose is never changed.
+  // One look per new chat, on fresh findings, so the model never changes under
+  // a person who is already typing.
+  const startLookedRef = useRef(false);
+  useEffect(() => {
+    if (!turnsLoaded) return;
+    if (turns.length > 0) {
+      startLookedRef.current = false;
+      return;
+    }
+    if (startLookedRef.current || !health.data || health.isFetching) return;
+    startLookedRef.current = true;
+    const usual = STUDIO_AI_PROVIDER_INFO.free.defaultModel;
+    if (remember || choice.provider !== "free" || choice.model !== usual) return;
+    const found = health.data[usual];
+    if (freeModelAnswering(found)) return;
+    const model = pickAnsweringFreeModel(FREE_MODELS, health.data);
+    if (!model) return;
+    setChoice((current) => ({ ...current, provider: "free", model }));
+    setFirstModel({ instead: usual, why: found && found.state !== "ok" ? found.state : (found?.last ?? "busy"), model });
+  }, [turnsLoaded, turns.length, health.data, health.isFetching, remember, choice.provider, choice.model]);
+
+  // The newest reply, when it failed and nothing is running: it offers what to do next.
+  const lastTurn = turns.at(-1);
+  const failedTurn = !running && lastTurn?.role === "assistant" && lastTurn.error ? lastTurn : null;
+  const failedTurnId = failedTurn?.id ?? null;
+  // What the person asked that it failed on.
+  const askedTurn = failedTurn ? (turns.slice(0, -1).findLast((turn) => turn.role === "user") ?? null) : null;
+  // A reply that ended in an error says something new about which models answer.
+  const refetchHealth = health.refetch;
+  useEffect(() => {
+    if (failedTurnId) void refetchHealth({ cancelRefetch: false });
+  }, [failedTurnId, refetchHealth]);
+  // Another free model to offer, one that answered when last asked first. Offering is all: the tap switches.
+  const offered =
+    failedTurn && failedTurn.error !== STOPPED && failedTurn.provider === "free"
+      ? pickAnsweringFreeModel(FREE_MODELS, health.data ?? {}, { except: failedTurn.model, proven: true })
+      : null;
+  const switchTo = offered && !(choice.provider === "free" && choice.model === offered) ? offered : null;
 
   // Follow a streaming reply only while the reader is at the bottom, so they
   // can scroll up to read earlier messages without being pulled back down.
@@ -704,13 +815,26 @@ export function StudioAssistant({
     });
   };
 
-  const send = async (text: string) => {
+  // A model picked by the person: it shows in the picker, is kept, and is never changed for them.
+  const pickModel = (next: { provider: StudioAiProvider; model: string }): AiChoice => {
+    pickedRef.current = true;
+    setRemember(true);
+    setFirstModel(null);
+    setFreeInsteadOf(null);
+    setLeftTeam(null);
+    if (next.provider !== choice.provider) setEditingKey(false);
+    // The level and the team carry over to the next model.
+    const picked: AiChoice = { ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}), ...(choice.team?.length ? { team: choice.team } : {}) };
+    setChoice(picked);
+    return picked;
+  };
+
+  /** Asks the given model, which is the one the picker shows. True when the message went out. */
+  const ask = async (text: string, using: AiChoice, files: StudioAssistantAttachmentInput[]) => {
     stickRef.current = true;
-    const trimmed = text.trim();
-    if (!trimmed && attachments.length === 0) return;
-    if (!choice.model.trim()) {
+    if (!using.model.trim()) {
       setError("Pick a model first: tap the model at the top.");
-      return;
+      return false;
     }
     // Asked once, on the first job: a long one can finish after the person leaves.
     askForNotificationsOnce();
@@ -718,24 +842,53 @@ export function StudioAssistant({
     setError(null);
     try {
       await onSend(
-        trimmed,
-        choice.provider,
-        choice.model.trim(),
-        attachments.map((item) => item.input),
-        effectiveStudioThinking(choice.provider, choice.model.trim(), choice.thinking),
-        choice.team,
+        text,
+        using.provider,
+        using.model.trim(),
+        files,
+        effectiveStudioThinking(using.provider, using.model.trim(), using.thinking),
+        using.team,
       );
       haptic("tick");
-      setMessage("");
-      for (const item of attachments) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-      setAttachments([]);
-      if (initialPrompt) onInitialPromptUsed?.();
+      // The model this chat started on is the one its conversation is with from here on.
+      if (firstModel) setRemember(true);
+      return true;
     } catch (sendError) {
       haptic("warning");
       setError(sendError instanceof Error ? sendError.message : "Couldn't reach the assistant");
+      return false;
     } finally {
       setSending(false);
     }
+  };
+
+  const send = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed && attachments.length === 0) return;
+    if (!(await ask(trimmed, choice, attachments.map((item) => item.input)))) return;
+    setMessage("");
+    for (const item of attachments) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    setAttachments([]);
+    if (initialPrompt) onInitialPromptUsed?.();
+  };
+
+  // Sends what the person asked before a failed reply again: with the model now
+  // picked, or with another one they tapped (which then is the picked one).
+  const askAgain = (asked: StudioAssistantTurn, switchModel?: string) => {
+    const using = switchModel ? pickModel({ provider: "free", model: switchModel }) : choice;
+    const files = asked.attachments?.length ?? 0;
+    if (files) {
+      // The files went with that message and are not kept here.
+      haptic("warning");
+      setMessage(asked.text);
+      setError(
+        files === 1
+          ? "The file sent with that message can't be sent again from here. Attach it again, then tap Send."
+          : "The files sent with that message can't be sent again from here. Attach them again, then tap Send.",
+      );
+      return;
+    }
+    void ask(asked.text, using, []);
   };
 
   // Stop and New chat say why they failed instead of doing nothing.
@@ -776,17 +929,12 @@ export function StudioAssistant({
           team={choice.team ?? []}
           onTeamChange={(team) => {
             setLeftTeam(null);
+            setRemember(true);
             setChoice(({ team: _old, ...rest }) => (team.length ? { ...rest, team } : rest));
           }}
-          onChange={(next) => {
-            pickedRef.current = true;
-            setFreeInsteadOf(null);
-            setLeftTeam(null);
-            if (next.provider !== choice.provider) setEditingKey(false);
-            // The level and the team carry over to the next model.
-            setChoice({ ...next, ...(choice.thinking ? { thinking: choice.thinking } : {}), ...(choice.team?.length ? { team: choice.team } : {}) });
-          }}
+          onChange={pickModel}
         />
+        {firstModel && choice.provider === "free" && choice.model === firstModel.model ? <FirstModelNote start={firstModel} /> : null}
         {choice.team?.length ? (
           <div className="flex flex-wrap items-center gap-1.5" data-testid="studio-team-chips">
             <Users className="size-3.5 text-muted-foreground" aria-hidden="true" />
@@ -799,10 +947,13 @@ export function StudioAssistant({
                   type="button"
                   aria-label={`Remove ${modelDisplayName(mate.model)} from the team`}
                   className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={() => setChoice(({ team: current = [], ...rest }) => {
-                    const next = current.filter((m) => !(m.provider === mate.provider && m.model === mate.model));
-                    return next.length ? { ...rest, team: next } : rest;
-                  })}
+                  onClick={() => {
+                    setRemember(true);
+                    setChoice(({ team: current = [], ...rest }) => {
+                      const next = current.filter((m) => !(m.provider === mate.provider && m.model === mate.model));
+                      return next.length ? { ...rest, team: next } : rest;
+                    });
+                  }}
                 >
                   <X className="size-3" aria-hidden="true" />
                 </button>
@@ -814,7 +965,10 @@ export function StudioAssistant({
           provider={choice.provider}
           model={choice.model}
           value={choice.thinking}
-          onChange={(thinking) => setChoice(({ thinking: _old, ...rest }) => (thinking ? { ...rest, thinking } : rest))}
+          onChange={(thinking) => {
+            setRemember(true);
+            setChoice(({ thinking: _old, ...rest }) => (thinking ? { ...rest, thinking } : rest));
+          }}
         />
         {freeInsteadOf && choice.provider === "free" ? (
           <p className="text-xs text-muted-foreground" data-testid="studio-free-instead">
@@ -947,7 +1101,7 @@ export function StudioAssistant({
             <SessionUsageSummary turns={turns} />
             {turns.map((turn) =>
               turn.role === "user" ? (
-                <li key={turn.id} className="ml-8 flex flex-col items-end gap-1 self-end">
+                <li key={turn.id} className="ml-8 flex max-w-(--sz-85pct) min-w-0 flex-col items-end gap-1 self-end">
                   {turn.attachments?.length ? (
                     <ul className="flex flex-wrap justify-end gap-1" aria-label="Attached files">
                       {turn.attachments.map((item) => (
@@ -958,7 +1112,8 @@ export function StudioAssistant({
                       ))}
                     </ul>
                   ) : null}
-                  {turn.text ? <div className="rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">{turn.text}</div> : null}
+                  {/* A long link or word folds inside the bubble instead of pushing its start off the screen. */}
+                  {turn.text ? <div className="max-w-full rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground" data-testid="studio-user-text">{turn.text}</div> : null}
                   {turn.checkpointId && onUndo ? (
                     <button
                       type="button"
@@ -1018,7 +1173,33 @@ export function StudioAssistant({
                       <MarkdownBody softBreaks>{settleStreamingMarkdown(turn.live)}</MarkdownBody>
                     </div>
                   ) : null}
-                  {turn.error ? <p className="text-sm text-destructive">{turn.error}</p> : null}
+                  {turn.error ? (
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <p
+                        className={cn(
+                          "flex min-w-0 items-start gap-2 rounded-lg border px-2.5 py-2 text-sm",
+                          turn.error === STOPPED ? "border-border bg-muted text-muted-foreground" : "border-destructive/40 bg-destructive/10 text-destructive",
+                        )}
+                        data-testid="studio-turn-error"
+                      >
+                        {turn.error === STOPPED ? <CircleStop className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}
+                        <span className="min-w-0 flex-1 break-words">{turn.error}</span>
+                      </p>
+                      {turn.id === failedTurnId && askedTurn ? (
+                        <div className="flex min-w-0 flex-wrap gap-2" data-testid="studio-failed-actions">
+                          <Button type="button" variant="outline" size="sm" disabled={sending || !connected} onClick={() => askAgain(askedTurn)} data-testid="studio-retry">
+                            <RotateCw /> Try again
+                          </Button>
+                          {switchTo ? (
+                            <Button type="button" size="sm" className="min-w-0 max-w-full shrink" disabled={sending} onClick={() => askAgain(askedTurn, switchTo)} data-testid="studio-switch-model">
+                              <ModelLogo modelId={switchTo} size="xs" />
+                              <span className="min-w-0 truncate">Ask {modelDisplayName(switchTo)} instead</span>
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {turn.id === pageTurnId && previewReady && onShowPreview ? (
                     <Button type="button" variant="secondary" size="sm" className="self-start" onClick={onShowPreview} data-testid="studio-open-page">
                       <Globe /> Open the page
@@ -1040,7 +1221,8 @@ export function StudioAssistant({
           event.preventDefault();
           void send(message);
         }}
-        className="flex flex-col gap-2 border-t border-border p-2 pb-(--sz-safe-bottom)"
+        className="flex flex-col gap-2 border-t border-border p-2"
+        data-testid="studio-assistant-composer"
       >
         {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
         {attachments.length ? (

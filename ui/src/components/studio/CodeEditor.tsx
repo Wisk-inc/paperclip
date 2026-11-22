@@ -20,6 +20,20 @@ import { cn } from "@/lib/utils";
 import { inlineSuggestions, type SuggestFn } from "./inline-suggestions";
 import { smaliLanguageDescription } from "./smali-language";
 
+/** Where the cursor is: line and column count from 1; `selected` is how many characters are selected. */
+export interface EditorCursor {
+  line: number;
+  column: number;
+  selected: number;
+}
+
+function cursorOf(state: EditorState): EditorCursor {
+  const head = state.selection.main.head;
+  const line = state.doc.lineAt(head);
+  const selected = state.selection.ranges.reduce((total, range) => total + (range.to - range.from), 0);
+  return { line: line.number, column: head - line.from + 1, selected };
+}
+
 interface CodeEditorProps {
   /** The file's path; picks the syntax highlighting. */
   path: string;
@@ -35,6 +49,8 @@ interface CodeEditorProps {
   suggest?: SuggestFn | null;
   /** The live editor, for callers that add their own controls (a key bar, Find). */
   onReady?: (view: EditorView | null) => void;
+  /** Told where the cursor is: once when the editor opens, then whenever the cursor, the selection or the text changes. */
+  onCursor?: (position: EditorCursor) => void;
 }
 
 /** Editor chrome in token colors, so it follows light and dark mode. */
@@ -93,7 +109,7 @@ function languageFor(path: string): LanguageDescription | null {
  * soft-wrapped lines so code reads on a phone. Colors come from the
  * `--studio-syntax-*` tokens.
  */
-export function CodeEditor({ path, value, onChange, readOnly = false, onSave, placeholder, className, ariaLabel, suggest = null, onReady }: CodeEditorProps) {
+export function CodeEditor({ path, value, onChange, readOnly = false, onSave, placeholder, className, ariaLabel, suggest = null, onReady, onCursor }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageSlot = useRef(new Compartment());
@@ -105,9 +121,11 @@ export function CodeEditor({ path, value, onChange, readOnly = false, onSave, pl
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onReadyRef = useRef(onReady);
+  const onCursorRef = useRef(onCursor);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onReadyRef.current = onReady;
+  onCursorRef.current = onCursor;
   // Set while this component replaces the document itself, so that change is
   // not reported back as typing.
   const applyingRef = useRef(false);
@@ -158,12 +176,14 @@ export function CodeEditor({ path, value, onChange, readOnly = false, onSave, pl
           EditorView.contentAttributes.of({ "aria-label": ariaLabel ?? `Code editor: ${path}`, autocapitalize: "off", autocorrect: "off", spellcheck: "false" }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !applyingRef.current) onChangeRef.current?.(update.state.doc.toString());
+            if (update.selectionSet || update.docChanged) onCursorRef.current?.(cursorOf(update.state));
           }),
         ],
       }),
     });
     viewRef.current = view;
     onReadyRef.current?.(view);
+    onCursorRef.current?.(cursorOf(view.state));
     return () => {
       onReadyRef.current?.(null);
       view.destroy();

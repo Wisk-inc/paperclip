@@ -90,6 +90,24 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
     if (node && stickRef.current) node.scrollTop = node.scrollHeight;
   }, [lines]);
 
+  // On a phone the panes stay mounted and the ones out of sight are hidden
+  // (display: none). A hidden box has no size, so the scroll above does
+  // nothing while output prints out of sight, and nothing runs when the pane
+  // is shown again. So when the box gets a height back, go to the newest line
+  // if the person was following the output when they left.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    let lastHeight = node.clientHeight;
+    const observer = new ResizeObserver((entries) => {
+      const height = entries.at(-1)?.contentRect.height ?? 0;
+      if (lastHeight === 0 && height > 0 && stickRef.current) node.scrollTop = node.scrollHeight;
+      lastHeight = height;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const value = text;
@@ -125,6 +143,8 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
         ref={scrollRef}
         onScroll={(event) => {
           const node = event.currentTarget;
+          // A hidden box measures zero everywhere, which would read as "at the bottom".
+          if (node.clientHeight === 0) return;
           stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
         }}
         className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-(length:--text-compact) leading-relaxed"
@@ -150,12 +170,12 @@ export function StudioConsole({ store, run, onClear, onInput, onExec }: StudioCo
           <Input
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={mode === "input" ? "Type into your running app" : "Run a command, e.g. npm install express"}
+            placeholder={mode === "input" ? "Type into your running app" : "Run a command, e.g. npm install"}
             aria-label={mode === "input" ? "Input for the running app" : "Shell command"}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            className="h-8 border-transparent bg-transparent font-mono text-sm text-studio-console-foreground shadow-none placeholder:text-studio-console-foreground/70 focus-visible:ring-0"
+            className="h-8 border-transparent bg-transparent font-mono text-sm text-ellipsis text-studio-console-foreground shadow-none placeholder:text-studio-console-foreground/70 focus-visible:ring-0"
           />
           <Button type="submit" size="icon-sm" variant="ghost" disabled={busy} aria-label={mode === "input" ? "Send input" : "Run command"} className="text-studio-console-foreground hover:bg-studio-console-foreground/10 hover:text-studio-console-foreground">
             {busy ? <LoaderCircle className="animate-spin" /> : <Send />}

@@ -1,5 +1,6 @@
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect } from "node:net";
+import type { Duplex } from "node:stream";
 import { logger } from "../../middleware/logger.js";
 
 /**
@@ -46,6 +47,8 @@ function forwardHeaders(headers: IncomingHttpHeaders, upstreamPort: number): Rec
 
 export class StudioGateway {
   private server: Server | null = null;
+  /** Collaborators' open sockets and their connections to Automa: the server does not count these, so stop() closes them itself. */
+  private sockets = new Set<Duplex>();
   port: number | null = null;
 
   constructor(private readonly upstreamPort: () => number) {}
@@ -74,11 +77,17 @@ export class StudioGateway {
           delete headers["set-cookie"];
           res.writeHead(upstreamRes.statusCode ?? 502, headers);
           upstreamRes.pipe(res);
+          upstreamRes.on("error", () => res.destroy());
         },
       );
       upstream.on("error", (error) => {
+        if (res.destroyed) return;
         if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
         res.end(`Automa is not reachable: ${error.message}`);
+      });
+      // A collaborator who leaves mid-answer ends the request to Automa too, instead of leaving it open for good.
+      res.on("close", () => {
+        if (!res.writableFinished) upstream.destroy();
       });
       req.pipe(upstream);
     });
@@ -102,6 +111,15 @@ export class StudioGateway {
       });
       upstream.on("error", () => socket.destroy());
       socket.on("error", () => upstream.destroy());
+      for (const side of [socket, upstream]) {
+        this.sockets.add(side);
+        side.on("close", () => {
+          this.sockets.delete(side);
+          // One side gone ends the other.
+          if (side === socket) upstream.destroy();
+          else socket.destroy();
+        });
+      }
     });
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -118,6 +136,14 @@ export class StudioGateway {
     const server = this.server;
     this.server = null;
     this.port = null;
-    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (!server) return;
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      // close() alone waits for every open connection, and a collaborator's
+      // socket stays open as long as they do: shutdown never finished.
+      server.closeAllConnections();
+      for (const socket of this.sockets) socket.destroy();
+      this.sockets.clear();
+    });
   }
 }

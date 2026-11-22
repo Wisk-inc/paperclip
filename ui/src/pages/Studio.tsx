@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Ellipsis, FileArchive, FolderOpen, Globe, LogIn, Pencil, Plus, Rocket, Share2, Sparkles, SquareTerminal, Trash2, Users } from "lucide-react";
 import { studioApi, type StudioCatalogLanguage } from "../api/studio";
@@ -70,6 +70,12 @@ export function Studio() {
   const [join, setJoin] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const companyId = selectedCompanyId ?? "";
+  // Neither the New app sheet nor the Rename dialog has a trigger element of
+  // its own, so the page remembers what opened each one and sends focus back
+  // there on close. Otherwise focus drops to the page body.
+  const newAppOpener = useRef<HTMLElement | null>(null);
+  const menuButtons = useRef(new Map<string, HTMLButtonElement>());
+  const renameOpener = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "App Studio" }]);
@@ -107,7 +113,15 @@ export function Studio() {
 
   const removal = useUndoableAction({
     commit: async (id) => {
-      await studioApi.remove(id);
+      try {
+        await studioApi.remove(id);
+      } catch (error) {
+        // The card comes back, six seconds after "Deleted": say so and why.
+        const name = list.data?.workspaces.find((workspace) => workspace.id === id)?.name;
+        haptic("warning");
+        pushToast({ title: name ? `Couldn't delete ${name}` : "Couldn't delete the app", body: error instanceof Error ? error.message : undefined, tone: "error" });
+        throw error;
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
     },
   });
@@ -130,8 +144,11 @@ export function Studio() {
   const shared = workspaces.filter((workspace) => workspace.shareEnabled).length;
   const quickStarts = QUICK_STARTS.map((id) => languageById.get(id)).filter((language): language is StudioCatalogLanguage => Boolean(language));
 
-  /** Opens the New app sheet, optionally on a language or on "github". */
-  const openNew = (start: string | null = null) => {
+  /** Opens the New app sheet, optionally on a language or on "github". `opener` is the control that was used. */
+  const openNew = (start: string | null = null, opener: HTMLElement | null = null) => {
+    // The phone's floating button does not hand its element over; it has focus after the tap.
+    const focused = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    newAppOpener.current = opener ?? focused;
     haptic("tick");
     setStartWith(start);
     setNewOpen(true);
@@ -179,10 +196,10 @@ export function Studio() {
           ))}
         </dl>
         <div className="mt-4 hidden gap-2 md:flex">
-          <Button onClick={() => openNew()}>
+          <Button onClick={(event) => openNew(null, event.currentTarget)}>
             <Plus /> New app
           </Button>
-          <Button variant="outline" onClick={() => openNew("github")}>
+          <Button variant="outline" onClick={(event) => openNew("github", event.currentTarget)}>
             <GitHubMark /> Clone from GitHub
           </Button>
         </div>
@@ -197,7 +214,7 @@ export function Studio() {
             <h2 id="studio-quick-heading" className="text-sm font-semibold">
               Start something new
             </h2>
-            <button type="button" onClick={() => openNew()} className="flex items-center gap-0.5 text-sm text-muted-foreground hover:text-foreground">
+            <button type="button" onClick={(event) => openNew(null, event.currentTarget)} className="flex items-center gap-0.5 text-sm text-muted-foreground hover:text-foreground">
               All languages <ChevronRight className="size-4" />
             </button>
           </div>
@@ -206,7 +223,7 @@ export function Studio() {
               <li key={language.id} className="shrink-0">
                 <button
                   type="button"
-                  onClick={() => openNew(language.id)}
+                  onClick={(event) => openNew(language.id, event.currentTarget)}
                   className="flex h-full w-28 flex-col items-center gap-2 rounded-xl border border-border bg-card p-3 text-center transition-colors hover:border-primary hover:bg-accent/50 md:w-full"
                   data-testid={`studio-quick-${language.id}`}
                 >
@@ -230,7 +247,7 @@ export function Studio() {
             <Mascot pose="idle" size="sm" gaze="down" />
             <p className="text-sm font-medium">No apps yet</p>
             <p className="max-w-xs text-sm text-muted-foreground">Pick a language above, or describe an app and let the assistant build it.</p>
-            <Button onClick={() => openNew()}>
+            <Button onClick={(event) => openNew(null, event.currentTarget)}>
               <Plus /> New app
             </Button>
           </div>
@@ -285,7 +302,17 @@ export function Studio() {
                   </Link>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" className="absolute top-2 right-2" aria-label={`More for ${workspace.name}`} data-testid="studio-app-menu">
+                      <Button
+                        ref={(node) => {
+                          if (node) menuButtons.current.set(workspace.id, node);
+                          else menuButtons.current.delete(workspace.id);
+                        }}
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute top-2 right-2"
+                        aria-label={`More for ${workspace.name}`}
+                        data-testid="studio-app-menu"
+                      >
                         <Ellipsis />
                       </Button>
                     </DropdownMenuTrigger>
@@ -293,7 +320,13 @@ export function Studio() {
                       <DropdownMenuItem onSelect={() => navigate(`/studio/${workspace.id}`)}>
                         <FolderOpen /> Open
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setRenaming({ id: workspace.id, name: workspace.name })} data-testid="studio-app-rename">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          renameOpener.current = menuButtons.current.get(workspace.id) ?? null;
+                          setRenaming({ id: workspace.id, name: workspace.name });
+                        }}
+                        data-testid="studio-app-rename"
+                      >
                         <Pencil /> Rename
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>
@@ -354,7 +387,14 @@ export function Studio() {
       {workspaces.length ? <ThumbAction label="New app" onClick={() => openNew()} /> : null}
 
       <Dialog open={renaming !== null} onOpenChange={(open) => !open && setRenaming(null)}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            const opener = renameOpener.current;
+            if (!opener?.isConnected) return;
+            event.preventDefault();
+            opener.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Rename app</DialogTitle>
             <DialogDescription>Only the name changes; files and links stay the same.</DialogDescription>
@@ -391,6 +431,7 @@ export function Studio() {
         onOpenChange={setNewOpen}
         catalog={catalog.data}
         startWith={startWith}
+        returnFocusRef={newAppOpener}
         onCreate={async (input) => {
           await create.mutateAsync(input);
         }}

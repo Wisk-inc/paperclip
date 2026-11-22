@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STUDIO_LANGUAGES, searchStudioLanguages, studioEditorLanguageForPath } from "@paperclipai/shared";
 import { isGatewayPathAllowed } from "../services/studio/gateway.js";
 import {
@@ -19,6 +21,29 @@ import {
 } from "../services/studio/files.js";
 import { detectStudioLanguage, nameIsClaimed, normalizeShareCode, studioService, validateGitUrl } from "../services/studio/service.js";
 import { studioChildEnv } from "../services/studio/runner.js";
+
+// `git clone` without a network: the files a test sets here appear as the cloned repository. Everything else runs as it is.
+const cloned = vi.hoisted(() => ({ files: null as Record<string, string> | null }));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      const [command, argv] = args as unknown as [string, string[]];
+      if (command !== "git" || argv?.[0] !== "clone" || !cloned.files) return actual.spawn(...args);
+      const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
+      const target = argv.at(-1)!;
+      setImmediate(() => {
+        for (const [name, content] of Object.entries(cloned.files!)) {
+          mkdirSync(path.dirname(path.join(target, name)), { recursive: true });
+          writeFileSync(path.join(target, name), content);
+        }
+        child.emit("close", 0);
+      });
+      return child;
+    },
+  };
+});
 
 describe("Studio collaborator gateway", () => {
   it("passes the guest page, guest API, previews, and static assets", () => {
@@ -101,6 +126,35 @@ describe("Studio files", () => {
     await expect(writeStudioFile(root, "main.py", 'print("c")\n', read.version)).rejects.toMatchObject({ status: 409 });
   });
 
+  it("accepts only one of two saves made from the same version at the same moment", async () => {
+    let version = (await writeStudioFile(root, "notes.txt", "start")).version;
+    for (let round = 0; round < 20; round += 1) {
+      const results = await Promise.allSettled([
+        writeStudioFile(root, "notes.txt", `a${round}`, version),
+        writeStudioFile(root, "notes.txt", `b${round}`, version),
+      ]);
+      const saved = results.filter((result) => result.status === "fulfilled");
+      const refused = results.filter((result) => result.status === "rejected");
+      expect(saved, `round ${round}`).toHaveLength(1);
+      expect(refused, `round ${round}`).toHaveLength(1);
+      expect(refused[0]).toMatchObject({ reason: { status: 409, details: { code: "studio_file_changed" } } });
+      // The one refused is told what the file holds now: the other device's save.
+      const winner = (saved[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof writeStudioFile>>>).value;
+      expect((refused[0] as PromiseRejectedResult).reason.details.content).toBe(winner.content);
+      expect(await readFile(path.join(root, "notes.txt"), "utf8")).toBe(winner.content);
+      version = winner.version;
+    }
+  });
+
+  it("says a path was not there instead of reporting it deleted", async () => {
+    await writeStudioFile(root, "here.txt", "x");
+    await deleteStudioEntry(root, "here.txt");
+    await expect(deleteStudioEntry(root, "here.txt")).rejects.toMatchObject({ status: 404, message: "Nothing to delete at that path" });
+    await expect(deleteStudioEntry(root, "never/was.txt")).rejects.toMatchObject({ status: 404 });
+    // Callers that only need it gone (undoing a file's creation, an accepted deletion) are not refused.
+    await expect(deleteStudioEntry(root, "here.txt", { missingOk: true })).resolves.toBeUndefined();
+  });
+
   it("creates, moves, uploads, lists, and deletes", async () => {
     await createStudioEntry(root, "src", "folder");
     await createStudioEntry(root, "src/app.js", "file");
@@ -163,6 +217,43 @@ describe("Studio projects", () => {
       status: 400,
       message: "The free models need no key",
     });
+  });
+
+  it("keeps a cloned project whose package.json is not strict JSON (a byte order mark, comments, a trailing comma)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "studio-clone-"));
+    process.env.PAPERCLIP_STUDIO_DIR = dir;
+    // Just enough of the database for one project's row.
+    const fakeDb = () => {
+      const state = { row: null as Record<string, unknown> | null, deleted: 0 };
+      const db = {
+        insert: () => ({
+          values: (values: Record<string, unknown>) => ({
+            returning: async () => [(state.row = { id: randomUUID(), runCommand: null, shareEnabled: false, shareCode: null, shareExpiresAt: null, lastRunAt: null, archivedAt: null, createdAt: new Date(), updatedAt: new Date(), ...values })],
+          }),
+        }),
+        update: () => ({ set: (values: Record<string, unknown>) => ({ where: () => ({ returning: async () => [(state.row = { ...state.row, ...values })] }) }) }),
+        delete: () => ({ where: async () => void (state.deleted += 1) }),
+      };
+      return { db, state };
+    };
+    try {
+      const { studioWorkspaceDirs } = await import("../services/studio/files.js");
+      for (const [packageJson, runCommand] of [
+        ['\uFEFF{ "scripts": { "dev": "vite" } }', "npm install --no-audit --no-fund && npm run dev"],
+        ['{\n  // our scripts\n  "scripts": { "start": "node server.js", },\n}', "npm install --no-audit --no-fund && node ."],
+      ] as const) {
+        cloned.files = { "package.json": packageJson, "index.js": "" };
+        const { db, state } = fakeDb();
+        const workspace = await studioService(db as never).create({ companyId: "company_1", userId: null, name: "Cloned", language: "auto", gitUrl: "https://github.com/owner/repo" });
+        expect(workspace.runCommand).toBe(runCommand);
+        expect(state.deleted).toBe(0);
+        expect(await readFile(path.join(studioWorkspaceDirs("company_1", workspace.id).files, "package.json"), "utf8")).toBe(packageJson);
+      }
+    } finally {
+      cloned.files = null;
+      delete process.env.PAPERCLIP_STUDIO_DIR;
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("guesses a cloned project's language", () => {
@@ -280,6 +371,33 @@ describe("Studio checkpoints and zips", () => {
     expect(await readFile(path.join(files, "packages", "web", "node_modules", "dep", "index.js"), "utf8")).toBe("dep");
   });
 
+  it("leaves a file that outgrew the snapshot limit as it is, and says so, instead of replacing it with the old small copy", async () => {
+    const { createCheckpoint, restoreCheckpoint } = await import("../services/studio/checkpoints.js");
+    const { studioWorkspaceDirs } = await import("../services/studio/files.js");
+    const files = studioWorkspaceDirs(companyId, workspaceId).files;
+    const big = 10 * 1024 * 1024 + 1;
+    await mkdir(files, { recursive: true });
+    await writeFile(path.join(files, "data.db"), "v1");
+    await writeFile(path.join(files, "app.py"), "v1");
+    const first = await createCheckpoint(companyId, workspaceId, { label: "v1", kind: "manual", by: "me" });
+    expect(first.skippedFiles).toBe(0);
+    // The database grows past what a checkpoint can hold.
+    await writeFile(path.join(files, "data.db"), Buffer.alloc(big, 7));
+    await writeFile(path.join(files, "app.py"), "v2");
+    const result = await restoreCheckpoint(companyId, workspaceId, first.id, "me");
+    // The safety checkpoint could not hold it, so nothing else has the current version: it stays.
+    expect(result.safety.skippedFiles).toBe(1);
+    expect((await stat(path.join(files, "data.db"))).size).toBe(big);
+    expect(result.leftAsIs).toEqual(["data.db"]);
+    // Everything else went back.
+    expect(await readFile(path.join(files, "app.py"), "utf8")).toBe("v1");
+    // Undoing the restore keeps it too.
+    const undone = await restoreCheckpoint(companyId, workspaceId, result.safety.id, "me");
+    expect((await stat(path.join(files, "data.db"))).size).toBe(big);
+    expect(await readFile(path.join(files, "app.py"), "utf8")).toBe("v2");
+    expect(undone.leftAsIs).toEqual(["data.db"]);
+  });
+
   it("goes back to the oldest checkpoint when the list is full", async () => {
     const { createCheckpoint, restoreCheckpoint, listCheckpoints } = await import("../services/studio/checkpoints.js");
     const { studioWorkspaceDirs } = await import("../services/studio/files.js");
@@ -380,6 +498,37 @@ describe("Studio live typing", () => {
       guest.emit("close");
     }
     expect(studioHub.draftsFor(workspaceId)).toEqual([]);
+  });
+});
+
+describe("Studio presence", () => {
+  it("does not store or rebroadcast a focus path longer than a path can be", async () => {
+    const { studioHub } = await import("../services/studio/hub.js");
+    const workspaceId = "focus-workspace";
+    const listeners = new Map<string, Array<(data?: unknown) => void>>();
+    const sent: Array<Record<string, any>> = [];
+    const socket = {
+      readyState: 1,
+      send: (data: string) => void sent.push(JSON.parse(data)),
+      close: () => undefined,
+      on: (event: string, listener: (data?: unknown) => void) => void listeners.set(event, [...(listeners.get(event) ?? []), listener]),
+    };
+    const say = (event: object) => listeners.get("message")?.forEach((listener) => listener(JSON.stringify(event)));
+    studioHub.join({ workspaceId, socket, participant: { id: "guest:9", name: "Sam", role: "guest", color: "#2F9E44" }, collaboratorId: "9" });
+    try {
+      say({ type: "focus", path: "src/app.js" });
+      expect(studioHub.participants(workspaceId)[0]?.activePath).toBe("src/app.js");
+      sent.length = 0;
+      // 3 MB of "path", as a guest with the code could send over and over.
+      say({ type: "focus", path: "x".repeat(3_000_000) });
+      expect(studioHub.participants(workspaceId)[0]?.activePath).toBe("src/app.js");
+      expect(JSON.stringify(sent).length).toBeLessThan(10_000);
+      // The longest path a draft may have is still accepted.
+      say({ type: "focus", path: "y".repeat(1024) });
+      expect(studioHub.participants(workspaceId)[0]?.activePath).toHaveLength(1024);
+    } finally {
+      listeners.get("close")?.forEach((listener) => listener());
+    }
   });
 });
 

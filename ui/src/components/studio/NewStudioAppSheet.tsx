@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type RefObject } from "react";
 import { CircleAlert, CircleCheck, FileCode2, Globe, LoaderCircle, Search, Sparkles, SquareTerminal } from "lucide-react";
 import { searchStudioLanguages, type StudioLanguageCategory, type StudioToolchainStatus } from "@paperclipai/shared";
 import type { StudioCatalog, StudioCatalogLanguage } from "@/api/studio";
@@ -26,6 +26,8 @@ interface NewStudioAppSheetProps {
   /** Opens on this language, or on "github" for cloning. */
   startWith?: string | null;
   onCreate: (input: NewStudioAppInput) => Promise<void>;
+  /** The control that opened the sheet. Focus goes back to it when the sheet closes. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 function LanguageDetail({
@@ -43,7 +45,7 @@ function LanguageDetail({
       <div className="flex items-center gap-3">
         <LanguageLogo language={language} size="xl" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-lg font-semibold">{language.name}</p>
+          <p className="line-clamp-2 text-lg font-semibold leading-tight">{language.name}</p>
           <p className="text-sm text-muted-foreground">{language.blurb}</p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={onChange} data-testid="studio-change-language">
@@ -108,7 +110,7 @@ function repoNameFrom(url: string): string {
  * category), name it, and optionally describe it so the AI assistant builds
  * it. Or paste a GitHub link to clone a repository.
  */
-export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = null, onCreate }: NewStudioAppSheetProps) {
+export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = null, onCreate, returnFocusRef }: NewStudioAppSheetProps) {
   const [mode, setMode] = useState<"new" | "git">("new");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<StudioLanguageCategory>("popular");
@@ -180,6 +182,13 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
         side="bottom"
         className="h-(--sz-85vh) gap-0 rounded-t-xl p-0 md:inset-x-auto md:left-1/2 md:w-full md:max-w-2xl md:-translate-x-1/2"
         data-testid="new-studio-app"
+        // No SheetTrigger, so focus is sent back to the opener by hand; otherwise it drops to the page body.
+        onCloseAutoFocus={(event) => {
+          const opener = returnFocusRef?.current;
+          if (!opener?.isConnected) return;
+          event.preventDefault();
+          opener.focus();
+        }}
       >
         <SheetHeader className="border-b border-border">
           <SheetTitle>New app</SheetTitle>
@@ -208,133 +217,142 @@ export function NewStudioAppSheet({ open, onOpenChange, catalog, startWith = nul
         </SheetHeader>
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-            {mode === "new" && selected && !browsing ? (
-              <LanguageDetail language={selected} toolchain={toolchains.get(selected.id)} onChange={() => setBrowsing(true)} />
-            ) : mode === "new" ? (
-              <>
-                <div className="relative shrink-0">
-                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={`Search ${languages.length || "50+"} languages`}
-                    aria-label="Search languages"
-                    className="h-10 pl-9"
-                  />
-                </div>
-                {!query.trim() ? (
-                  <div className="-mx-4 flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-1" role="tablist" aria-label="Language categories">
-                    {(catalog?.categories ?? []).map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={category === item.id}
-                        onClick={() => setCategory(item.id)}
-                        className={cn(
-                          "shrink-0 rounded-full border px-3 py-1 text-sm",
-                          category === item.id ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-accent",
-                        )}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <ul className="grid shrink-0 grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Languages" data-testid="studio-language-list">
-                  {shown.map((language) => {
-                    const toolchain = toolchains.get(language.id);
-                    return (
-                      <li key={language.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLanguageId(language.id);
-                            setBrowsing(false);
-                            setError(null);
-                          }}
-                          aria-pressed={languageId === language.id}
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-lg border p-2 text-left",
-                            languageId === language.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-accent/50",
-                          )}
-                          data-testid={`studio-language-${language.id}`}
-                        >
-                          <LanguageLogo language={language} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">{language.name}</span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {toolchain && !toolchain.available && toolchain.requires ? `Needs ${toolchain.requires} · ` : ""}
-                              {language.blurb}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {shown.length === 0 ? <li className="col-span-full py-6 text-center text-sm text-muted-foreground">No language matches “{query}”.</li> : null}
-                </ul>
-              </>
-            ) : (
-              <div className="flex shrink-0 flex-col gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium">Repository link</span>
-                  <div className="relative">
-                    <GitHubMark className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+              {mode === "new" && selected && !browsing ? (
+                <LanguageDetail language={selected} toolchain={toolchains.get(selected.id)} onChange={() => setBrowsing(true)} />
+              ) : mode === "new" ? (
+                <>
+                  <div className="relative shrink-0">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      value={gitUrl}
-                      onChange={(event) => setGitUrl(event.target.value)}
-                      placeholder="https://github.com/owner/repo"
-                      inputMode="url"
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      aria-label="Repository link"
-                      className="h-10 pl-9 font-mono text-sm"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder={`Search ${languages.length || "50+"} languages`}
+                      aria-label="Search languages"
+                      className="h-10 pl-9"
                     />
                   </div>
-                </label>
-                <p className="text-xs text-muted-foreground">Public repositories clone as they are. Automa works out the language and how to run it; the assistant can help set it up and fix what's broken.</p>
-              </div>
-            )}
+                  {!query.trim() ? (
+                    <div className="-mx-4 flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-1" role="tablist" aria-label="Language categories">
+                      {(catalog?.categories ?? []).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={category === item.id}
+                          onClick={() => setCategory(item.id)}
+                          className={cn(
+                            "shrink-0 rounded-full border px-3 py-1 text-sm",
+                            category === item.id ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-accent",
+                          )}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <ul className="grid shrink-0 grid-cols-1 gap-1.5 sm:grid-cols-2" aria-label="Languages" data-testid="studio-language-list">
+                    {shown.map((language) => {
+                      const toolchain = toolchains.get(language.id);
+                      return (
+                        <li key={language.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLanguageId(language.id);
+                              setBrowsing(false);
+                              setError(null);
+                            }}
+                            aria-pressed={languageId === language.id}
+                            className={cn(
+                              "flex w-full items-center gap-3 rounded-lg border p-2 text-left",
+                              languageId === language.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-accent/50",
+                            )}
+                            data-testid={`studio-language-${language.id}`}
+                          >
+                            <LanguageLogo language={language} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">{language.name}</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {toolchain && !toolchain.available && toolchain.requires ? `Needs ${toolchain.requires} · ` : ""}
+                                {language.blurb}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {shown.length === 0 ? <li className="col-span-full py-6 text-center text-sm text-muted-foreground">No language matches “{query}”.</li> : null}
+                  </ul>
+                </>
+              ) : (
+                <div className="flex shrink-0 flex-col gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Repository link</span>
+                    <div className="relative">
+                      <GitHubMark className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+                      <Input
+                        value={gitUrl}
+                        onChange={(event) => setGitUrl(event.target.value)}
+                        placeholder="https://github.com/owner/repo"
+                        inputMode="url"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        aria-label="Repository link"
+                        className="h-10 pl-9 font-mono text-sm"
+                      />
+                    </div>
+                  </label>
+                  <p className="text-xs text-muted-foreground">Public repositories clone as they are. Automa works out the language and how to run it; the assistant can help set it up and fix what's broken.</p>
+                </div>
+              )}
 
-            <label className="flex shrink-0 flex-col gap-1">
-              <span className="text-sm font-medium">App name</span>
-              <Input
-                value={name}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setNameTouched(true);
-                }}
-                placeholder={mode === "git" ? "Name for your copy" : "e.g. Recipe box"}
-                aria-label="App name"
-                maxLength={80}
-                className="h-10"
-              />
-            </label>
-            <label className="flex shrink-0 flex-col gap-1">
-              <span className="flex items-center gap-1.5 text-sm font-medium">
-                <Sparkles className="size-3.5 text-primary" /> {mode === "git" ? "What should the assistant do? (optional)" : "Describe it for the AI (optional)"}
-              </span>
-              <Textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                rows={3}
-                placeholder={mode === "git" ? "Set it up and fix anything that doesn't run" : "A recipe app with a search box and a database of my favorite meals"}
-                aria-label="Describe the app"
-                className="text-sm"
-              />
-              <span className="text-xs text-muted-foreground">The AI assistant builds the UI, the logic, and the database from this. The free models need no key.</span>
-            </label>
+              <label className="flex shrink-0 flex-col gap-1">
+                <span className="text-sm font-medium">App name</span>
+                <Input
+                  value={name}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    setNameTouched(true);
+                  }}
+                  placeholder={mode === "git" ? "Name for your copy" : "e.g. Recipe box"}
+                  aria-label="App name"
+                  maxLength={80}
+                  className="h-10"
+                />
+              </label>
+              <label className="flex shrink-0 flex-col gap-1">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <Sparkles className="size-3.5 text-primary" /> {mode === "git" ? "What should the assistant do? (optional)" : "Describe it for the AI (optional)"}
+                </span>
+                <Textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={3}
+                  placeholder={mode === "git" ? "Set it up and fix anything that doesn't run" : "A recipe app with a search box and a database of my favorite meals"}
+                  aria-label="Describe the app"
+                  className="text-sm"
+                />
+                <span className="text-xs text-muted-foreground">The AI assistant builds the UI, the logic, and the database from this. The free models need no key.</span>
+              </label>
+            </div>
+            {/* The reason gets its own lines above the buttons: a failed clone
+                explains itself in a sentence that never fits beside them on a
+                phone. It takes at most half of the room above the footer and
+                scrolls past that, so on a phone held sideways the fields can
+                still be reached. */}
+            {error ? (
+              <p className="max-h-1/2 shrink-0 overflow-y-auto border-t border-border px-4 py-2 text-sm break-words text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-border p-3 pb-(--sz-calc-8) md:pb-3">
+          <div className="flex items-center justify-between gap-2 border-t border-border p-3 pb-(--sz-calc-8) md:pb-3">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <p className="min-w-0 flex-1 truncate text-right text-sm text-destructive" role="alert">
-              {error}
-            </p>
             <Button type="submit" disabled={busy} data-testid="studio-create-app">
               {busy ? <LoaderCircle className="animate-spin" /> : null}
               {mode === "git" ? "Clone app" : "Create app"}

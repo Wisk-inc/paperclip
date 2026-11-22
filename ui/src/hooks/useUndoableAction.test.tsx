@@ -88,6 +88,55 @@ describe("useUndoableAction", () => {
     act(() => root.unmount());
   });
 
+  it("stops hiding the id once the server call succeeds, so something new with that name is listed", async () => {
+    const commit = vi.fn(() => Promise.resolve());
+    const { state, root } = mount(commit);
+
+    act(() => state.api!.run("notes.txt", "Deleted notes.txt"));
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_WINDOW_MS);
+    });
+    expect(commit).toHaveBeenCalledWith("notes.txt");
+    // A file made later with the same name must not stay out of the list.
+    expect(state.api!.hiddenIds.has("notes.txt")).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("keeps the item hidden until the commit's promise settles, so it never flashes back before the list refreshes", async () => {
+    let finish: () => void = () => undefined;
+    const commit = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const { state, root } = mount(commit);
+
+    act(() => state.api!.run("file-3", "Deleted photo.jpg"));
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_WINDOW_MS);
+    });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(state.api!.hiddenIds.has("file-3")).toBe(true);
+
+    await act(async () => finish());
+    expect(state.api!.hiddenIds.has("file-3")).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("can delete the same id again after a finished delete", async () => {
+    const commit = vi.fn(() => Promise.resolve());
+    const { state, root } = mount(commit);
+
+    act(() => state.api!.run("notes.txt", "Deleted notes.txt"));
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_WINDOW_MS);
+    });
+    act(() => state.api!.run("notes.txt", "Deleted notes.txt"));
+    expect(state.api!.hiddenIds.has("notes.txt")).toBe(true);
+    await act(async () => {
+      vi.advanceTimersByTime(UNDO_WINDOW_MS);
+    });
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(state.api!.hiddenIds.has("notes.txt")).toBe(false);
+    act(() => root.unmount());
+  });
+
   it("commits whatever is still waiting when the page unmounts", () => {
     const commit = vi.fn(() => Promise.resolve());
     const { state, root } = mount(commit);

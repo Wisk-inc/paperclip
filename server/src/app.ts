@@ -27,7 +27,7 @@ import type { StorageService } from "./storage/types.js";
 import { httpLogger, errorHandler } from "./middleware/index.js";
 import { actorMiddleware } from "./middleware/auth.js";
 import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
-import { shutdownStudio, studioPublicRoutes, studioRoutes } from "./routes/studio.js";
+import { shutdownStudio, studioAssistantBodyParser, studioPublicRoutes, studioRoutes } from "./routes/studio.js";
 import { terminalsRoutes } from "./routes/terminals.js";
 import { appInspectorRoutes } from "./routes/app-inspector.js";
 import { freeModelRoutes } from "./routes/free-models.js";
@@ -557,6 +557,9 @@ export async function createApp(
     createChatWebhookDiagnostics(),
     chatWebhookBodyParser,
   );
+  // A message to App Studio's assistant carries its attached images in the
+  // JSON body, more than the default limit holds (see routes/studio.ts).
+  app.use(studioAssistantBodyParser({ verify: captureRawBody }));
   app.use(
     express.json({
       limit: DEFAULT_JSON_BODY_LIMIT,

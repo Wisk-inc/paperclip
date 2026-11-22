@@ -99,4 +99,28 @@ describe("StudioUsageCard", () => {
     expect(rows[0]!.querySelector('[data-slot="model-logo"]')).not.toBeNull();
     expect(card.querySelector('a[href="/studio"]')).not.toBeNull();
   });
+
+  it("gives the model name a line of its own on a phone, beside the numbers from the sm width up", async () => {
+    usageMock.mockResolvedValue({
+      since: "2026-10-01T00:00:00.000Z",
+      models: [{ provider: "free", model: "nvidia/nemotron-3-ultra-550b-a55b:free", calls: 3, inputTokens: 3_100, outputTokens: 428, costCents: 0, equivalentCents: 0.4 }],
+    });
+    await draw();
+    const row = container.querySelector('[data-testid="studio-usage-model"]')!;
+    const name = row.querySelector<HTMLElement>('[data-testid="studio-usage-model-name"]')!;
+    const stats = row.querySelector<HTMLElement>('[data-testid="studio-usage-model-stats"]')!;
+    expect(name.textContent).not.toBe("");
+    expect(stats.textContent).toContain("3.1k in · 428 out · Free");
+    // Stacked on a phone: the numbers never shrink, so side by side the name got 29 px and read "Q…".
+    const line = name.parentElement!.className.split(/\s+/);
+    expect(line).toEqual(expect.arrayContaining(["flex", "flex-col", "sm:flex-row", "sm:items-baseline"]));
+    expect(line).not.toContain("flex-row");
+    const nameClasses = name.className.split(/\s+/);
+    expect(nameClasses).toEqual(expect.arrayContaining(["min-w-0", "truncate", "sm:flex-1"]));
+    expect(nameClasses).not.toContain("flex-1");
+    const statsClasses = stats.className.split(/\s+/);
+    expect(statsClasses).toContain("sm:shrink-0");
+    expect(statsClasses).not.toContain("shrink-0");
+    expect(stats.parentElement).toBe(name.parentElement);
+  });
 });

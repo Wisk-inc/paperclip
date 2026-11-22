@@ -101,7 +101,10 @@ export const studioApi = {
   checkpoints: (id: string) => api.get<{ checkpoints: StudioCheckpoint[] }>(`${ws(id)}/checkpoints`, { cache: "no-store" }),
   saveCheckpoint: (id: string, label?: string | null) => api.post<{ checkpoint: StudioCheckpoint }>(`${ws(id)}/checkpoints`, { label: label ?? null }),
   restoreCheckpoint: (id: string, checkpointId: string) =>
-    api.post<{ restored: StudioCheckpoint; safety: StudioCheckpoint }>(`${ws(id)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, {}),
+    api.post<{ restored: StudioCheckpoint; safety: StudioCheckpoint; leftAsIs?: string[]; notice?: string | null }>(
+      `${ws(id)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+      {},
+    ),
   deleteCheckpoint: (id: string, checkpointId: string) => api.delete<{ ok: true }>(`${ws(id)}/checkpoints/${encodeURIComponent(checkpointId)}`),
 
   complete: (id: string, input: { path: string; prefix: string; suffix: string; provider: StudioAiProvider; model?: string | null }, signal?: AbortSignal) =>
@@ -126,6 +129,8 @@ export const studioApi = {
       ...(options.expiresInHours !== undefined ? { expiresInHours: options.expiresInHours } : {}),
       ...(options.newCode ? { newCode: true } : {}),
     }),
+  /** The code and links of a project that is already shared, for a page opened again. Makes no public link. */
+  shareInfo: (id: string) => api.get<{ share: StudioShareResult | null }>(`${ws(id)}/share`, { cache: "no-store" }),
   stopSharing: (id: string) => api.delete<{ workspace: StudioWorkspace }>(`${ws(id)}/share`),
   collaborators: (id: string) =>
     api.get<{ collaborators: StudioCollaborator[]; participants: StudioParticipant[] }>(`${ws(id)}/collaborators`),

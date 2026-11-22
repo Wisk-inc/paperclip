@@ -173,6 +173,8 @@ class StudioHub {
     } else if (event.type === "visibility" && typeof event.visible === "boolean") {
       client.visible = event.visible;
     } else if (event.type === "focus") {
+      // Everyone in the project gets this path with each presence update, so it has the same limit as a draft's.
+      if (typeof event.path === "string" && event.path.length > MAX_DRAFT_PATH_CHARS) return;
       participant.activePath = typeof event.path === "string" ? event.path : null;
       for (const other of this.rooms.get(workspaceId) ?? []) {
         if (other.participant.id === participant.id) other.participant.activePath = participant.activePath;

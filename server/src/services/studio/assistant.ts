@@ -103,6 +103,12 @@ export interface StudioAssistantContext {
   worthUsd?: (usage: StudioAiUsage) => number | null;
   /** The reply is done (saved and sent to everyone); for news to the person's phone. */
   onFinished?: (turn: StudioAssistantTurn) => void;
+  /**
+   * True once the organization's budget hard stop is on. Asked before every
+   * model call (the lead's and each teammate's), so a turn of hundreds of
+   * calls stops where the budget does, not only before its first one.
+   */
+  budgetBlocked?: () => boolean | Promise<boolean>;
   /** Other models the lead can hand tasks to this turn (set per turn, never nested). */
   team?: TeamRuntime;
   /** On a teammate's own turn: its line to the others working on the same job. */
@@ -264,6 +270,34 @@ function droppedConnection(error: unknown): PuterHttpError | null {
  */
 function refusedTheRequest(error: PuterHttpError): boolean {
   return error.kind === "no_tools" || (error.status >= 400 && error.status < 500 && error.status !== 429 && error.status !== 408);
+}
+
+/** What a turn ends with when the organization's budget hard stop comes on while it works. */
+const BUDGET_STOP_MESSAGE = "AI is paused: this organization reached its budget limit.";
+
+/**
+ * Asked at the top of every model call. Throws when the budget hard stop is
+ * on: the turn then ends through its normal finish, with this as its error,
+ * and the calls already made are recorded. A check that fails is not a
+ * reached limit: the work goes on and the next call asks again.
+ */
+async function stopAtBudgetLimit(context: StudioAssistantContext) {
+  if (!context.budgetBlocked) return;
+  let blocked = false;
+  try {
+    blocked = (await context.budgetBlocked()) === true;
+  } catch (error) {
+    logger.warn({ error: error instanceof Error ? error.message : String(error), workspaceId: context.workspaceId }, "studio assistant budget check failed");
+  }
+  if (blocked) throw new Error(BUDGET_STOP_MESSAGE);
+}
+
+/** The line a retry of a busy free model puts in the chat, so the wait before it is not silent. */
+function busyRetryNote(error: PuterHttpError, dropped: boolean, label: string, attempt: number): string {
+  const what = dropped
+    ? "The connection to the free AI service dropped"
+    : error.status >= 500 ? `${label} had a server error` : `${label} is busy at its provider`;
+  return `(${what}. Trying again, ${attempt} of ${FREE_BUSY_RETRIES}.)`;
 }
 
 /** Waits `ms`, ending early when the turn is stopped. */
@@ -1491,6 +1525,7 @@ async function runAnthropic(input: {
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
+    await stopAtBudgetLimit(context);
     const stream = client.beta.messages.stream(
       {
         model: input.model,
@@ -1659,6 +1694,7 @@ async function runOpenAiCompatible(input: {
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
+    await stopAtBudgetLimit(context);
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: input.signal,
@@ -1827,6 +1863,7 @@ async function runFreeModels(input: {
 
   for (let step = 0; step < maxSteps; step += 1) {
     if (input.signal.aborted) throw new Error("Stopped.");
+    await stopAtBudgetLimit(context);
     const history = (textHistory ? toolHistoryAsText(messages as PuterMessage[]) : (messages as PuterMessage[]));
     const sent: PuterMessage[] = [{ role: "system", content: system }, ...history];
     let text = "";
@@ -1860,6 +1897,8 @@ async function runFreeModels(input: {
         retries += 1;
         // The service's own rate limit: the next call is held until it lifts, so say why nothing moves meanwhile.
         if (error.slowDown) input.onStep({ tool: "say", summary: "(The free AI service asked Automa to slow down; waiting about a minute, then carrying on.)", ok: true, detail: null });
+        // A busy model: four tries take about half a minute, which was silent on screen.
+        else input.onStep({ tool: "say", summary: busyRetryNote(error, !(caught instanceof PuterHttpError), label, retries), ok: true, detail: null });
         await pause(FREE_RETRY_BASE_MS * retries, input.signal);
         step -= 1;
         continue;

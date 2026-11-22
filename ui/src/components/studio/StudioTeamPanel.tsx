@@ -123,6 +123,7 @@ function CopyField({ label, value, testId }: { label: string; value: string; tes
         <Button
           variant="ghost"
           size="icon-xs"
+          className="shrink-0 pointer-coarse:size-10"
           aria-label={`Copy ${label.toLowerCase()}`}
           onClick={() => {
             void copyTextToClipboard(value).then(() => {
@@ -334,10 +335,25 @@ export function StudioTeamPanel(props: StudioTeamPanelProps) {
                 {props.share && !props.share.inviteUrl ? (
                   <>
                     <CopyField label="Invite link (this device only)" value={props.share.localInviteUrl} testId="studio-invite-link" />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground" data-testid="studio-invite-local-note">
                       This link opens only on the device running Automa. Friends elsewhere need the public link
-                      {props.share.publicError ? `, which couldn't be made: ${props.share.publicError}` : ""}.
+                      {/* The reason arrives as a sentence of its own; its period would double the one below. */}
+                      {props.share.publicError ? `, which couldn't be made: ${props.share.publicError.replace(/[.\s]+$/, "")}` : ""}.
                     </p>
+                    {/* The code and its expiry stay as they are: only the public link is asked for again. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      disabled={sharing}
+                      onClick={() => {
+                        setSharing(true);
+                        void props.onShare({}).finally(() => setSharing(false));
+                      }}
+                      data-testid="studio-public-invite"
+                    >
+                      {props.share.publicError ? "Try the public link again" : "Get the public link"}
+                    </Button>
                   </>
                 ) : null}
                 <p className="text-xs text-muted-foreground">

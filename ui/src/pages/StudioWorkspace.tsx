@@ -20,17 +20,19 @@ import {
   Upload,
   Users,
 } from "lucide-react";
+import type { EditorView } from "@codemirror/view";
 import type {
   StudioAssistantTurn,
   StudioChangeRequest,
   StudioConsoleLine,
+  StudioFileContent,
   StudioMessage,
   StudioPageReport,
   StudioParticipant,
   StudioRunState,
   StudioServerEvent,
 } from "@paperclipai/shared";
-import { ApiError } from "../api/client";
+import { ApiError, fetchApi } from "../api/client";
 import { studioApi, studioSocketUrl, type StudioShareResult } from "../api/studio";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -40,7 +42,7 @@ import { useNarrowScreen } from "../hooks/useNarrowScreen";
 import { useUndoableAction } from "../hooks/useUndoableAction";
 import { haptic } from "../lib/haptics";
 import { notifyWhenAway, studioReplyNotice } from "../lib/background-notify";
-import { usePageVisibility } from "../lib/page-visibility";
+import { getVisibilityHeaderValue, usePageVisibility } from "../lib/page-visibility";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
@@ -55,6 +57,20 @@ import { StudioAssets } from "../components/studio/StudioAssets";
 import { StudioCheckpointsSheet } from "../components/studio/StudioCheckpointsSheet";
 import { STUDIO_AI_PROVIDERS, STUDIO_AI_PROVIDER_INFO, type StudioAiProvider } from "@paperclipai/shared";
 import { CodeEditor } from "../components/studio/CodeEditor";
+import { EditorKeyRow } from "../components/studio/EditorKeyRow";
+import { StudioEditorStatus, createEditorCursorStore, type StudioSaveState } from "../components/studio/StudioEditorStatus";
+import {
+  StudioEditorTabs,
+  existingTabs,
+  isAtOrUnder,
+  movedPath,
+  neighbourTab,
+  readRememberedTabs,
+  rememberTabs,
+  renameTabs,
+  withTab,
+  withoutTabs,
+} from "../components/studio/StudioEditorTabs";
 import { StudioFileTree } from "../components/studio/StudioFileTree";
 import { createStudioConsoleStore, useLatestConsoleLine, type StudioConsoleStore } from "@/components/studio/console-store";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -81,7 +97,7 @@ interface OpenFile {
   size: number;
 }
 
-type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
+type SaveState = StudioSaveState;
 
 interface RemoteDraft {
   path: string;
@@ -90,6 +106,12 @@ interface RemoteDraft {
 }
 
 const SAVE_DELAY_MS = 750;
+/** How long a save that failed waits before it is sent again: longer after each failure, the last one from then on. */
+const SAVE_RETRY_DELAYS_MS = [1500, 4000, 10_000, 30_000];
+/** Browsers finish a request for a page that is gone only when its body is small (64 KiB for all such requests together). */
+const LEAVING_SAVE_MAX_BYTES = 60_000;
+/** How many versions the person's own saves returned are remembered, to know a late announcement of one. */
+const OWN_VERSIONS_KEPT = 8;
 const SUGGEST_STORAGE_KEY = "automa.studio.suggest";
 /** How long suggestions rest after one fails, instead of asking after every pause. */
 const SUGGEST_RETRY_MS = 25_500;
@@ -128,15 +150,50 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
+/** One saved version of one file, as a single comparable value. */
+const versionKey = (path: string, version: string) => `${path}\n${version}`;
+
+/**
+ * The save `studioApi.writeFile` makes, sent so that the browser finishes it
+ * even when the page is gone a moment later (the tab closed, another page
+ * opened in it). The API client's `put` cannot ask for that, so this goes to
+ * the same route through the client's `fetchApi`, with the headers the client
+ * sets. A file too large for such a request goes out as a normal one, which
+ * still arrives when only this screen was left and the page stays.
+ */
+async function writeFileWhileLeaving(workspaceId: string, input: { path: string; content: string; baseVersion: string | null }): Promise<StudioFileContent> {
+  const body = JSON.stringify(input);
+  const response = await fetchApi(`/api/studio/workspaces/${encodeURIComponent(workspaceId)}/file`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Paperclip-Tab-Visible": getVisibilityHeaderValue(),
+      "X-Paperclip-Route": window.location.pathname,
+    },
+    body,
+    keepalive: new Blob([body]).size <= LEAVING_SAVE_MAX_BYTES,
+  });
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(errorBody?.error ?? `Request failed: ${response.status}`, response.status, errorBody);
+  }
+  return (await response.json()) as StudioFileContent;
+}
+
 
 /**
  * Merges the transcript the server returned into what is on screen: the
- * server's copy wins for every turn it has, and turns it doesn't have yet (a
- * message that just went out) stay, so a reload never wipes them.
+ * server's copy wins for every turn it has. A turn it doesn't have stays only
+ * when the server could not know it yet (a message that just went out): it is
+ * newer than the server's newest turn and `arrivedSince` says it first showed
+ * here after the transcript was asked for. Any other turn the server no longer
+ * has is gone there (the chat was cleared on another device), so it goes here.
  */
-function mergeTurns(current: StudioAssistantTurn[], server: StudioAssistantTurn[]) {
+function mergeTurns(current: StudioAssistantTurn[], server: StudioAssistantTurn[], arrivedSince: (turnId: string) => boolean) {
   const known = new Set(server.map((turn) => turn.id));
-  const extra = current.filter((turn) => !known.has(turn.id));
+  const newest = server.reduce((latest, turn) => (turn.createdAt > latest ? turn.createdAt : latest), "");
+  const extra = current.filter((turn) => !known.has(turn.id) && turn.createdAt > newest && arrivedSince(turn.id));
   return extra.length ? [...server, ...extra] : server;
 }
 
@@ -187,10 +244,23 @@ export function StudioWorkspace() {
   const [drafts, setDrafts] = useState<Record<string, RemoteDraft>>({});
   const [watching, setWatching] = useState<string | null>(null);
   const [turns, setTurns] = useState<StudioAssistantTurn[]>([]);
+  // True once the conversation has arrived from the server, in the same draw as its turns.
+  const [turnsLoaded, setTurnsLoaded] = useState(false);
+  // When each turn that came live (sent from here, or over the socket) first showed here.
+  const turnArrivals = useRef(new Map<string, number>());
+  const noteTurnArrival = useCallback((turnId: string) => {
+    if (!turnArrivals.current.has(turnId)) turnArrivals.current.set(turnId, Date.now());
+  }, []);
   const [assistantRunning, setAssistantRunning] = useState(false);
   const [file, setFile] = useState<OpenFile | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
+  // The save state is drawn from the state; handlers that run before the next draw read the ref.
+  const [saveState, drawSaveState] = useState<SaveState>("saved");
+  const saveStateRef = useRef<SaveState>("saved");
+  const setSaveState = useCallback((next: SaveState) => {
+    saveStateRef.current = next;
+    drawSaveState(next);
+  }, []);
   const [share, setShare] = useState<StudioShareResult | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -203,7 +273,11 @@ export function StudioWorkspace() {
     }
   });
   const headerUploadRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<"run" | "stop" | "install" | null>(null);
+  // The "…" button: focus goes back to it when the settings dialog or the Checkpoints sheet closes.
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const [busy, setBusy] = useState<"run" | "stop" | null>(null);
+  // Installing a language takes minutes and Run can be tapped meanwhile, so it has its own state.
+  const [installing, setInstalling] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState<string | null>(() => {
     const state = location.state as { prompt?: string } | null;
     return state?.prompt ?? null;
@@ -211,9 +285,35 @@ export function StudioWorkspace() {
 
   const fileRef = useRef<OpenFile | null>(null);
   fileRef.current = file;
+  /** Changes the open file for the next draw, and at once for handlers that run before it. */
+  const putFile = useCallback((next: OpenFile) => {
+    fileRef.current = next;
+    setFile(next);
+  }, []);
+  // The open-file tabs: paths in the order they were opened, starting from the
+  // ones this browser had open last time. The ref is what handlers read and
+  // change (several can run before the next draw); the state draws the strip.
+  const [rememberedTabs] = useState(() => readRememberedTabs(workspaceId));
+  const tabsRef = useRef<string[]>(rememberedTabs.tabs);
+  const [openTabs, setOpenTabs] = useState<string[]>(rememberedTabs.tabs);
+  const changeTabs = useCallback((change: (tabs: string[]) => string[]) => {
+    const next = change(tabsRef.current);
+    if (next === tabsRef.current) return;
+    tabsRef.current = next;
+    setOpenTabs(next);
+  }, []);
+  // The live editor (for the phone's key row) and where its cursor is (for the status bar).
+  const editorViewRef = useRef<EditorView | null>(null);
+  const cursorStore = useMemo(() => createEditorCursorStore(), []);
   const teamVisibleRef = useRef(false);
   teamVisibleRef.current = narrow ? pane === "team" : sideTab === "team";
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The save on its way to the server, if any: the next one waits for it.
+  const savingRef = useRef<Promise<boolean> | null>(null);
+  // What the person's own save in flight (or the one just finished) wrote, and the versions
+  // their saves returned: the server announces every save to everyone, the saver included.
+  const ownSave = useRef<{ path: string; content: string } | null>(null);
+  const ownVersions = useRef<string[]>([]);
   const lastDraftAt = useRef(0);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -230,6 +330,26 @@ export function StudioWorkspace() {
   workspaceNameRef.current = workspace?.name ?? null;
   const pagePathRef = useRef("");
   pagePathRef.current = `${location.pathname}${location.search}`;
+
+  // The invite link is not part of the project: sharing started here answers with it, and a page
+  // opened again (or a code replaced on another device) asks for it, so the Team tab shows the
+  // link and not only the code.
+  const sharedCode = workspace?.shareEnabled ? workspace.shareCode : null;
+  const knownShareCode = share?.code ?? null;
+  useEffect(() => {
+    if (!workspaceId || !sharedCode || knownShareCode === sharedCode) return;
+    let left = false;
+    studioApi.shareInfo(workspaceId).then(
+      ({ share: found }) => {
+        if (!left && found) setShare((current) => (current?.code === found.code ? current : found));
+      },
+      // The code still shows; the link comes back with the next Share.
+      () => undefined,
+    );
+    return () => {
+      left = true;
+    };
+  }, [workspaceId, sharedCode, knownShareCode]);
 
   // The preview reloads by itself a moment after files change (an agent's
   // write, a save), so it never shows a stale page.
@@ -284,7 +404,11 @@ export function StudioWorkspace() {
   const [socketLive, setSocketLive] = useState(false);
   const assistant = useQuery({
     queryKey: queryKeys.studio.assistant(workspaceId),
-    queryFn: () => studioApi.assistant(workspaceId),
+    // `askedAt`: when this copy was asked for, to tell a turn the server does not have yet from one it no longer has.
+    queryFn: async () => {
+      const askedAt = Date.now();
+      return { ...(await studioApi.assistant(workspaceId)), askedAt };
+    },
     enabled: !!workspaceId,
     refetchInterval: assistantRunning && !socketLive ? 2550 : false,
   });
@@ -302,7 +426,9 @@ export function StudioWorkspace() {
 
   useEffect(() => {
     if (assistant.data) {
-      setTurns((current) => mergeTurns(current, assistant.data!.turns));
+      const { turns: serverTurns, askedAt } = assistant.data;
+      setTurns((current) => mergeTurns(current, serverTurns, (turnId) => (turnArrivals.current.get(turnId) ?? 0) >= askedAt));
+      setTurnsLoaded(true);
       setAssistantRunning(assistant.data.running);
     }
   }, [assistant.data]);
@@ -338,6 +464,79 @@ export function StudioWorkspace() {
   // The guests in the room, as last seen: someone new joining means the
   // people list (where they can be removed) must be fetched again.
   const roomGuests = useRef("");
+  // Closes the tabs of a deleted file or folder; true when the open file was one of them.
+  // Set further down, where opening a file is defined.
+  const closeDeletedRef = useRef<(path: string) => boolean>(() => false);
+
+  /**
+   * Takes in the server's copy of the open file, as a save announced it or as
+   * it was read again. The person's own save coming back, or the same text
+   * saved again, changes only what counts as saved, however much they typed
+   * since. Someone else's change replaces a copy with no edits; over edits
+   * that are not saved it is offered as the choice between theirs and mine.
+   * `content` is null for a file that is not text or is too large to show.
+   */
+  const takeServerCopy = useCallback(
+    (server: { path: string; version: string; content: string | null; size?: number }) => {
+      const current = fileRef.current;
+      if (!current || current.path !== server.path || server.version === current.version) return;
+      // A save of the person's own that already answered: nothing new, however late it is announced.
+      if (ownVersions.current.includes(versionKey(server.path, server.version))) return;
+      const own = ownSave.current?.path === server.path ? ownSave.current.content : null;
+      if (server.content !== null && (server.content === own || server.content === current.savedContent || server.content === current.content)) {
+        putFile({ ...current, savedContent: server.content, version: server.version });
+        if (server.content === current.content && saveStateRef.current !== "saving") setSaveState("saved");
+        return;
+      }
+      if (current.content !== current.savedContent) {
+        setSaveState("conflict");
+        return;
+      }
+      const content = server.content ?? "";
+      putFile({ ...current, content, savedContent: content, version: server.version, binary: server.content === null, size: server.size ?? current.size });
+      setSaveState("saved");
+    },
+    [putFile, setSaveState],
+  );
+
+  /**
+   * Reads the open file again from the server, for changes the socket did not
+   * bring: it was down, or the change is one the person made here (going back
+   * to a checkpoint, undoing the AI's change). A file that is gone closes the
+   * way a deleted one does. `quiet` is for a read nobody asked for: a failure
+   * is not announced, and a later save meets a newer version as a conflict.
+   */
+  const refreshOpenFile = useCallback(
+    async (options: { quiet?: boolean } = {}) => {
+      // Twice at most: a copy that changed here while it was being read is read once more.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const before = fileRef.current;
+        if (!before) return;
+        let loaded: StudioFileContent;
+        try {
+          loaded = await studioApi.readFile(workspaceId, before.path);
+        } catch (error) {
+          if (fileRef.current?.path !== before.path) return;
+          if (error instanceof ApiError && error.status === 404) {
+            if (closeDeletedRef.current(before.path)) pushToast({ title: `${before.path} was deleted`, tone: "info" });
+          } else if (!options.quiet) {
+            // The open copy stays as it was; saving it later meets the newer version as a conflict.
+            pushToast({ title: `Couldn't load the new version of ${before.path}`, body: errorText(error), tone: "error" });
+          }
+          return;
+        }
+        const current = fileRef.current;
+        // Another file was opened meanwhile: it was read when it opened.
+        if (!current || current.path !== before.path) return;
+        // A save or someone's change arrived while this was read: what was read may be the older of the two.
+        if (current.version !== before.version) continue;
+        takeServerCopy(loaded);
+        return;
+      }
+    },
+    [pushToast, takeServerCopy, workspaceId],
+  );
+
   const handleEvent = useCallback(
     (event: StudioServerEvent) => {
       switch (event.type) {
@@ -345,6 +544,9 @@ export function StudioWorkspace() {
           setMe(event.you);
           setParticipants(event.participants);
           roomGuests.current = guestKey(event.participants);
+          // Who is typing is as of now: the server sends every live draft again after hello,
+          // and one that ended while the socket was down is not among them.
+          setDrafts({});
           break;
         case "presence": {
           setParticipants(event.participants);
@@ -370,29 +572,22 @@ export function StudioWorkspace() {
           break;
         case "file:saved": {
           schedulePreviewReload();
+          if (event.version === "deleted") {
+            if (closeDeletedRef.current(event.path)) pushToast({ title: `${event.path} was deleted`, tone: "info" });
+            break;
+          }
           const current = fileRef.current;
           if (!current || current.path !== event.path) break;
-          if (event.version === "deleted") {
-            pushToast({ title: `${event.path} was deleted`, tone: "info" });
-            setFile(null);
+          if (event.content !== null) {
+            takeServerCopy(event);
             break;
           }
-          if (event.content !== null && event.content === current.content) {
-            setFile({ ...current, savedContent: event.content, version: event.version });
-            break;
-          }
-          if (current.content === current.savedContent) {
-            if (event.content !== null) setFile({ ...current, content: event.content, savedContent: event.content, version: event.version });
-            else {
-              void studioApi
-                .readFile(workspaceId, current.path)
-                .then((loaded) => setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version }))
-                // The open copy stays as it was; saving it later meets the newer version as a conflict.
-                .catch((error) => pushToast({ title: `Couldn't load the new version of ${current.path}`, body: errorText(error), tone: "error" }));
-            }
-          } else {
-            setSaveState("conflict");
-          }
+          // Too large to come along with the announcement. The person's own save needs no
+          // reading (its answer brings the version); anyone else's is read, unless edits are open.
+          if (event.version === current.version || ownVersions.current.includes(versionKey(event.path, event.version))) break;
+          if (savingRef.current && ownSave.current?.path === event.path) break;
+          if (current.content !== current.savedContent) setSaveState("conflict");
+          else void refreshOpenFile();
           break;
         }
         case "draft":
@@ -434,6 +629,7 @@ export function StudioWorkspace() {
           consoleStore.clear();
           break;
         case "assistant:cleared":
+          turnArrivals.current.clear();
           setTurns([]);
           setAssistantRunning(false);
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.assistant(workspaceId) });
@@ -442,6 +638,7 @@ export function StudioWorkspace() {
           setRun(event.state);
           break;
         case "assistant":
+          noteTurnArrival(event.turn.id);
           setTurns((current) => upsertTurn(current, event.turn));
           if (event.turn.role === "assistant") {
             setAssistantRunning(!event.done);
@@ -466,14 +663,7 @@ export function StudioWorkspace() {
           break;
         case "checkpoint:restored": {
           void queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
-          const current = fileRef.current;
-          if (current) {
-            void studioApi
-              .readFile(workspaceId, current.path)
-              .then((loaded) => setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version, binary: loaded.content === null }))
-              .catch(() => setFile(null));
-            setSaveState("saved");
-          }
+          void refreshOpenFile();
           pushToast({ title: `Went back to “${event.checkpoint.label}”`, tone: "success" });
           break;
         }
@@ -481,7 +671,7 @@ export function StudioWorkspace() {
           break;
       }
     },
-    [pushToast, queryClient, workspaceId, schedulePreviewReload, dropProbe],
+    [pushToast, queryClient, workspaceId, schedulePreviewReload, dropProbe, takeServerCopy, refreshOpenFile, noteTurnArrival, setSaveState],
   );
   const socketUrl = useMemo(() => (workspaceId ? studioSocketUrl({ workspaceId }) : null), [workspaceId]);
   const { status: socketStatus, send } = useStudioSocket(socketUrl, handleEvent);
@@ -491,8 +681,85 @@ export function StudioWorkspace() {
   useEffect(() => {
     if (socketStatus === "open") send({ type: "visibility", visible: pageVisible });
   }, [socketStatus, pageVisible, send]);
+  // ── Files ─────────────────────────────────────────────────────────────
+  /**
+   * Saves the open file's edits; false when they could not be saved. One save
+   * is on its way at a time: the next waits for it and goes out with the
+   * version it returned, so the person's own save is never met as a conflict.
+   * `leaving` sends it so that it arrives even when the page is gone a moment later.
+   * It never rejects.
+   */
+  const save = useCallback(
+    async (options: { force?: boolean; leaving?: boolean } = {}): Promise<boolean> => {
+      while (savingRef.current) await savingRef.current;
+      const current = fileRef.current;
+      if (!current || current.binary || current.content === current.savedContent) return true;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      const content = current.content;
+      const input = { path: current.path, content, baseVersion: options.force ? null : current.version };
+      ownSave.current = { path: current.path, content };
+      setSaveState("saving");
+      const attempt = (async () => {
+        try {
+          const saved = options.leaving ? await writeFileWhileLeaving(workspaceId, input) : await studioApi.writeFile(workspaceId, input);
+          ownVersions.current = [...ownVersions.current, versionKey(saved.path, saved.version)].slice(-OWN_VERSIONS_KEPT);
+          ownSave.current = null;
+          const latest = fileRef.current;
+          if (latest && latest.path === saved.path) {
+            if (latest.version === current.version || latest.version === saved.version) {
+              putFile({ ...latest, savedContent: content, version: saved.version });
+              setSaveState(latest.content === content ? "saved" : "dirty");
+            } else if (saveStateRef.current === "saving") {
+              // Someone's change that followed this save is already here: it stays, not this older answer.
+              setSaveState(latest.content === latest.savedContent ? "saved" : "dirty");
+            }
+          }
+          send({ type: "draft:clear", path: current.path });
+          return true;
+        } catch (error) {
+          const refused = error instanceof ApiError && error.status === 409;
+          // Refused: nothing was written. Any other failure may have reached the server (only
+          // the answer was lost), so its text still counts as the person's own if it shows up there.
+          if (refused) ownSave.current = null;
+          // A conflict waits for the person's choice; any other failure is tried again (see below).
+          setSaveState(refused ? "conflict" : "error");
+          return false;
+        } finally {
+          savingRef.current = null;
+        }
+      })();
+      savingRef.current = attempt;
+      return attempt;
+    },
+    [putFile, send, setSaveState, workspaceId],
+  );
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  // A save that failed for any reason but a conflict (the phone was offline for
+  // a moment, the server was restarting) is sent again by itself: after a
+  // pause that grows with each failure, and at once when the browser says the
+  // connection is back. The socket coming back does the same (below).
+  const saveFailures = useRef(0);
+  useEffect(() => {
+    if (saveState === "saved") saveFailures.current = 0;
+    if (saveState !== "error") return;
+    const delay = SAVE_RETRY_DELAYS_MS[Math.min(saveFailures.current, SAVE_RETRY_DELAYS_MS.length - 1)]!;
+    saveFailures.current += 1;
+    const retry = () => void save();
+    const timer = setTimeout(retry, delay);
+    window.addEventListener("online", retry);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("online", retry);
+    };
+  }, [saveState, save]);
+
   // Whatever happened while the socket was down (a reply finishing, console
-  // output, a cleared chat) is read again as soon as it reconnects.
+  // output, a cleared chat, the open file rewritten by the AI or by going back
+  // to a checkpoint) is read again as soon as it reconnects. A save that
+  // failed meanwhile goes out again once the open file is known to be current.
   const wasOpenRef = useRef(false);
   useEffect(() => {
     if (socketStatus !== "open") return;
@@ -503,34 +770,10 @@ export function StudioWorkspace() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.studio.assistant(workspaceId) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.studio.detail(workspaceId) });
     void studioApi.console(workspaceId).then((result) => consoleStore.merge(result.lines)).catch(() => undefined);
-  }, [socketStatus, queryClient, workspaceId, consoleStore]);
-
-  // ── Files ─────────────────────────────────────────────────────────────
-  /** Saves the open file's edits; false when they could not be saved. */
-  const save = useCallback(
-    async (options: { force?: boolean } = {}) => {
-      const current = fileRef.current;
-      if (!current || current.binary || current.content === current.savedContent) return true;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-      const content = current.content;
-      setSaveState("saving");
-      try {
-        const saved = await studioApi.writeFile(workspaceId, { path: current.path, content, baseVersion: options.force ? null : current.version });
-        const latest = fileRef.current;
-        if (latest && latest.path === saved.path) {
-          setFile({ ...latest, savedContent: content, version: saved.version });
-          setSaveState(latest.content === content ? "saved" : "dirty");
-        }
-        send({ type: "draft:clear", path: current.path });
-        return true;
-      } catch (error) {
-        setSaveState(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
-        return false;
-      }
-    },
-    [send, workspaceId],
-  );
+    void refreshOpenFile({ quiet: true }).then(() => {
+      if (saveStateRef.current === "error") void save();
+    });
+  }, [socketStatus, queryClient, workspaceId, consoleStore, refreshOpenFile, save]);
 
   // Grey AI suggestions in the editor, from the provider picked in the AI
   // panel, or the free models while that provider has no key (as the panel does).
@@ -584,6 +827,7 @@ export function StudioWorkspace() {
     [pushToast, queryClient, workspaceId],
   );
 
+  /** Opens a file in the editor and gives it a tab; false when it did not open. */
   const openFile = useCallback(
     async (path: string, options: { show?: boolean } = {}) => {
       const current = fileRef.current;
@@ -591,24 +835,104 @@ export function StudioWorkspace() {
       // save stay open instead of being thrown away.
       if (current && !(await save())) {
         pushToast({ title: `Couldn't save ${current.path}`, body: "Your edits are still open here.", tone: "error" });
-        return;
+        return false;
       }
       setWatching(null);
       setFileLoading(true);
       try {
         const loaded = await studioApi.readFile(workspaceId, path);
-        setFile({ path: loaded.path, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version, binary: loaded.content === null, size: loaded.size });
+        putFile({ path: loaded.path, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version, binary: loaded.content === null, size: loaded.size });
+        changeTabs((tabs) => withTab(tabs, loaded.path));
         setSaveState("saved");
         send({ type: "focus", path: loaded.path });
         if (options.show !== false) setPane("code");
+        return true;
       } catch (error) {
+        // A file that is not there anymore has no use for a tab.
+        if (error instanceof ApiError && error.status === 404) changeTabs((tabs) => withoutTabs(tabs, path));
         pushToast({ title: `Couldn't open ${path}`, body: errorText(error), tone: "error" });
+        return false;
       } finally {
         setFileLoading(false);
       }
     },
-    [pushToast, save, send, workspaceId],
+    [changeTabs, pushToast, putFile, save, send, setSaveState, workspaceId],
   );
+
+  /** Leaves the editor empty: no file is open. */
+  const showNoFile = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    fileRef.current = null;
+    setFile(null);
+    setSaveState("saved");
+    setWatching(null);
+    send({ type: "focus", path: null });
+  }, [send]);
+
+  /**
+   * Closes a tab. The open file's edits are saved first, and it stays open
+   * when they can't be; then the tab beside it opens, or nothing when it was
+   * the last one. Any other tab just goes.
+   */
+  const closeTab = useCallback(
+    async (path: string) => {
+      if (fileRef.current?.path !== path) {
+        changeTabs((tabs) => withoutTabs(tabs, path));
+        return;
+      }
+      if (!(await save())) {
+        pushToast({ title: `Couldn't save ${path}`, body: "The tab stays open so your edits are not lost.", tone: "error" });
+        return;
+      }
+      // Another file was opened while this one saved: only the tab goes.
+      const stillOpen = fileRef.current?.path === path;
+      const next = stillOpen ? neighbourTab(tabsRef.current, path) : null;
+      changeTabs((tabs) => withoutTabs(tabs, path));
+      if (!stillOpen || (next && (await openFile(next)))) return;
+      // The last tab, or the next file could not be read: nothing is open.
+      if (fileRef.current?.path === path) showNoFile();
+    },
+    [changeTabs, openFile, pushToast, save, showNoFile],
+  );
+
+  /**
+   * A file or folder was deleted: its tabs close. When the open file was one
+   * of them it leaves the editor with its unsaved edits (saving them would
+   * bring the file back), and the tab beside it opens. True when the open
+   * file was one of them.
+   */
+  const closeDeleted = useCallback(
+    (path: string) => {
+      const deleted = (tab: string) => isAtOrUnder(tab, path);
+      const current = fileRef.current;
+      const next = current && deleted(current.path) ? neighbourTab(tabsRef.current, current.path, deleted) : null;
+      changeTabs((tabs) => withoutTabs(tabs, path));
+      if (!current || !deleted(current.path)) return false;
+      showNoFile();
+      if (next) void openFile(next, { show: false });
+      return true;
+    },
+    [changeTabs, openFile, showNoFile],
+  );
+  closeDeletedRef.current = closeDeleted;
+
+  // Tabs of files the tree no longer has (deleted or moved by someone else, or
+  // remembered from last time) close when the tree says so. Two kinds stay:
+  // the open file (one made a moment ago can be open before the tree lists
+  // it), and files in a rename of the person's own that is still under way
+  // (the tree can show the move before or after their tabs take the new path).
+  const renaming = useRef<{ from: string; to: string } | null>(null);
+  useEffect(() => {
+    const nodes = tree.data?.tree;
+    if (!nodes) return;
+    const move = renaming.current;
+    changeTabs((tabs) =>
+      existingTabs(tabs, nodes, (tab) => tab === fileRef.current?.path || Boolean(move && (isAtOrUnder(tab, move.from) || isAtOrUnder(tab, move.to)))),
+    );
+  }, [tree.data, changeTabs]);
 
   // Open the entry file (or the first file) once the tree arrives.
   const openedFirst = useRef(false);
@@ -624,13 +948,23 @@ export function StudioWorkspace() {
     };
     walk(tree.data.tree);
     const entry = language?.entry && paths.includes(language.entry) ? language.entry : paths.find((path) => /(^|\/)(index\.html|main\.\w+|app\.\w+|server\.\w+|README\.md)$/i.test(path)) ?? paths[0];
-    if (entry) void openFile(entry, { show: false });
-  }, [tree.data, workspace, language, openFile]);
+    // The file that was open last time comes back, when it is still there.
+    const last = rememberedTabs.active && existingTabs([rememberedTabs.active], tree.data.tree).length ? rememberedTabs.active : null;
+    const first = last ?? entry;
+    if (first) void openFile(first, { show: false });
+  }, [tree.data, workspace, language, openFile, rememberedTabs]);
+
+  // The tabs are remembered per workspace in this browser, once the first file
+  // is chosen (until then the open file is not known).
+  useEffect(() => {
+    if (!openedFirst.current || (!file && fileLoading)) return;
+    rememberTabs(workspaceId, openTabs, file?.path ?? null);
+  }, [workspaceId, openTabs, file?.path, fileLoading]);
 
   const onEdit = (value: string) => {
     const current = fileRef.current;
     if (!current) return;
-    setFile({ ...current, content: value });
+    putFile({ ...current, content: value });
     setSaveState(value === current.savedContent ? "saved" : "dirty");
     // Everyone else sees the typing live.
     const now = Date.now();
@@ -645,20 +979,28 @@ export function StudioWorkspace() {
     saveTimer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
   };
 
-  useEffect(
-    () => () => {
+  // Leaving inside the autosave's pause (the back arrow, closing the tab, opening another
+  // page in it) sends the last edit instead of dropping it; so does leaving after a save that failed.
+  useEffect(() => {
+    const leave = () => void saveRef.current({ leaving: true });
+    window.addEventListener("pagehide", leave);
+    return () => {
+      window.removeEventListener("pagehide", leave);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (draftTimer.current) clearTimeout(draftTimer.current);
-    },
-    [],
-  );
+      leave();
+    };
+  }, []);
 
   const reloadFromServer = async () => {
     const current = fileRef.current;
     if (!current) return;
     try {
       const loaded = await studioApi.readFile(workspaceId, current.path);
-      setFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version });
+      // Another file was opened while this one was read: it is not put back.
+      if (fileRef.current?.path !== current.path) return;
+      ownSave.current = null;
+      putFile({ ...current, content: loaded.content ?? "", savedContent: loaded.content ?? "", version: loaded.version });
       setSaveState("saved");
       send({ type: "draft:clear", path: current.path });
     } catch (error) {
@@ -668,8 +1010,15 @@ export function StudioWorkspace() {
 
   const deletions = useUndoableAction({
     commit: async (path) => {
-      await studioApi.deleteEntry(workspaceId, path);
-      if (fileRef.current?.path === path || fileRef.current?.path.startsWith(`${path}/`)) setFile(null);
+      try {
+        await studioApi.deleteEntry(workspaceId, path);
+      } catch (error) {
+        // The row comes back, six seconds after "Deleted": say so and why.
+        haptic("warning");
+        pushToast({ title: `Couldn't delete ${path.split("/").pop()}`, body: errorText(error), tone: "error" });
+        throw error;
+      }
+      closeDeleted(path);
       await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
     },
   });
@@ -706,7 +1055,8 @@ export function StudioWorkspace() {
       haptic("warning");
       pushToast({ title: "Couldn't start the app", body: errorText(error), tone: "error" });
     } finally {
-      setBusy(null);
+      // Only its own mark: Stop may have been tapped while the app was starting.
+      setBusy((current) => (current === "run" ? null : current));
     }
   };
 
@@ -719,12 +1069,12 @@ export function StudioWorkspace() {
       haptic("warning");
       pushToast({ title: "Couldn't stop the app", body: errorText(error), tone: "error" });
     } finally {
-      setBusy(null);
+      setBusy((current) => (current === "stop" ? null : current));
     }
   };
 
   const installToolchain = async () => {
-    setBusy("install");
+    setInstalling(true);
     setPane("console");
     setSideTab("console");
     try {
@@ -739,7 +1089,7 @@ export function StudioWorkspace() {
     } catch (error) {
       pushToast({ title: "Couldn't install it here", body: errorText(error), tone: "error" });
     } finally {
-      setBusy(null);
+      setInstalling(false);
     }
   };
 
@@ -752,12 +1102,21 @@ export function StudioWorkspace() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
       setSettingsOpen(false);
     },
+    // The dialog stays open with what was typed: say why nothing happened.
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn't save the settings", body: errorText(error), tone: "error" });
+    },
   });
   const removeWorkspace = useMutation({
     mutationFn: () => studioApi.remove(workspaceId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.studio.list(companyId) });
       navigate("/studio");
+    },
+    onError: (error) => {
+      haptic("warning");
+      pushToast({ title: "Couldn't delete the app", body: errorText(error), tone: "error" });
     },
   });
 
@@ -795,19 +1154,28 @@ export function StudioWorkspace() {
         }
       }}
       onRename={async (from, to) => {
+        renaming.current = { from, to };
         try {
           // The open file moves with its folder too: re-opened only on an exact
           // match, its next autosave wrote the old path and brought the old
           // folder back.
           const openPath = fileRef.current?.path;
-          const movedTo =
-            openPath === from ? to : openPath?.startsWith(`${from}/`) ? `${to}${openPath.slice(from.length)}` : null;
+          const movedTo = openPath && movedPath(openPath, from, to) !== openPath ? movedPath(openPath, from, to) : null;
           if (movedTo && !(await save())) throw new Error(`Your edits to ${openPath} didn't save, so it stayed where it is. Try again.`);
           await studioApi.move(workspaceId, { from, to });
+          // The tabs and the open file take the new path as soon as the move is done.
+          changeTabs((tabs) => renameTabs(tabs, from, to));
+          const open = fileRef.current;
+          if (movedTo && open && open.path === openPath) {
+            fileRef.current = { ...open, path: movedTo };
+            setFile(fileRef.current);
+          }
           await queryClient.invalidateQueries({ queryKey: queryKeys.studio.tree(workspaceId) });
           if (movedTo) await openFile(movedTo);
         } catch (error) {
           pushToast({ title: "Couldn't rename", body: errorText(error), tone: "error" });
+        } finally {
+          renaming.current = null;
         }
       }}
       onDelete={(path) => deletions.run(path, `Deleted ${path.split("/").pop()}`)}
@@ -853,30 +1221,34 @@ export function StudioWorkspace() {
     </div>
   );
 
+  // The editor reports its cursor to the status bar; with no editor open there is no cursor to show.
+  const onEditorReady = (view: EditorView | null) => {
+    editorViewRef.current = view;
+    if (!view) cursorStore.set(null);
+  };
+  // The phone's key row types into the person's own text file, not into someone else's live edits.
+  const typing = Boolean(file && !file.binary && !watchedDraft);
+
   const editorPane = (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-9 items-center gap-2 border-b border-border px-3 py-1">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs" data-testid="studio-open-file">
-          {file?.path ?? (fileLoading ? "Opening…" : "No file open")}
-        </span>
-        <button
-          type="button"
-          onClick={toggleSuggest}
-          aria-pressed={suggestOn}
-          title="Grey AI suggestions while you type (Tab or tap to accept)"
-          className={cn(
-            "flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
-            suggestOn ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground",
-          )}
-          data-testid="studio-suggest-toggle"
-        >
-          <Sparkles className="size-3" />
-          {suggestOn ? "AI suggest" : "AI suggest off"}
-        </button>
-        <span className="shrink-0 text-xs text-muted-foreground" data-testid="studio-save-state">
-          {saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Edited" : saveState === "error" ? "Not saved" : saveState === "conflict" ? "Changed elsewhere" : file ? "Saved" : ""}
-        </span>
-      </div>
+      <StudioEditorTabs
+        tabs={openTabs}
+        activePath={file?.path ?? null}
+        loading={fileLoading}
+        dirty={Boolean(file && file.content !== file.savedContent)}
+        onSelect={(path) => {
+          if (path !== fileRef.current?.path) void openFile(path);
+        }}
+        onClose={(path) => void closeTab(path)}
+        onShowFiles={
+          narrow
+            ? () => {
+                haptic("tick");
+                setPane("files");
+              }
+            : undefined
+        }
+      />
       {saveState === "conflict" ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
           <TriangleAlert className="size-4 shrink-0 text-destructive" />
@@ -918,9 +1290,26 @@ export function StudioWorkspace() {
           </div>
         ) : file ? (
           watchedDraft ? (
-            <CodeEditor key={`watch:${file.path}`} path={file.path} value={watchedDraft.text} readOnly ariaLabel={`${watchedDraft.by.name}'s live edits`} />
+            <CodeEditor
+              key={`watch:${file.path}`}
+              path={file.path}
+              value={watchedDraft.text}
+              readOnly
+              ariaLabel={`${watchedDraft.by.name}'s live edits`}
+              onReady={onEditorReady}
+              onCursor={cursorStore.set}
+            />
           ) : (
-            <CodeEditor key={file.path} path={file.path} value={file.content} onChange={onEdit} onSave={() => void save()} suggest={suggestOn ? suggest : null} />
+            <CodeEditor
+              key={file.path}
+              path={file.path}
+              value={file.content}
+              onChange={onEdit}
+              onSave={() => void save()}
+              suggest={suggestOn ? suggest : null}
+              onReady={onEditorReady}
+              onCursor={cursorStore.set}
+            />
           )
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
@@ -935,12 +1324,14 @@ export function StudioWorkspace() {
           </div>
         )}
       </div>
+      {narrow && typing ? <EditorKeyRow editorRef={editorViewRef} data-testid="studio-key-row" /> : null}
+      <StudioEditorStatus path={file?.path ?? null} cursorStore={cursorStore} saveState={saveState} suggestOn={suggestOn} onToggleSuggest={toggleSuggest} />
     </div>
   );
 
   const consolePane = (
     <div className="flex h-full min-h-0 flex-col">
-      {missingToolchain && busy === "install" ? (
+      {missingToolchain && installing ? (
         <ToolchainInstallProgress requires={missingToolchain.requires ?? "the language"} consoleStore={consoleStore} />
       ) : missingToolchain ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
@@ -949,8 +1340,8 @@ export function StudioWorkspace() {
             {missingToolchain.requires} isn't installed on this device{missingToolchain.installCommand ? "." : `. ${missingToolchain.note ?? ""}`}
           </span>
           {missingToolchain.installCommand ? (
-            <Button size="xs" disabled={busy === "install"} onClick={() => void installToolchain()}>
-              {busy === "install" ? <LoaderCircle className="animate-spin" /> : null} Install
+            <Button size="xs" disabled={installing} onClick={() => void installToolchain()}>
+              {installing ? <LoaderCircle className="animate-spin" /> : null} Install
             </Button>
           ) : null}
         </div>
@@ -988,6 +1379,7 @@ export function StudioWorkspace() {
       reloadSignal={previewReload}
       consoleApp={consoleApp}
       consoleStore={consoleStore}
+      starting={busy === "run"}
       onRun={() => void runApp()}
       onShowConsole={() => {
         setPane("console");
@@ -1030,6 +1422,7 @@ export function StudioWorkspace() {
   const aiPane = (
     <StudioAssistant
       turns={turns}
+      turnsLoaded={turnsLoaded}
       running={assistantRunning}
       keys={keys}
       companyId={companyId}
@@ -1061,6 +1454,7 @@ export function StudioWorkspace() {
           ...(team?.length ? { team } : {}),
         });
         // Shown at once, whether or not the live socket is connected.
+        noteTurnArrival(sent.turn.id);
         setTurns((current) => upsertTurn(current, sent.turn));
         setAssistantRunning(true);
       }}
@@ -1073,18 +1467,23 @@ export function StudioWorkspace() {
           // The socket brings the updated step; this covers a disconnected one.
           setTurns((current) => current.map((turn) => ({ ...turn, steps: turn.steps.map((step) => (step.editId === editId ? { ...step, undone: true } : step)) })));
           pushToast({ title: `Undid the change to ${result.path}`, tone: "success" });
+          // So does the file itself: the editor shows it as it is now.
+          void refreshOpenFile();
         } catch (error) {
           pushToast({ title: "Couldn't undo that change", body: errorText(error), tone: "error" });
         }
       }}
       onClear={async () => {
         await studioApi.clearAssistant(workspaceId);
+        turnArrivals.current.clear();
         setTurns([]);
       }}
       onUndo={async (checkpointId) => {
         try {
           await studioApi.restoreCheckpoint(workspaceId, checkpointId);
           haptic("success");
+          // The socket says so too when it is up; this covers a disconnected one.
+          void refreshOpenFile();
         } catch (error) {
           pushToast({ title: "Couldn't undo", body: errorText(error), tone: "error" });
         }
@@ -1245,7 +1644,7 @@ export function StudioWorkspace() {
         />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="More" data-testid="studio-more">
+            <Button ref={moreButtonRef} variant="ghost" size="icon-sm" aria-label="More" data-testid="studio-more">
               <Ellipsis />
             </Button>
           </DropdownMenuTrigger>
@@ -1321,27 +1720,36 @@ export function StudioWorkspace() {
         <aside className="w-60 shrink-0 border-r border-border">{filesPane}</aside>
         <section className="min-w-0 flex-1">{editorPane}</section>
         <aside className="flex w-96 shrink-0 flex-col border-l border-border">
-          <div className="flex border-b border-border" role="tablist" aria-label="Side panel">
+          {/* The open tab shows its name. The others are icons with the name as a
+              tooltip until the row is wide enough for every name, so names never
+              run into each other. */}
+          <div className="@container flex border-b border-border" role="tablist" aria-label="Side panel">
             {tabs
               .filter((tab): tab is (typeof tabs)[number] & { id: SideTab } => tab.id !== "files" && tab.id !== "code")
               .map((tab) => {
                 const Icon = tab.icon;
+                const active = sideTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     role="tab"
-                    aria-selected={sideTab === tab.id}
+                    aria-selected={active}
+                    aria-label={tab.label}
+                    title={tab.label}
                     onClick={() => setSideTab(tab.id)}
                     className={cn(
-                      "relative flex flex-1 items-center justify-center gap-1.5 py-2 text-sm",
-                      sideTab === tab.id ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
+                      "relative flex min-w-9 items-center justify-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap",
+                      active ? "flex-initial font-medium text-foreground @lg:flex-1" : "flex-1 text-muted-foreground hover:text-foreground",
                     )}
+                    data-testid={`studio-side-tab-${tab.id}`}
                   >
-                    <Icon className="size-4" />
-                    {tab.label}
-                    {tab.badge ? <span className="size-1.5 rounded-full bg-primary" /> : null}
-                    {sideTab === tab.id ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
+                    <span className="relative flex shrink-0">
+                      <Icon className="size-4" />
+                      {tab.badge ? <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary" /> : null}
+                    </span>
+                    <span className={cn("min-w-0 truncate", active ? null : "hidden @lg:inline")}>{tab.label}</span>
+                    {active ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
                   </button>
                 );
               })}
@@ -1351,10 +1759,21 @@ export function StudioWorkspace() {
       </div>
       )}
 
-      <StudioCheckpointsSheet open={historyOpen} onOpenChange={setHistoryOpen} workspaceId={workspaceId} onRestored={() => setHistoryOpen(false)} />
+      <StudioCheckpointsSheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        workspaceId={workspaceId}
+        returnFocusRef={moreButtonRef}
+        onRestored={() => {
+          setHistoryOpen(false);
+          // The socket says so too when it is up; this covers a disconnected one.
+          void refreshOpenFile();
+        }}
+      />
       <StudioSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        returnFocusRef={moreButtonRef}
         name={workspace.name}
         runCommand={workspace.runCommand ?? ""}
         defaultRunCommand={language?.run ?? ""}
@@ -1377,9 +1796,12 @@ function StudioSettingsDialog({
   deleting,
   onSave,
   onDelete,
+  returnFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** What gets focus when the dialog closes: it opens from a menu item, which is gone by then. */
+  returnFocusRef: React.RefObject<HTMLElement | null>;
   name: string;
   runCommand: string;
   defaultRunCommand: string;
@@ -1400,7 +1822,14 @@ function StudioSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-(--sz-85vh) overflow-y-auto">
+      <DialogContent
+        className="max-h-(--sz-85vh) overflow-y-auto"
+        // No DialogTrigger, so focus is sent back to the button by hand.
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocusRef.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>App settings</DialogTitle>
           <DialogDescription>Rename the app, change how it runs, or pick Automa's colors.</DialogDescription>

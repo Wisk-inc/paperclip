@@ -194,7 +194,9 @@ const ProductionOrgChart = lazy(() =>
 
 // Studio loads its code editor only when you open it.
 const Studio = lazy(() => import("./pages/Studio").then((module) => ({ default: module.Studio })));
-const StudioWorkspace = lazy(() => import("./pages/StudioWorkspace").then((module) => ({ default: module.StudioWorkspace })));
+// The route component gives each project its own workspace instance, so moving
+// from one project to another in place never carries state across.
+const StudioWorkspace = lazy(() => import("./pages/StudioWorkspaceRoute").then((module) => ({ default: module.StudioWorkspaceRoute })));
 const Terminals = lazy(() => import("./pages/Terminals").then((module) => ({ default: module.Terminals })));
 const AppInspector = lazy(() => import("./pages/AppInspector").then((module) => ({ default: module.AppInspector })));
 

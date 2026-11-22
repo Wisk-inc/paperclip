@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { exec, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants, createWriteStream, existsSync, promises as fs, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,6 +37,19 @@ export interface DecodeOptions {
 }
 
 export const DEFAULT_DECODE_OPTIONS: DecodeOptions = { resources: true, sources: true, java: true };
+
+/**
+ * What was chosen, over the defaults. Only true and false count: a page that
+ * says nothing about a part sends it as undefined, which must not switch it off.
+ */
+function decodeOptions(chosen: Partial<DecodeOptions> | null | undefined): DecodeOptions {
+  const options = { ...DEFAULT_DECODE_OPTIONS };
+  for (const key of Object.keys(options) as Array<keyof DecodeOptions>) {
+    const value: unknown = chosen?.[key];
+    if (typeof value === "boolean") options[key] = value;
+  }
+  return options;
+}
 
 interface InspectorProject {
   id: string;
@@ -127,10 +141,11 @@ function ensureLoaded() {
         label: meta.label || "app",
         packageName: meta.packageName ?? null,
         splitCount: meta.splitCount ?? 0,
-        options: { ...DEFAULT_DECODE_OPTIONS, ...(meta.options ?? {}) },
+        options: decodeOptions(meta.options),
         dir,
         status: meta.status ?? "failed",
-        decoded: existsSync(path.join(dir, "decoded")),
+        // A decode that failed leaves a half-written tree: the folder alone does not make it decoded.
+        decoded: (meta.decoded ?? true) && existsSync(path.join(dir, "decoded")),
         java: meta.java ?? "none",
         log: "",
         outputPath: meta.outputPath && existsSync(meta.outputPath) ? meta.outputPath : null,
@@ -311,7 +326,7 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
     label: input.label.trim().slice(0, 200) || "app",
     packageName: input.packageName ?? null,
     splitCount: Math.max(0, Math.min(input.splitCount ?? 0, 999)),
-    options: { ...DEFAULT_DECODE_OPTIONS, ...(input.options ?? {}) },
+    options: decodeOptions(input.options),
     dir,
     status: "decoding",
     decoded: false,
@@ -324,6 +339,12 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
   };
   projects.set(id, project);
   persist(project);
+  runDecode(project);
+  return publicView(project);
+}
+
+/** Decodes the project's kept APK into its folder, with what its options ask for. */
+function runDecode(project: InspectorProject) {
   const flags = [...(project.options.resources ? [] : ["--no-res"]), ...(project.options.sources ? [] : ["--no-src"])];
   // jadx reads the APK on its own, so it runs alongside apktool instead of
   // after it: the Java view is ready about as soon as the file tree is. Not
@@ -343,6 +364,35 @@ function registerAndDecode(id: string, dir: string, input: NewProjectInput) {
     }
     if (javaAfterDecode) startJava(project);
   });
+}
+
+/**
+ * Decodes a project again from the APK it keeps, with resources, code and Java
+ * all on: for a project whose first decode left something out or failed. What
+ * was decoded before is replaced, edits and a built APK included; the
+ * conversation about the app stays.
+ */
+export async function startRedecode(companyId: string, id: string) {
+  const project = getInspectorProject(companyId, id);
+  if (!project) throw new Error("Project not found");
+  if (project.status === "decoding" || project.status === "building" || project.java === "working") {
+    throw new Error("Still working; wait for it to finish.");
+  }
+  if (!existsSync(inputApk(project))) {
+    throw new Error("This project no longer has the APK it was opened from. Open the APK again instead.");
+  }
+  // Marked first, so nothing reads or saves into folders that are being removed.
+  project.options = decodeOptions(null);
+  project.status = "decoding";
+  project.decoded = false;
+  project.java = "none";
+  project.log = "";
+  project.outputPath = null;
+  project.downloadsPath = null;
+  project.error = null;
+  persist(project);
+  await Promise.all([decodedDir(project), javaDir(project)].map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  runDecode(project);
   return publicView(project);
 }
 
@@ -455,9 +505,29 @@ export function confineToBase(base: string, relative: string): string {
   return resolved;
 }
 
-/** Confine a project-relative path to one view's tree; throws on escape. */
-function resolveInView(project: InspectorProject, view: InspectorView, relative: string): string {
-  return confineToBase(viewRoot(project, view), relative);
+/**
+ * Confine a project-relative path to one view's tree, by where it really is:
+ * a link inside the tree must not lead out of the project. Throws on escape.
+ * `forNewFile` lets the last part be missing (a file to create in a folder of the tree).
+ */
+async function resolveInView(project: InspectorProject, view: InspectorView, relative: string, forNewFile = false): Promise<string> {
+  const root = viewRoot(project, view);
+  const target = confineToBase(root, relative);
+  const realRoot = await fs.realpath(root);
+  let real: string;
+  try {
+    real = await fs.realpath(target);
+  } catch (error) {
+    if (!forNewFile || (error as NodeJS.ErrnoException | null)?.code !== "ENOENT") throw error;
+    // Nothing is there yet. A link to a missing file would be written through, so it is not a new file.
+    if (await fs.lstat(target).then((stat) => stat.isSymbolicLink(), () => false)) {
+      throw new Error("That is a link, and what it points to isn't there.");
+    }
+    real = path.join(await fs.realpath(path.dirname(target)), path.basename(target));
+  }
+  const withSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  if (real !== realRoot && !real.startsWith(withSep)) throw new Error("That path leads outside this app's files.");
+  return real;
 }
 
 function readyProject(companyId: string, id: string, view: InspectorView): InspectorProject {
@@ -473,7 +543,7 @@ function readyProject(companyId: string, id: string, view: InspectorView): Inspe
 /** One directory level of a project tree. */
 export async function listInspectorDir(companyId: string, id: string, relative: string, view: InspectorView = "files"): Promise<InspectorFileNode[]> {
   const project = readyProject(companyId, id, view);
-  const dir = resolveInView(project, view, relative || ".");
+  const dir = await resolveInView(project, view, relative || ".");
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const base = relative.replace(/^\/+/, "");
   const nodes = await Promise.all(
@@ -491,13 +561,13 @@ export interface InspectorFileContent {
   text: string;
   truncated: boolean;
   binary: boolean;
-  /** Java is decompiled output; binary and truncated files would be damaged by a save. */
+  /** Java is decompiled output; binary, truncated and non-UTF-8 files would be damaged by a save. */
   readOnly: boolean;
 }
 
 export async function readInspectorFile(companyId: string, id: string, relative: string, view: InspectorView = "files"): Promise<InspectorFileContent> {
   const project = readyProject(companyId, id, view);
-  const file = resolveInView(project, view, relative);
+  const file = await resolveInView(project, view, relative);
   const stat = await fs.stat(file);
   if (stat.isDirectory()) throw new Error("That is a folder");
   const handle = await fs.open(file, "r");
@@ -509,7 +579,8 @@ export async function readInspectorFile(companyId: string, id: string, relative:
       return { text: "", truncated: false, binary: true, readOnly: true };
     }
     const truncated = stat.size > MAX_FILE_READ;
-    return { text: buffer.toString("utf8"), truncated, binary: false, readOnly: view === "java" || truncated };
+    // Text in another encoding (Latin-1, GBK) shows here, but a save would rewrite its other characters.
+    return { text: buffer.toString("utf8"), truncated, binary: false, readOnly: view === "java" || truncated || !isUtf8(buffer) };
   } finally {
     await handle.close();
   }
@@ -519,22 +590,25 @@ export async function writeInspectorFile(companyId: string, id: string, relative
   const project = readyProject(companyId, id, "files");
   if (project.status === "building") throw new Error("Wait for the rebuild to finish before saving.");
   if (Buffer.byteLength(text, "utf8") > MAX_FILE_READ) throw new Error("That file is too large to save from here.");
-  const file = resolveInView(project, "files", relative);
+  const file = await resolveInView(project, "files", relative, true);
   const stat = await fs.stat(file).catch(() => null);
   if (stat?.isDirectory()) throw new Error("That is a folder");
   if (stat) {
     // Never overwrite what the editor could not show whole.
     if (stat.size > MAX_FILE_READ) throw new Error("That file is too large to edit here.");
-    const head = Buffer.alloc(Math.min(stat.size, 8192));
-    const handle = await fs.open(file, "r");
-    try {
-      await handle.read(head, 0, head.length, 0);
-    } finally {
-      await handle.close();
-    }
-    if (head.includes(0)) throw new Error("That is a binary file; it can't be edited as text.");
+    const existing = await fs.readFile(file);
+    if (existing.includes(0)) throw new Error("That is a binary file; it can't be edited as text.");
+    // Saved as UTF-8, text in another encoding would have every character outside ASCII replaced.
+    if (!isUtf8(existing)) throw new Error("This file isn't UTF-8 text; saving it here would change its other characters.");
   }
   await fs.writeFile(file, text, "utf8");
+  // The APK built before this edit is no longer this project: offer Build again, not that file.
+  if (project.status === "built") {
+    project.status = "ready";
+    project.outputPath = null;
+    project.downloadsPath = null;
+    persist(project);
+  }
 }
 
 export async function deleteInspectorProject(companyId: string, id: string): Promise<boolean> {
@@ -568,9 +642,17 @@ export interface InspectorSearchHit {
   preview: string | null;
 }
 
+export interface InspectorSearchOptions {
+  /** Stops the search when it fires: the page that asked went away, or started another search. */
+  signal?: AbortSignal;
+  /** How long the search may run, in milliseconds. Left out, it is the search's own deadline. */
+  deadlineMs?: number;
+}
+
 /**
  * Find files by name, or text inside them, across one view of a project. Bounded
  * (results, files walked, file size and time) so a huge app can't stall the server.
+ * `truncated` says the search stopped before it had looked at everything.
  */
 export async function searchInspector(
   companyId: string,
@@ -578,24 +660,32 @@ export async function searchInspector(
   view: InspectorView,
   query: string,
   mode: "name" | "text",
+  options: InspectorSearchOptions = {},
 ): Promise<{ results: InspectorSearchHit[]; truncated: boolean }> {
   const project = readyProject(companyId, id, view);
   const root = viewRoot(project, view);
   const needle = query.trim().toLowerCase();
   if (needle.length < (mode === "text" ? 2 : 1)) return { results: [], truncated: false };
-  const deadline = Date.now() + SEARCH_DEADLINE_MS;
+  const deadline = Date.now() + (options.deadlineMs ?? SEARCH_DEADLINE_MS);
   const results: InspectorSearchHit[] = [];
   const stack = [""];
   let visited = 0;
   let truncated = false;
-  while (stack.length > 0) {
-    if (results.length >= SEARCH_MAX_RESULTS || visited >= SEARCH_MAX_ENTRIES || Date.now() > deadline) {
+  // Asked before every entry, not only between folders: one folder can hold a whole app's classes.
+  const mustStop = () =>
+    results.length >= SEARCH_MAX_RESULTS || visited >= SEARCH_MAX_ENTRIES || Date.now() > deadline || options.signal?.aborted === true;
+  walk: while (stack.length > 0) {
+    if (mustStop()) {
       truncated = true;
       break;
     }
     const relative = stack.pop()!;
     const entries = await fs.readdir(path.join(root, relative), { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
+      if (mustStop()) {
+        truncated = true;
+        break walk;
+      }
       visited += 1;
       const entryPath = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
@@ -620,7 +710,6 @@ export async function searchInspector(
           }
         }
       }
-      if (results.length >= SEARCH_MAX_RESULTS) break;
     }
   }
   results.sort((a, b) => a.path.localeCompare(b.path));
@@ -630,7 +719,7 @@ export async function searchInspector(
 /** An image inside a project, for a thumbnail or preview. Only plain image types. */
 export async function inspectorImageFile(companyId: string, id: string, view: InspectorView, relative: string): Promise<{ file: string; type: string }> {
   const project = readyProject(companyId, id, view);
-  const file = resolveInView(project, view, relative);
+  const file = await resolveInView(project, view, relative);
   const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
   if (!type) throw new Error("That isn't an image Automa can show.");
   const stat = await fs.stat(file);
@@ -662,16 +751,20 @@ function attribute(tag: string, name: string): string | null {
   return new RegExp(`android:${name}="([^"]*)"`).exec(tag)?.[1] ?? null;
 }
 
+/** The opening tags with exactly this name: `activity` is not `activity-alias`. */
 function tagsOf(manifest: string, tag: string): string[] {
-  return [...manifest.matchAll(new RegExp(`<${tag}\\b[^>]*>`, "g"))].map((match) => match[0]);
+  return [...manifest.matchAll(new RegExp(`<${tag}(?=[\\s/>])[^>]*>`, "g"))].map((match) => match[0]);
 }
 
 /** What the app is, read from its decoded manifest and apktool.yml. */
 export async function inspectorAppInfo(companyId: string, id: string): Promise<InspectorAppInfo> {
   const project = readyProject(companyId, id, "files");
   const root = decodedDir(project);
-  const manifest = await fs.readFile(path.join(root, "AndroidManifest.xml"), "utf8").catch(() => "");
-  const yml = await fs.readFile(path.join(root, "apktool.yml"), "utf8").catch(() => "");
+  // Read like any file of the tree: empty when it is missing, or is a link that leads out of the project.
+  const treeText = (relative: string) =>
+    resolveInView(project, "files", relative).then((file) => fs.readFile(file, "utf8")).catch(() => "");
+  const manifest = await treeText("AndroidManifest.xml");
+  const yml = await treeText("apktool.yml");
   const yamlValue = (key: string) => new RegExp(`${key}:\\s*'?"?([^'"\\n]+)`).exec(yml)?.[1]?.trim() ?? null;
   const application = tagsOf(manifest, "application")[0] ?? "";
   const names = (tag: string) => tagsOf(manifest, tag).map((t) => attribute(t, "name")).filter((n): n is string => Boolean(n));
@@ -679,7 +772,7 @@ export async function inspectorAppInfo(companyId: string, id: string): Promise<I
   let label = attribute(application, "label");
   const stringRef = label?.match(/^@string\/(.+)$/);
   if (stringRef) {
-    const strings = await fs.readFile(path.join(root, "res", "values", "strings.xml"), "utf8").catch(() => "");
+    const strings = await treeText("res/values/strings.xml");
     label = new RegExp(`<string name="${stringRef[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>([^<]*)</string>`).exec(strings)?.[1] ?? null;
   }
 
@@ -700,10 +793,12 @@ export async function inspectorAppInfo(companyId: string, id: string): Promise<I
     }
   }
 
-  // The activity whose intent filter has the LAUNCHER category.
+  // The activity whose intent filter has the LAUNCHER category. An activity with
+  // nothing inside is written self-closing (<activity .../>): it has no intent
+  // filter, and must not be read as the start of the next activity's block.
   let launcherActivity: string | null = null;
-  for (const block of manifest.matchAll(/<activity(?:-alias)?\b([^>]*)>([\s\S]*?)<\/activity(?:-alias)?>/g)) {
-    if (block[2]!.includes("android.intent.category.LAUNCHER")) {
+  for (const block of manifest.matchAll(/<activity(?:-alias)?\b([^>]*?)(?:\/>|>([\s\S]*?)<\/activity(?:-alias)?>)/g)) {
+    if (block[2]?.includes("android.intent.category.LAUNCHER")) {
       launcherActivity = attribute(block[1]!, "name");
       break;
     }
@@ -719,7 +814,8 @@ export async function inspectorAppInfo(companyId: string, id: string): Promise<I
     iconPath,
     launcherActivity,
     debuggable: attribute(application, "debuggable") === "true",
-    permissions: [...new Set(names("uses-permission"))].sort(),
+    // A permission asked only on Android 6 and newer is still one the app asks for.
+    permissions: [...new Set([...names("uses-permission"), ...names("uses-permission-sdk-23")])].sort(),
     activities: names("activity"),
     services: names("service"),
     receivers: names("receiver"),
