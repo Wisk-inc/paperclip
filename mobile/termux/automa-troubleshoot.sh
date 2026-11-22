@@ -117,6 +117,11 @@ free_up_space() {
     if npm cache clean --force >/dev/null 2>&1; then fixed "Emptied npm's download cache (${freed:-0} MB; the next update downloads again)."; fi
   fi
 }
+# What an update needs, measured the way the installer measures it: the new
+# server is prepared next to the one in use, so room for a second copy of it,
+# and 300 MB to work in.
+server_mb="$(size_mb "$server_dir")"
+update_need_mb=$(( ${server_mb:-0} + ${AUTOMA_UPDATE_HEADROOM_MB:-300} ))
 free_kb="$(df -Pk "$HOME" 2>/dev/null | awk 'NR == 2 { print $4 }' | tr -dc '0-9')"
 if [ -n "$free_kb" ]; then
   free_mb=$((free_kb / 1024))
@@ -124,9 +129,11 @@ if [ -n "$free_kb" ]; then
     bad "Only $free_mb MB of storage is free. The database and Automa stop working when the phone runs out of space."
     free_up_space
     free_kb="$(df -Pk "$HOME" 2>/dev/null | awk 'NR == 2 { print $4 }' | tr -dc '0-9')"
-    [ -z "$free_kb" ] || hint "Now $((free_kb / 1024)) MB free. Deleting photos, videos or apps you don't use frees more."
+    [ -z "$free_kb" ] || hint "Now $((free_kb / 1024)) MB free (an update needs about $update_need_mb MB). Deleting photos, videos or apps you don't use frees more."
+  elif [ "$free_mb" -lt "$update_need_mb" ]; then
+    note "$free_mb MB of storage free: not enough for an update, which needs about $update_need_mb MB (the new server is prepared next to the one in use). Deleting photos, videos or apps you don't use makes room."
   elif [ "$free_mb" -lt 1024 ]; then
-    note "$free_mb MB of storage free: getting low (an update needs about 600 MB)."
+    note "$free_mb MB of storage free: getting low."
   else
     ok "$free_mb MB of storage free"
   fi

@@ -87,9 +87,10 @@ The update on the phone copes with a phone that is nearly full.
 
 **`automa update` on a full phone**
 - **It checks the storage first.** The new server is prepared next to the one
-  in use, so an update needs room for a second copy of it for a few minutes
-  (about 600 MB). Before anything is copied or backed up, Automa measures what
-  is free.
+  in use, so an update needs room for a second copy of it for a few minutes,
+  and 300 MB to work in. Automa measures the installed server and what is
+  free before anything is copied or backed up, and says both numbers (plan for
+  1 GB or more).
 - **It makes room by itself** when that is too little, with what is safe to
   clear: what an earlier update left behind, npm's unfinished downloads and
   logs, the package files Termux downloaded (what is installed stays), and
@@ -97,7 +98,7 @@ The update on the phone copes with a phone that is nearly full.
   files and your backups are never touched.
 - **When there is still too little room it stops before changing anything**
   and says how much is free and how much the update needs, for example
-  "Not enough free storage for the update: 120 MB free, about 600 MB needed".
+  "Not enough free storage for the update: 120 MB free, about 1100 MB needed".
 - **Out of storage is called out of storage.** Before, a phone that filled up
   during the update was reported as "the connection timed out or dropped"
   after three tries that could not succeed. Now Automa makes room once, tries
@@ -107,7 +108,8 @@ The update on the phone copes with a phone that is nearly full.
   from earlier tries at the same update are now replaced by the newest one. No
   other backup is removed.
 - **`automa fix`** (the Troubleshoot button) clears the same things when
-  storage is nearly gone.
+  storage is nearly gone, and says when the room left is not enough for an
+  update, with how much an update needs on your phone.
 
 If the update stopped on your phone with "no space left on device", run these
 in Termux, then `automa update` again:
@@ -1870,7 +1872,7 @@ The full threat model is in `doc/AUTOMA-SECURITY.md`.
 | You see | What it means | Do this |
 |---|---|---|
 | **Update Automa on this phone** on Terminals or App Inspector | The phone's server is older than the page. | Tap it, Send to Termux, paste the command (or `automa update`). |
-| `automa update` says **Not enough free storage** or **The phone ran out of storage** | The update needs room for a second copy of the server (about 600 MB) and the phone has less, even after Automa cleared what is safe to clear. Nothing was changed. | Delete photos, videos or apps you don't use (old database copies in the backups folder can go too), then run `automa update` again. `automa fix` shows how much is free. |
+| `automa update` says **Not enough free storage** or **The phone ran out of storage** | The update needs room for a second copy of the server and 300 MB to work in (the message says how many MB that is on your phone) and the phone has less, even after Automa cleared what is safe to clear. Nothing was changed. | Delete photos, videos or apps you don't use (old database copies in the backups folder can go too), then run `automa update` again. `automa fix` shows how much is free. |
 | `npm error code ENOSPC` / "no space left on device" during an update (1.9.17 or older) | The phone is full; older versions called this a dropped connection. | In Termux: `npm cache clean --force`, `apt clean`, `rm -rf ~/.npm/_logs ~/.automa/server.next ~/.automa/server.prev`, then `automa update`. |
 | "App not installed" / "conflicts with an existing package" | The installed Automa was signed with a different key (1.8.1 or older). | Uninstall Automa, then install. Board data lives in Termux and is kept. |
 | Termux "RunCommandService requires allow-external-apps" | Termux hasn't let the app run commands yet. | Use the app's one-tap fix, or run the installer again. |

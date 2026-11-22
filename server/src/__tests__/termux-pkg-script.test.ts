@@ -1328,13 +1328,27 @@ describe("the automa command's backup and restore", () => {
         await mkdir(path.join(root, "home", ".npm", "_cacache", "tmp"), { recursive: true });
         await writeFile(path.join(root, "home", ".npm", "_cacache", "tmp", "half-download"), Buffer.alloc(3 * 1024 * 1024));
         await fake("apt-get", `echo "apt-get $*" >> "${root}/calls.log"; [ "$1" = clean ] && echo 612000 > "${root}/df-available"; exit 0`);
-        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        const result = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health", AUTOMA_UPDATE_HEADROOM_MB: "300" });
         expect(result.out).toContain("Only 97 MB of storage is free.");
         expect(result.out).toMatch(/Fixed: Removed npm's unfinished downloads and logs in .*_cacache\/tmp \(\d MB\)\./);
         expect(result.out).toContain("Fixed: Removed the package files Termux had downloaded (500 MB; what is installed stays).");
-        expect(result.out).toContain("Now 597 MB free.");
+        // With what an update needs, measured like the installer measures it: the size of the server (a few files here) and 300 MB to work in.
+        expect(result.out).toMatch(/Now 597 MB free \(an update needs about 30\d MB\)\./);
         expect(await calls()).toContain("apt-get clean");
         await expect(stat(path.join(root, "home", ".npm", "_cacache", "tmp"))).rejects.toThrow();
+      }, 60_000);
+
+      it("says when the room left is not enough for an update, with what an update needs", async () => {
+        await installAutoma();
+        await phone({ availableKb: 400_000 });
+        const short = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health", AUTOMA_UPDATE_HEADROOM_MB: "800" });
+        expect(short.out).toMatch(/390 MB of storage free: not enough for an update, which needs about 80\d MB \(the new server is prepared next to the one in use\)\./);
+        // Nothing is cleared for it: that is for a phone that is nearly out of room.
+        expect(short.out).not.toContain("Fixed: Emptied npm's download cache");
+        // Enough for an update, but not much more.
+        const low = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health", AUTOMA_UPDATE_HEADROOM_MB: "300" });
+        expect(low.out).toContain("390 MB of storage free: getting low.");
+        expect(low.out).not.toContain("not enough for an update");
       }, 60_000);
 
       it("changes nothing about a database another PostgreSQL version wrote, and says how to keep it", async () => {
