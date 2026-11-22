@@ -682,7 +682,8 @@ class TestCommand:
         assert repl.loop() == 0
         text = console.export_text()
         assert "✓ tools.py Python  1 function, 1 variable" in text and "Saved to memory: 2 new" in text
-        assert "show (tool(x))" in text and "imy import tools.py --forget" in text
-        assert "Usage: :import <folder, file or repository address>" in text
+        # What was read and saved; the example of using it and the commands that undo it belong to `imy import`.
+        assert "show (tool(x))" not in text and "--forget" not in text and "Use them by name" not in text
+        assert "Usage: :import <folder, file or repository address>" in text and "--help" not in text
         assert "There is no file or folder at nowhere." in text
         assert "tool" in text.split("There is no file or folder at nowhere.")[1]

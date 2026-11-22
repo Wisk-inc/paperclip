@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.15
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.16
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -391,9 +391,11 @@ open the **free models chat** with nothing to install.
 **IMY** (Imagenery) is in Terminals too: a strict compiler for code you write in
 your own syntax. You say what you are building in a `# ("...")` header, code
 every step, and IMY checks it, compiles it and runs it, with the free models or
-your own key. It converts each line as you type it, into the language you pick
-on its tile (Python, JavaScript, Ruby, Rust, C, Go, Assembly and more), and
-`:import` lets your code use the functions of a project you already have. It
+your own key. Its console reads like the file you are writing: each line
+stands behind its number, and the code it became, in the language you pick on
+its tile (Python, JavaScript, Ruby, Rust, C, Go, Assembly and more), appears
+under it. `:import` lets your code use the functions of a project you already
+have. It
 refuses English requests in place of code and anything your code does not
 actually build, and tells you the exact line. A **Check** button on the page
 shows which free models are answering right now.
@@ -528,7 +530,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.15.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.16.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -546,6 +548,22 @@ download. There is no Automa cloud account to create, ever.
 
 ## What's new
 
+**1.9.16** (22 November 2026) — IMY's console reads like the file you are
+writing. It opens with one line, the name of the program file your code becomes
+(`main.py`, or `main.rb` when you picked Ruby), and each line is typed behind
+its number and a bar, as in an editor. Once entered, a line is set again in
+colour, and the code it became appears under it, with its own number in the
+program file. A block keeps its indentation and Tab indents. The console also
+says only what you asked for: `:run` prints what your program prints, without
+the lines about the compile, memory and "exit code 0", commands answer in a
+word, and the hints are gone (`:help` still lists everything). Fixed on the
+way: lines pasted at once are numbered one by one; a line such as `:: end` is
+code, not an unknown command; a result is no longer written into the line you
+are typing; a newer result replaces the older one instead of showing a line of
+the program twice; keys pressed during a compile no longer land in the line
+that counts the seconds; and closing the terminal keeps the lines you typed.
+Open **Terminals** and tap **IMY**: the tile says **Tap to update**.
+
 **1.9.15** (22 November 2026) — IMY comes to Terminals. IMY (Imagenery) is a
 strict compiler for code you write your own way: the first line says what you
 are building, in a header like `# ("adds two numbers and shows the sum")`, and
@@ -554,7 +572,7 @@ turns it into another programming language in the background and runs it,
 without changing your file.
 
 - **It converts while you type.** Each line you enter is checked at once, and
-  the result appears above the line you are typing.
+  the code it became appears under it.
 - **You pick the language.** A menu on the IMY tile offers 20 (Python,
   JavaScript, Ruby, Rust, C, Go, Assembly…); `:target` switches inside the
   console, and IMY knows 48 in all and builds and runs 42 of them.

@@ -104,10 +104,11 @@ class TestConsoleExamples:
         text = console.export_text()
         assert "countdown   syntax you invent" in text
         assert "loaded countdown: 7 lines" in text
-        assert "  2 | count <- 5" in text
+        assert "  2 │ count <- 5" in text
         assert repl.lines == get_example("countdown").lines
         assert capfd.readouterr().out == "5\n4\n3\n2\n1\nLiftoff!\n"
-        assert "exit code 0" in text
+        # The list and the program, with no line telling what to type next and none after a run that ended well.
+        assert "exit code" not in text and ":example <name>" not in text and "compiled to" not in text
 
     def test_loading_says_what_it_replaced_and_unknown_names_list_the_choices(self, isolated: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         repl, console = self.make(isolated, monkeypatch, ['# ("my own program that prints one line")', 'show ("mine")', ":example hello", ":example nope", ":example"], FakeLLM())

@@ -8,12 +8,19 @@ for, and the same number is reported once the answer is in.
 from __future__ import annotations
 
 import contextlib
+import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
 
 from rich.console import Console
 from rich.markup import escape
+
+try:  # Not on Windows, where the terminal is not changed.
+    import termios
+except ImportError:  # pragma: no cover
+    termios = None  # type: ignore[assignment]
 
 
 def format_seconds(seconds: float) -> str:
@@ -23,6 +30,44 @@ def format_seconds(seconds: float) -> str:
         return f"{whole} s"
     minutes, rest = divmod(whole, 60)
     return f"{minutes} min {rest:02d} s"
+
+
+def _own_keyboard() -> int | None:
+    """The keyboard, when it is a terminal this program is in the foreground of."""
+    if termios is None:
+        return None
+    try:
+        keyboard = sys.stdin.fileno()
+        # A program in the background that changes the terminal is stopped by the system.
+        if not os.isatty(keyboard) or os.tcgetpgrp(keyboard) != os.getpgrp():
+            return None
+    except (AttributeError, OSError, ValueError):
+        return None
+    return keyboard
+
+
+@contextlib.contextmanager
+def keys_unseen() -> Iterator[None]:
+    """Keys pressed meanwhile are not shown on the screen. Shown, they would land in the line
+    that is being redrawn, and a pressed Enter would leave that line behind. They are not
+    lost: whatever reads the keyboard next gets them as typed."""
+    keyboard = _own_keyboard()
+    if keyboard is None:
+        yield
+        return
+    try:
+        saved = termios.tcgetattr(keyboard)
+        unseen = termios.tcgetattr(keyboard)
+        unseen[3] &= ~termios.ECHO
+        termios.tcsetattr(keyboard, termios.TCSANOW, unseen)
+    except (termios.error, OSError):
+        yield
+        return
+    try:
+        yield
+    finally:
+        with contextlib.suppress(termios.error, OSError):
+            termios.tcsetattr(keyboard, termios.TCSANOW, saved)
 
 
 @contextlib.contextmanager
@@ -45,7 +90,7 @@ def working(console: Console, label: str, *, hint_after: float = 20.0, hint: str
 
     stop = threading.Event()
     text = escape(label)
-    with console.status(f"{text}…") as status:
+    with keys_unseen(), console.status(f"{text}…") as status:
 
         def tick() -> None:
             while not stop.wait(1.0):

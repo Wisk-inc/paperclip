@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.15** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.16** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.15](#2-whats-new-in-1915)
+2. [What's new in 1.9.16](#2-whats-new-in-1916)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,56 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.15
+## 2. What's new in 1.9.16
+
+IMY's console now reads like the file you are writing, and says nothing you
+did not ask for. Open **Terminals**: the IMY tile says **Tap to update**
+(IMY 1.1.1).
+
+**IMY's console looks like a code file**
+- It opens with one line: the name of the program file your code becomes
+  (`main.py`, or `main.rb` when you picked Ruby, `Main.java`, `main.go`) and
+  IMY's version. The lines on how to begin are gone, and so is `imy>` before
+  every line.
+- Each line is typed behind its number and a bar, like the margin of an
+  editor. When you press Enter the line is set again in colour, and a line too
+  long for the screen continues between words under its own beginning.
+- The code a line became stands under it. With the free models, the lines of
+  the program file that are new or changed appear under the lines they came
+  from, each behind a broken bar and its own number in that file, in the
+  colours of the language. `:code` and `:convert ruby` show the whole program
+  the same way, under the file's name.
+- A new line begins where the line before it began, so a block keeps its
+  indentation; Backspace takes it away. Tab indents, and after a command it
+  completes a file's name.
+- A command keeps no number, so the numbered lines are your program.
+
+**It says only what you asked for**
+- `:run` prints what your program prints. The "compiled to …" line, the note
+  about memory and "exit code 0" are gone; an exit code is shown only when it
+  is not 0. The seconds still count while a model works, and leave no line
+  behind.
+- A command answers in a word or two, or not at all: `:target ruby` answers
+  with the new file's name, `:live off` with "live off". The hints that
+  followed a command are gone. `:help` lists every command, as before.
+
+**Fixes in the console**
+- Several lines pasted at once became one numbered line, and every number
+  after them was wrong. Each pasted line is now a line of its own.
+- A line that begins with a colon and no letter, such as `:: end` in the
+  countdown example, was refused as an unknown command. It is code now.
+- On a phone's narrow screen a converted result could land in the line you
+  were typing, and a command entered at that moment could vanish from the
+  screen. A result is now written only while nothing is being typed, or when
+  you press Enter.
+- When two results came in one after the other, a line of the program could
+  be shown twice. The newer result now takes the place of the older one.
+- Keys pressed while a compile counted its seconds landed in that line and
+  left it on the screen. They are now taken as typed once the compile is done.
+- Closing the terminal ends IMY cleanly, and the lines you typed are kept for
+  the next time (the Up key brings them back).
+
+### From 1.9.15
 
 IMY comes to Terminals: a strict compiler for code you write your own way. It
 converts while you type, turns your code into the programming language you
@@ -103,8 +152,8 @@ from the first tap.
   cannot be sure about (`AmbiguousIntent`; it does not guess). Nothing runs
   until the whole program is clean.
 - **Converted as you type.** In IMY's console each line you enter is checked
-  at once, and the lines so far are converted in the background. The result
-  appears above the line you are typing and shows only what is new or changed,
+  at once, and the lines so far are converted in the background. The lines of
+  the program that are new or changed appear under the lines they came from,
   so you see your code become Python (or Ruby, or Rust) line by line. Typing
   is never held up. `:live off` stops it.
 - **Pick the language your code becomes.** The IMY tile has a second menu:
@@ -133,11 +182,10 @@ from the first tap.
   website gets no styling, images or words your code did not define.
 - **To use it:** open **Terminals** and tap **IMY**. The first tap installs it
   (inside the Linux layer on a phone; it needs Python 3.11 or newer on a
-  computer). The next tap opens IMY's console, which starts with three lines
-  on how to begin. `:header prints a greeting by name` writes the header line
-  for you, `:example hello` loads one of nine ready programs, `:run` runs your
-  code, and `:help` lists the rest. While a model works, the console counts the
-  seconds and afterwards names the model and the time it took.
+  computer). The next tap opens IMY's console. `:header prints a greeting by
+  name` writes the header line for you, `:example hello` loads one of nine
+  ready programs, `:run` runs your code, and `:help` lists the rest. While a
+  model works, the console counts the seconds.
 - **Models:** IMY works with Automa's free models with no key. The menu on the
   IMY tile lists them; the one you pick is the one used, and if it is not
   being served that day IMY says so instead of quietly using another.
@@ -1421,8 +1469,9 @@ proot-distro Debian layer the page sets up for you.
 - **IMY** (Imagenery), the strict blueprint compiler from `imy-engine/`.
   Install it from the page; on a phone it goes into the Debian layer. Then
   open it, type IMY code line by line under a `# ("...")` header, and `:run`
-  it. Each line is converted as you enter it, and the result shows above the
-  line you are typing.
+  it. The console reads like the file you are writing: its first line is the
+  name of the program file your code becomes, each line stands behind its
+  number, and the code it became appears under it.
   - Two menus on the tile: the **model** (the free models, no key; or IMY's
     own setting, which is your own key once you run `imy init`) and the
     **language** your code becomes (Python, JavaScript, Ruby, Rust, C, Go,
@@ -1748,6 +1797,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.16 | 2026-11-22 | IMY 1.1.1: its console reads like the file being written. It opens with one line, the name of the program file the code becomes (`main.py`, `main.rb`…); each line is typed behind its number and a bar and set again in colour once entered; the code a line became appears under it with its own number in the program file (`:code` and `:convert` show the whole file the same way); a block keeps its indentation and Tab indents; `:run` prints only what the program prints (no "compiled to", no "exit code 0"), commands answer in a word and the hints are gone. Fixes: lines pasted at once are numbered one by one; `:: end` is code, not an unknown command; a result is no longer written into a line being typed; a newer result replaces the older instead of showing a program line twice; keys pressed during a compile no longer land in the line that counts the seconds; closing the terminal keeps the lines typed |
 | 1.9.15 | 2026-11-22 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; each line is converted as you type it, and the result shows above the line being typed; a language menu on the tile (20 languages) and `:target` in the console choose what the code becomes, with 48 languages known and 42 built and run, down to assembly for the device's processor; `:import` takes in an existing project so its functions and variables can be used by name, in any target language; a program its own build tool refuses is corrected by the model before it runs; nine ready examples, `:header`, seconds shown while a model works; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone), says Tap to update when a new Automa brings a newer IMY, and installs anywhere with pip. A Check button on Terminals and in the chat's model picker asks every free model for one word and marks the ones not answering; a model that did not answer when last asked says so; one more free model (LFM3 1.7B); a terminal starts at the width the screen really shows, so a tool's first lines no longer break mid-word on a phone; the Terminals tools' names and descriptions are translated; the check counts models that were only busy apart from the ones it marks; Running now lists only terminals still running, and a tool that finishes installing in the background turns Ready by itself; the installer's own messages fold between words on a narrow screen |
 | 1.9.14 | 2026-11-18 | Languages: Auto (the device's language, with its country) or one of 40, saved to your account; the main screens built in, the rest translated by the free models on first sight and kept for everyone on the server (only Automa's own wording is sent); right to left for Arabic, Persian, Hebrew and Urdu; dates and numbers follow language and country; agents write to each person in their language; the connect screen and, on Android 13+, the app's own screens, shortcuts and notification channel follow the choice |
 | 1.9.13 | 2026-11-17 | Model lists update themselves (agents, App Studio, Terminals, the chat's Newest models), newest first; Claude Fable 5.2, Gemini 4 Carbon and Hydrogen, Qwen 4 Max; security: the free models' key stored scrambled and checked out of every build, phone secrets locked to Termux, sign-in limits per real caller, no framing of the board; PostgreSQL 18 runs three fewer processes and the server stops running git every few seconds; free models Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, and no-model agents on Nemotron 3 Ultra; review fixes: Troubleshoot, Safe start and Start each get their own answer from Termux, Troubleshoot waits during a Safe start, the safe mode banner sees a slow return |

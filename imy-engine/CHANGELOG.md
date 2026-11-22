@@ -1,5 +1,62 @@
 # Changelog
 
+## 1.1.1
+
+### Changed
+
+- **The console reads like the file you are writing.** It opens with one line: the name of
+  the program file the code becomes (`main.py`, `main.rb`, `Main.java`, `main.go`) and the
+  version. Each line is asked for behind its number and a bar, as in an editor's margin;
+  there is no `imy>` before every line any more. Once entered, a line is set again in
+  colour (the header, quoted text, numbers, shortcuts), and a line too long for the
+  terminal continues between words under its own beginning. A command keeps no number, so
+  the numbered lines are the program.
+- **The code a line became stands under it.** With live conversion on, the lines of the
+  program file that are new or changed appear under the lines they came from, each behind a
+  broken bar and its own number in that file, in the target language's colours. The line
+  that named the model and the seconds is gone. `:code` and `:convert <lang>` show the
+  program the same way: the file's name, then its numbered lines.
+- **Nothing is said that was not asked for.** No opening lines on how to begin, no hint
+  after a command, no "compiled to …" line and no "exit code 0": `:run` prints what the
+  program prints, and an exit code only when it is not 0. `:target ruby` answers with the
+  new file's name; `:target`, `:model` and `:live` with nothing after them say what is set.
+  `:help` still lists every command.
+- **Indentation as in an editor.** A new line begins where the line before it began
+  (Backspace takes the indentation away), and Tab indents to the next stop, in the step the
+  code already uses, four spaces otherwise. After a command, Tab completes a file's name.
+  Text that arrives at once (a paste, a line a phone keyboard commits whole) keeps the
+  indentation it has.
+- **Commands that change the file answer with the file.** `:edit`, `:insert` and `:header`
+  show the line as it now stands behind its number, and `:load` lists a file that fits the
+  screen, as an editor opens it. Ctrl+C with nothing typed leaves the margin where it is.
+- The program `:run` builds is `.imy/build/main.<ext>` (it was `console.<ext>`).
+
+### Fixes
+
+- Several lines pasted at once were taken as one numbered line, so every number after them
+  was wrong. Each pasted line is now a line of its own, a command among them is carried out
+  in its place, and on a terminal the pasted block is set again as numbered lines.
+- A line that begins with a colon and no letter, such as `:: end` in the countdown example,
+  was refused as an unknown command. It is code now. A colon and a word is still a command.
+- On a narrow terminal a converted result could land in a line being typed (the first row
+  of a wrapped line was then shown twice), and a command entered at the moment a result
+  arrived could vanish from the screen. Only the console's own thread writes to the screen
+  now: a result is written above the margin while nothing is being typed, or as soon as the
+  line being typed is entered.
+- When two conversions came in one after the other, a line of the program could be shown
+  twice: once as the model had it while a block was still empty (`pass`), once as it
+  became. Of results that come in together only the newest is shown, and a newer result
+  takes the place of the one written just before it.
+- Keys pressed while the seconds of a compile were counted landed in that line, and Enter
+  left the line behind on the screen. While that line is redrawn, keys are not shown
+  (`imy run`, `imy check` and the console alike); they are taken as typed right after.
+- Closing the terminal, or a plain `kill`, now ends the console the way `:quit` does: the
+  terminal is put back as it was and the lines typed are kept in the history.
+- `imy console --to js` answers `javascript` to `:target`, like `:target js` does, and a
+  `--to` value that is no language name is refused at once (exit code 2).
+- A line of nothing but spaces is an empty line, and Enter on an empty first line adds
+  nothing.
+
 ## 1.1.0
 
 ### New

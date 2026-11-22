@@ -323,7 +323,9 @@ class TestRunCommand:
         repl = ImyConsole(lambda p, m: session, target="c", console=console, input_fn=lambda prompt: next(feed))
         assert repl.loop() == 0
         text = console.export_text()
-        assert "cc refused the program:" in text and "corrected (" in text and "exit code 0" in text
+        # The console prints the program's output and nothing about the correction that made it run.
+        assert "refused the program" not in text and "corrected" not in text and "exit code" not in text
         assert "Hello, Ava!" in capfd.readouterr().out
+        assert llm.calls == 2
         # :code shows the program that ran, not the refused one.
-        assert "name);" in text.split("exit code 0")[1] and "nmae" not in text.split("exit code 0")[1]
+        assert "name);" in text and "nmae" not in text

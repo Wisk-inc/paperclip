@@ -30,7 +30,7 @@ phone (in Automa, or in Termux). Anyone can install it. Pick whichever line fits
 ```console
 pip install imagenery
 pip install "git+https://github.com/Wisk-inc/paperclip@claude/automa-android-apk-uiimmy#subdirectory=imy-engine"
-pip install imagenery-1.1.0-py3-none-any.whl
+pip install imagenery-1.1.1-py3-none-any.whl
 ```
 
 - The first is the usual way once the package is on PyPI. If pip answers that it finds no
@@ -489,56 +489,113 @@ What the check found, and what each compile finds, is kept for a day (in
 
 ## The console
 
+`imy console` is where you write a program line by line. It is kept the way an editor keeps
+a file: the first line is the name of the program file your code becomes, every line stands
+behind its number, and the code a line became stands under it. It says nothing you did not
+ask for.
+
+This session was typed on a terminal 55 columns wide, a phone's width, with one of Automa's
+free models:
+
 ```console
 $ imy console
-  1 imy> :header greets one person by name on the screen
-header set: # ("greets one person by name on the screen")
-  2 imy> show ("Hi, Bo!")
-  3 imy> :run
-compiled to python (nvidia/nemotron-3-ultra-550b-a55b:free, 31 s)
+main.py  IMY 1.1.1 · :help
+  1 │ # ("greets one person by name and says how long
+      the name is")
+  2 │ person = "Bo"
+    ┆ 1 person = "Bo"
+  3 │ show ("Hi, " + person + "!")
+    ┆ 2 print("Hi, " + person + "!")
+  4 │ show ("Your name has " + count(person) + "
+      letters.")
+    ┆ 3 print("Your name has " + str(len(person)) + "
+        letters.")
+      :run
 Hi, Bo!
-exit code 0
+Your name has 2 letters.
+      :target ruby
+main.rb
+    ┆ 1 def count(str)
+    ┆ 2   str.length
+    ┆ 3 end
+    ┆ 4
+    ┆ 5 person = "Bo"
+    ┆ 6 puts("Hi, " + person + "!")
+    ┆ 7 puts("Your name has " + count(person).to_s + "
+        letters.")
+      :run
+Hi, Bo!
+Your name has 2 letters.
+      :quit
 ```
 
-`:header` writes the header line from plain words (handy on a phone keyboard); typing the
-line yourself works the same. `:example hello` loads a ready program to look at and run.
+- **The title** is the file the code becomes: `main.py` for Python, `main.rb` after
+  `:target ruby`, `Main.java`, `main.go`. `imy console --to ruby` opens in Ruby. `:run`
+  builds that file under `.imy/build/`.
+- **A line of your code** is typed behind its number and a bar. When you press Enter it is
+  set again in colour, and a line too long for the terminal continues between words under
+  its own beginning.
+- **Lines behind the broken bar `┆`** are the program file: what your lines became, each
+  with its number in that file (see [Converted as you type](#converted-as-you-type)).
+- **A command** starts with a colon and a letter (`:run`, `:show`; `:?` is the help) and
+  keeps no number, so the numbered lines are your program. `!ls` runs a shell command.
+  Every other line is code, also one that begins with a colon, such as `:: end`.
+- **Nothing more is printed.** `:run` prints what your program prints, and its exit code
+  only when that is not 0. While a model is waited for, one line counts the seconds and
+  leaves nothing behind. `:help` lists the commands.
+
+### Writing as in an editor
+
+- A new line begins where the line before it began, so a block keeps its indentation.
+  Backspace takes the indentation away.
+- Tab indents to the next stop, in the step your code already uses (four spaces
+  otherwise). After a command, Tab completes a file's name: `:load not<Tab>`.
+- Several lines pasted at once become several numbered lines with the indentation they
+  have, and a command among them is carried out in its place.
+- Up and Down bring back earlier lines, also those of earlier sessions in the same folder.
+- `:header greets one person by name` writes the `# ("...")` line from plain words, which
+  is handy on a phone keyboard. `:example hello` loads a ready program to look at and run.
+- `:edit N <text>`, `:insert N <text>`, `:del N` and `:undo` change lines already entered,
+  and a changed line is shown as it now stands. `:load` lists a file that fits the screen.
+  `:show` lists the code again, `:code` the program file.
+
+The kept indentation and Tab need GNU readline, which Python has on Linux, in Termux and in
+Automa's terminal. On macOS, Python often comes with editline instead, and the console
+works without those two. When input is piped in, lines are taken as they come and nothing
+is drawn again.
 
 ### Converted as you type
 
 With Automa's free models the console converts while you write. Each line you enter is
 checked against the rules at once, and the lines so far go to the model in the background.
-The result appears above the line you are typing, and only the lines that are new or changed
-are shown:
+When the answer is in, the lines of the program file that are new or changed appear under
+the lines they came from, in the colours of that language.
 
-```console
-$ imy console
-  1 imy> # ("greets one person by name and says how long the name is")
-  2 imy> person = "Bo"
-┄ python for lines 1–2 (nvidia/nemotron-3-ultra-550b-a55b:free, 8 s) ┄
-1 │ person = "Bo"
-  3 imy> show ("Hi, " + person + "!")
-┄ python for lines 1–3 (nvidia/nemotron-3-ultra-550b-a55b:free, 13 s) ┄
-2 │ print("Hi, " + person + "!")
-```
+Typing is never held up. One request runs at a time, and when you have entered more lines
+meanwhile, the newest ones go next. A result is written while you are not typing, or the
+moment you enter the line you are typing, never into it. When a newer result follows
+directly, it takes the place of the older one, so a line of the program is shown once. A
+line that breaks a rule is reported the moment you enter it, without asking the model.
 
-Typing is never held up: one request runs at a time, and when you have entered more lines
-meanwhile, the newest ones go next. A line that breaks a rule is reported the moment you
-enter it, without asking the model. The live result is a preview: it saves nothing to memory,
-and `:run` still does the full strict compile. `:target ruby` switches the language the
-preview is written in, and `:code` shows the whole of the last one.
+The live result is a preview: it saves nothing to memory, and `:run` still does the full
+strict compile. `:target ruby` switches the language and shows the program again in it, and
+`:code` shows the whole of the last one.
 
-`:live off` stops it and `:live on` starts it. At start, `imy console --live` or `--no-live`
-decides, or `IMY_LIVE=1` / `IMY_LIVE=0` in your shell. With a key of your own, live
-conversion is off until you turn it on, because every line you enter would be a paid request.
+`:live off` stops it and `:live on` starts it; `:live` says which it is. At start,
+`imy console --live` or `--no-live` decides, or `IMY_LIVE=1` / `IMY_LIVE=0` in your shell.
+With a key of your own, live conversion is off until you turn it on, because every line you
+enter would be a paid request.
+
+### Commands
 
 | Command | What it does |
 |---|---|
 | `:run [args]` | validate, compile and run the code |
 | `:check` | validate only |
-| `:convert <lang> [file]` | convert to another language |
+| `:convert <lang> [file]` | show the code in another language, or write it to a file |
 | `:header <words>` | write the `# ("...")` header line from plain words |
 | `:examples`, `:example <name>` | list the ready programs; load one |
-| `:show`, `:code` | list the code; show the last compiled code |
+| `:show`, `:code` | list the code; show the program file it became |
 | `:undo`, `:del N`, `:edit N <text>`, `:insert N <text>` | edit lines |
 | `:clear`, `:load <file>`, `:save <file>`, `:save! <file>` | manage the buffer (`:save!` overwrites) |
 | `:target <lang>`, `:languages` | switch the language the code becomes; list the languages and which run here |
@@ -549,7 +606,11 @@ conversion is off until you turn it on, because every line you enter would be a 
 | `:memory`, `:help`, `:quit` | saved symbols, help, leave |
 | `!<command>` | run a shell command |
 
-Ctrl+C stops the command that is running and returns to the prompt; `:quit` or Ctrl+D leaves.
+`:target`, `:model` and `:live` with nothing after them say what is set.
+
+Ctrl+C stops the command that is running and returns to the line; `:quit`, or Ctrl+D on an
+empty line, leaves. Closing the terminal leaves the same way, and the lines you typed stay
+in the history (Up brings them back).
 `:edit N` and `:insert N` take the rest of the line as code, exactly as typed: quotes need no
 closing, and spaces after the first one indent the line.
 

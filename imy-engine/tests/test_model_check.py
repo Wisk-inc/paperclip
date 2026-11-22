@@ -93,6 +93,8 @@ class TestModelsCheck:
         ImyConsole(lambda p, m: session, target="python", console=console, input_fn=read).loop()
         text = flat(console.export_text())
         assert "✗ not served now free/gone" in text
-        assert "2 of 3 answer now." in text and ":model <id> switches" in text
+        assert "2 of 3 answer now." in text
         assert "free/gone Gone ✗ not served now (just now)" in text
-        assert "Usage: :models or :models check" in text
+        assert "Usage: :models [check]" in text
+        # The findings and the list, without a line on what to do with them.
+        assert ":model <id>" not in text and "asks each one" not in text

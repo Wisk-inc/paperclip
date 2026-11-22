@@ -362,11 +362,51 @@ class TestConsole:
         assert repl.loop() == 0
         text = console.export_text()
         assert "✓ VALID console → python" in text
-        assert "exit code 0" in text
-        assert '  2 | show ("Hi, Bo!")' in text
+        # A program that ended well says nothing more: only what it printed itself.
+        assert "exit code" not in text
+        # :show lists the code the way the console keeps it: a number and a bar before each line.
+        assert '  2 │ show ("Hi, Bo!")' in text
         assert capfd.readouterr().out.count("Hi, Bo!") == 1
         assert (isolated / "greet.imy").read_text() == '# ("greets one person by name on the screen")\n'
         assert llm.calls == 1
+
+    def test_the_compiled_code_and_a_conversion_are_shown_as_the_program_file(self, isolated: Path, llm: FakeLLM) -> None:
+        llm.queue(reply('person = "Bo"\nprint("Hi, " + person + "!")\n'), reply('person = "Bo"\nputs("Hi, " + person + "!")\n', target="ruby"))
+        repl, console = self.make(isolated, llm, [
+            '# ("greets one person by name on the screen")', 'person = "Bo"', 'show ("Hi, " + person + "!")', ":code", ":check", ":code", ":convert ruby", ":target",
+        ])
+        repl.loop()
+        text = console.export_text()
+        assert "Nothing compiled yet." in text
+        # The file's name, then its lines behind their own numbers: the same look as a line converted while typing.
+        assert 'main.py\n    ┆ 1 person = "Bo"\n    ┆ 2 print("Hi, " + person + "!")\n' in text
+        assert 'main.rb\n    ┆ 1 person = "Bo"\n    ┆ 2 puts("Hi, " + person + "!")\n' in text
+        # Looking at the code in another language does not change the language being written.
+        assert text.rstrip().endswith("python")
+
+    def test_it_opens_in_a_language_by_any_of_its_names_and_refuses_what_is_no_name(self, isolated: Path, llm: FakeLLM) -> None:
+        opened = runner.invoke(app, ["console", "--to", "js", "--no-live"], input=":target\n")
+        assert opened.exit_code == 0, opened.stderr
+        assert opened.stdout.split("\n")[0].startswith("main.js  IMY ") and "javascript" in opened.stdout
+        refused = runner.invoke(app, ["console", "--to", "!!", "--no-live"], input=":quit\n")
+        assert refused.exit_code == 2
+        assert "'!!' is not a language name." in " ".join(refused.stderr.split()) and "Traceback" not in refused.stderr
+
+    def test_a_changed_line_and_a_file_read_in_are_shown_as_the_file_has_them(self, isolated: Path, llm: FakeLLM) -> None:
+        (isolated / "short.imy").write_text('# ("greets one person by name on the screen")\nshow ("Hi, Bo!")\n', encoding="utf-8")
+        (isolated / "long.imy").write_text('# ("counts up and prints every number it reaches")\n' + "\n".join(f"show ({n})" for n in range(60)) + "\n", encoding="utf-8")
+        repl, console = self.make(isolated, llm, [
+            '# ("greets one person by name on the screen")', 'show ("Hi, Bo!")',
+            ':edit 2 show ("Hi, Cy!")', ':insert 2 person = "Cy"', ":load short.imy", ":load long.imy",
+        ])
+        repl.loop()
+        text = console.export_text()
+        # The line as it stands after the change, behind its number.
+        assert '  2 │ show ("Hi, Cy!")\n' in text and '  2 │ person = "Cy"\n' in text
+        # A file that fits the screen is listed as an editor opens it; a long one is counted.
+        assert '  1 │ # ("greets one person by name on the screen")\n  2 │ show ("Hi, Bo!")\n' in text
+        assert "loaded 61 lines" in text and "show (59)" not in text
+        assert len(repl.lines) == 61
 
     def test_ctrl_c_stops_the_compile_not_the_console(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
         def interrupted(request: object) -> str:
@@ -376,29 +416,70 @@ class TestConsole:
         repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', 'show ("Hi, Bo!")', ":run", ":run", ":quit"])
         assert repl.loop() == 0
         text = console.export_text()
-        assert "Stopped." in text and "exit code 0" in text
+        assert "Stopped." in text and "exit code" not in text
         assert capfd.readouterr().out.count("Hi, Bo!") == 1
 
-    def test_the_banner_says_how_to_start(self, isolated: Path, llm: FakeLLM) -> None:
+    def test_it_opens_with_one_line_the_name_of_the_program_file(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.make(isolated, llm, [])
+        repl.loop()
+        lines = [line for line in console.export_text().split("\n") if line.strip()]
+        # Like the title of an open file: the file the code becomes, then what this is and where the commands are. No more.
+        assert lines == [f"main.py  IMY {__version__} · :help"]
+
+    def test_lines_are_asked_for_behind_a_number_and_a_bar_with_no_name_on_every_line(self, isolated: Path, llm: FakeLLM) -> None:
+        asked: list[str] = []
+        feed = iter(['# ("greets one person by name on the screen")', 'show ("Hi, Bo!")', ":show", ""])
+
+        def read(prompt: str) -> str:
+            asked.append(prompt)
+            try:
+                return next(feed)
+            except StopIteration:
+                raise EOFError from None
+
+        console = Console(record=True, width=120, force_terminal=False, file=io.StringIO())
+        session = open_session(isolated / "console.imy")
+        ImyConsole(lambda p, m: session, target="python", console=console, input_fn=read).loop()
+        # A command does not take a line number; an empty line inside the code does.
+        assert asked == ["  1 │ ", "  2 │ ", "  3 │ ", "  3 │ ", "  4 │ "]
+        assert not any("imy" in prompt for prompt in asked)
+
+    def test_the_opening_line_says_nothing_about_what_it_can_do(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, [])
         repl.loop()
         text = console.export_text()
-        assert f"IMY console {__version__}" in text
-        assert '# ("what it builds and how it works")' in text
-        assert ":header" in text and ":example hello" in text and ":run" in text and ":help" in text
-        assert "It becomes python." in text and ":target rust" in text and ":languages" in text
+        for told in ("Say what you are building", "let IMY write", "Code every step", ":run", ":example", ":header",
+                     "It becomes", ":target", ":languages", "Live", "converted", ":live"):
+            assert told not in text, told
 
-    def test_the_banner_names_the_language_it_was_opened_in(self, isolated: Path, llm: FakeLLM) -> None:
+    def test_the_opening_line_names_the_language_it_was_opened_in(self, isolated: Path, llm: FakeLLM) -> None:
         console = Console(record=True, width=160, force_terminal=False, file=io.StringIO())
-        feed = iter([":target", ":quit"])
+        feed = iter([":target", ":model", ":quit"])
         session = open_session(isolated / "console.imy")
         repl = ImyConsole(lambda p, m: session, target="rust", console=console, input_fn=lambda prompt: next(feed))
         assert repl.loop() == 0
-        text = console.export_text()
-        assert "target rust" in text and "It becomes rust." in text
-        # The hint never offers the language already chosen.
-        assert ":target python" in text and ":target rust" not in text
-        assert "Target: rust" in text
+        lines = [line for line in console.export_text().split("\n") if line.strip()]
+        assert lines[0] == f"main.rs  IMY {__version__} · :help"
+        # Asked for a setting, it prints the setting.
+        assert lines[1:] == ["rust", session.config.resolved_model()]
+
+    def test_the_file_is_named_the_way_its_language_names_it(self, isolated: Path, llm: FakeLLM) -> None:
+        console = Console(record=True, width=80, force_terminal=False, file=io.StringIO())
+        feed = iter([":target ruby", ":target java", ":target csharp", ":target go", ":target html", ":target c", ":target klingon lang"])
+        session = open_session(isolated / "console.imy")
+
+        def read(prompt: str) -> str:
+            try:
+                return next(feed)
+            except StopIteration:
+                raise EOFError from None
+
+        repl = ImyConsole(lambda p, m: session, target="python", console=console, input_fn=read)
+        repl.loop()
+        lines = [line for line in console.export_text().split("\n") if line.strip()]
+        # A change of language is a change of file: its name is the answer.
+        assert lines[1:7] == ["main.rb", "Main.java", "Program.cs", "main.go", "index.html", "main.c"]
+        assert repl.file_name() == "main.c"
 
     def test_header_command_writes_the_header_line(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, [
@@ -411,7 +492,10 @@ class TestConsole:
         ])
         repl.loop()
         text = console.export_text()
-        assert "header set:" in text and "header replaced:" in text
+        # The answer is the first line of the file as it stands, without a word about it.
+        assert '  1 │ # ("greets one person by name on the screen")' in text
+        assert '  1 │ # ("prints a greeting that says \\"hi\\" to Bo")' in text
+        assert "header set" not in text and "header replaced" not in text
         assert "at least 3 words" in text
         assert "Usage: :header" in text
         assert repl.lines == ['# ("counts the letters of one name")', 'show ("Hi, Bo!")']
@@ -449,14 +533,44 @@ class TestConsole:
         assert (isolated / "my file.imy").exists()
         assert "No closing quotation" in text and "in quotes" in text
 
-    def test_a_compile_says_which_model_and_reuses_the_cache(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
-        llm.queue(reply('print("Hi, Bo!")\n'))
-        repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', 'show ("Hi, Bo!")', ":run", ":run"])
+    def test_a_run_prints_the_program_and_nothing_of_its_own(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
+        llm.queue(reply('name = "Bo"\nprint("Hi, " + name + "!")\n', symbols=[{"name": "name", "kind": "variable", "meaning": "the person greeted"}]))
+        repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', 'name = "Bo"', 'show ("Hi, " + name + "!")', ":run", ":run"])
+        repl.loop()
+        # The console wrote its opening line and nothing after it: no model, no seconds, no memory, no exit code.
+        lines = [line for line in console.export_text().split("\n") if line.strip()]
+        assert lines == [f"main.py  IMY {__version__} · :help"]
+        # The program was written to the file the first line names.
+        assert (isolated / ".imy" / "build" / "main.py").read_text() == 'name = "Bo"\nprint("Hi, " + name + "!")\n'
+        # The program's own output, once for each run; the second run came from the cache.
+        assert capfd.readouterr().out.count("Hi, Bo!") == 2
+        assert llm.calls == 1
+        # What the file defines was still saved for later files; :memory lists it when asked.
+        assert [symbol.name for _scope, symbol in repl.session.memory.entries()] == ["name"]
+
+    def test_a_program_that_fails_shows_its_exit_code(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
+        llm.queue(reply('import sys\nprint("stopping")\nsys.exit(3)\n'))
+        repl, console = self.make(isolated, llm, ['# ("stops with an error code after one message")', 'show ("stopping")', "stop with code 3", ":run"])
+        repl.loop()
+        lines = [line for line in console.export_text().split("\n") if line.strip()]
+        assert lines[1:] == ["exit code 3"]
+        assert capfd.readouterr().out.count("stopping") == 1
+
+    def test_commands_answer_without_advice(self, isolated: Path, llm: FakeLLM) -> None:
+        repl, console = self.make(isolated, llm, [
+            ":run", ":nonsense", ":live", ":live off", ":live on", ":live maybe", ":target ruby", ":target", ":examples", ":models", ":show",
+        ])
         repl.loop()
         text = console.export_text()
-        assert "compiled to python (fake-model)" in text
-        assert "compiled to python (cached)" in text
-        assert llm.calls == 1
+        lines = [line for line in text.split("\n") if line.strip()]
+        assert "nothing to compile" in lines
+        assert "Unknown command :nonsense (:help)" in lines
+        assert lines.count("live off") == 2 and "live on" in lines and "Usage: :live on|off" in lines
+        assert "main.rb" in lines and "ruby" in lines
+        assert "(empty)" in lines
+        # Nothing tells the reader what to type next.
+        for advice in ("loads one here", "then :show", "asks each one", "switches to one", "change with", "type a header", "turns it", "imy init", "is now"):
+            assert advice not in text, advice
 
     def test_console_reports_rule_errors_without_calling_the_model(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', "please make me a greeting app", ":run"])

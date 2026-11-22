@@ -236,6 +236,7 @@ def build_with_repair(
     *,
     stem: str | None = None,
     run_dir: Path | None = None,
+    notes: bool = True,
 ) -> tuple[CompileResult, BuildArtifact, Toolchain | None]:
     """Write the program into .imy/build/ and build it; nothing of it runs yet.
 
@@ -244,6 +245,11 @@ def build_with_repair(
     corrected version, as often as the repair setting allows. A program that
     still does not build leaves the cache, so the next run starts afresh.
     Web pages have nothing to build: the toolchain is None.
+
+    ``notes`` off leaves out the two lines that say a correction was asked for
+    and made (the console, which prints a program's output and nothing else);
+    the wait still shows, and a program that cannot be corrected still fails
+    with the tool's own words.
     """
     compiler = session.compiler
     budget = session.config.repair_attempts
@@ -259,7 +265,8 @@ def build_with_repair(
                 raise
             budget -= 1
             said = report_headline(failure.report)
-            console.print(f"[yellow]{escape(failure.tool)} refused the program:[/yellow] [dim]{escape(said[:200])}[/dim]")
+            if notes:
+                console.print(f"[yellow]{escape(failure.tool)} refused the program:[/yellow] [dim]{escape(said[:200])}[/dim]")
             config = session.config
             label = f"Asking {config.provider}/{config.resolved_model()} to correct it"
             try:
@@ -273,7 +280,8 @@ def build_with_repair(
                     report=failure.report,
                     hint=f"The model could not correct it ({exc.message.rstrip('.')}). Run it again, or pick another model.",
                 ) from exc
-            console.print(f"[dim]corrected ({escape(compile_note(result))})[/dim]")
+            if notes:
+                console.print(f"[dim]corrected ({escape(compile_note(result))})[/dim]")
 
 
 def compile_note(result: CompileResult) -> str:
@@ -1074,10 +1082,13 @@ def run_import(
     fresh: bool = False,
     local: bool = False,
     shown: str | None = None,
+    hints: bool = True,
 ) -> int:
     """Read ``root`` and save what it defines to memory, saying what was found. Returns the exit code.
 
     ``shown`` is the folder as the person named it, for the line that says how to undo the import.
+    ``hints`` off ends at what was saved, without the example of using it and the two commands
+    that list and undo it (the console's :import).
     """
     from . import importer
 
@@ -1162,7 +1173,7 @@ def run_import(
     kept = {symbol.name for symbol in (*saved, *report.unchanged)}
     found = [symbol for symbol in outcome.symbols if symbol.name in kept and not symbol.name.startswith("_")]
     example = next((symbol for what in ("function", "class", "variable") for symbol in found if symbol.what == what), None)
-    if example is not None:
+    if example is not None and hints:
         call = example.name if example.what == "variable" else f"{example.name}({', '.join(param.lstrip('*') for param in example.params[:3])})"
         console.print("Use them by name in a .imy file, for example:")
         console.print(f"  [green]show ({escape(call)})[/green]")

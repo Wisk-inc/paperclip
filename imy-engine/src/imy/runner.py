@@ -188,6 +188,26 @@ def _copy_site_assets(result: CompileResult, folder: Path) -> list[Path]:
     return copied
 
 
+def _safe_stem(stem: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", stem).strip(".") or "program"
+
+
+def program_file_name(language: Language, stem: str, code: str = "") -> str:
+    """The name of the file a program is written to: main.rb, main.py, and where the language
+    itself decides it, Main.java (or the public class the code declares), Program.cs, main.go
+    and index.html."""
+    if language.name == "java":
+        match = re.search(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)", code)
+        return f"{match.group(1) if match else 'Main'}.java"
+    if language.name == "csharp":
+        return "Program.cs"
+    if language.name == "go":
+        return "main.go"
+    if language.name == "html":
+        return "index.html"
+    return f"{_safe_stem(stem)}{language.extension}"
+
+
 def build_artifact(
     result: CompileResult, workspace: Workspace, *, stem: str | None = None, run_dir: Path | None = None
 ) -> BuildArtifact:
@@ -195,25 +215,13 @@ def build_artifact(
     workspace.ensure()
     language = result.language
     base = stem or (result.parsed.path.stem if result.parsed.path is not None else "console")
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", base).strip(".") or "program"
+    safe = _safe_stem(base)
     if run_dir is None:
         run_dir = result.parsed.path.parent if result.parsed.path is not None else workspace.root
-    folder = workspace.build
-    if language.name == "java":
-        match = re.search(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)", result.code)
-        folder = workspace.build / f"{safe}-java"
-        path = folder / f"{match.group(1) if match else 'Main'}.java"
-    elif language.name == "csharp":
-        folder = workspace.build / f"{safe}-csharp"
-        path = folder / "Program.cs"
-    elif language.name == "go":
-        folder = workspace.build / f"{safe}-go"
-        path = folder / "main.go"
-    elif language.name == "html":
-        folder = workspace.build / f"{safe}-site"
-        path = folder / "index.html"
-    else:
-        path = workspace.build / f"{safe}{language.extension}"
+    # A language that names its own file gets a folder of its own, so two programs never share one.
+    own_folder = {"java": "java", "csharp": "csharp", "go": "go", "html": "site"}.get(language.name)
+    folder = workspace.build / f"{safe}-{own_folder}" if own_folder else workspace.build
+    path = folder / program_file_name(language, base, result.code)
     try:
         _write_atomic(path, result.code)
         if language.name == "html":

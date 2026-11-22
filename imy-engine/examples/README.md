@@ -1,9 +1,10 @@
 # IMY in use: real sessions
 
-Everything below was run for real with `imy 1.1.0` and Automa's free models. Each console
-block is cut from the session as it happened; the model that compiled a program and the
-seconds it took are in the output. The programs are the ones that come with IMY
-(`imy examples`), so you can repeat every session.
+Everything below was run for real with Automa's free models: the console sessions in
+section 4 with `imy 1.1.1`, the others with `imy 1.1.0` (those commands print the same in
+1.1.1). Each console block is cut from the session as it happened; where a command names
+the model that compiled a program and the seconds it took, that is in the output. The
+programs are the ones that come with IMY (`imy examples`), so you can repeat every session.
 
 Free models differ from day to day in speed and in what they accept, and IMY never swaps
 in another model, so your times will differ and a strict reading may differ too. Where a
@@ -166,45 +167,88 @@ print("landed after " .. tick .. " ticks")
 
 ## 4. The console: converted as you type
 
-In `imy console`, each line you enter is checked at once and the lines so far are
-converted in the background. The result is drawn above the line you are typing, and only
-the lines that are new or changed are shown. `:target ruby` switches the language, and
-`:run` then compiles and runs the same lines as Ruby.
+`imy console` reads like the file you are writing. Its first line is the name of the
+program file your code becomes. Each line you enter stands behind its number and a bar,
+and when the model has converted the lines so far, the lines of the program file that are
+new or changed appear under them, behind a broken bar and their own number in that file.
+`:run` prints what the program prints and nothing else.
+
+Both sessions were typed on a terminal 55 columns wide, a phone's width, so long lines
+continue on a second row.
 
 ```console
 $ imy console
-IMY console 1.1.0 · automa/nvidia/nemotron-3-ultra-550b-a55b:free · target python
-1. Say what you are building: # ("what it builds and how it works")
-   or let IMY write that line: :header what it builds and how it works
-2. Code every step under it, line by line, in your own syntax.
-3. :run it. :example hello loads a ready program, :help lists everything.
-   It becomes python. :target rust picks another language, :languages lists them all.
-Live: each line you enter is converted to python in the background and shown as it arrives. :live off stops it.
-  1 imy> # ("greets one person by name and says how long the name is")
-  2 imy> person = "Bo"
-┄ python for lines 1–2 (nvidia/nemotron-3-ultra-550b-a55b:free, 11 s) ┄
-1 │ person = "Bo"
-  3 imy> show ("Hi, " + person + "!")
-┄ python for lines 1–3 (nvidia/nemotron-3-ultra-550b-a55b:free, 7 s) ┄
-2 │ print("Hi, " + person + "!")
-  4 imy> show ("Your name has " + count(person) + " letters.")
-┄ python for lines 1–4 (nvidia/nemotron-3-ultra-550b-a55b:free, 19 s) ┄
-3 │ print("Your name has " + str(len(person)) + " letters.")
-  5 imy> :run
-compiled to python (nvidia/nemotron-3-ultra-550b-a55b:free, 7 s)
-memory: saved person
+main.py  IMY 1.1.1 · :help
+  1 │ # ("greets one person by name and says how long
+      the name is")
+  2 │ person = "Bo"
+    ┆ 1 person = "Bo"
+  3 │ show ("Hi, " + person + "!")
+    ┆ 2 print("Hi, " + person + "!")
+  4 │ show ("Your name has " + count(person) + "
+      letters.")
+    ┆ 3 print("Your name has " + str(len(person)) + "
+        letters.")
+      :run
 Hi, Bo!
 Your name has 2 letters.
-exit code 0
-  5 imy> :target ruby
-target is now ruby
-  5 imy> :run
-compiled to ruby (nvidia/nemotron-3-ultra-550b-a55b:free, 13 s)
+      :target ruby
+main.rb
+    ┆ 1 def count(str)
+    ┆ 2   str.length
+    ┆ 3 end
+    ┆ 4
+    ┆ 5 person = "Bo"
+    ┆ 6 puts("Hi, " + person + "!")
+    ┆ 7 puts("Your name has " + count(person).to_s + "
+        letters.")
+      :run
 Hi, Bo!
 Your name has 2 letters.
-exit code 0
-  5 imy> :quit
+      :quit
 ```
+
+`:target ruby` answers with the new file's name, `main.rb`, and the whole program follows
+in Ruby; `:run` then compiles and runs the same four lines as Ruby.
+
+A block keeps its indentation. In the next session the two spaces before `show` on line 4
+were typed once; line 5 began with them by itself, and Backspace took them away again
+before `:: end`. That last line begins with a colon and is code all the same: only a colon
+and a letter starts a command.
+
+```console
+$ imy console
+main.py  IMY 1.1.1 · :help
+  1 │ # ("greets each person on a list by name and says
+      how long the name is")
+  2 │ people = ["Bo", "Ava"]
+    ┆ 1 people = ["Bo", "Ava"]
+  3 │ for each person in people ::
+    ┆ 2 for person in people: pass
+  4 │   show ("Hi, " + person + "!")
+    ┆ 2 for person in people:
+    ┆ 3     print("Hi, " + person + "!")
+  5 │   show (count(person) + " letters")
+    ┆ 4     print(str(len(person)) + " letters")
+  6 │ :: end
+      :code
+main.py
+    ┆ 1 people = ["Bo", "Ava"]
+    ┆ 2 for person in people:
+    ┆ 3     print("Hi, " + person + "!")
+    ┆ 4     print(str(len(person)) + " letters")
+      :run
+Hi, Bo!
+2 letters
+Hi, Ava!
+3 letters
+      :quit
+```
+
+When line 3 was entered the loop had nothing in it yet, so the model closed it with
+`pass`. With line 4 in, line 2 of the program changed and line 3 was new, and both are
+shown under line 4. `:: end` changed nothing in the program, so nothing is shown under it.
+`:code` lists the program file as it stands.
 
 ## 5. One program, many languages
 
