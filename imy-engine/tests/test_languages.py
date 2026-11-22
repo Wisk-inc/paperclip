@@ -101,6 +101,17 @@ class TestRunners:
             assert "isn't installed" in caught.value.message and (caught.value.hint or "").startswith("Install"), name
             assert runner_tool(name) is None
 
+    def test_the_install_line_fits_who_is_at_the_terminal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from imy.runner import install_hint
+
+        monkeypatch.setattr(os, "geteuid", lambda: 1000)
+        assert install_hint("ruby") == "Install Ruby (Debian/Ubuntu: sudo apt install ruby)."
+        # Root, as in the Linux layer on a phone, has no sudo and needs none.
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+        assert install_hint("ruby") == "Install Ruby (Debian/Ubuntu: apt install ruby)."
+        assert install_hint("cobol") == "Install GnuCOBOL (Debian/Ubuntu: apt install gnucobol)."
+        assert install_hint("klingon") is None
+
     def test_assembly_is_assembled_and_linked_by_the_c_compiler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         tools = tmp_path / "tools"
         fake_tools(tools, {"cc"})

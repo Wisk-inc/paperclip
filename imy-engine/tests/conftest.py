@@ -57,6 +57,8 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.Fi
         return tmp_path
     home = tmp_path / "imy-home"
     monkeypatch.setenv("IMY_HOME", str(home))
+    # Install lines drop `sudo` for root: tests read the same whoever runs them.
+    monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
     for name in _PROVIDER_VARIABLES:
         monkeypatch.delenv(name, raising=False)
     work = tmp_path / "work"

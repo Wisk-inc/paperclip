@@ -69,6 +69,42 @@ class TestPreviewCompile:
         assert llm.calls == 2
 
 
+class TestLiveAfterARun:
+    def test_a_switch_of_language_after_a_run_shows_the_program_in_the_new_language(
+        self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """Typed in a real terminal: lines, :run, then :target ruby. The background worker must still answer."""
+        llm.queue(
+            reply('person = "Bo"\n'),
+            reply('person = "Bo"\nprint("Hi, " + person + "!")\n'),
+            reply('person = "Bo"\nprint("Hi, " + person + "!")\n'),
+            reply('person = "Bo"\nputs("Hi, " + person + "!")\n', target="ruby"),
+            reply('person = "Bo"\nputs("Hi, " + person + "!")\n', target="ruby"),
+        )
+        console = Console(record=True, width=120, force_terminal=False, file=io.StringIO())
+        feed = iter(['# ("greets one person by name on the screen")', 'person = "Bo"', 'show ("Hi, " + person + "!")', ":run", ":target ruby", ":code", ":quit"])
+        session = open_session(isolated / "console.imy")
+        holder: list[ImyConsole] = []
+
+        def read(prompt: str) -> str:
+            # A person types slower than the model answers: each preview is in before the next line.
+            assert holder[0]._live.wait_idle(20)
+            return next(feed)
+
+        repl = ImyConsole(lambda p, m: session, target="python", console=console, input_fn=read, live=True, live_inline=False)
+        holder.append(repl)
+        assert repl.loop() == 0
+        text = console.export_text()
+        assert "python for lines 1–2" in text and "python for lines 1–3" in text
+        assert "exit code 0" in text and "target is now ruby" in text
+        after = text.split("target is now ruby")[1]
+        assert "ruby for lines 1–3" in after
+        assert 'puts("Hi, " + person + "!")' in after
+        # A switch of language shows the whole program again, not only what differs from the Python.
+        assert '1 │ person = "Bo"' in after
+        assert llm.calls == 4
+
+
 class TestLiveConsole:
     def test_each_line_is_converted_and_only_what_changed_is_shown(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
         llm.queue(

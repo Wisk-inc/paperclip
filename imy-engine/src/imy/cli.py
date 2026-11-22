@@ -48,6 +48,7 @@ from .runner import (
     BuildArtifact,
     Toolchain,
     build_artifact,
+    install_hint,
     prepare_program,
     python_command,
     runner_tool,
@@ -720,7 +721,7 @@ def render_languages(console: Console, name: str | None = None) -> None:
             console.print(f"[green]✓[/green] [bold]{escape(language.display)}[/bold] is ready: it runs with {escape(tool)}.")
         else:
             wanted = RUNNER_TOOLS[language.name][0]
-            hint = INSTALL_HINTS.get(language.name, f"Install `{wanted}`.")
+            hint = install_hint(language.name) or f"Install `{wanted}`."
             console.print(f"[red]✗[/red] [bold]{escape(language.display)}[/bold] needs `{escape(wanted)}`. {escape(hint)}")
             console.print(f"[dim]Converting works without it: imy convert file.imy --to {escape(language.name)}[/dim]")
         return

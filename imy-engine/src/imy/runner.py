@@ -231,10 +231,22 @@ def _find(*names: str) -> str | None:
     return None
 
 
+def install_hint(language_name: str) -> str | None:
+    """How to get the tool that runs a language, written for the person at this terminal.
+
+    Whoever is already root (as in the Linux layer Automa sets up on a phone)
+    has no use for `sudo`, and often no `sudo` at all.
+    """
+    hint = INSTALL_HINTS.get(language_name)
+    if hint and getattr(os, "geteuid", lambda: 1)() == 0:
+        hint = hint.replace("sudo ", "")
+    return hint
+
+
 def missing_tool_hint(language: Language) -> str:
     """What to do when the tool that runs ``language`` is not here: how to get it, and that converting needs none."""
     convert = f"Converting needs no tool: `imy convert --to {language.name}` writes the file for you to run elsewhere."
-    install = INSTALL_HINTS.get(language.name)
+    install = install_hint(language.name)
     return f"{install} {convert}" if install else convert
 
 
