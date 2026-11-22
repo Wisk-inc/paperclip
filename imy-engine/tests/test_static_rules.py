@@ -126,6 +126,43 @@ class TestHeader:
         assert codes(HEADER + 'name = "Ava\n') == [ErrorCode.UNTERMINATED_STRING]
 
 
+class TestFunctionsAndPacks:
+    @pytest.mark.parametrize(
+        "line",
+        ["define speed = 5", "sub total = a + b", "block size = 10", "function result = compute(x)",
+         'method name = "GET"', "block door", "define gravity"],
+    )
+    def test_lines_that_only_start_with_a_function_word_are_not_function_blocks(self, line: str) -> None:
+        parsed = parse_text(HEADER + "a = 1\nb = 2\nx = 3\n" + line + "\n")
+        assert parsed.functions == []
+        assert ErrorCode.MISSING_HEADER not in [d.code for d in check(parsed).diagnostics]
+
+    @pytest.mark.parametrize(
+        "line, name, params",
+        [("def greet(person):", "greet", ("person",)), ("fn main() {", "main", ()), ("def area(r) = r * r", "area", ("r",)),
+         ("function draw {", "draw", ()), ("block intro:", "intro", ())],
+    )
+    def test_function_blocks(self, line: str, name: str, params: tuple[str, ...]) -> None:
+        parsed = parse_text(HEADER + line + "\n    show (1)\n")
+        assert [(fn.name, fn.params) for fn in parsed.functions] == [(name, params)]
+
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            ('A = B = C = name variablepack = "XYZ"', ("XYZ", ("A", "B", "C"))),
+            ('VelocityX = velocityY = name variblepack = "XYZ" = ship ("/save:slots")', ("XYZ", ("VelocityX", "velocityY"))),
+            ('pack "RGB" = red, green, blue', ("RGB", ("red", "green", "blue"))),
+            ('varpack "pos" = x, y', ("pos", ("x", "y"))),
+        ],
+    )
+    def test_both_pack_shapes(self, line: str, expected: tuple[str, tuple[str, ...]]) -> None:
+        parsed = parse_text(HEADER + line + "\n")
+        assert [(pack.name, pack.members) for pack in parsed.packs] == [expected]
+
+    def test_words_that_merely_contain_pack_are_not_packs(self) -> None:
+        assert parse_text(HEADER + 'backpack = "heavy"\npack = 5\n').packs == []
+
+
 class TestPrompting:
     @pytest.mark.parametrize(
         "line",
@@ -200,13 +237,30 @@ class TestMechanicsAndOrder:
         found = check(parse_text(HEADER + 'greet("Ava")\n# ("greets a person by name and prints it")\ndef greet(name):\n    show (name)\n')).diagnostics
         assert [d.code for d in found] == [ErrorCode.EXECUTION_ORDER_VIOLATION]
 
-    def test_names_from_memory_count_as_defined(self) -> None:
-        assert codes(HEADER + "total = price * 2\nprice = 5\n", known=("price",)) == []
+    def test_memory_does_not_excuse_use_before_definition(self) -> None:
+        text = HEADER + "total = price * 2\nprice = 5\n"
+        assert codes(text, known=("price",)) == [ErrorCode.EXECUTION_ORDER_VIOLATION]
+        assert codes(HEADER + "total = price * 2\nshow (total)\n", known=("price",)) == []
 
     def test_pack_used_before_its_declaration(self) -> None:
         text = HEADER + 'from = "xyz" movement = forward\nA = B = C = name variablepack = "XYZ"\n'
         found = check(parse_text(text)).diagnostics
         assert [(d.code, d.line, d.related) for d in found] == [(ErrorCode.EXECUTION_ORDER_VIOLATION, 2, (3,))]
+
+    def test_a_plain_call_before_the_shortcut_is_not_an_order_violation(self) -> None:
+        text = HEADER + 'gallery = Folder.open("/photos")\nshow ("starting")\ngallery.autotag\n'
+        assert codes(text) == []
+        text = HEADER + 'gallery = Folder.open("/photos")\ngallery.sort()\ngallery.autotag\n'
+        found = check(parse_text(text)).diagnostics
+        assert [(d.code, d.line, d.related) for d in found] == [(ErrorCode.EXECUTION_ORDER_VIOLATION, 3, (4,))]
+
+    def test_toggle_on_a_feature_the_file_codes_is_fine(self) -> None:
+        coded = HEADER + "physics = Engine.getInstance()\nphysics.gravity.strength = 9.8\nphysics.gravity.disable()\n"
+        assert codes(coded) == []
+        uncoded = HEADER + "physics = Engine.getInstance()\nphysics.gravity.disable()\n"
+        assert codes(uncoded) == [ErrorCode.MISSING_MECHANICS]
+        only_toggles = HEADER + "physics = Engine.getInstance()\nphysics.gravity.enabled = True\n"
+        assert codes(only_toggles) == [ErrorCode.MISSING_MECHANICS]
 
     def test_initialisation_calls_may_come_before_the_shortcut(self) -> None:
         text = HEADER + "world = World.getInstance()\nWorld.connect()\nphysics.autohook\nWorld.detect(world)\n"

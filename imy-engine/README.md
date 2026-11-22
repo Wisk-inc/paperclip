@@ -56,6 +56,9 @@ Nothing runs until the whole program is clean.
 
 Every file starts with `# ("...")`, which says what the code builds and how it works. Every
 function block (`def`, `fn`, `func`, `function`, ...) needs its own header on the line above it.
+A function block is a function word, a name and `(`, or a name followed by `:` or `{` alone:
+`fn jump(height)`, `def area:`, `func start {`. A line such as `define speed = 5` or
+`sub total = price - discount` is an ordinary line and needs no header.
 
 ```text
 # ("adds two numbers and shows the sum")
@@ -115,6 +118,10 @@ and cites both lines:
 5  physics.autohook
 ```
 
+Names saved in memory by an earlier file may be used without defining them again. A name
+the file does define must be defined before its first use: memory never excuses the order
+inside a file.
+
 ### 6. Ambiguity halts
 
 If a line is still unclear after the header, the code and your saved memory are considered,
@@ -126,7 +133,8 @@ code or the header.
 - Use any word as a variable, even `if`, `then` or `from`. IMY splits compound tokens into
   pieces and maps a meaning to each piece.
 - `VelocityX = velocityY = velocityZ = name variablepack = "XYZ"` groups three variables into
-  the pack `XYZ`. Pack names match without regard to case, so `"xyz"` works too.
+  the pack `XYZ`. So does `pack "XYZ" = VelocityX, velocityY, velocityZ`. Pack names match
+  without regard to case, so `"xyz"` works too.
 - `ship ("/file:paths")` declares a made-up path. IMY maps it into `.imy/vfs/file/paths` and
   records the mapping in `.imy/manifest.json`.
 - A URL in a string is a web resource. `ship ("https://…/data.json")` is downloaded into the
@@ -165,9 +173,17 @@ code or the header.
   meaning wins, so your personal syntax compiles the same way every time
 - **variables**: one entry per file that defines them, so common names never collide
 
+A later file gets a saved symbol only when it uses it without defining it: a variable used as a
+value or named in the code, a pack named in a string or in the code, a function that is called,
+a syntax rule whose words appear on a code line (several words match across any spacing), a
+virtual path the file ships. A saved variable whose name is a grammar word (`if`, `then`,
+`name`, `show`, …) is reused only where the file uses it as a value, so everyday words in a new
+file never pull in old meanings.
+
 Memory lives in `~/.imy/memory.json`. A project can keep its own with
 `imy init --local-memory`, which creates `.imy/memory.json`; it overrides global entries and
-receives new saves.
+receives new saves. (Working in your home folder, `~/.imy` is the one store: it is never
+treated as a project's own.)
 
 A saved symbol is never overwritten silently:
 
@@ -204,9 +220,12 @@ no AI call. `--no-cache` forces a fresh compile.
 - **Exact messages and layout.** Every string message from your code must survive character
   for character, and the model is told to keep your order, block structure and names.
 - **Strict websites** (`--to html`): no styling, classes, fonts, colours, animations, images,
-  icons or logos unless your code defines them, and no visible words that aren't in your code.
-  A page described as having a "cool logo" with no image file either fails with
-  `MissingMechanics` or comes out as a bare white page showing your literal text.
+  icons, logos or outside scripts unless your code defines them, and no visible words that
+  aren't in your code.
+  A page described as having a "cool logo" with no image file is either refused, with an
+  error that says the code never defines the logo (`MissingMechanics`, `HeaderMismatch` or
+  `AmbiguousIntent`, depending on how the model reads the line), or comes out as a bare
+  white page showing your literal text. It never gets an invented logo.
 
 ## Targets
 
@@ -216,7 +235,7 @@ no AI call. `--no-cache` forces a fresh compile.
 |---|---|---|---|
 | python | python3 | rust | rustc |
 | javascript | node | go | go |
-| typescript | node 22+ or tsx | c / cpp | cc / c++ |
+| typescript | node 22.6+ or tsx | c / cpp | cc / c++ |
 | lua | lua | java | java 17+ |
 | ruby, php, perl, r, julia | the interpreter | kotlin | kotlinc + java |
 | bash, powershell | bash, pwsh | csharp | dotnet |
@@ -249,11 +268,17 @@ the code around the insertion point. It compiles a zero-comment snippet in the f
 - With neither, the snippet goes at the end of the file.
 
 For Python files, the spliced file must still parse, or nothing is written. Every other line of
-the file stays byte-for-byte the same, and the diff is printed. Accepted repositories:
+the file stays byte-for-byte the same, and the diff is printed. Your `.imy` file is checked
+against the rules before anything is cloned. Accepted repositories:
 
-- GitHub URLs, `git@github.com:` addresses and `owner/repo`
-- `.git` URLs on other hosts, plus GitLab, Bitbucket and Codeberg
+- GitHub URLs (a page inside the repository works too, such as `…/tree/main/src`),
+  `git@github.com:` addresses and `owner/repo`; they all share one clone
+- `.git` URLs and `git@host:group/repo.git` addresses on other hosts, plus GitLab, Bitbucket
+  and Codeberg
 - local repositories
+
+An earlier clone is reused. `--fresh` clones again, and removes only a folder that is an
+earlier clone of the same repository: it never deletes another folder you point `--dest` at.
 
 ## Providers and keys
 
@@ -274,7 +299,15 @@ IMY never prints a key. Scripts can pass a key with `imy init --api-key-stdin`. 
 a project `.env` file.
 
 Settings resolve in this order: `--provider`/`--model` flags, then `IMY_*` environment
-variables, then `.env`, then `~/.imy/config.json`, then the defaults.
+variables, then `.env`, then `~/.imy/config.json`, then the defaults. Choosing another provider
+for one run (`--provider`, `IMY_PROVIDER`) leaves the saved provider's model, key and server URL
+behind: each provider uses its own.
+
+A `.env` file comes with a project, so it may hold keys and the provider, model and target, and
+nothing that decides where a key is sent or what runs on your computer: `IMY_AUTOMA_BRIDGE`,
+`IMY_PYTHON`, `IMY_HOME` and `IMY_API_KEY_ENV` are refused there, and `IMY_BASE_URL` only when
+it points at this computer (`localhost`, `127.0.0.1`). Set those in your shell or with
+`imy init`.
 
 | Variable | Setting |
 |---|---|
@@ -313,6 +346,8 @@ exit code 0
 | `:target <lang>`, `:provider <name>`, `:model <id>`, `:models` | switch target, provider or model |
 | `:memory`, `:help`, `:quit` | saved symbols, help, leave |
 | `!<command>` | run a shell command |
+
+Ctrl+C stops the command that is running and returns to the prompt; `:quit` or Ctrl+D leaves.
 
 ## Exit codes
 

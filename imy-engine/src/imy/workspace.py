@@ -38,14 +38,26 @@ class Workspace:
 
     @classmethod
     def discover(cls, start: Path, *, home: Path | None = None) -> Workspace:
-        """The nearest folder (from ``start`` upward) that has a .imy/ workspace, else ``start``'s folder."""
+        """The nearest folder (from ``start`` upward) that has a .imy/ workspace, else ``start``'s folder.
+
+        IMY's own home is never a project's workspace: neither the one in use (``home``) nor
+        the default ``~/.imy``, which stays behind when IMY_HOME points somewhere else. Found
+        on the way up, it would make every project under the home folder share one build
+        folder and read the old global memory as its own.
+        """
         origin = start.resolve()
         if origin.is_file() or not origin.exists():
             origin = origin.parent
-        skip = home.resolve() if home is not None else None
+        skip = set()
+        for folder in (home, Path.home() / WORKSPACE_DIR):
+            if folder is not None:
+                try:
+                    skip.add(folder.resolve())
+                except (OSError, RuntimeError):
+                    continue
         for candidate in (origin, *origin.parents):
             marker = candidate / WORKSPACE_DIR
-            if marker.is_dir() and (skip is None or marker.resolve() != skip):
+            if marker.is_dir() and marker.resolve() not in skip:
                 return cls(candidate)
         return cls(origin)
 

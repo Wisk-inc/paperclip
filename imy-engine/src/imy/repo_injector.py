@@ -29,8 +29,6 @@ from .prompts import RepoContext
 
 _OWNER = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})"
 _REPO = r"[A-Za-z0-9._-]{1,100}"
-_GITHUB_HTTPS = re.compile(rf"^https?://(?:www\.)?github\.com/(?P<owner>{_OWNER})/(?P<repo>{_REPO}?)(?:\.git)?/?$")
-_GITHUB_SSH = re.compile(rf"^git@github\.com:(?P<owner>{_OWNER})/(?P<repo>{_REPO}?)(?:\.git)?$")
 _SHORTHAND = re.compile(rf"^(?P<owner>{_OWNER})/(?P<repo>{_REPO})$")
 _KNOWN_HOSTS = ("gitlab.com", "bitbucket.org", "codeberg.org", "git.sr.ht", "gitea.com")
 _CONTEXT_BEFORE = 40
@@ -49,20 +47,49 @@ def _folder_name(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", text).strip("._") or "repo"
 
 
+_SCP_LIKE = re.compile(r"^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[A-Za-z0-9.-]+):(?P<path>[A-Za-z0-9._~/-]+)$")
+
+
+def _github_ref(owner: str, repo: str, original: str) -> RepoRef:
+    repo = repo.removesuffix(".git")
+    if not re.fullmatch(_OWNER, owner) or not re.fullmatch(_REPO, repo) or repo in (".", ".."):
+        raise InjectionError(f"{original!r} is not a GitHub repository address.", hint="Use https://github.com/<owner>/<repo>.")
+    return RepoRef(url=f"https://github.com/{owner}/{repo}.git", folder=_folder_name(f"{owner}__{repo}"), display=f"{owner}/{repo}")
+
+
 def parse_repo_url(text: str) -> RepoRef:
-    """Validate a repository reference: GitHub URL, git@ address, owner/repo, other git host, or local repo."""
+    """Validate a repository reference.
+
+    Accepted: a GitHub URL (a page inside the repository, such as .../tree/main/src, is
+    fine), git@host:owner/repo.git, owner/repo (GitHub), an https or ssh URL on another
+    host, file://, or a local repository folder. Anything git could read as an option or
+    as a command-running transport is refused.
+    """
     value = text.strip()
     if not value:
         raise InjectionError("Give the repository to clone, for example https://github.com/huggingface/transformers.")
-    if value.startswith("-") or any(ch.isspace() for ch in value) or value.lower().startswith("ext::"):
+    if value.startswith("-") or any(ch.isspace() for ch in value) or "::" in value:
         raise InjectionError(f"{text!r} is not a git repository URL.")
-    match = _GITHUB_HTTPS.match(value) or _GITHUB_SSH.match(value)
-    if match:
-        owner, repo = match.group("owner"), match.group("repo")
-        url = value if value.startswith("git@") else f"https://github.com/{owner}/{repo}.git"
-        return RepoRef(url=url, folder=_folder_name(f"{owner}__{repo}"), display=f"{owner}/{repo}")
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme in ("http", "https") and host in ("github.com", "www.github.com"):
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) < 2:
+            raise InjectionError(f"{text!r} names no repository.", hint="Use https://github.com/<owner>/<repo>.")
+        return _github_ref(segments[0], segments[1], text)
+    scp = _SCP_LIKE.match(value)
+    if scp:
+        path = scp.group("path").strip("/")
+        if path.count("/") < 1:
+            raise InjectionError(f"{text!r} names no repository.")
+        name = path.rsplit("/", 1)[-1].removesuffix(".git")
+        host_name = scp.group("host").lower()
+        if host_name == "github.com" and path.count("/") == 1:
+            owner = path.split("/", 1)[0]
+            return RepoRef(url=value, folder=_folder_name(f"{owner}__{name}"), display=f"{owner}/{name}")
+        return RepoRef(url=value, folder=_folder_name(f"{host_name}__{name}"), display=f"{host_name}:{path}")
     if value.startswith("file://"):
-        local = Path(unquote(urlparse(value).path))
+        local = Path(unquote(parsed.path))
         if not _is_git_repo(local):
             raise InjectionError(f"{value} is not a git repository.")
         return RepoRef(url=value, folder=_folder_name(local.name), display=str(local), local=True)
@@ -74,12 +101,9 @@ def parse_repo_url(text: str) -> RepoRef:
         return RepoRef(url=resolved.as_uri(), folder=_folder_name(resolved.name), display=str(resolved), local=True)
     match = _SHORTHAND.match(value)
     if match:
-        owner, repo = match.group("owner"), match.group("repo").removesuffix(".git")
-        return RepoRef(url=f"https://github.com/{owner}/{repo}.git", folder=_folder_name(f"{owner}__{repo}"), display=f"{owner}/{repo}")
-    parsed = urlparse(value)
+        return _github_ref(match.group("owner"), match.group("repo"), text)
     if parsed.scheme in ("https", "http", "ssh") and parsed.netloc:
         segments = [segment for segment in parsed.path.split("/") if segment]
-        host = (parsed.hostname or "").lower()
         if len(segments) >= 2 and (value.endswith(".git") or host in _KNOWN_HOSTS or host.endswith(tuple("." + h for h in _KNOWN_HOSTS))):
             name = segments[-1].removesuffix(".git")
             return RepoRef(url=value, folder=_folder_name(f"{host}__{name}"), display=f"{host}/{'/'.join(segments)}")
@@ -113,11 +137,7 @@ def clone_repository(ref: RepoRef, destination: Path, *, branch: str | None = No
     git = _git()
     if destination.exists():
         if (destination / ".git").exists():
-            probe = subprocess.run(
-                [git, "-C", str(destination), "config", "--get", "remote.origin.url"],
-                capture_output=True, text=True, env=_git_env(),
-            )
-            current = probe.stdout.strip()
+            current = _origin_url(destination)
             if current and current != ref.url:
                 raise InjectionError(
                     f"{destination} already holds another repository ({current}).",
@@ -154,6 +174,31 @@ def clone_repository(ref: RepoRef, destination: Path, *, branch: str | None = No
             hint = f"The branch {branch!r} doesn't exist in this repository."
         raise InjectionError(f"git clone of {ref.display} failed: {tail}", hint=hint)
     return destination
+
+
+def _origin_url(folder: Path) -> str:
+    if not (folder / ".git").exists():
+        return ""
+    probe = subprocess.run(
+        [_git(), "-C", str(folder), "config", "--get", "remote.origin.url"], capture_output=True, text=True, env=_git_env()
+    )
+    return probe.stdout.strip()
+
+
+def remove_earlier_clone(ref: RepoRef, folder: Path) -> None:
+    """--fresh: delete ``folder`` only when it is an earlier clone of this same repository.
+
+    With --dest the folder is the user's choice, so anything else there (another project,
+    a folder of documents) is left alone and reported instead.
+    """
+    if not folder.is_dir() or folder.is_symlink():
+        raise InjectionError(f"{folder} is not a folder IMY cloned; --fresh will not delete it.")
+    if _origin_url(folder) != ref.url:
+        raise InjectionError(
+            f"{folder} is not an earlier clone of {ref.display}, so --fresh will not delete it.",
+            hint="Pick another --dest, or remove that folder yourself if you no longer need it.",
+        )
+    shutil.rmtree(folder)
 
 
 @dataclass(frozen=True)
@@ -364,7 +409,7 @@ def inject(
     ref = parse_repo_url(repo_url)
     repo_dir = destination or (compiler.workspace.repos / ref.folder)
     if fresh and repo_dir.exists():
-        shutil.rmtree(repo_dir)
+        remove_earlier_clone(ref, repo_dir)
     clone_repository(ref, repo_dir, branch=branch)
 
     relative = target.strip().lstrip("/\\")

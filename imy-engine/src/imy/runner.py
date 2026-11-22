@@ -173,6 +173,15 @@ def python_command() -> str:
     return os.environ.get("IMY_PYTHON") or _find("python3", "python") or sys.executable
 
 
+def _node_version(node: str) -> tuple[int, int]:
+    try:
+        text = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return (0, 0)
+    match = re.match(r"v?(\d+)\.(\d+)", text.strip())
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+
+
 def _dotnet_framework(dotnet: str) -> str:
     try:
         version = subprocess.run([dotnet, "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
@@ -197,7 +206,13 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
         tsx = _find("tsx")
         if tsx:
             return Toolchain(run=[tsx, path])
-        return Toolchain(run=[_need(language, "node"), "--experimental-strip-types", "--no-warnings", path])
+        node = _need(language, "node", "nodejs")
+        if _node_version(node) < (22, 6):
+            raise RunnerError(
+                "Running TypeScript needs Node.js 22.6 or newer, or `tsx`.",
+                hint="Update Node.js, run `npm install -g tsx`, or use `imy run --to javascript`.",
+            )
+        return Toolchain(run=[node, "--experimental-strip-types", "--no-warnings", path])
     if name == "lua":
         return Toolchain(run=[_need(language, "lua", "lua5.4", "lua5.3", "luajit"), path])
     if name in ("ruby", "php", "perl", "julia", "elixir", "groovy", "ocaml"):
@@ -228,7 +243,8 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
             return Toolchain(run=[cli, "run", path])
         return Toolchain(run=[_need(language, "scala"), path])
     if name == "sql":
-        return Toolchain(run=[_need(language, "sqlite3"), ":memory:", f".read {path}"])
+        quoted = path.replace("\\", "\\\\").replace('"', '\\"')
+        return Toolchain(run=[_need(language, "sqlite3"), ":memory:", f'.read "{quoted}"'])
     if name == "go":
         return Toolchain(run=[_need(language, "go"), "run", path])
     if name == "java":

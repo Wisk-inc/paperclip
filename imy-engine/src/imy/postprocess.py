@@ -208,7 +208,7 @@ def scan_comments(code: str, syntax: CommentSyntax, *, line_offset: int = 0) -> 
                 advance_to(n if stop == -1 else stop + len(close))
                 continue
 
-        if syntax.triple_strings and (code.startswith('"""', i) or code.startswith("'''", i)):
+        if syntax.triple_strings and code[i : i + 3] in ('"' * 3, "'" * 3) and code[i] in syntax.strings:
             quote = code[i : i + 3]
             stop = code.find(quote, i + 3)
             advance_to(n if stop == -1 else stop + 3)
@@ -321,7 +321,7 @@ class _HtmlScan(HTMLParser):
                 self.styles.append((line, f"a stylesheet link ({href})"))
             elif href and ("icon" in rel or "preload" in rel or "manifest" in rel):
                 self.assets.append((line, "link", "href", href))
-        if tag in ("img", "source", "video", "audio", "embed", "iframe", "track", "input", "object"):
+        if tag in ("img", "source", "video", "audio", "embed", "iframe", "track", "input", "object", "script"):
             for key in ("src", "poster", "srcset", "data"):
                 if values.get(key) and not (tag == "input" and values.get("type", "").lower() != "image"):
                     self.assets.append((line, tag, key, values[key]))
@@ -481,7 +481,16 @@ def _check_messages(code: str, parsed: ParsedSource, haystack_extra: str = "") -
     for line, value in parsed.string_values():
         if value in virtual or not _is_message(value):
             continue
-        candidates = {value, value.strip(), json.dumps(value)[1:-1], html.escape(value, quote=False)}
+        backslash = "\\"
+        candidates = {
+            value,
+            value.strip(),
+            json.dumps(value)[1:-1],
+            json.dumps(value, ensure_ascii=False)[1:-1],
+            value.replace(backslash, backslash * 2).replace("'", backslash + "'"),
+            html.escape(value, quote=False),
+            html.escape(value, quote=True),
+        }
         if any(candidate and candidate in haystack for candidate in candidates):
             continue
         items = [item.strip() for item in value.split(",") if item.strip()]

@@ -6,7 +6,7 @@
  * The command is a closed, in-code set keyed by the tool id. Opening a terminal
  * can only ever start one of these — never an arbitrary process a caller named.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,36 @@ function shq(value: string): string {
 export function imyBinary(home: string = os.homedir()): string {
   const linked = path.join(home, ".local", "bin", "imy");
   return existsSync(linked) ? linked : "imy";
+}
+
+/** Orders release versions written as numbers and dots (1.0.10 comes after 1.0.9). */
+export function compareVersions(a: string, b: string): number {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/**
+ * The IMY this server ships: the version in the name of the wheel next to the
+ * setup script (the one `linux-setup.sh install imy` installs), or null when
+ * the folder holds none and IMY comes from PyPI.
+ */
+export function bundledImyVersion(folder: string = fileURLToPath(new URL("../scripts/terminals/imy/", import.meta.url))): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(folder);
+  } catch {
+    return null;
+  }
+  const versions = names
+    .map((name) => /^imagenery-(\d+(?:\.\d+)*)-py3-none-any\.whl$/.exec(name)?.[1])
+    .filter((version): version is string => Boolean(version))
+    .sort(compareVersions);
+  return versions.at(-1) ?? null;
 }
 
 /**

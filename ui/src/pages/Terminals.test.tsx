@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TERMINAL_TOOLS } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { launchModel, offeredModel, Terminals } from "./Terminals";
+import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
+import { defaultModelLabel, launchModel, offeredModel, Terminals } from "./Terminals";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,6 +33,7 @@ vi.mock("@/components/mascot/Mascot", () => ({ Mascot: () => null }));
 
 const freechat = TERMINAL_TOOLS.find((tool) => tool.id === "freechat")!;
 const claude = TERMINAL_TOOLS.find((tool) => tool.id === "claude")!;
+const imy = TERMINAL_TOOLS.find((tool) => tool.id === "imy")!;
 
 let root: Root;
 let host: HTMLDivElement;
@@ -133,6 +135,71 @@ describe("Terminals page", () => {
     }));
   });
 
+  it("lists IMY with its free models, and opens it with the exact model picked", async () => {
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ imy: true }) });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(tile("imy").textContent).toContain("Invent your own syntax");
+    expect(tile("imy").textContent).toContain("Ready");
+
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Model for IMY"]')!;
+    expect(select.options[0]!.textContent).toBe("IMY's own setting (free models at first)");
+    expect([...select.options].slice(1).map((option) => option.value)).toEqual(imy.models);
+    expect(imy.models!.some((id) => id.startsWith("moan/"))).toBe(false);
+
+    // Nothing picked: IMY starts with its own setting, so no model is sent.
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "run" });
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
+  });
+
+  it("opens IMY with the model picked in its menu, and installs it first when it is missing", async () => {
+    window.localStorage.setItem("automa.terminals.models", JSON.stringify({ imy: imy.models![1] }));
+    api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ imy: true }) });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "run", model: imy.models![1] });
+  });
+
+  it("updates IMY once when this Automa ships a newer one, then opens what is installed", async () => {
+    api.status.mockResolvedValue({
+      kind: "phone",
+      linuxReady: true,
+      relayReady: true,
+      tools: TERMINAL_TOOLS.map((tool) => (tool.id === "imy" ? { id: tool.id, installed: true, update: true } : { id: tool.id, installed: false })),
+    });
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(tile("imy").textContent).toContain("Tap to update");
+    expect(tile("claude").textContent).toContain("Tap to install");
+
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "install" });
+
+    // Back on the page with the update not gone through (no connection): IMY opens as it is.
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=terminal-view]")).not.toBeNull());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Back to terminals"]')!.click());
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(tile("imy").textContent).toContain("Ready");
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(2));
+    expect(api.start.mock.calls[1]![1]).toMatchObject({ toolId: "imy", mode: "run" });
+  });
+
+  it("installs IMY on the first tap when it is not on the device yet", async () => {
+    await render();
+    await vi.waitFor(() => expect(tile("imy")).toBeTruthy());
+    expect(tile("imy").textContent).toContain("Tap to install");
+    await act(async () => tile("imy").click());
+    await vi.waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
+    expect(api.start.mock.calls[0]![1]).toMatchObject({ toolId: "imy", mode: "install" });
+    expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
+  });
+
   it("drops a model from the link that the server would refuse", async () => {
     search.value = new URLSearchParams({ tool: "claude", model: "bad model; rm -rf /" });
     await render();
@@ -153,5 +220,22 @@ describe("terminal model choice", () => {
     expect(launchModel(freechat, "gone-model")).toBe(freechat.models![0]);
     // Other tools keep their own default.
     expect(launchModel(claude, undefined)).toBeUndefined();
+  });
+
+  it("says what opens when no model is picked", () => {
+    expect(defaultModelLabel(freechat)).toMatch(/^Default \(.+\)$/);
+    expect(defaultModelLabel(imy)).toBe("IMY's own setting (free models at first)");
+    expect(defaultModelLabel(claude)).toBe("The tool's own default model");
+    expect(launchModel(imy, undefined)).toBeUndefined();
+    expect(launchModel(imy, imy.models![0])).toBe(imy.models![0]);
+  });
+
+  it("keeps every tool's name, description and default-model line in the text the board may translate", () => {
+    const board = new Set<string>(UI_STRINGS);
+    const missing = TERMINAL_TOOLS.flatMap((tool) => [tool.label, tool.blurb]).filter((text) => !board.has(text));
+    expect(missing).toEqual([]);
+    expect(board.has(defaultModelLabel(imy))).toBe(true);
+    expect(board.has(defaultModelLabel(claude))).toBe(true);
+    expect(board.has("Default ({0})")).toBe(true);
   });
 });

@@ -152,6 +152,21 @@ class TestCompilePipeline:
         assert caught.value.codes == [ErrorCode.MESSAGE_NOT_PRESERVED]
         assert caught.value.diagnostics[0].line == 5
 
+    @pytest.mark.parametrize(
+        "source_line, compiled",
+        [
+            ('show ("Don\'t stop now")', "print('Don\\'t stop now')\n"),
+            ('show ("She said \\"go on\\" twice")', 'print("She said \\"go on\\" twice")\n'),
+            ('show ("Caf\u00e9 is open")', 'print("Caf\\u00e9 is open")\n'),
+            ('show ("Tom & Jerry <3 cheese")', 'print("Tom & Jerry <3 cheese")\n'),
+        ],
+    )
+    def test_a_message_written_with_escapes_still_counts_as_kept(self, tmp_path: Path, source_line: str, compiled: str) -> None:
+        llm = FakeLLM([reply(compiled)])
+        compiler = make_compiler(tmp_path, llm)
+        path = write(tmp_path / "msg.imy", '# ("prints one message for the user to read")\n' + source_line + "\n")
+        assert compiler.compile_file(path, CompileOptions(target="python")).code == compiled
+
     def test_virtual_paths_are_mapped_into_the_prompt(self, tmp_path: Path) -> None:
         llm = FakeLLM([reply("VelocityX = 0\n")])
         compiler = make_compiler(tmp_path, llm)
@@ -160,6 +175,52 @@ class TestCompilePipeline:
         assert result.vfs.virtual_paths == {"/save:slots": ".imy/vfs/save/slots"}
         assert '"/save:slots" -> ".imy/vfs/save/slots"' in llm.last_prompt()
         assert 'variable pack "XYZ" (line 4): members VelocityX, velocityY, velocityZ' in llm.last_prompt()
+
+
+class TestLenientReplies:
+    BASE = {"status": "ok", "errors": [], "target_language": "python", "compiled_code": "x = 1\n"}
+
+    def test_one_unusable_symbol_does_not_sink_the_program(self) -> None:
+        payload = {**self.BASE, "extracted_symbols": [
+            {"name": "PI", "kind": "constant", "meaning": "3.14", "source_fragment": "PI = 3.14"},
+            {"name": "XYZ", "kind": "Variable Pack", "meaning": "three speeds"},
+            {"name": "weird", "kind": "galaxy", "meaning": "?"},
+            {"name": "", "kind": "variable", "meaning": "no name"},
+            "not an object",
+            {"name": "greet", "kind": "method", "meaning": "greets", "source_fragment": 7},
+        ]}
+        parsed = parse_compiler_response(json.dumps(payload))
+        assert [(s.name, s.kind.value, s.source_fragment) for s in parsed.extracted_symbols] == [
+            ("PI", "variable", "PI = 3.14"), ("XYZ", "variable_pack", ""), ("greet", "function", ""),
+        ]
+        assert parse_compiler_response(json.dumps({**self.BASE, "extracted_symbols": None})).extracted_symbols == []
+
+    @pytest.mark.parametrize(
+        "code, expected",
+        [("ShortcutLimitExceeded", "ShortcutLimitExceeded"), ("missing_mechanics", "MissingMechanics"),
+         ("AMBIGUOUS INTENT", "AmbiguousIntent"), ("executionOrderViolation", "ExecutionOrderViolation"),
+         ("CommentInSource", "CommentInSource")],
+    )
+    def test_error_codes_in_other_spellings_are_understood(self, code: str, expected: str) -> None:
+        payload = {"status": "error", "errors": [{"code": code, "line": None, "message": "why"}],
+                   "extracted_symbols": [], "target_language": "python", "compiled_code": None}
+        parsed = parse_compiler_response(json.dumps(payload))
+        assert [(e.code, e.line) for e in parsed.errors] == [(expected, 0)]
+
+    def test_unknown_error_codes_go_back_for_repair(self, tmp_path: Path) -> None:
+        bad = json.dumps({"status": "error", "errors": [{"code": "VibesOff", "line": 2, "message": "hm"}],
+                          "extracted_symbols": [], "target_language": "python", "compiled_code": ""})
+        with pytest.raises(ResponseFormatError) as caught:
+            parse_compiler_response(bad)
+        assert "ExecutionOrderViolation" in str(caught.value)
+        llm = FakeLLM([bad, reply(HELLO_PY)])
+        assert compile_hello(tmp_path, llm).attempts == 2
+
+    def test_a_static_rule_code_from_the_model_is_reported_under_that_rule(self, tmp_path: Path) -> None:
+        llm = FakeLLM([reply(status="error", errors=[{"code": "shortcut_limit_exceeded", "line": 3, "message": "two helpers"}])])
+        with pytest.raises(CompilationFailed) as caught:
+            compile_hello(tmp_path, llm)
+        assert caught.value.codes == [ErrorCode.SHORTCUT_LIMIT_EXCEEDED]
 
 
 class TestZeroComments:
@@ -202,6 +263,22 @@ class TestZeroComments:
     def test_comment_detection(self, language: str, code: str, lines: list[int]) -> None:
         hits = find_comments(code, resolve_language(language))
         assert [hit.line for hit in hits] == lines
+
+    @pytest.mark.parametrize(
+        "language, code, lines",
+        [
+            ("java", 'String s = """\n  see http://x.example // text\n  # text\n  """;\nint a = 1; // real\n', [5]),
+            ("kotlin", 'val s = """\n a // b\n """\nprintln(s) // real\n', [4]),
+            ("swift", 'let s = """\n  a // b\n  """\nprint(s) // real\n', [4]),
+            ("dart", "var s = \'\'\'\n a // b\n \'\'\';\nprint(s); // real\n", [4]),
+            ("csharp", 'var s = """\n a // b\n """;\nConsole.WriteLine(s); // real\n', [4]),
+            ("julia", 's = """\n a # b\n """\nprintln(s) # real\n', [4]),
+            ("elixir", 's = """\n a # b\n """\nIO.puts(s) # real\n', [4]),
+            ("java", "char q = '\\'';\nchar c = '\"';\nint a = 1;\n", []),
+        ],
+    )
+    def test_text_blocks_are_text_not_comments(self, language: str, code: str, lines: list[int]) -> None:
+        assert [hit.line for hit in find_comments(code, resolve_language(language))] == lines
 
     def test_convert_rejects_any_comment_token(self, tmp_path: Path) -> None:
         llm = FakeLLM([reply("console.log('hi'); // done\n", target="javascript")] * 2)
@@ -260,6 +337,17 @@ class TestWebsiteStrictness:
         with pytest.raises(CompilationFailed) as caught:
             self._compile(tmp_path, "website_wrong.imy", refusal)
         assert caught.value.codes == [ErrorCode.MISSING_MECHANICS]
+
+    def test_a_script_from_the_web_that_the_code_never_names_is_rejected(self) -> None:
+        parsed = parse_text('# ("shows one greeting on the home page")\nshow "Hello there"\n')
+        html = (
+            '<!DOCTYPE html>\n<html><head><meta charset="utf-8">\n<script src="https://cdn.example/x.js"></script>\n'
+            "</head><body><p>Hello there</p></body></html>\n"
+        )
+        checked = check_output(html, resolve_language("html"), parsed)
+        assert [(d.code, d.line) for d in checked.diagnostics] == [(ErrorCode.INVENTED_ASSET, 3)]
+        named = parse_text('# ("loads my chart script and shows one greeting")\nload script "https://cdn.example/x.js"\nshow "Hello there"\n')
+        assert check_output(html, resolve_language("html"), named).ok
 
     def test_srcset_lists_are_checked_one_file_at_a_time(self) -> None:
         parsed = parse_text('# ("shows one photo of the shop on the page")\ncall image "shop photo.png"\n')

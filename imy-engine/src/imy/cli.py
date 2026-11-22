@@ -10,7 +10,7 @@ import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 from rich.console import Console
@@ -36,12 +36,22 @@ from .config import (
 from .errors import CompilationFailed, ConfigError, Diagnostic, ImyError, LLMError, Stage
 from .llm_client import AutomaBridgeClient, ChatMessage, LLMClient, LLMRequest, build_client
 from .memory import Memory, MemoryStore
-from .parser import parse_file
+from .parser import parse_file, read_source
 from .runner import build_artifact, python_command, run_artifact, serve_folder
 from .workspace import Workspace, prepare_virtual_files
 
-err = Console(stderr=True, highlight=False)
-out = Console(highlight=False)
+class ImyConsoleOutput(Console):
+    """Rich console that leaves long text lines (messages, file paths) for the terminal to wrap,
+    so a path is never broken in the middle of a word. Tables and code keep Rich's own layout."""
+
+    def print(self, *objects: Any, **kwargs: Any) -> None:
+        if "soft_wrap" not in kwargs and all(isinstance(item, str) for item in objects):
+            kwargs["soft_wrap"] = True
+        super().print(*objects, **kwargs)
+
+
+err = ImyConsoleOutput(stderr=True, highlight=False)
+out = ImyConsoleOutput(highlight=False)
 
 app = typer.Typer(
     name="imy",
@@ -183,10 +193,18 @@ def guarded(console: Console = err) -> Iterator[None]:
 
 
 def _compile(session: Session, file: Path, target: str, **options: object) -> CompileResult:
+    """The free checks first (a rule error shows at once, with no model named), then the model."""
+    parsed = parse_file(file)
+    session.compiler.static_check(parsed)
     config = session.config
     label = f"Compiling {file.name} → {target} with {config.provider}/{config.resolved_model()}"
     with err.status(escape(label) + "…"):
-        return session.compiler.compile_file(file, CompileOptions(target=target, **options))  # type: ignore[arg-type]
+        return session.compiler.compile_parsed(parsed, CompileOptions(target=target, **options))  # type: ignore[arg-type]
+
+
+def _require_source(file: Path) -> None:
+    """Fail on a missing or unreadable .imy file before anything is created next to it."""
+    read_source(file)
 
 
 def _version_callback(value: bool) -> None:
@@ -221,6 +239,7 @@ def check(
     """Run the static rules and the strict model validator. Nothing runs."""
     with guarded():
         provider, model = choose_model(provider, model, free_model)
+        _require_source(file)
         session = open_session(file, provider=provider, model=model, ensure=not static)
         if static:
             session.compiler.static_check(parse_file(file))
@@ -253,6 +272,7 @@ def run(
     code = 0
     with guarded():
         provider, model = choose_model(provider, model, free_model)
+        _require_source(file)
         session = open_session(file, provider=provider, model=model)
         target = to or session.config.default_target
         result = _compile(session, file, target, update_memory=update_memory, use_cache=not no_cache)
@@ -296,6 +316,7 @@ def convert(
         if output is not None and output.resolve() == file.resolve():
             raise ConfigError("IMY never overwrites your .imy source; pick another --output path.")
         provider, model = choose_model(provider, model, free_model)
+        _require_source(file)
         session = open_session(file, provider=provider, model=model)
         result = _compile(session, file, to, save_memory=save_memory or update_memory, update_memory=update_memory, use_cache=not no_cache)
         render_memory(result)
@@ -335,7 +356,9 @@ def inject(
 
     code = 0
     with guarded():
+        _require_source(imy)
         session = open_session(imy, provider=provider, model=model)
+        session.compiler.static_check(parse_file(imy))
         with err.status(f"Cloning {escape(repo_url)} and compiling {escape(imy.name)}…"):
             result = do_inject(
                 session.compiler,

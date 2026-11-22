@@ -33,6 +33,14 @@ export function launchModel(tool: Pick<TerminalToolInfo, "id" | "models">, saved
   return offeredModel(tool, saved) ?? (tool.id === "freechat" ? tool.models?.[0] : undefined);
 }
 
+/** What the model menu's first entry says: what opens when no model is picked. */
+export function defaultModelLabel(tool: Pick<TerminalToolInfo, "id" | "models">): string {
+  if (tool.id === "freechat") return `Default (${modelDisplayName(tool.models?.[0] ?? "")})`;
+  // IMY keeps its own choice (`imy init`: a key of yours, or the free models, which it starts with).
+  if (tool.id === "imy") return "IMY's own setting (free models at first)";
+  return "The tool's own default model";
+}
+
 function ToolLogo({ tool, className }: { tool: TerminalToolInfo; className?: string }) {
   if (tool.brandDark) {
     return (
@@ -95,6 +103,14 @@ export function Terminals() {
   });
 
   const installed = useMemo(() => new Map((status.data?.tools ?? []).map((tool) => [tool.id, tool.installed])), [status.data]);
+  // Tools this Automa ships a newer copy of than the one installed (IMY). The
+  // update is offered once a visit: if it does not go through (no connection),
+  // the next tap opens what is installed instead of asking again.
+  const [updateTried, setUpdateTried] = useState<ReadonlySet<TerminalToolId>>(() => new Set());
+  const updates = useMemo(
+    () => new Set((status.data?.tools ?? []).filter((tool) => tool.installed && tool.update && !updateTried.has(tool.id)).map((tool) => tool.id)),
+    [status.data, updateTried],
+  );
   // Each tool's models with the newer ones of the catalog the server keeps in
   // front (Claude Code, Codex, Gemini CLI), so a model released after this
   // Automa can be picked too.
@@ -164,6 +180,10 @@ export function Terminals() {
   const openTool = (tool: TerminalToolInfo) => {
     if (tool.id === "shell") return start.mutate({ toolId: "shell", mode: "shell" });
     const model = launchModel(tool, models[tool.id]);
+    if (updates.has(tool.id)) {
+      setUpdateTried((tried) => new Set(tried).add(tool.id));
+      return start.mutate({ toolId: tool.id, mode: "install" });
+    }
     if (installed.get(tool.id)) return start.mutate({ toolId: tool.id, mode: "run", ...(model ? { model } : {}) });
     return start.mutate({ toolId: tool.id, mode: "install" });
   };
@@ -296,7 +316,7 @@ export function Terminals() {
                       <span className="text-sm font-semibold">{tool.label}</span>
                       {tool.id !== "shell" ? (
                         <span className={cn("rounded-full px-2 py-0.5 text-xs", isInstalled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                          {isInstalled ? "Ready" : "Tap to install"}
+                          {updates.has(tool.id) ? "Tap to update" : isInstalled ? "Ready" : "Tap to install"}
                         </span>
                       ) : null}
                     </span>
@@ -310,7 +330,7 @@ export function Terminals() {
                         className="mt-2 h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs text-foreground"
                         data-testid="terminal-model"
                       >
-                        <option value="">{tool.id === "freechat" ? `Default (${modelDisplayName(tool.models[0]!)})` : "The tool's own default model"}</option>
+                        <option value="">{defaultModelLabel(tool)}</option>
                         {tool.models.map((id) => <option key={id} value={id}>{modelDisplayName(id)} · {id}</option>)}
                       </select>
                     ) : null}

@@ -124,6 +124,20 @@ class TestOpenAI:
         with pytest.raises(LLMConnectionError):
             openai_client(Recorder(httpx2.ConnectError("down"))).complete(REQUEST)
 
+    def test_a_slow_answer_is_not_asked_for_again_but_a_failed_connection_is(self) -> None:
+        slow = Recorder(httpx2.ReadTimeout("slow"))
+        with pytest.raises(LLMTimeoutError) as caught:
+            openai_client(slow).complete(REQUEST)
+        assert len(slow.requests) == 1
+        assert "IMY_TIMEOUT" in (caught.value.hint or "")
+        flaky = Recorder(httpx2.ConnectTimeout("no route"), httpx2.ConnectError("reset"), openai_ok("{}"))
+        assert openai_client(flaky).complete(REQUEST).text == "{}"
+        assert len(flaky.requests) == 3
+        unreachable = Recorder(httpx2.ConnectTimeout("no route"))
+        with pytest.raises(LLMTimeoutError):
+            openai_client(unreachable).complete(REQUEST)
+        assert len(unreachable.requests) == 3
+
     def test_refusal_cutoff_and_garbage(self) -> None:
         refusal = httpx2.Response(200, json={"choices": [{"message": {"content": None, "refusal": "no"}, "finish_reason": "stop"}]})
         with pytest.raises(LLMRefusalError):
@@ -214,6 +228,23 @@ class TestAnthropic:
         recorder = Recorder(rejected, ok)
         assert self.client(recorder).complete(REQUEST).text == "{}"
         assert "output_config" not in recorder.body(-1)
+
+    def test_a_model_without_adaptive_thinking_or_effort_is_asked_again_without_them(self) -> None:
+        def rejection(message: str) -> httpx2.Response:
+            return httpx2.Response(400, json={"type": "error", "error": {"type": "invalid_request_error", "message": message}})
+
+        ok = httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=sse("{}"))
+        recorder = Recorder(rejection("thinking: adaptive thinking is not supported on this model"), rejection("output_config.effort: unknown value"), ok)
+        client = self.client(recorder, effort="high")
+        assert client.complete(REQUEST).text == "{}"
+        bodies = [json.loads(request.content) for request in recorder.requests]
+        assert ["thinking" in body for body in bodies] == [True, False, False]
+        assert [body.get("output_config", {}).get("effort") for body in bodies] == ["high", "high", None]
+        assert bodies[-1]["output_config"]["format"]["type"] == "json_schema"
+        other = Recorder(rejection("messages: at least one message is required"))
+        with pytest.raises(LLMProviderError) as caught:
+            self.client(other).complete(REQUEST)
+        assert len(other.requests) == 1 and "at least one message" in caught.value.message
 
     def test_refusal_and_cutoff(self) -> None:
         refused = httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=sse("", stop_reason="refusal"))

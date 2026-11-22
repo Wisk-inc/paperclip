@@ -119,6 +119,27 @@ def _sort_key(symbol: MemorySymbol) -> tuple[str, str, str]:
     return (symbol.kind.value, symbol.name.casefold(), symbol.origin)
 
 
+def _same_folder(first: Path, second: Path) -> bool:
+    try:
+        return first.resolve() == second.resolve()
+    except OSError:
+        return False
+
+
+# Words every program uses as grammar. A variable saved under one of them (IMY lets `if` or
+# `then` be a variable) is reused by another file only where that file clearly uses it as a
+# value, so `if = menu.home page.structure` in one file never rewrites every `if` elsewhere.
+GENERIC_WORDS: frozenset[str] = frozenset(
+    {
+        "if", "elif", "else", "then", "while", "for", "foreach", "when", "until", "unless", "repeat", "loop",
+        "do", "end", "begin", "start", "stop", "return", "and", "or", "not", "in", "is", "as", "at", "by",
+        "of", "on", "to", "from", "into", "with", "the", "a", "an", "it", "this", "that", "be", "name",
+        "show", "print", "call", "set", "get", "let", "var", "const", "new", "def", "fn", "func", "function",
+        "true", "false", "yes", "no", "none", "null", "ship", "pack", "case", "match", "switch", "try", "catch",
+    }
+)
+
+
 class MemoryStore:
     """One memory.json file."""
 
@@ -277,7 +298,8 @@ def _locate(parsed: ParsedSource, kind: SymbolKind, symbol: SymbolLike) -> _Loca
             return None
         return _Located(fn.name, fn.line, fn.text, fingerprint(fn.text), fn.params)
     if kind is SymbolKind.SYNTAX_RULE:
-        number = parsed.first_line_mentioning(name) or _line_of_fragment(parsed, symbol.source_fragment)
+        name = " ".join(name.split())
+        number = parsed.mention_line(name)
         if number is None:
             return None
         return _Located(name, number, parsed.line(number).text.strip(), fingerprint(name), ())
@@ -296,8 +318,13 @@ class Memory:
 
     @classmethod
     def open(cls, home: Path, workspace_dir: Path | None = None) -> Memory:
+        """The global store in ``home``, plus ``workspace_dir/memory.json`` when a project has one.
+
+        Run from the home folder, the workspace folder is ``home`` itself (~/.imy): its
+        memory.json is the global store, not a second, local one.
+        """
         local = None
-        if workspace_dir is not None:
+        if workspace_dir is not None and not _same_folder(workspace_dir, home):
             candidate = MemoryStore(workspace_dir / "memory.json", "local")
             if candidate.exists():
                 local = candidate
@@ -338,8 +365,21 @@ class Memory:
         return names
 
     def relevant(self, parsed: ParsedSource, origin: str) -> RelevantMemory:
+        """The saved symbols this file uses without defining them.
+
+        * variable: used as a value (beside an operator, passed to a call, on the right of
+          an `=`), or named anywhere other than as the thing being called, unless the
+          name is a grammar word (GENERIC_WORDS)
+        * variable pack: named in a string (any letter case) or as an identifier
+        * function: named anywhere
+        * syntax rule: its text appears in a code line (strings aside)
+        * virtual path: the file ships the same path
+
+        Symbols this file saved itself are left out: its own source already defines them.
+        """
         identifiers = parsed.identifiers()
-        chains = parsed.chains()
+        value_refs = parsed.value_references()
+        plain = parsed.plain_identifiers()
         strings = {value.strip().casefold() for _, value in parsed.string_values()}
         defined = set(parsed.first_definitions())
         declared_packs = {pack.name.casefold() for pack in parsed.packs}
@@ -350,20 +390,23 @@ class Memory:
             if symbol.origin == origin:
                 continue
             kind = symbol.kind
+            name = symbol.name
             if kind is SymbolKind.VARIABLE:
-                if symbol.name in identifiers and symbol.name not in defined:
-                    variables.setdefault(symbol.name, []).append(symbol)
+                if name in defined:
+                    continue
+                if name in value_refs or (name in plain and name.casefold() not in GENERIC_WORDS):
+                    variables.setdefault(name, []).append(symbol)
             elif kind is SymbolKind.VARIABLE_PACK:
-                folded = symbol.name.casefold()
-                if folded not in declared_packs and (folded in strings or symbol.name in identifiers):
+                folded = name.casefold()
+                if folded not in declared_packs and (folded in strings or name in identifiers):
                     chosen.append(symbol)
             elif kind is SymbolKind.FUNCTION:
-                if symbol.name in identifiers and symbol.name not in defined:
+                if name in identifiers and name not in defined:
                     chosen.append(symbol)
             elif kind is SymbolKind.SYNTAX_RULE:
-                if symbol.name in chains or symbol.name in identifiers:
+                if name not in defined and parsed.mention_line(name) is not None:
                     chosen.append(symbol)
-            elif kind is SymbolKind.VIRTUAL_PATH and symbol.name in virtual_paths:
+            elif kind is SymbolKind.VIRTUAL_PATH and name in virtual_paths:
                 chosen.append(symbol)
         diagnostics: list[Diagnostic] = []
         for name, group in sorted(variables.items()):

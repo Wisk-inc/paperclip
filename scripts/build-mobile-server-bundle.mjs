@@ -104,6 +104,32 @@ function slimPackage(tarball, packedVersions, packagesDir) {
   console.log(`  ${path.basename(tarball)}: removed ${(removedBytes / 1024 / 1024).toFixed(1)} MB`);
 }
 
+/**
+ * IMY ships inside the server package: the Terminals page installs the wheel
+ * next to the setup script and opens IMY with the free-models bridge beside
+ * it. A bundle without them, or with a wheel that is not the IMY in this
+ * checkout, would install nothing or an old IMY on every phone.
+ */
+function checkImy(packagesDir) {
+  const version = /__version__ = "([^"]+)"/.exec(readFileSync(path.join(repoRoot, "imy-engine", "src", "imy", "__init__.py"), "utf8"))?.[1];
+  if (!version) throw new Error("imy-engine/src/imy/__init__.py has no __version__.");
+  const server = readdirSync(packagesDir)
+    .map((name) => path.join(packagesDir, name, "package"))
+    .find((dir) => JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")).name === "@paperclipai/server");
+  if (!server) throw new Error("The bundle has no server package.");
+  const terminals = path.join(server, "dist", "services", "scripts", "terminals");
+  for (const file of ["free-complete.mjs", "free-chat.mjs", "linux-setup.sh", "pty-relay.py"]) {
+    if (!existsSync(path.join(terminals, file))) throw new Error(`The bundle's server has no terminals/${file}.`);
+  }
+  const wheelDir = path.join(terminals, "imy");
+  const wheels = existsSync(wheelDir) ? readdirSync(wheelDir).filter((name) => name.endsWith(".whl")) : [];
+  const expected = `imagenery-${version}-py3-none-any.whl`;
+  if (wheels.length !== 1 || wheels[0] !== expected) {
+    throw new Error(`The bundle's server must hold exactly ${expected} for the IMY terminal; it holds ${wheels.join(", ") || "no wheel"}.`);
+  }
+  return expected;
+}
+
 const staging = path.join(os.tmpdir(), `automa-server-bundle-${process.pid}`);
 const bundleDir = path.join(staging, "automa-server");
 rmSync(staging, { recursive: true, force: true });
@@ -192,6 +218,9 @@ try {
   ]) {
     cpSync(path.join(repoRoot, "mobile", "termux", file), path.join(bundleDir, file));
   }
+
+  console.log("==> Checking the bundle for IMY");
+  console.log(`  ${checkImy(path.join(bundleDir, "packages"))} and the free-models bridge are in the server package`);
 
   rmSync(assetsDir, { recursive: true, force: true });
   mkdirSync(assetsDir, { recursive: true });

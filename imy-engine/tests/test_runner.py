@@ -102,6 +102,31 @@ class TestRun:
         assert "needs `lua`" in caught.value.message
         assert "apt install lua5.4" in (caught.value.hint or "")
 
+    def fake_tool(self, folder: Path, name: str, script: str) -> None:
+        folder.mkdir(exist_ok=True)
+        tool = folder / name
+        tool.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+        tool.chmod(0o755)
+
+    def test_sql_files_in_folders_with_spaces_are_read_whole(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]) -> None:
+        project = tmp_path / "my project"
+        project.mkdir()
+        _, _, artifact, workspace = build(project, "SELECT 'Hello, Ava!';\n", target="sql")
+        tools = tmp_path / "tools"
+        self.fake_tool(tools, "sqlite3", 'printf "%s\\n" "$@"')
+        monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
+        assert run_artifact(artifact, workspace).exit_code == 0
+        assert capfd.readouterr().out.splitlines() == [":memory:", f'.read "{artifact.path}"']
+
+    def test_typescript_needs_a_node_that_can_run_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, _, artifact, workspace = build(tmp_path, 'const name: string = "Ava";\nconsole.log("Hello, " + name + "!");\n', target="typescript")
+        tools = tmp_path / "tools"
+        self.fake_tool(tools, "node", "echo v20.11.0")
+        monkeypatch.setenv("PATH", str(tools))
+        with pytest.raises(RunnerError) as caught:
+            run_artifact(artifact, workspace)
+        assert "22.6" in caught.value.message and "tsx" in (caught.value.hint or "")
+
     def test_language_without_a_runner_points_to_convert(self, tmp_path: Path) -> None:
         _, _, artifact, workspace = build(tmp_path, 'DISPLAY "Hello, Ava!".\n', target="cobol")
         with pytest.raises(RunnerError) as caught:
@@ -123,6 +148,39 @@ class TestWebsiteBuild:
         with pytest.raises(RunnerError) as caught:
             run_artifact(artifact, workspace)
         assert "--serve" in (caught.value.hint or "")
+
+
+class TestWorkspaceDiscovery:
+    def test_the_nearest_workspace_is_the_project(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        (project / ".imy").mkdir(parents=True)
+        nested = project / "levels" / "one"
+        nested.mkdir(parents=True)
+        assert Workspace.discover(nested / "jump.imy").root == project
+        assert Workspace.discover(project / "hello.imy").root == project
+        fresh = tmp_path / "fresh"
+        fresh.mkdir()
+        assert Workspace.discover(fresh / "hello.imy").root == fresh
+
+    def test_imy_home_is_never_a_project_workspace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        user = tmp_path / "user"
+        default_home = user / ".imy"
+        default_home.mkdir(parents=True)
+        (default_home / "memory.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("HOME", str(user))
+        code = user / "code"
+        code.mkdir()
+
+        assert Workspace.discover(code / "hello.imy", home=default_home).root == code
+        elsewhere = tmp_path / "imy-home-elsewhere"
+        elsewhere.mkdir()
+        assert Workspace.discover(code / "hello.imy", home=elsewhere).root == code
+        assert Workspace.discover(code / "hello.imy").root == code
+
+        (code / ".imy").mkdir()
+        deeper = code / "game"
+        deeper.mkdir()
+        assert Workspace.discover(deeper / "jump.imy", home=elsewhere).root == code
 
 
 class TestVirtualFiles:

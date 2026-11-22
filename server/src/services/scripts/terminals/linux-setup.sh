@@ -102,41 +102,72 @@ imy_package() {
   if [ -n "$bundled" ]; then printf '%s' "$bundled"; else printf 'imagenery'; fi
 }
 
+# The steps that put IMY into its virtual environment, the same in Debian on a
+# phone and on a computer. Run by `bash -c` with the package as $1: the path of
+# the wheel, or "imagenery". Ends with 3 when Python is older than IMY needs,
+# 4 when no virtual environment could be made, 5 when the package did not install.
+IMY_VENV_STEPS='
+venv="$HOME/.local/share/imy-venv"
+python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" || exit 3
+if [ -x "$venv/bin/imy" ]; then verb=Updating; else verb=Installing; fi
+printf "\033[1;36m==>\033[0m %s IMY\n" "$verb"
+# A virtual environment an older Python left behind has no working pip: start it again.
+if [ -d "$venv" ] && ! "$venv/bin/python" -m pip --version >/dev/null 2>&1; then
+  python3 -m venv --clear "$venv" || exit 4
+elif [ ! -d "$venv" ]; then
+  python3 -m venv "$venv" || exit 4
+fi
+# A newer pip is welcome, not needed: an update still goes through without a connection.
+"$venv/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+"$venv/bin/python" -m pip install --quiet --upgrade "$1" || exit 5
+mkdir -p "$HOME/.local/bin"
+ln -sf "$venv/bin/imy" "$HOME/.local/bin/imy"
+'
+
 install_imy() {
-  local package venv
+  local package result=0
   package="$(imy_package)"
   if on_phone; then
     ensure_linux
     say "Installing Python in Debian"
     indeb "apt-get install -y --no-install-recommends python3 python3-venv python3-pip >/dev/null"
-    say "Installing IMY in Debian"
-    if ! indeb_files "python3 -m venv \"\$HOME/.local/share/imy-venv\" && \"\$HOME/.local/share/imy-venv/bin/pip\" install --quiet --upgrade pip && \"\$HOME/.local/share/imy-venv/bin/pip\" install --quiet --upgrade $(printf '%q' "$package") && mkdir -p \"\$HOME/.local/bin\" && ln -sf \"\$HOME/.local/share/imy-venv/bin/imy\" \"\$HOME/.local/bin/imy\""; then
-      warn "IMY did not install in Debian. Check the connection and free space, then try again."
-      exit 1
-    fi
-    if ! indeb 'imy --version'; then
-      warn "IMY is installed but not answering in Debian yet. Open Terminals > Shell and run: proot-distro login debian -- imy --version"
-      exit 1
-    fi
+    indeb_files "bash -c $(printf '%q' "$IMY_VENV_STEPS") imy-venv $(printf '%q' "$package")" || result=$?
   else
     if ! command -v python3 >/dev/null 2>&1; then
       warn "IMY needs Python 3.11 or newer. Install Python, then try again."
       exit 1
     fi
-    if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
-      warn "IMY needs Python 3.11 or newer; this computer has Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')."
+    bash -c "$IMY_VENV_STEPS" imy-venv "$package" || result=$?
+  fi
+  case "$result" in
+    0) ;;
+    3)
+      if on_phone; then
+        warn "IMY needs Python 3.11 or newer, and Debian's is older. Update Debian (Terminals > Shell: proot-distro login debian -- apt full-upgrade), then try again."
+      else
+        warn "IMY needs Python 3.11 or newer; this computer has Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')."
+      fi
       exit 1
-    fi
-    venv="$HOME/.local/share/imy-venv"
-    say "Installing IMY"
-    if ! python3 -m venv "$venv"; then
+      ;;
+    4)
       warn "Python could not make a virtual environment (Debian/Ubuntu: sudo apt install python3-venv)."
       exit 1
+      ;;
+    *)
+      warn "IMY did not install. Check the connection and free space, then try again."
+      exit 1
+      ;;
+  esac
+  if on_phone; then
+    if ! indeb 'imy --version'; then
+      warn "IMY is installed but not answering in Debian yet. Open Terminals > Shell and run: proot-distro login debian -- imy --version"
+      exit 1
     fi
-    "$venv/bin/pip" install --quiet --upgrade pip
-    "$venv/bin/pip" install --quiet --upgrade "$package"
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$venv/bin/imy" "$HOME/.local/bin/imy"
+    # The free models reach IMY through a small Node program Automa ships.
+    if ! indeb 'command -v node >/dev/null 2>&1'; then
+      warn "IMY is installed, but Debian has no Node.js, which its free models need. Open Terminals > Shell and run: proot-distro login debian -- apt-get install -y nodejs   Or give IMY a key of your own with: imy init"
+    fi
+  else
     "$HOME/.local/bin/imy" --version
   fi
 }

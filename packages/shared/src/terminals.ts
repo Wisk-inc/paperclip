@@ -62,5 +62,13 @@ export interface TerminalStatus {
   linuxReady: boolean;
   /** Python for the terminal relay is installed (absent from servers before 1.9.6: treat as ready). */
   relayReady?: boolean;
-  tools: Array<{ id: TerminalToolId; installed: boolean }>;
+  tools: Array<{
+    id: TerminalToolId;
+    installed: boolean;
+    /**
+     * This Automa ships a newer copy of the tool than the one installed (IMY,
+     * whose package comes with Automa): installing it again updates it.
+     */
+    update?: boolean;
+  }>;
 }

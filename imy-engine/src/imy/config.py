@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, get_args
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
@@ -291,8 +292,45 @@ def read_dotenv(path: Path) -> dict[str, str]:
     return result
 
 
+# What a project's .env file may never set. Each of these could run a command
+# of someone else's choosing or send a saved API key to another server, and a
+# .env arrives with whatever folder you happen to run IMY in. They are read
+# only from your own shell environment or from `imy init`.
+DOTENV_FORBIDDEN: tuple[str, ...] = ("IMY_AUTOMA_BRIDGE", "IMY_PYTHON", "IMY_HOME", "IMY_API_KEY_ENV")
+
+
+def is_loopback_url(url: str) -> bool:
+    """True for a server on this machine (localhost, 127.x.x.x, ::1)."""
+    try:
+        host = (urlparse(url.strip()).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in ("localhost", "::1") or host.endswith(".localhost") or bool(re.match(r"^127(?:\.\d{1,3}){3}$", host))
+
+
+def _check_dotenv_entry(path: Path, key: str, value: str) -> None:
+    if key in DOTENV_FORBIDDEN:
+        raise ConfigError(
+            f"{path} sets {key}. IMY never takes {key} from a .env file, because a project folder could "
+            "use it to run a command or to send your API key somewhere else.",
+            hint=f"Remove that line from the .env file. If you want it, set {key} in your own shell instead.",
+        )
+    if key == "IMY_BASE_URL" and value.strip() and not is_loopback_url(value):
+        raise ConfigError(
+            f"{path} points IMY at another server (IMY_BASE_URL={value.strip()}). A .env file may only name a "
+            "server on this machine (localhost), so a project folder can't redirect your API key.",
+            hint="Remove that line, then run `imy init --provider openai-compatible --base-url <url>` "
+            "or set IMY_BASE_URL in your own shell.",
+        )
+
+
 def environment(project_root: Path | None = None, base: Mapping[str, str] | None = None) -> EnvView:
-    """The process environment, with .env files (project root, then cwd) filling gaps."""
+    """The process environment, with .env files (project root, then cwd) filling gaps.
+
+    A .env may hold API keys and plain settings (provider, model, target, limits,
+    a localhost server). It may not hold anything in DOTENV_FORBIDDEN or a remote
+    IMY_BASE_URL: those raise ConfigError naming the file.
+    """
     process = dict(os.environ if base is None else base)
     values: dict[str, str] = {}
     origins: dict[str, str] = {}
@@ -307,6 +345,7 @@ def environment(project_root: Path | None = None, base: Mapping[str, str] | None
         candidates.append(cwd_env)
     for candidate in candidates:
         for key, value in read_dotenv(candidate).items():
+            _check_dotenv_entry(candidate, key, value)
             if key not in values:
                 values[key] = value
                 origins[key] = str(candidate)
@@ -359,6 +398,11 @@ def load_stored(env: Mapping[str, str] | None = None) -> ImyConfig:
         raise ConfigError(f"{path} has invalid settings: {_validation_message(exc)}", hint="Run `imy init` to fix them.") from exc
 
 
+# Settings that belong to one provider: a model name, a key and a server address
+# mean nothing (or leak a key) when the provider is switched for one run.
+_PROVIDER_FIELDS: tuple[str, ...] = ("model", "api_key", "api_key_env", "base_url")
+
+
 def load_config(
     project_root: Path | None = None,
     *,
@@ -369,18 +413,30 @@ def load_config(
 
     Inside Automa's IMY terminal (IMY_AUTOMA_BRIDGE is set) and before anyone ran
     `imy init`, the default provider is Automa's free models, so IMY works with no key.
+
+    When the provider in effect is not the stored one (a flag, IMY_PROVIDER, or the
+    Automa default), the stored model, key and server address are left out: they
+    belong to the stored provider.
     """
     view = env if env is not None else environment(project_root)
-    data = load_stored(view.values).stored_json()
-    if not config_file(view.values).exists() and view.get("IMY_AUTOMA_BRIDGE"):
-        data["provider"] = "automa"
+    stored = load_stored(view.values)
+    has_file = config_file(view.values).exists()
+    data = stored.stored_json()
+    given = {key: value for key, value in (overrides or {}).items() if value is not None}
+    provider = (
+        given.get("provider")
+        or view.get("IMY_PROVIDER")
+        or ("automa" if not has_file and view.get("IMY_AUTOMA_BRIDGE") else stored.provider)
+    )
+    if provider != stored.provider:
+        for name in _PROVIDER_FIELDS:
+            data.pop(name, None)
+    data["provider"] = provider
     for env_name, field_name in _ENV_FIELDS.items():
         value = view.get(env_name)
         if value is not None:
             data[field_name] = value
-    for key, value in (overrides or {}).items():
-        if value is not None:
-            data[key] = value
+    data.update(given)
     try:
         return ImyConfig.model_validate(data)
     except ValidationError as exc:

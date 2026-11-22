@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.14** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.15** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.14](#2-whats-new-in-1914)
+2. [What's new in 1.9.15](#2-whats-new-in-1915)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,54 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.14
+## 2. What's new in 1.9.15
+
+IMY comes to Terminals: a strict compiler for code you write your own way,
+working with the free models from the first tap.
+
+**IMY (Imagenery) in Terminals**
+- IMY reads a program written in whatever syntax you invent. The first line is
+  a header, `# ("what this builds and how it works")`; under it you code every
+  step yourself. IMY checks the program against its rules, turns it into
+  Python, JavaScript, Lua, Rust, a web page or another language in the
+  background, and runs it. Your `.imy` file is never changed.
+- It is strict on purpose, and names the exact lines when it stops:
+  an English request in place of code (`PromptingDetected`), more than one
+  `.auto…` shortcut in a file or one longer than 20 characters, a switch that
+  turns a feature on by name when the code never builds it
+  (`MissingMechanics`), anything used before the line that defines it
+  (`ExecutionOrderViolation`; IMY never reorders your code), and a line it
+  cannot be sure about (`AmbiguousIntent`; it does not guess). Nothing runs
+  until the whole program is clean.
+- What a file defines is remembered: functions, variable packs, your own
+  syntax and made-up file paths are saved, so a later file can use them
+  without defining them again. Running unchanged code again is instant.
+- The output has no comments and keeps your messages letter for letter. A
+  website gets no styling, images or words your code did not define.
+- **To use it:** open **Terminals** and tap **IMY**. The first tap installs it
+  (inside the Linux layer on a phone; it needs Python 3.11 or newer on a
+  computer). The next tap opens IMY's console: type your code line by line,
+  then `:run`. `:convert lua` shows the same program in another language,
+  `:help` lists the rest.
+- **Models:** IMY works with Automa's free models with no key. The menu on the
+  IMY tile lists them; the one you pick is the one used, and if it is not
+  being served that day IMY says so instead of quietly using another. Left on
+  "IMY's own setting", it uses the free models until you run `imy init`, where
+  you can choose your own Anthropic, OpenAI or Gemini key, or a server such
+  as Ollama. A compile on the free models takes about half a minute to a
+  minute and a half.
+- **Updates:** IMY comes with Automa. When a new Automa brings a newer IMY the
+  tile says **Tap to update**; if the update cannot finish (no connection),
+  the next tap opens the IMY you have.
+- IMY is also a Python package of its own, `imagenery`, in the repository's
+  `imy-engine/` folder, with examples of real sessions in
+  `imy-engine/examples/README.md`.
+
+**Terminals page**
+- The tools' names and descriptions are now translated with the rest of the
+  board; they used to stay in English in every language.
+
+### From 1.9.14
 
 Automa speaks your language: the board, your agents, the connect screen and the
 app's own screens.
@@ -1630,6 +1677,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.15 | 2026-11-20 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; it compiles to Python, JavaScript, Lua, Rust, HTML and more and runs the result without changing your file; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone) and says Tap to update when a new Automa brings a newer IMY; the Terminals tools' names and descriptions are translated |
 | 1.9.14 | 2026-11-18 | Languages: Auto (the device's language, with its country) or one of 40, saved to your account; the main screens built in, the rest translated by the free models on first sight and kept for everyone on the server (only Automa's own wording is sent); right to left for Arabic, Persian, Hebrew and Urdu; dates and numbers follow language and country; agents write to each person in their language; the connect screen and, on Android 13+, the app's own screens, shortcuts and notification channel follow the choice |
 | 1.9.13 | 2026-11-17 | Model lists update themselves (agents, App Studio, Terminals, the chat's Newest models), newest first; Claude Fable 5.2, Gemini 4 Carbon and Hydrogen, Qwen 4 Max; security: the free models' key stored scrambled and checked out of every build, phone secrets locked to Termux, sign-in limits per real caller, no framing of the board; PostgreSQL 18 runs three fewer processes and the server stops running git every few seconds; free models Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, and no-model agents on Nemotron 3 Ultra; review fixes: Troubleshoot, Safe start and Start each get their own answer from Termux, Troubleshoot waits during a Safe start, the safe mode banner sees a slow return |
 | 1.9.12 | 2026-11-17 | Keeps running: a lighter database and fewer connections, `automa keep-alive` lifts Android's background process limit, Termux says why Automa stopped (`automa logs`); safe start (by itself after three quick stops, or on purpose) with a banner offering Restart normally and Troubleshoot; `automa troubleshoot` checks and repairs, also from the app with its report shown there; Refresh in the header, Reload app, Refresh and Reload page on the connection screens; `automa restart` |

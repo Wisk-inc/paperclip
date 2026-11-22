@@ -92,6 +92,22 @@ class TestCheck:
         assert result.exit_code == 2
         assert "does not exist" in " ".join(result.stderr.split())
 
+    def test_a_missing_file_creates_nothing_and_names_no_model(self, isolated: Path, llm: FakeLLM) -> None:
+        for command in (["run"], ["check"], ["convert", "--to", "lua"]):
+            result = runner.invoke(app, [command[0], str(isolated / "sub" / "nope.imy"), *command[1:]])
+            assert result.exit_code == 2
+            assert "does not exist" in " ".join(result.stderr.split())
+            assert "Compiling" not in result.stderr
+        assert not (isolated / "sub").exists() and not (isolated / ".imy").exists()
+        assert llm.calls == 0
+
+    def test_rule_errors_show_before_any_model_is_named(self, isolated: Path, llm: FakeLLM) -> None:
+        path = write(isolated / "bad.imy", (FIXTURES / "invalid_prompting.imy").read_text(encoding="utf-8"))
+        result = runner.invoke(app, ["run", str(path)])
+        assert result.exit_code == 1
+        assert "PromptingDetected" in result.stderr and "Compiling" not in result.stderr
+        assert llm.calls == 0
+
     def test_missing_key_is_a_clean_error(self, isolated: Path) -> None:
         result = runner.invoke(app, ["check", str(hello(isolated)), "--provider", "openai"])
         assert result.exit_code == 2
@@ -108,6 +124,12 @@ class TestRunAndConvert:
         assert "memory: saved name" in result.stderr
         listing = runner.invoke(app, ["memory", "list"])
         assert "name" in listing.stdout and "variable" in listing.stdout and "hello.imy" in listing.stdout
+
+    def test_arguments_after_two_dashes_go_to_the_program(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
+        llm.queue(reply(HELLO_PY + "import sys\nprint(sys.argv[1:])\n"))
+        result = runner.invoke(app, ["run", str(hello(isolated)), "--", "--speed", "2", "-x"])
+        assert result.exit_code == 0, result.stderr
+        assert "['--speed', '2', '-x']" in capfd.readouterr().out
 
     def test_run_passes_the_exit_code(self, isolated: Path, llm: FakeLLM) -> None:
         llm.queue(reply(HELLO_PY + "import sys\nsys.exit(7)\n"))
@@ -263,6 +285,17 @@ class TestConsole:
         assert capfd.readouterr().out.count("Hi, Bo!") == 1
         assert (isolated / "greet.imy").read_text() == '# ("greets one person by name on the screen")\n'
         assert llm.calls == 1
+
+    def test_ctrl_c_stops_the_compile_not_the_console(self, isolated: Path, llm: FakeLLM, capfd: pytest.CaptureFixture[str]) -> None:
+        def interrupted(request: object) -> str:
+            raise KeyboardInterrupt
+
+        llm.queue(interrupted, reply('print("Hi, Bo!")\n'))
+        repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', 'show ("Hi, Bo!")', ":run", ":run", ":quit"])
+        assert repl.loop() == 0
+        text = console.export_text()
+        assert "Stopped." in text and "exit code 0" in text
+        assert capfd.readouterr().out.count("Hi, Bo!") == 1
 
     def test_console_reports_rule_errors_without_calling_the_model(self, isolated: Path, llm: FakeLLM) -> None:
         repl, console = self.make(isolated, llm, ['# ("greets one person by name on the screen")', "please make me a greeting app", ":run"])

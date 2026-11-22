@@ -129,6 +129,69 @@ class TestConflicts:
         assert [s.name for s in Memory(store).relevant(parsed, str(tmp_path / "b.imy")).symbols] == ["greet"]
 
 
+class TestRelevance:
+    def memory_with(self, tmp_path: Path, *symbols: MemorySymbol) -> Memory:
+        store = MemoryStore(tmp_path / "g.json", "global")
+        store.save(MemoryFile(symbols=list(symbols)))
+        return Memory(store)
+
+    def names(self, memory: Memory, tmp_path: Path, body: str) -> list[str]:
+        parsed = parse_text('# ("test file that uses saved symbols")\n' + body, path=tmp_path / "use.imy")
+        relevant = memory.relevant(parsed, str(tmp_path / "use.imy"))
+        assert relevant.diagnostics == []
+        return [symbol.name for symbol in relevant.symbols]
+
+    def test_a_variable_named_like_a_grammar_word_does_not_leak_into_other_files(self, tmp_path: Path) -> None:
+        memory = self.memory_with(
+            tmp_path,
+            saved("if", SymbolKind.VARIABLE, "/site.imy", "if = menu.home page.structure"),
+            saved("then", SymbolKind.VARIABLE, "/site.imy", "then = 5"),
+            saved("name", SymbolKind.VARIABLE, "/hello.imy", 'name = "Ava"'),
+        )
+        assert self.names(memory, tmp_path, "if (score > 1)\n  then show (score)\nname the dog\n") == []
+        assert self.names(memory, tmp_path, 'show ("Hi " + name)\ntotal = then + 1\n') == ["name", "then"]
+
+    def test_a_saved_variable_is_reused_where_it_is_plainly_named_or_used(self, tmp_path: Path) -> None:
+        memory = self.memory_with(tmp_path, saved("speed", SymbolKind.VARIABLE, "/a.imy", "speed = 4"))
+        assert self.names(memory, tmp_path, "move player by speed\n") == ["speed"]
+        assert self.names(memory, tmp_path, "distance = speed * 2\n") == ["speed"]
+        assert self.names(memory, tmp_path, "speed = 9\nshow (speed)\n") == []
+
+    def test_calling_a_word_is_not_using_the_variable_of_that_name(self, tmp_path: Path) -> None:
+        memory = self.memory_with(
+            tmp_path,
+            saved("count", SymbolKind.VARIABLE, "/a.imy", "count = 3"),
+            saved("count", SymbolKind.VARIABLE, "/b.imy", "count = 10"),
+        )
+        assert self.names(memory, tmp_path, 'letters = count("Ava")\nshow (letters)\n') == []
+
+    def test_syntax_rules_match_their_text_even_with_several_words(self, tmp_path: Path) -> None:
+        memory = self.memory_with(
+            tmp_path,
+            saved("repeat until", SymbolKind.SYNTAX_RULE, "/jump.imy", "repeat until (height < 0)"),
+            saved("extract.font123", SymbolKind.SYNTAX_RULE, "/fonts.imy", 'extract.font123 ("a.pdf")'),
+            saved("menu", SymbolKind.SYNTAX_RULE, "/site.imy", 'menu = options "a, b"'),
+        )
+        assert self.names(memory, tmp_path, "repeat until (done)\n  f = extract.font123 (doc)\n") == ["extract.font123", "repeat until"]
+        assert self.names(memory, tmp_path, 'show ("repeat until")\nrepeat forever\nf = extract.font1234 (doc)\n') == []
+        assert self.names(memory, tmp_path, "menu = 5\nshow (menu)\n") == []
+
+    def test_the_home_folder_workspace_is_the_global_store_not_a_second_one(self, tmp_path: Path) -> None:
+        home_dir = tmp_path / "user" / ".imy"
+        home_dir.mkdir(parents=True)
+        MemoryStore(home_dir / "memory.json", "global").save(
+            MemoryFile(symbols=[saved("greet", SymbolKind.FUNCTION, "/a.imy", "def greet():")])
+        )
+        memory = Memory.open(home_dir, home_dir)
+        assert memory.local_store is None
+        assert [scope for scope, _ in memory.entries()] == ["global"]
+        assert memory.clear() == 1
+        project = tmp_path / "project" / ".imy"
+        project.mkdir(parents=True)
+        MemoryStore(project / "memory.json", "local").create()
+        assert Memory.open(home_dir, project).local_store is not None
+
+
 class TestCacheKey:
     def test_same_inputs_same_key(self) -> None:
         a = cache_key(normalized_source="x", target="python", memory_snapshot=[{"name": "a"}], prompt_version="v1")

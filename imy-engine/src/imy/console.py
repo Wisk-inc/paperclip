@@ -109,12 +109,17 @@ class ImyConsole:
                 except KeyboardInterrupt:
                     self.console.print()
                     continue
-                if text.startswith(":"):
-                    if not self.command(text[1:].strip()):
-                        break
-                    continue
-                if text.startswith("!"):
-                    self.shell(text[1:].strip())
+                try:
+                    if text.startswith(":"):
+                        if not self.command(text[1:].strip()):
+                            break
+                        continue
+                    if text.startswith("!"):
+                        self.shell(text[1:].strip())
+                        continue
+                except KeyboardInterrupt:
+                    # Ctrl+C stops the compile or command in progress, not the console.
+                    self.console.print("[yellow]Stopped.[/yellow]")
                     continue
                 if not text.strip() and not self.lines:
                     continue

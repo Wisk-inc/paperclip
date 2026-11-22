@@ -127,6 +127,8 @@ class Statement:
     shortcuts: tuple[ShortcutToken, ...]
     function_name: str | None = None
     function_params: tuple[str, ...] = ()
+    value_refs: tuple[str, ...] = ()
+    plain_identifiers: tuple[str, ...] = ()
 
     @property
     def value_tokens(self) -> tuple[Token, ...]:
@@ -261,6 +263,34 @@ class ParsedSource:
             if line.statement is not None:
                 names.update(line.statement.identifiers)
         return names
+
+    def value_references(self) -> set[str]:
+        """Names used as values somewhere in the file (see analyze_statement)."""
+        names: set[str] = set()
+        for line in self.code_lines():
+            if line.statement is not None:
+                names.update(line.statement.value_refs)
+        return names
+
+    def plain_identifiers(self) -> set[str]:
+        """Names that appear other than as the thing being called (``count`` in ``count(x)`` is not one)."""
+        names: set[str] = set()
+        for line in self.code_lines():
+            if line.statement is not None:
+                names.update(line.statement.plain_identifiers)
+        return names
+
+    def mention_line(self, name: str) -> int | None:
+        """First code line whose code (strings aside) holds ``name`` as written, e.g. ``repeat until``
+        or ``extract.font123``; None when no line does."""
+        pieces = name.split()
+        if not pieces:
+            return None
+        pattern = re.compile(r"(?<![\w.])" + r"\s+".join(re.escape(piece) for piece in pieces) + r"(?!\w)")
+        for line in self.code_lines():
+            if pattern.search(line.masked):
+                return line.number
+        return None
 
     def chains(self) -> set[str]:
         """Every dotted chain, plus each of its prefixes (``a.b.c`` gives ``a.b`` and ``a.b.c``)."""
@@ -492,10 +522,16 @@ def analyze_statement(tokens: list[Token]) -> Statement:
         and tokens[0].text.lower() in FUNCTION_KEYWORDS
         and tokens[1].kind == "ident"
     ):
-        function_name = tokens[1].text
-        if len(tokens) > 2 and tokens[2].kind == "open" and tokens[2].text == "(":
+        # `def name(...)`, or `def name:` / `def name {` with nothing after. A line such as
+        # `define speed = 5`, `sub total = a + b` or `block door` only starts with one of those words.
+        third = tokens[2] if len(tokens) > 2 else None
+        has_params = third is not None and third.kind == "open" and third.text == "("
+        bare = len(tokens) == 3 and third is not None and third.text in (":", "{")
+        if has_params:
             close = _matching_close(tokens, 2)
             function_params = tuple(t.text for t in tokens[3:close] if t.kind == "ident")
+        if has_params or bare:
+            function_name = tokens[1].text
 
     segments, augmented = _split_segments(tokens)
     is_assignment = function_name is None and len(segments) >= 2 and any(segments[:-1])
@@ -509,11 +545,14 @@ def analyze_statement(tokens: list[Token]) -> Statement:
 
     calls: list[Call] = []
     operand_refs: list[str] = [tok.root for tok in augmented]
+    plain: list[str] = []
     if function_name is None:
         for index, tok in enumerate(tokens):
             if tok.kind not in ("ident", "chain"):
                 continue
             nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+            if tok.kind == "chain" or not (nxt is not None and nxt.kind == "open" and nxt.text == "("):
+                plain.append(tok.root)
             if nxt is not None and nxt.kind == "open" and nxt.text == "(":
                 close = _matching_close(tokens, index + 1)
                 inner = tokens[index + 2 : close]
@@ -536,6 +575,18 @@ def analyze_statement(tokens: list[Token]) -> Statement:
                 operand_refs.append(tok.root)
 
     chains = tuple(tok.text for tok in tokens if tok.kind == "chain")
+    # Names used as values: beside an operator, passed to a call, the object a dotted
+    # chain starts from, or on the right of the last `=`.
+    value_refs: list[str] = list(operand_refs)
+    for call in calls:
+        value_refs.extend(call.args)
+    value_refs.extend(tok.root for tok in tokens if tok.kind == "chain")
+    if is_assignment:
+        last = segments[-1]
+        for index, tok in enumerate(last):
+            nxt = last[index + 1] if index + 1 < len(last) else None
+            if tok.kind == "ident" and not (nxt is not None and nxt.kind == "open" and nxt.text == "("):
+                value_refs.append(tok.text)
     identifiers: list[str] = []
     for tok in tokens:
         if tok.kind == "ident":
@@ -572,6 +623,8 @@ def analyze_statement(tokens: list[Token]) -> Statement:
         shortcuts=tuple(shortcuts),
         function_name=function_name,
         function_params=function_params,
+        value_refs=tuple(dict.fromkeys(value_refs)),
+        plain_identifiers=tuple(dict.fromkeys(plain)),
     )
 
 
@@ -691,24 +744,47 @@ def _only_headers_between(lines: list[SourceLine], first: int, last: int) -> boo
 
 
 def _collect_packs(parsed: ParsedSource, line: SourceLine, stmt: Statement) -> None:
+    """Variable packs, in the two shapes people write them:
+
+    ``A = B = C = name variablepack = "XYZ"`` (members first, the name after the keyword's ``=``) and
+    ``pack "XYZ" = A, B, C`` (the name right after the keyword, members after the ``=``).
+    """
     if not stmt.is_assignment:
         return
     segments = stmt.segments
-    for index in range(len(segments) - 1):
-        if not any(tok.kind == "ident" and PACK_KEYWORD.match(tok.text) for tok in segments[index]):
+    for index, segment in enumerate(segments):
+        keyword_at = next(
+            (i for i, tok in enumerate(segment) if tok.kind == "ident" and PACK_KEYWORD.match(tok.text)), None
+        )
+        if keyword_at is None:
             continue
-        following = segments[index + 1]
-        if not following or following[0].kind != "str" or following[0].value is None:
+        after_keyword = segment[keyword_at + 1] if keyword_at + 1 < len(segment) else None
+        following = segments[index + 1] if index + 1 < len(segments) else ()
+        if after_keyword is not None and after_keyword.kind == "str" and after_keyword.value is not None:
+            name = after_keyword.value.strip()
+            member_segments = segments[:index] + segments[index + 1 :]
+        elif after_keyword is None and following and following[0].kind == "str" and following[0].value is not None:
+            name = following[0].value.strip()
+            member_segments = segments[:index]
+        else:
             continue
-        name = following[0].value.strip()
         if not PACK_NAME.match(name):
             continue
-        members = tuple(
-            tok.text for segment in segments[:index] for tok in segment if tok.kind in ("ident", "chain")
-        )
+        members: list[str] = []
+        for member_segment in member_segments:
+            for position, tok in enumerate(member_segment):
+                if tok.kind not in ("ident", "chain"):
+                    continue
+                nxt = member_segment[position + 1] if position + 1 < len(member_segment) else None
+                if tok.text.lower() == SHIP_KEYWORD or (nxt is not None and nxt.kind == "open" and nxt.text == "("):
+                    continue
+                members.append(tok.text)
         if not members:
             continue
-        parsed.packs.append(VariablePack(name=name, line=line.number, members=members, text=line.text.strip()))
+        parsed.packs.append(
+            VariablePack(name=name, line=line.number, members=tuple(dict.fromkeys(members)), text=line.text.strip())
+        )
+        return
 
 
 def _collect_paths(parsed: ParsedSource, line: SourceLine, stmt: Statement) -> None:
@@ -736,4 +812,4 @@ def _collect_paths(parsed: ParsedSource, line: SourceLine, stmt: Statement) -> N
 
 
 def parse_file(path: Path) -> ParsedSource:
-    return parse_text(read_source(path), path=path)
+    return parse_text(read_source(path), path=path.resolve())

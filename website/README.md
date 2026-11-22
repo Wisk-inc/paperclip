@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.14
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.15
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -388,6 +388,12 @@ page sets up for you. Wire a terminal to an agent so it works with that agent's
 key, pick a model per tool (new models appear in the menus by themselves), or
 open the **free models chat** with nothing to install.
 
+**IMY** (Imagenery) is in Terminals too: a strict compiler for code you write in
+your own syntax. You say what you are building in a `# ("...")` header, code
+every step, and IMY checks it, compiles it and runs it, with the free models or
+your own key. It refuses English requests in place of code and anything your
+code does not actually build, and tells you the exact line.
+
 **App Inspector** takes an app on your phone (or any APK) apart: it decodes the
 manifest, resources and code, shows the code as Java, lets you search, edit and
 ask Claude to explain any file, and rebuilds a signed APK to your Downloads. For
@@ -518,7 +524,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.14.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.15.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -535,6 +541,22 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.15** (20 November 2026) — IMY comes to Terminals. IMY (Imagenery) is a
+strict compiler for code you write your own way: the first line says what you
+are building, in a header like `# ("adds two numbers and shows the sum")`, and
+under it you code every step in whatever syntax you invent. IMY checks it,
+turns it into Python, JavaScript, Lua, Rust, a web page or another language in
+the background and runs it, without changing your file. It stops, naming the
+exact lines, at an English request in place of code, at more than one `.auto…`
+shortcut, at a switch for a feature the code never builds, at anything used
+before the line that defines it, and at a line it cannot be sure about. What a
+file defines is remembered for later files. Tap **IMY** in Terminals: the first
+tap installs it (in the Linux layer on a phone), the next opens its console. It
+works with the free models with no key (the model you pick is the one used), or
+with your own key after `imy init`. When a new Automa brings a newer IMY the
+tile says **Tap to update**. The Terminals tools' names and descriptions are now
+translated with the rest of the board.
 
 **1.9.14** (18 November 2026) — Automa in your language. **Account → Language**
 offers **Auto** and 40 languages: Auto follows your phone's or browser's

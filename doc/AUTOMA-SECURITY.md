@@ -284,8 +284,19 @@ key the caller may use). It never reads another member's personal key.
   service echoes it in a refusal.
 - `imy-engine/tests`: a key typed into `imy init` is stored at mode 0600 and
   never printed. Programs IMY runs get no `IMY_API_KEY`. `imy inject` rejects
-  git URLs that could run commands (`ext::`, leading `-`). Paths stay inside
-  the repository and the virtual file system.
+  git URLs that could run commands (`ext::`, leading `-`), and `--fresh`
+  removes only an earlier clone of the same repository, never another folder
+  `--dest` names. Paths stay inside the repository and the virtual file
+  system. A project's `.env` file (1.9.15, `tests/test_config.py`) cannot name
+  the bridge command, the Python that runs programs, IMY's home or the
+  variable the key is read from, and may point `IMY_BASE_URL` only at this
+  computer: a downloaded project could otherwise run a command or have the
+  person's key sent to another server. A key saved for one provider is not
+  sent to another chosen for one run.
+- `server/src/services/terminals/status.test.ts` (1.9.15): what the status
+  looks for on the host is quoted as one word (IMY's command is a path in the
+  home folder), and the installed IMY version is read from a folder name,
+  with no program started.
 - `server/src/__tests__/assets.test.ts`: photos and logos must really be
   images. `server/src/__tests__/error-handler.test.ts`: oversized bodies and
   bad ids answer 413 and 400, not 500.

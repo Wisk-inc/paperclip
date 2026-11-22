@@ -76,7 +76,7 @@ export function uiTranslationMessages(language: AppLanguageCode, strings: readon
         `You translate the words of Automa's interface from English into ${name}. Automa is an Android app where a team of AI agents works for a company: chats, tasks, agents, files, settings.`,
         `For each string write what a well-made app in ${entry.name} would show: natural, short and consistent, with the same meaning and tone. Buttons stay short.`,
         "Keep {0}, {1} and every other {n} exactly as they are: values are put there later.",
-        "Keep the names of products, companies, AI models and brands as they are (Automa, Claude, GPT, Gemini, OpenRouter, Termux, App Studio, Moan, GitHub, Gmail, Slack and the like). Keep emoji, symbols and punctuation that mark structure (·, …, :).",
+        "Keep the names of products, companies, AI models and brands as they are (Automa, Claude, GPT, Gemini, OpenRouter, Termux, App Studio, Moan, IMY, GitHub, Gmail, Slack and the like). Keep emoji, symbols and punctuation that mark structure (·, …, :).",
         "Answer with only a JSON array of strings: the translations, in the same order, exactly as many as you were given. No notes, no code fences.",
       ].join(" "),
     },

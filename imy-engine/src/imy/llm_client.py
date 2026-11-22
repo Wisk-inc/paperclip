@@ -134,7 +134,10 @@ class AnthropicClient:
         self.model = model
         self._timeout = timeout
         self._effort = effort
+        # Optional request features. A model or gateway that rejects one (a 400 naming it) is
+        # asked again without it; the JSON contract is still enforced by IMY's own validation.
         self._structured = True
+        self._thinking = supports_adaptive_thinking(model)
 
     def complete(self, request: LLMRequest) -> LLMReply:
         sdk = self._sdk
@@ -151,15 +154,21 @@ class AnthropicClient:
         }
         if output_config:
             params["output_config"] = output_config
-        if supports_adaptive_thinking(self.model):
+        if self._thinking:
             params["thinking"] = {"type": "adaptive"}
         try:
             with self._client.messages.stream(**params) as stream:
                 message = stream.get_final_message()
         except sdk.BadRequestError as exc:
             detail = _short(getattr(exc, "message", str(exc)))
-            if "format" in output_config and re.search(r"output_config|format|json_schema|schema", detail, re.I):
+            if "format" in output_config and re.search(r"output_config\.format|json_schema|structured output|output format", detail, re.I):
                 self._structured = False
+                return self.complete(request)
+            if self._thinking and re.search(r"\bthinking\b", detail, re.I):
+                self._thinking = False
+                return self.complete(request)
+            if self._effort and re.search(r"\beffort\b", detail, re.I):
+                self._effort = None
                 return self.complete(request)
             raise LLMProviderError(f"Anthropic rejected the request (400): {detail}") from exc
         except sdk.AuthenticationError as exc:
@@ -225,16 +234,27 @@ class _HttpProvider:
         self._http = httpx2.Client(**options)
 
     def _post(self, path: str, body: dict[str, Any], retries: int = 2) -> httpx2.Response:
+        """One request, with up to ``retries`` more tries when the server could not be reached or
+        was briefly unavailable. A server that accepted the request and then took too long is
+        not asked again: the same long request would only wait the same time once more."""
         attempt = 0
         while True:
             try:
                 response = self._http.post(path, json=body)
-            except httpx2.TimeoutException as exc:
+            except httpx2.ConnectTimeout as exc:
                 if attempt < retries:
                     attempt += 1
                     time.sleep(min(2.0 * attempt, 6.0))
                     continue
-                raise LLMTimeoutError(f"{self.label} did not answer within {self._timeout:g} seconds.") from exc
+                raise LLMTimeoutError(
+                    f"{self._base_url} did not accept a connection in time.",
+                    hint="Check your internet connection, or the server address (base_url).",
+                ) from exc
+            except httpx2.TimeoutException as exc:
+                raise LLMTimeoutError(
+                    f"{self.label} did not answer within {self._timeout:g} seconds.",
+                    hint="Try again, raise the limit with IMY_TIMEOUT (seconds), or split the program into smaller files.",
+                ) from exc
             except httpx2.TransportError as exc:
                 if attempt < retries:
                     attempt += 1

@@ -266,10 +266,27 @@ models while the service token stays inside that script.
   (`~/.local/share/imy-venv`, linked as `~/.local/bin/imy`), inside Debian on a
   phone. It is installed from the wheel shipped in
   `server/src/services/scripts/terminals/imy/`, or from PyPI when that wheel is
-  missing.
-- **Changing `imy-engine/`:** rebuild that wheel too
-  (`python -m build --wheel --outdir ../server/src/services/scripts/terminals/imy .`).
-  `imy-engine/tests/test_bundled_wheel.py` fails until it matches the source.
+  missing. The same steps run on a phone and a computer (`IMY_VENV_STEPS`): they
+  refuse a Python older than 3.11 with the reason, start the venv again when an
+  older Python left it without pip, and do not need a newer pip. On a phone the
+  script warns when Debian has no Node.js, which the free models' bridge runs on.
+- **Update:** the status (`terminalStatus`) marks IMY `update: true` when the
+  venv holds an older IMY than the shipped wheel (`imyUpdateAvailable`: the
+  version in the venv's `imagenery-<version>.dist-info` folder name against the
+  wheel's file name; no Python is started, and on a phone the venv is read
+  straight from Debian's files). The Terminals page then says **Tap to update**
+  and runs the installer, which says "Updating IMY". It offers this once a
+  visit: if the update does not go through, the next tap opens the IMY that is
+  installed. An IMY someone installed their own way is never marked.
+- **Translations:** the tools' names and descriptions live in
+  `packages/shared/src/terminals.ts`; `ui/scripts/extract-ui-strings.mjs` reads
+  that file too (`SHARED_TEXT_FILES`), so they are in `UI_STRINGS` and the
+  board translates them like its other wording.
+- **Changing `imy-engine/`:** bump `__version__`, then rebuild that wheel
+  (`python -m build --wheel --outdir ../server/src/services/scripts/terminals/imy .`)
+  and remove the old one. `imy-engine/tests/test_bundled_wheel.py` fails until
+  it matches the source, and a version that did not change would leave phones
+  on the IMY they already have.
 
 ### App Inspector
 Pick an app on your phone to decode its manifest, resources and code, read

@@ -27,6 +27,10 @@ class CommentSyntax:
 
 
 C_FAMILY = CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"',), char_literals=True)
+# The same, for languages with multi-line text blocks, where // or # inside the block is just text.
+C_TEXT_BLOCKS = CommentSyntax(
+    line=("//",), block=(("/*", "*/"),), strings=('"',), char_literals=True, triple_strings=True
+)
 JS_FAMILY = CommentSyntax(
     line=("//",), block=(("/*", "*/"),), strings=('"', "'"), backtick_strings=True, regex_literals=True
 )
@@ -55,9 +59,9 @@ _LANGS: tuple[Language, ...] = (
     Language("python", ".py", ("py", "python3", "py3"), HASH_FAMILY, "Python"),
     Language("javascript", ".js", ("js", "node", "nodejs", "mjs", "cjs"), JS_FAMILY, "JavaScript"),
     Language("typescript", ".ts", ("ts", "tsx"), JS_FAMILY, "TypeScript"),
-    Language("java", ".java", ("jdk",), C_FAMILY, "Java"),
-    Language("kotlin", ".kt", ("kt", "kts"), C_FAMILY, "Kotlin"),
-    Language("scala", ".scala", ("sc",), C_FAMILY, "Scala"),
+    Language("java", ".java", ("jdk",), C_TEXT_BLOCKS, "Java"),
+    Language("kotlin", ".kt", ("kt", "kts"), C_TEXT_BLOCKS, "Kotlin"),
+    Language("scala", ".scala", ("sc",), C_TEXT_BLOCKS, "Scala"),
     Language(
         "rust",
         ".rs",
@@ -76,9 +80,21 @@ _LANGS: tuple[Language, ...] = (
     ),
     Language("c", ".c", ("ansi-c", "c11", "c99"), C_FAMILY, "C"),
     Language("cpp", ".cpp", ("c++", "cxx", "cc", "cplusplus"), C_FAMILY, "C++"),
-    Language("csharp", ".cs", ("c#", "cs", "dotnet"), C_FAMILY, "C#"),
-    Language("swift", ".swift", (), CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"',)), "Swift"),
-    Language("dart", ".dart", (), CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"', "'")), "Dart"),
+    Language("csharp", ".cs", ("c#", "cs", "dotnet"), C_TEXT_BLOCKS, "C#"),
+    Language(
+        "swift",
+        ".swift",
+        (),
+        CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"',), triple_strings=True),
+        "Swift",
+    ),
+    Language(
+        "dart",
+        ".dart",
+        (),
+        CommentSyntax(line=("//",), block=(("/*", "*/"),), strings=('"', "'"), triple_strings=True),
+        "Dart",
+    ),
     Language(
         "lua",
         ".lua",
@@ -116,7 +132,11 @@ _LANGS: tuple[Language, ...] = (
     ),
     Language("r", ".R", ("rscript",), HASH_FAMILY, "R"),
     Language(
-        "julia", ".jl", ("jl",), CommentSyntax(line=("#",), block=(("#=", "=#"),), strings=('"',)), "Julia"
+        "julia",
+        ".jl",
+        ("jl",),
+        CommentSyntax(line=("#",), block=(("#=", "=#"),), strings=('"',), triple_strings=True),
+        "Julia",
     ),
     Language(
         "perl",
@@ -125,9 +145,21 @@ _LANGS: tuple[Language, ...] = (
         CommentSyntax(line=("#",), strings=('"', "'"), line_start_blocks=(("=pod", "=cut"), ("=head", "=cut"))),
         "Perl",
     ),
-    Language("elixir", ".exs", ("ex", "exs"), HASH_FAMILY, "Elixir"),
+    Language(
+        "elixir",
+        ".exs",
+        ("ex", "exs"),
+        CommentSyntax(line=("#",), strings=('"', "'"), triple_strings=True),
+        "Elixir",
+    ),
     Language("crystal", ".cr", ("cr",), HASH_FAMILY, "Crystal"),
-    Language("nim", ".nim", (), CommentSyntax(line=("#",), block=(("#[", "]#"),), strings=('"',)), "Nim"),
+    Language(
+        "nim",
+        ".nim",
+        (),
+        CommentSyntax(line=("#",), block=(("#[", "]#"),), strings=('"',), triple_strings=True),
+        "Nim",
+    ),
     Language(
         "haskell", ".hs", ("hs",), CommentSyntax(line=("--",), block=(("{-", "-}"),), strings=('"',)), "Haskell"
     ),
@@ -148,7 +180,7 @@ _LANGS: tuple[Language, ...] = (
         "fsharp", ".fsx", ("f#", "fs"), CommentSyntax(line=("//",), block=(("(*", "*)"),), strings=('"',)), "F#"
     ),
     Language("clojure", ".clj", ("clj",), CommentSyntax(line=(";",), strings=('"',)), "Clojure"),
-    Language("groovy", ".groovy", (), C_FAMILY, "Groovy"),
+    Language("groovy", ".groovy", (), C_TEXT_BLOCKS, "Groovy"),
     Language("fortran", ".f90", ("f90",), CommentSyntax(line=("!",), strings=('"', "'")), "Fortran"),
     Language(
         "pascal",

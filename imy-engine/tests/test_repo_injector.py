@@ -58,15 +58,27 @@ class TestUrls:
             ("huggingface/transformers", "https://github.com/huggingface/transformers.git"),
             ("https://gitlab.com/group/sub/repo", "https://gitlab.com/group/sub/repo"),
             ("https://git.example.com/team/repo.git", "https://git.example.com/team/repo.git"),
+            ("https://github.com/huggingface/transformers/tree/main/src", "https://github.com/huggingface/transformers.git"),
+            ("https://www.github.com/huggingface/transformers/blob/main/README.md", "https://github.com/huggingface/transformers.git"),
+            ("git@gitlab.com:group/sub/repo.git", "git@gitlab.com:group/sub/repo.git"),
         ],
     )
     def test_valid(self, text: str, url: str) -> None:
         assert parse_repo_url(text).url == url
 
+    def test_every_way_of_naming_a_github_repository_shares_one_clone_folder(self) -> None:
+        folders = {
+            parse_repo_url(text).folder
+            for text in ("huggingface/transformers", "https://github.com/huggingface/transformers.git",
+                         "git@github.com:huggingface/transformers.git", "https://github.com/huggingface/transformers/tree/main")
+        }
+        assert folders == {"huggingface__transformers"}
+
     @pytest.mark.parametrize(
         "text",
         ["", "   ", "not a url", "--upload-pack=touch /tmp/x", "ext::sh -c touch", "https://example.com/page",
-         "ftp://github.com/a/b", "https://github.com/onlyowner", "github.com", "https://github.com/a b/c"],
+         "ftp://github.com/a/b", "https://github.com/onlyowner", "github.com", "https://github.com/a b/c",
+         "fd::17", "foo::bar/baz", "https://github.com/a/..", "git@host:norepo", "-oProxyCommand=x"],
     )
     def test_invalid(self, text: str) -> None:
         with pytest.raises(InjectionError):
@@ -152,6 +164,26 @@ class TestInject:
         first = inject(compiler, repo_url=str(upstream), target="pkg/app.py", imy_file=imy_file, line=4)
         second = inject(compiler, repo_url=str(upstream), target="README.md", imy_file=imy_file, to="python", line=2)
         assert first.repo_dir == second.repo_dir
+
+    def test_fresh_replaces_an_earlier_clone_but_never_another_folder(self, tmp_path: Path) -> None:
+        upstream, _, compiler, imy_file = self.setup_repo(tmp_path, reply(SNIPPET), reply(SNIPPET))
+        first = inject(compiler, repo_url=str(upstream), target="pkg/app.py", imy_file=imy_file, anchor="def add(a, b):")
+        assert "total = a + b" in first.target.read_text(encoding="utf-8")
+        again = inject(compiler, repo_url=str(upstream), target="pkg/app.py", imy_file=imy_file, anchor="def add(a, b):", fresh=True)
+        assert again.target.read_text(encoding="utf-8").count("total = a + b") == 1
+
+        documents = tmp_path / "my-documents"
+        documents.mkdir()
+        (documents / "thesis.txt").write_text("three years of work", encoding="utf-8")
+        with pytest.raises(InjectionError) as caught:
+            inject(compiler, repo_url=str(upstream), target="pkg/app.py", imy_file=imy_file, destination=documents, fresh=True)
+        assert "will not delete" in caught.value.message
+        assert (documents / "thesis.txt").read_text(encoding="utf-8") == "three years of work"
+
+        other = make_repo(tmp_path / "elsewhere")
+        with pytest.raises(InjectionError):
+            inject(compiler, repo_url=str(upstream), target="pkg/app.py", imy_file=imy_file, destination=other, fresh=True)
+        assert (other / "pkg" / "app.py").exists()
 
     def test_snippet_that_breaks_the_file_is_not_written(self, tmp_path: Path) -> None:
         upstream, _, compiler, imy_file = self.setup_repo(tmp_path, reply("total = (a +\n"))

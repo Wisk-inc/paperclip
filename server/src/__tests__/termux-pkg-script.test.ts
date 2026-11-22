@@ -202,6 +202,143 @@ describe("linux-setup.sh on a phone", () => {
   });
 });
 
+describe("linux-setup.sh installing IMY", () => {
+  const home = () => path.join(root, "home");
+  const debian = () => path.join(home(), ".local", "bin");
+  const calls = () => readFile(path.join(root, "calls.log"), "utf8").catch(() => "");
+  /** What Python was asked to do, one call a line (the script's own text in the log is not a call). */
+  const pythonCalls = async () => (await calls()).split("\n").filter((line) => line.startsWith("python3 "));
+
+  /**
+   * Debian with stand-ins for apt, Node and Python: `python3 -m venv` makes the
+   * folder, pip "installs" by writing the imy command, and marker files in the
+   * fake phone make a step fail the way it does on a real one.
+   */
+  async function fakeDebian() {
+    await fake("proot-distro", [
+      `echo "proot-distro $*" >> "${root}/calls.log"`,
+      `case "$1" in`,
+      `  list) [ "\${2:-}" = "--installed" ] && echo "debian"; exit 0;;`,
+      // login debian [--bind <files>] -- bash -lc <script>
+      `  login) shift 2; [ "$1" = --bind ] && shift 2; shift`,
+      // The machine running the tests has a Node of its own on PATH: the marker file hides it from the last check.
+      `    case "$3" in *"; command -v node >/dev/null 2>&1") [ -f "${root}/no-node" ] && exit 1;; esac`,
+      `    [ "$1" = bash ] && [ "$2" = -lc ] && exec bash -c "$3"; exec "$@";;`,
+      `esac`,
+    ].join("\n"));
+    await fake("apt-get", "exit 0", debian());
+    await fake("curl", "exit 0", debian());
+    await fake("node", "echo true", debian());
+    await fakePython(debian());
+  }
+
+  async function fakePython(dir: string) {
+    await fake("python3", [
+      `echo "python3 $*" >> "${root}/calls.log"`,
+      `case "$1 $2" in`,
+      `  "-c "*) [ -f "${root}/old-python" ] && exit 1; exit 0;;`,
+      `  "-m venv") dir="\${@: -1}"; mkdir -p "$dir/bin"; cp "$0" "$dir/bin/python"; exit 0;;`,
+      `  "-m pip")`,
+      `    case "$*" in`,
+      `      *--version*) [ -f "${root}/broken-venv" ] && { rm -f "${root}/broken-venv"; exit 1; }; exit 0;;`,
+      `      *"--upgrade pip") [ -f "${root}/offline" ] && exit 1; exit 0;;`,
+      `      *) [ -f "${root}/pip-fails" ] && exit 1`,
+      `         venv="$(dirname "$(dirname "$0")")"`,
+      `         printf '#!/usr/bin/env bash\\necho "imy 9.9.9"\\n' > "$venv/bin/imy"; chmod 755 "$venv/bin/imy"; exit 0;;`,
+      `    esac;;`,
+      `esac`,
+    ].join("\n"), dir);
+  }
+
+  async function shippedWheel() {
+    const wheels = (await readdir(path.join(SCRIPTS, "terminals", "imy"))).filter((name) => name.endsWith(".whl"));
+    expect(wheels).toHaveLength(1);
+    return path.join(SCRIPTS, "terminals", "imy", wheels[0]!);
+  }
+
+  it("installs the wheel Automa ships into a virtual environment in Debian, then updates it in place", async () => {
+    await fakeDebian();
+    const wheel = await shippedWheel();
+    const venv = path.join(home(), ".local", "share", "imy-venv");
+
+    const first = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(first.out).toContain("Installing IMY");
+    expect(first.out).toContain("imy 9.9.9");
+    expect(first.out).toContain("Done. Open imy from the Terminals screen.");
+    expect(first.code).toBe(0);
+    const log = await calls();
+    // The files tree is bound in, so Debian can read the wheel where Automa keeps it.
+    expect(log).toContain(`proot-distro login debian --bind ${path.dirname(prefix)} -- bash -lc`);
+    expect(await pythonCalls()).toContain(`python3 -m venv ${venv}`);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+    expect(await readFile(path.join(home(), ".local", "bin", "imy"), "utf8")).toContain("imy 9.9.9");
+
+    // A second run is an update: the environment is kept, and a pip that cannot be refreshed does not stop it.
+    await writeFile(path.join(root, "offline"), "");
+    await writeFile(path.join(root, "calls.log"), "");
+    const second = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(second.out).toContain("Updating IMY");
+    expect(second.out).not.toContain("Installing IMY");
+    expect(second.code).toBe(0);
+    expect((await pythonCalls()).filter((line) => line.startsWith("python3 -m venv"))).toEqual([]);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+  });
+
+  it("starts the virtual environment again when an older Python left it without pip", async () => {
+    await fakeDebian();
+    expect((await run("terminals/linux-setup.sh", ["install", "imy"])).code).toBe(0);
+    await writeFile(path.join(root, "broken-venv"), "");
+    await writeFile(path.join(root, "calls.log"), "");
+    const result = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(result.code).toBe(0);
+    expect(await pythonCalls()).toContain(`python3 -m venv --clear ${path.join(home(), ".local", "share", "imy-venv")}`);
+  });
+
+  it("says why when Debian's Python is too old, or the package does not install", async () => {
+    await fakeDebian();
+    await writeFile(path.join(root, "old-python"), "");
+    const old = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(old.out).toContain("IMY needs Python 3.11 or newer, and Debian's is older");
+    expect(old.out).not.toContain("Done.");
+    expect(old.code).toBe(1);
+
+    await rm(path.join(root, "old-python"));
+    await writeFile(path.join(root, "pip-fails"), "");
+    const failed = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(failed.out).toContain("IMY did not install. Check the connection and free space, then try again.");
+    expect(failed.out).not.toContain("Done.");
+    expect(failed.code).toBe(1);
+  });
+
+  it("installs straight into the home folder on a computer, with no Linux layer", async () => {
+    await fakePython(bin);
+    const wheel = await shippedWheel();
+    const result = await runFile(path.join(SCRIPTS, "terminals", "linux-setup.sh"), ["install", "imy"], { env: { PREFIX: "" } });
+    expect(result.out).toContain("Installing IMY");
+    expect(result.out).toContain("imy 9.9.9");
+    expect(result.code).toBe(0);
+    expect(await calls()).not.toContain("proot-distro");
+    expect(await pythonCalls()).toContain(`python3 -m venv ${path.join(home(), ".local", "share", "imy-venv")}`);
+    expect(await pythonCalls()).toContain(`python3 -m pip install --quiet --upgrade ${wheel}`);
+    expect(await readFile(path.join(home(), ".local", "bin", "imy"), "utf8")).toContain("imy 9.9.9");
+
+    await writeFile(path.join(root, "old-python"), "");
+    const old = await runFile(path.join(SCRIPTS, "terminals", "linux-setup.sh"), ["install", "imy"], { env: { PREFIX: "" } });
+    expect(old.out).toContain("IMY needs Python 3.11 or newer; this computer has Python");
+    expect(old.code).toBe(1);
+  });
+
+  it("warns that the free models need Node.js when Debian has none, and still finishes", async () => {
+    await fakeDebian();
+    await writeFile(path.join(root, "no-node"), "");
+    const result = await run("terminals/linux-setup.sh", ["install", "imy"]);
+    expect(result.out).toContain("Debian has no Node.js, which its free models need");
+    expect(result.out).toContain("imy init");
+    expect(result.out).toContain("Done. Open imy from the Terminals screen.");
+    expect(result.code).toBe(0);
+  });
+});
+
 describe("automa-adb-link.sh", () => {
   it("stops with a clear reason when there is no terminal to type the numbers in", async () => {
     await fake("adb", `case "$1" in devices) echo "List of devices attached";; esac; exit 0`);

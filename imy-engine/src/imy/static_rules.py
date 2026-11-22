@@ -118,7 +118,7 @@ def check(parsed: ParsedSource, known_symbols: Collection[str] = ()) -> StaticRe
     diagnostics.extend(_prompting(parsed))
     diagnostics.extend(_shortcuts(parsed))
     diagnostics.extend(_magic_toggles(parsed, known))
-    diagnostics.extend(_execution_order(parsed, known))
+    diagnostics.extend(_execution_order(parsed))
     unique: dict[tuple[str, int, str], Diagnostic] = {}
     for diag in diagnostics:
         unique.setdefault((diag.code.value, diag.line, diag.message), diag)
@@ -311,14 +311,23 @@ def _toggle_targets(stmt: Statement) -> list[Token]:
     return targets
 
 
-def _defined_names(parsed: ParsedSource) -> set[str]:
+def _defined_names(parsed: ParsedSource, skip: Collection[tuple[int, int]] = ()) -> set[str]:
+    """Names the file assigns, plus what those assignments code: `physics.gravity.strength = 9.8`
+    codes `physics.gravity`. Toggle assignments (positions in ``skip``) code nothing."""
     names: set[str] = set()
     for line in parsed.code_lines():
         stmt = line.statement
         if stmt is None:
             continue
         if stmt.is_assignment:
-            names.update(stmt.targets)
+            for segment in stmt.segments[:-1]:
+                for tok in segment:
+                    if tok.kind not in ("ident", "chain") or (line.number, tok.start) in skip:
+                        continue
+                    names.add(tok.text)
+                    parts = tok.text.split(".")
+                    for size in range(1, len(parts)):
+                        names.add(".".join(parts[:size]))
         if stmt.function_name:
             names.add(stmt.function_name)
     names.update(pack.name for pack in parsed.packs)
@@ -358,7 +367,7 @@ def _magic_toggles(parsed: ParsedSource, known: set[str]) -> list[Diagnostic]:
             for name in names:
                 reads.setdefault(name, set()).add(line.number)
 
-    defined = _defined_names(parsed)
+    defined = _defined_names(parsed, toggle_positions)
     for line, stmt, value in toggle_lines:
         for tok in _toggle_targets(stmt):
             if tok.kind == "ident":
@@ -420,23 +429,19 @@ def _magic_toggles(parsed: ParsedSource, known: set[str]) -> list[Diagnostic]:
 
 
 def _is_action(stmt: Statement | None) -> bool:
+    """A line that works on an object (`World.detect(walls)`, `gallery.count`) and so may
+    depend on a hook installed later. Plain calls such as `show ("starting")`, assignments,
+    function blocks and set-up calls (`Client.getInstance()`, `World.connect()`) are not."""
     if stmt is None or stmt.is_assignment or stmt.function_name or stmt.shortcuts:
         return False
-    for call in stmt.calls:
-        if call.method is None and call.root.lower() in CONTROL_WORDS:
-            continue
-        name = (call.method or call.target).lower()
-        if name not in INIT_METHODS:
-            return True
-    for chain in stmt.chains:
-        if chain.split(".")[-1].lower() not in INIT_METHODS:
-            return True
-    return False
+    return any(chain.split(".")[-1].lower() not in INIT_METHODS for chain in stmt.chains)
 
 
-def _execution_order(parsed: ParsedSource, known: set[str]) -> list[Diagnostic]:
+def _execution_order(parsed: ParsedSource) -> list[Diagnostic]:
+    """Use before definition, inside this file only. A name saved in memory does not excuse
+    it: a file that defines a name itself is compiled with its own definition, so a line
+    above that definition has nothing to use."""
     found: list[Diagnostic] = []
-    known_folded = {name.casefold() for name in known}
     first_def = parsed.first_definitions()
     pack_lines: dict[str, int] = {}
     for pack in parsed.packs:
@@ -456,8 +461,6 @@ def _execution_order(parsed: ParsedSource, known: set[str]) -> list[Diagnostic]:
             if shortcut.receiver:
                 refs.append((shortcut.receiver.split(".")[0], "hooks"))
         for name, verb in refs:
-            if name in known:
-                continue
             def_line = first_def.get(name)
             if def_line is None or def_line <= line.number or (name, line.number) in reported:
                 continue
@@ -476,7 +479,7 @@ def _execution_order(parsed: ParsedSource, known: set[str]) -> list[Diagnostic]:
                 continue
             folded = tok.value.strip().casefold()
             pack_line = pack_lines.get(folded)
-            if pack_line is None or pack_line <= line.number or folded in known_folded:
+            if pack_line is None or pack_line <= line.number:
                 continue
             key = ("pack:" + folded, line.number)
             if key in reported:

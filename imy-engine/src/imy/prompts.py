@@ -8,21 +8,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .errors import ErrorCode
 from .memory import MemorySymbol, SymbolKind
 from .parser import ParsedSource
 
 PROMPT_VERSION = "imy-compiler-2"
 
-LLMErrorCode = Literal[
-    "ExecutionOrderViolation",
-    "MissingMechanics",
-    "HeaderMismatch",
-    "AmbiguousIntent",
-    "PromptingDetected",
-    "ShortcutViolation",
-]
+# The six codes the model is asked for (the contract and the JSON schema).
 LLM_ERROR_CODES: tuple[str, ...] = (
     "ExecutionOrderViolation",
     "MissingMechanics",
@@ -31,14 +25,59 @@ LLM_ERROR_CODES: tuple[str, ...] = (
     "PromptingDetected",
     "ShortcutViolation",
 )
+# Also understood when a model names one of IMY's own rules more precisely, or writes a
+# code in another letter case ("missing_mechanics"). Anything else is sent back for repair.
+ACCEPTED_ERROR_CODES: tuple[str, ...] = LLM_ERROR_CODES + (
+    ErrorCode.MISSING_HEADER.value,
+    ErrorCode.MALFORMED_HEADER.value,
+    ErrorCode.EMPTY_BODY.value,
+    ErrorCode.COMMENT_IN_SOURCE.value,
+    ErrorCode.UNTERMINATED_STRING.value,
+    ErrorCode.SHORTCUT_LIMIT_EXCEEDED.value,
+    ErrorCode.SHORTCUT_LENGTH_EXCEEDED.value,
+)
+_CODE_BY_LETTERS: dict[str, str] = {re.sub(r"[^a-z]", "", code.lower()): code for code in ACCEPTED_ERROR_CODES}
+_KIND_BY_LETTERS: dict[str, str] = {
+    **{re.sub(r"[^a-z]", "", kind.value): kind.value for kind in SymbolKind},
+    "pack": SymbolKind.VARIABLE_PACK.value,
+    "variablepack": SymbolKind.VARIABLE_PACK.value,
+    "constant": SymbolKind.VARIABLE.value,
+    "const": SymbolKind.VARIABLE.value,
+    "var": SymbolKind.VARIABLE.value,
+    "method": SymbolKind.FUNCTION.value,
+    "procedure": SymbolKind.FUNCTION.value,
+    "syntax": SymbolKind.SYNTAX_RULE.value,
+    "rule": SymbolKind.SYNTAX_RULE.value,
+    "keyword": SymbolKind.SYNTAX_RULE.value,
+    "path": SymbolKind.VIRTUAL_PATH.value,
+    "file": SymbolKind.VIRTUAL_PATH.value,
+}
 
 
 class CompilerErrorItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    code: LLMErrorCode
-    line: int = Field(ge=0)
+    code: str
+    line: int = Field(default=0, ge=0)
     message: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def _known_code(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            known = _CODE_BY_LETTERS.get(re.sub(r"[^a-z]", "", value.lower()))
+            if known is not None:
+                return known
+        raise ValueError("code must be one of " + ", ".join(LLM_ERROR_CODES))
+
+    @field_validator("line", mode="before")
+    @classmethod
+    def _whole_file_when_missing(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 0
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0:
+            return 0
+        return value
 
 
 class ExtractedSymbol(BaseModel):
@@ -50,6 +89,34 @@ class ExtractedSymbol(BaseModel):
     source_fragment: str = Field(default="", max_length=20000)
 
 
+def _usable_symbols(value: Any) -> Any:
+    """Keep the symbols that can be saved; one malformed entry must not sink a good program."""
+    if not isinstance(value, list):
+        return []
+    usable: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name, meaning, kind = item.get("name"), item.get("meaning"), item.get("kind")
+        if not (isinstance(name, str) and name.strip() and isinstance(meaning, str) and meaning.strip()):
+            continue
+        if not isinstance(kind, str):
+            continue
+        known = _KIND_BY_LETTERS.get(re.sub(r"[^a-z]", "", kind.lower()))
+        if known is None:
+            continue
+        fragment = item.get("source_fragment")
+        usable.append(
+            {
+                "name": name.strip()[:200],
+                "kind": known,
+                "meaning": meaning.strip()[:4000],
+                "source_fragment": fragment[:20000] if isinstance(fragment, str) else "",
+            }
+        )
+    return usable
+
+
 class CompilerResponse(BaseModel):
     """The JSON object the model must return."""
 
@@ -59,7 +126,22 @@ class CompilerResponse(BaseModel):
     errors: list[CompilerErrorItem] = Field(default_factory=list)
     extracted_symbols: list[ExtractedSymbol] = Field(default_factory=list)
     target_language: str
-    compiled_code: str
+    compiled_code: str = ""
+
+    @field_validator("extracted_symbols", mode="before")
+    @classmethod
+    def _keep_usable_symbols(cls, value: Any) -> Any:
+        return _usable_symbols(value)
+
+    @field_validator("errors", mode="before")
+    @classmethod
+    def _errors_list(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+    @field_validator("compiled_code", mode="before")
+    @classmethod
+    def _code_text(cls, value: Any) -> Any:
+        return "" if value is None else value
 
     @model_validator(mode="after")
     def _consistent(self) -> CompilerResponse:
