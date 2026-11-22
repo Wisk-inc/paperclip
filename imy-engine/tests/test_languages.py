@@ -109,7 +109,9 @@ class TestRunners:
         artifact = BuildArtifact(path=tmp_path / "hello.s", language=language, run_dir=tmp_path, folder=tmp_path)
         chain = toolchain_for(artifact)
         assert chain is not None
-        assert chain.steps == [[str(tools / "cc"), str(tmp_path / "hello.s"), "-o", str(tmp_path / "hello")]]
+        # Linked with the C library and its math library; and, should that be refused, as a fixed-position program.
+        assert chain.steps == [[str(tools / "cc"), str(tmp_path / "hello.s"), "-o", str(tmp_path / "hello"), "-lm"]]
+        assert chain.relaxed == [[str(tools / "cc"), "-no-pie", str(tmp_path / "hello.s"), "-o", str(tmp_path / "hello"), "-lm"]]
         assert chain.run == [str(tmp_path / "hello")]
 
     @pytest.mark.skipif(shutil.which("awk") is None, reason="needs awk")

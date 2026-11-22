@@ -177,6 +177,20 @@ class RunnerError(ImyError):
     exit_code = 4
 
 
+class BuildFailed(RunnerError):
+    """The build tool (or a syntax check) refused the compiled program.
+
+    ``tool`` is the program that refused it and ``report`` what it said, with the
+    build folder's path taken out: this is what the model is shown when it is
+    asked to correct the program.
+    """
+
+    def __init__(self, message: str, *, tool: str, report: str, hint: str | None = None) -> None:
+        super().__init__(message, hint=hint)
+        self.tool = tool
+        self.report = report
+
+
 class InjectionError(ImyError):
     """Cloning, locating or patching a repository failed."""
 

@@ -21,7 +21,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .compiler import CompileResult
-from .errors import RunnerError
+from .errors import BuildFailed, RunnerError
 from .languages import Language
 from .workspace import Workspace
 
@@ -138,6 +138,12 @@ class BuildArtifact:
 class Toolchain:
     run: list[str]
     steps: list[list[str]] = field(default_factory=list)
+    # The same build with gentler settings, tried when the normal one fails
+    # (assembly that addresses its data absolutely links only without PIE).
+    relaxed: list[list[str]] = field(default_factory=list)
+    # A syntax check that runs nothing, for languages that have no build step.
+    # Done once, when the code is new: what it finds can still be corrected.
+    checks: list[list[str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -275,7 +281,8 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
     if name == "python":
         return Toolchain(run=[python_command(), path])
     if name == "javascript":
-        return Toolchain(run=[_need(language, "node", "nodejs"), path])
+        node = _need(language, "node", "nodejs")
+        return Toolchain(run=[node, path], checks=[[node, "--check", path]])
     if name == "typescript":
         tsx = _find("tsx")
         if tsx:
@@ -288,11 +295,19 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
             )
         return Toolchain(run=[node, "--experimental-strip-types", "--no-warnings", path])
     if name == "lua":
-        return Toolchain(run=[_need(language, "lua", "lua5.4", "lua5.3", "luajit"), path])
-    if name in ("ruby", "php", "perl", "julia", "elixir", "groovy", "ocaml"):
+        luac = _find("luac", "luac5.4", "luac5.3")
+        return Toolchain(
+            run=[_need(language, "lua", "lua5.4", "lua5.3", "luajit"), path], checks=[[luac, "-p", path]] if luac else []
+        )
+    if name in ("ruby", "php", "perl"):
+        tool = _need(language, name)
+        flag = {"ruby": "-c", "php": "-l", "perl": "-c"}[name]
+        return Toolchain(run=[tool, path], checks=[[tool, flag, path]])
+    if name in ("julia", "elixir", "groovy", "ocaml"):
         return Toolchain(run=[_need(language, name), path])
     if name == "bash":
-        return Toolchain(run=[_need(language, "bash", "sh"), path])
+        shell = _need(language, "bash", "sh")
+        return Toolchain(run=[shell, path], checks=[[shell, "-n", path]])
     if name == "powershell":
         return Toolchain(run=[_need(language, "pwsh", "powershell"), "-File", path])
     if name == "r":
@@ -320,9 +335,15 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
         quoted = path.replace("\\", "\\\\").replace('"', '\\"')
         return Toolchain(run=[_need(language, "sqlite3"), ":memory:", f'.read "{quoted}"'])
     if name == "go":
-        return Toolchain(run=[_need(language, "go"), "run", path])
+        # Built first, so what the compiler refuses is caught before anything runs.
+        return Toolchain(steps=[[_need(language, "go"), "build", "-o", binary, path]], run=[binary])
     if name == "java":
-        return Toolchain(run=[_need(language, "java"), path])
+        java = _need(language, "java")
+        javac = _find("javac")
+        if javac is None:
+            return Toolchain(run=[java, path])
+        classes = str(artifact.folder / "classes")
+        return Toolchain(steps=[[javac, "-d", classes, path]], run=[java, "-cp", classes, artifact.path.stem])
     if name == "rust":
         return Toolchain(
             steps=[[_need(language, "rustc"), "--edition", "2021", "-O", path, "-o", binary]], run=[binary]
@@ -338,7 +359,11 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
         )
     if name == "asm":
         # The C compiler assembles the file and links it with the C library the program calls.
-        return Toolchain(steps=[[_need(language, "cc", "gcc", "clang"), path, "-o", binary]], run=[binary])
+        # Code that reaches its data by absolute address links only as a fixed-position program.
+        cc = _need(language, "cc", "gcc", "clang")
+        return Toolchain(
+            steps=[[cc, path, "-o", binary, "-lm"]], relaxed=[[cc, "-no-pie", path, "-o", binary, "-lm"]], run=[binary]
+        )
     if name == "d":
         runner = _find("rdmd")
         if runner:
@@ -389,6 +414,67 @@ def toolchain_for(artifact: BuildArtifact) -> Toolchain | None:
     return None
 
 
+@dataclass(frozen=True)
+class _StepFailure:
+    step: list[str]
+    output: str
+
+
+def _first_failure(steps: Sequence[list[str]], artifact: BuildArtifact, env: dict[str, str]) -> _StepFailure | None:
+    """Run the build steps in order; the first that fails, with what it printed."""
+    language = artifact.language
+    for step in steps:
+        try:
+            built = subprocess.run(step, cwd=artifact.run_dir, env=env, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired as exc:
+            raise RunnerError(f"Building the {language.display} program took longer than 10 minutes.") from exc
+        except OSError as exc:
+            raise RunnerError(f"Couldn't start `{step[0]}`: {exc.strerror or exc}") from exc
+        if built.returncode != 0:
+            return _StepFailure(step=step, output=(built.stderr or built.stdout or "").strip())
+    return None
+
+
+# How much of a build tool's output is shown, and sent back to the model.
+BUILD_REPORT_LINES = 30
+BUILD_REPORT_CHARS = 3000
+
+
+def build_report(output: str, artifact: BuildArtifact) -> str:
+    """What the build tool said, short enough to show and to send to the model.
+
+    The folders the program was built in are replaced by the file's name: the
+    tool's message stays readable, and a person's folder names are not sent on.
+    """
+    text = output
+    for folder in sorted({str(artifact.path.parent), str(artifact.folder), str(artifact.run_dir)}, key=len, reverse=True):
+        if folder and folder != "/":
+            text = text.replace(folder + os.sep, "").replace(folder, ".")
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if len(lines) > BUILD_REPORT_LINES:
+        lines = lines[:BUILD_REPORT_LINES]
+    report = "\n".join(lines)
+    return report if len(report) <= BUILD_REPORT_CHARS else report[:BUILD_REPORT_CHARS].rstrip() + "\n…"
+
+
+def report_headline(report: str) -> str:
+    """The one line of a build report that says what is wrong: the first that names an error, else the first."""
+    lines = [line.strip() for line in report.splitlines() if line.strip()]
+    for line in lines:
+        if re.search(r"\berror\b|\bfatal\b|undefined reference|syntax", line, re.IGNORECASE):
+            return line
+    return lines[0] if lines else ""
+
+
+def _build_failed(failure: _StepFailure, artifact: BuildArtifact, headline: str) -> BuildFailed:
+    tail = failure.output.splitlines()[-15:]
+    return BuildFailed(
+        headline + (":\n" + "\n".join(tail) if tail else "."),
+        tool=Path(failure.step[0]).name,
+        report=build_report(failure.output, artifact) or f"{Path(failure.step[0]).name} failed without a message",
+    )
+
+
 def program_environment(workspace: Workspace) -> dict[str, str]:
     env = dict(os.environ)
     env.pop("IMY_API_KEY", None)
@@ -398,15 +484,13 @@ def program_environment(workspace: Workspace) -> dict[str, str]:
     return env
 
 
-def run_artifact(
-    artifact: BuildArtifact,
-    workspace: Workspace,
-    *,
-    args: Sequence[str] = (),
-    timeout: float | None = None,
-    detach: bool = False,
-) -> RunOutcome:
-    """Build (when the language needs it) and run the program with the terminal's input and output."""
+def prepare_program(artifact: BuildArtifact, workspace: Workspace, *, check_syntax: bool = False) -> Toolchain:
+    """Build the program (when its language needs it) and say how to start it. Nothing of the program runs.
+
+    ``check_syntax`` also runs the language's own syntax check, where it has one
+    and no build step (node --check, ruby -c, ...): for code that is new. A build
+    or check that fails raises BuildFailed, which carries what the tool said.
+    """
     language = artifact.language
     toolchain = toolchain_for(artifact)
     if toolchain is None:
@@ -420,16 +504,29 @@ def run_artifact(
             hint=f"Use `imy convert --to {language.name}` and run the file with your own tools.",
         )
     env = program_environment(workspace)
-    for step in toolchain.steps:
-        try:
-            built = subprocess.run(step, cwd=artifact.run_dir, env=env, capture_output=True, text=True, timeout=600)
-        except subprocess.TimeoutExpired as exc:
-            raise RunnerError(f"Building the {language.display} program took longer than 10 minutes.") from exc
-        except OSError as exc:
-            raise RunnerError(f"Couldn't start `{step[0]}`: {exc.strerror or exc}") from exc
-        if built.returncode != 0:
-            tail = (built.stderr or built.stdout).strip().splitlines()[-15:]
-            raise RunnerError(f"Building the {language.display} program failed:\n" + "\n".join(tail))
+    failure = _first_failure(toolchain.steps, artifact, env)
+    if failure is not None and toolchain.relaxed:
+        failure = _first_failure(toolchain.relaxed, artifact, env)
+    if failure is not None:
+        raise _build_failed(failure, artifact, f"Building the {language.display} program failed")
+    if check_syntax:
+        failure = _first_failure(toolchain.checks, artifact, env)
+        if failure is not None:
+            raise _build_failed(failure, artifact, f"The {language.display} program has a mistake its own tool found")
+    return toolchain
+
+
+def start_program(
+    toolchain: Toolchain,
+    artifact: BuildArtifact,
+    workspace: Workspace,
+    *,
+    args: Sequence[str] = (),
+    timeout: float | None = None,
+    detach: bool = False,
+) -> RunOutcome:
+    """Run a prepared program with the terminal's input and output."""
+    env = program_environment(workspace)
     command = [*toolchain.run, *args]
     if detach:
         log_path = artifact.path.with_name(artifact.path.stem + ".log")
@@ -470,6 +567,20 @@ def run_artifact(
             proc.kill()
             proc.wait()
         return RunOutcome(exit_code=130, command=command)
+
+
+def run_artifact(
+    artifact: BuildArtifact,
+    workspace: Workspace,
+    *,
+    args: Sequence[str] = (),
+    timeout: float | None = None,
+    detach: bool = False,
+    check_syntax: bool = False,
+) -> RunOutcome:
+    """Build (when the language needs it) and run the program with the terminal's input and output."""
+    toolchain = prepare_program(artifact, workspace, check_syntax=check_syntax)
+    return start_program(toolchain, artifact, workspace, args=args, timeout=timeout, detach=detach)
 
 
 def serve_folder(folder: Path, port: int) -> None:

@@ -11,10 +11,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .errors import ErrorCode
+from .languages import resolve_language
 from .memory import MemorySymbol, SymbolKind
 from .parser import ParsedSource
 
-PROMPT_VERSION = "imy-compiler-2"
+PROMPT_VERSION = "imy-compiler-3"
 
 # The six codes the model is asked for (the contract and the JSON schema).
 LLM_ERROR_CODES: tuple[str, ...] = (
@@ -210,6 +211,7 @@ READING CUSTOM SYNTAX
 - ship ("...") declares a virtual path. Use the real location listed under VIRTUAL PATHS wherever the program touches that path.
 - A URL in a string is a web resource. A mirrored resource is downloaded before the program runs: read the local copy listed under WEB RESOURCES. Other URLs may be fetched at run time with the target language's standard library.
 - Definitions under MEMORY were saved from the user's earlier sessions. They are authoritative: use them exactly as saved and never redefine them.
+- A MEMORY definition marked `imported from <language>` is real code the user brought in from an existing project, shown in the language it was written in. When the IMY code uses its name, write that definition into compiled_code in the target language, before its first use, with exactly the same behaviour (the same parameters, results and messages), together with each imported definition listed as needed by it. Leave its comments and docstrings out. It is not part of the target language or its libraries, so never call it without defining it, and never change what it does.
 - When the code calls something it never defines and memory does not define (for example show, count or Folder.open), map it to the closest standard construct of the target language only when its meaning is unambiguous from the call, its arguments and the header. Otherwise report AmbiguousIntent.
 
 WORKED EXAMPLES
@@ -303,13 +305,47 @@ def machine_name() -> str:
     return _MACHINE_NAMES.get(raw, raw)
 
 
+# The calling rules a compiler would apply for you, spelled out per processor: a program that
+# skips one of them links or prints wrongly, which is the usual way generated assembly fails.
+_ASM_RULES = {
+    "x86-64": (
+        "Use AT&T syntax. Declare `.globl main`. Start main with `pushq %rbp` and `movq %rsp, %rbp`, so the stack is "
+        "16-byte aligned at every call, and end it with `xorl %eax, %eax`, `popq %rbp`, `ret`. Room for local values is "
+        "taken in multiples of 16 bytes (`subq $16, %rsp`) and given back before `popq %rbp` (`movq %rbp, %rsp`). The "
+        "program is linked "
+        "position independent: reach every data symbol relative to %rip (`leaq msg(%rip), %rdi`, "
+        "`movsd price(%rip), %xmm0`), never by its absolute address, and call library functions through the PLT "
+        "(`call printf@PLT`). Integer arguments go in %rdi, %rsi, %rdx, %rcx, %r8, %r9 and floating-point arguments "
+        "in %xmm0 to %xmm7. Before calling a function with a variable argument list such as printf, put the number "
+        "of %xmm registers that carry arguments in %eax (`movl $1, %eax` for one double, `xorl %eax, %eax` for "
+        "none). Do floating-point arithmetic with SSE2 (movsd, addsd, subsd, mulsd, divsd, cvtsi2sdl), not x87. "
+        "%rbx, %rbp and %r12 to %r15 keep their values across calls; every other register may change. End the file "
+        'with `.section .note.GNU-stack,"",@progbits`.'
+    ),
+    "64-bit ARM (AArch64)": (
+        "Declare `.global main`. Start main with `stp x29, x30, [sp, -16]!` and `mov x29, sp`, and end it with "
+        "`mov w0, 0`, `ldp x29, x30, [sp], 16`, `ret`; sp stays 16-byte aligned, so room for local values is taken in "
+        "multiples of 16 bytes. The program is linked position "
+        "independent: load a symbol's address with `adrp x0, msg` followed by `add x0, x0, :lo12:msg`, and read a "
+        "value through that address (`ldr d0, [x0]`). Call library functions with `bl printf`. Integer arguments go "
+        "in x0 to x7 (w0 to w7 for 32-bit values) and floating-point arguments in d0 to d7, also for printf. x19 to "
+        "x28 keep their values across calls; x0 to x18 may change. Comments are not written, so `@` and `//` never "
+        'appear. End the file with `.section .note.GNU-stack,"",%progbits`.'
+    ),
+}
+
+
 def target_note(target: str) -> str | None:
     """What the model is told about the target language, with the machine filled in for assembly."""
     if target == "asm":
+        machine = machine_name()
+        rules = _ASM_RULES.get(machine, "Keep the stack aligned as this processor's calling convention requires, and return 0 from main.")
         return (
-            f"Assembly for {machine_name()} Linux in GNU assembler syntax, assembled and linked by the C compiler "
-            "(cc program.s): define a global `main`, call C library functions such as puts and printf for output, "
-            "keep the stack aligned, and return 0 from main."
+            f"Assembly for {machine} Linux in GNU assembler syntax, assembled and linked with the C library and its math "
+            "library by the C compiler (cc program.s -lm). The C library is this target's standard library: call its "
+            "functions for output, input, text and math (puts, printf, scanf, strlen, round, pow). A helper the IMY code "
+            "calls without defining, such as show, count or round, maps to one of them (printf with %.2f rounds to two "
+            "decimals) and is never a missing mechanic. " + rules
         )
     return TARGET_NOTES.get(target)
 
@@ -434,6 +470,13 @@ LIVE_PREVIEW_NOTE = (
 )
 
 
+def _language_label(name: str) -> str:
+    try:
+        return resolve_language(name).display
+    except ValueError:
+        return name
+
+
 def build_user_prompt(
     *,
     parsed: ParsedSource,
@@ -485,6 +528,16 @@ def build_user_prompt(
         lines = []
         for symbol in saved:
             members = f" members: {', '.join(symbol.members)};" if symbol.members else ""
+            needs = f" needs: {', '.join(symbol.uses)};" if symbol.uses else ""
+            if symbol.language:
+                # Code from another language keeps its own lines and indentation.
+                where = f"imported from {_language_label(symbol.language)}, {symbol.origin_label}"
+                code = "\n".join(f"        {line}" if line.strip() else "" for line in symbol.source_fragment.rstrip().split("\n"))
+                lines.append(
+                    f"- {symbol.name} ({symbol.kind.value}, {where}):{members}{needs} meaning: {symbol.meaning}\n"
+                    f"    defined as:\n{code}"
+                )
+                continue
             fragment = symbol.source_fragment.strip().replace("\n", "\n    ")
             lines.append(
                 f"- {symbol.name} ({symbol.kind.value}, from {symbol.origin_label}):{members} meaning: {symbol.meaning}\n"
@@ -500,6 +553,17 @@ def build_user_prompt(
         sections.append(LIVE_PREVIEW_NOTE)
     sections.append(f'Return the JSON object now, with target_language "{target}".')
     return "\n\n".join(sections)
+
+
+def build_failure_prompt(tool: str, report: str, target: str) -> str:
+    """Asks for a corrected program after the language's own build tool refused the last one."""
+    return (
+        f"The program you returned does not build. `{tool}` reported:\n"
+        f"{report}\n"
+        "Correct what the report names and nothing else: the program must still do exactly what the IMY code "
+        f'defines. Return the complete corrected JSON object only, same schema, target_language "{target}". '
+        "Keep every rule: zero comments, exact layout and messages, nothing invented."
+    )
 
 
 def build_repair_prompt(problems: Iterable[str], target: str) -> str:

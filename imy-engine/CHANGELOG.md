@@ -30,6 +30,19 @@
   `imy languages <name>` says what a language needs. In the console: `:languages`.
 - `imy console --to <language>` opens the console in a language, and the opening lines name
   it and how to switch (`:target rust`).
+- **A program that does not build is corrected.** When the language's own build tool
+  refuses the compiled program (the C compiler, rustc, go, javac, the assembler, …), what
+  the tool said goes back to the model for a corrected version, as often as
+  `repair_attempts` allows, and only then does anything run. Scripts get their language's
+  own syntax check first when the code is new (`node --check`, `ruby -c`, `php -l`,
+  `perl -c`, `bash -n`, `luac -p`). A program that still does not build leaves the cache, so
+  the next run starts afresh. Go and Java are now built before they run, so their compile
+  errors are caught the same way.
+- **Assembly that works.** The model is given the exact calling rules of the processor IMY
+  runs on (x86-64 or 64-bit ARM: stack alignment, how data is addressed in a
+  position-independent program, where arguments go, what `printf` needs). The program is
+  linked with the C and math libraries, and code that addresses its data absolutely is
+  linked as a fixed-position program instead of being refused.
 
 ### Fixes
 
@@ -51,6 +64,10 @@ From a full review of every module. Each has a test.
 
 #### Memory
 
+- An everyday operator (`+`, `==`, `&&`, …) is never saved as a custom syntax rule, and
+  one an earlier version saved is no longer applied. Saved from one file as "joins text",
+  `+` was then forced on every other file and broke programs that add numbers. Marks you
+  invent (`<-`, `|>`, `say >>`) are still remembered.
 - Working in your home folder, `~/.imy` is the one memory store. It was also read as the
   project's own, so every save counted twice.
 - `~/.imy` is never taken for a project's workspace, also when `IMY_HOME` points elsewhere.
@@ -84,6 +101,9 @@ From a full review of every module. Each has a test.
 
 #### Running and injecting
 
+- The `tip` example's header says what its code does (rounds to two decimal places). It
+  promised "two decimals" in print, which `round` does not give, and the validator
+  sometimes refused the example for it.
 - `imy inject` takes GitHub page URLs (`…/tree/main/src`) and `git@host:group/repo.git`
   addresses on any host. Every way of naming a GitHub repository shares one clone.
 - `--fresh` removes only an earlier clone of the same repository. It could delete any

@@ -1,4 +1,4 @@
-# ("tip splitter: adds a 15 percent tip to a dinner bill and splits the total between four friends, printing the tip and each share with two decimals")
+# ("tip splitter: adds a 15 percent tip to a dinner bill and splits the total between four friends, printing the tip and each share rounded to two decimal places")
 bill = 84.00
 tip = bill * 0.15
 total = bill + tip

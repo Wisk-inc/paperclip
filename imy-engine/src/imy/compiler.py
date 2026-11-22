@@ -37,6 +37,7 @@ from .prompts import (
     ExtractedSymbol,
     RepoContext,
     ResponseFormatError,
+    build_failure_prompt,
     build_repair_prompt,
     build_user_prompt,
     machine_name,
@@ -81,6 +82,10 @@ class CompileResult:
     attempts: int = 0
     # Seconds spent waiting for the model (0 when the program came from the cache).
     seconds: float = 0.0
+    # How this program was asked for, so a build failure can be sent back for a correction.
+    options: CompileOptions | None = None
+    # How many times the build tool's report was sent back before this version.
+    build_repairs: int = 0
 
 
 @dataclass
@@ -211,12 +216,62 @@ class Compiler:
                 seconds=waited,
             )
 
+        result.options = options
         if options.save_memory and not options.preview:
             report = self.memory.apply(parsed, origin, result.symbols, update=options.update_memory)
             if report.conflicts:
                 raise CompilationFailed(report.conflicts, source_lines=parsed.raw_lines, path=parsed.path)
             result.memory_report = report
         return result
+
+    def repair(self, result: CompileResult, *, tool: str, report: str) -> CompileResult:
+        """A corrected version of ``result`` after the language's own build tool refused it.
+
+        The model gets the same request as before, its own answer, and what the
+        tool said. The corrected program passes the same output checks, takes the
+        refused one's place in the cache, and is returned; memory is left as the
+        first version saved it (a correction changes no definitions).
+        """
+        options = result.options or CompileOptions(target=result.language.name)
+        started = time.monotonic()
+        output = self._call_model(
+            result.parsed, result.language, result.relevant_memory, result.vfs, options, refused=(result, tool, report)
+        )
+        waited = time.monotonic() - started
+        CompileCache(self.workspace.cache).put(
+            CacheEntry(
+                key=result.cache_key,
+                target_language=result.language.name,
+                compiled_code=output.code,
+                extracted_symbols=[symbol.model_dump(mode="json") for symbol in output.symbols],
+                provider=output.provider,
+                model=output.model,
+                created_at=now_iso(),
+                imy_version=__version__,
+            )
+        )
+        return CompileResult(
+            parsed=result.parsed,
+            language=result.language,
+            code=output.code,
+            symbols=output.symbols,
+            from_cache=False,
+            cache_key=result.cache_key,
+            provider=output.provider,
+            model=output.model,
+            vfs=result.vfs,
+            relevant_memory=result.relevant_memory,
+            memory_report=result.memory_report,
+            notes=output.notes,
+            attempts=result.attempts + output.attempts,
+            seconds=result.seconds + waited,
+            options=options,
+            build_repairs=result.build_repairs + 1,
+        )
+
+    def forget(self, result: CompileResult) -> None:
+        """Drop a program from the cache (it does not build), so the next run asks the model afresh."""
+        CompileCache(self.workspace.cache).discard(result.cache_key)
 
     @staticmethod
     def _origin(parsed: ParsedSource) -> str:
@@ -229,6 +284,8 @@ class Compiler:
         memory_symbols: list[MemorySymbol],
         vmap: VirtualFileMap,
         options: CompileOptions,
+        *,
+        refused: tuple[CompileResult, str, str] | None = None,
     ) -> _ModelOutput:
         client = self.client()
         user = build_user_prompt(
@@ -241,6 +298,25 @@ class Compiler:
             preview=options.preview,
         )
         messages: list[ChatMessage] = [ChatMessage("user", user)]
+        if refused is not None:
+            # The answer the build tool refused, as the model gave it, then what the tool said.
+            earlier, tool, report = refused
+            messages.append(
+                ChatMessage(
+                    "assistant",
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "errors": [],
+                            "extracted_symbols": [symbol.model_dump(mode="json") for symbol in earlier.symbols],
+                            "target_language": language.name,
+                            "compiled_code": earlier.code,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            messages.append(ChatMessage("user", build_failure_prompt(tool, report, language.name)))
         attempts = 1 + self.config.repair_attempts
         last_format_problems: list[str] = []
         last_output: list[Diagnostic] = []

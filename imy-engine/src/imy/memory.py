@@ -11,6 +11,10 @@ key and receives new saves). It keeps every user-defined:
 A saved symbol is never overwritten silently: redefining a pack or function
 that another file saved halts with ``MemoryConflict`` unless ``--update-memory``
 is given, and a file that changes its own definition gets an explicit notice.
+
+Definitions read from an existing project (``imy import``) are saved the same
+way, with the language their code is written in and the other imported names
+that code needs, so a file that uses one gets its helpers along with it.
 """
 
 from __future__ import annotations
@@ -61,8 +65,16 @@ class MemorySymbol(BaseModel):
     origin: str
     origin_line: int = Field(default=0, ge=0)
     members: list[str] = Field(default_factory=list)
+    # Only for a definition read from an existing project (`imy import`): the language
+    # source_fragment is written in, and the other imported names that code needs.
+    language: str = Field(default="", max_length=40)
+    uses: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
+
+    @property
+    def imported(self) -> bool:
+        return bool(self.language)
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -78,7 +90,7 @@ class MemorySymbol(BaseModel):
         return f"{name} line {self.origin_line}" if self.origin_line else name
 
     def snapshot(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "name": self.name,
             "kind": self.kind.value,
             "meaning": self.meaning,
@@ -86,6 +98,11 @@ class MemorySymbol(BaseModel):
             "members": list(self.members),
             "source_fragment": self.source_fragment,
         }
+        if self.language:
+            data["language"] = self.language
+        if self.uses:
+            data["uses"] = list(self.uses)
+        return data
 
 
 class MemoryFile(BaseModel):
@@ -138,6 +155,30 @@ GENERIC_WORDS: frozenset[str] = frozenset(
         "true", "false", "yes", "no", "none", "null", "ship", "pack", "case", "match", "switch", "try", "catch",
     }
 )
+
+
+# The operators and marks every syntax shares with arithmetic and with writing itself.
+_EVERYDAY_MARKS = frozenset(
+    "+ - * / % ^ = == === != !== <> < > <= >= += -= *= /= %= ++ -- && || ! & | ~ ** // . , ; : ? ( ) [ ] { }".split()
+)
+
+
+def is_rule_name(name: str) -> bool:
+    """Whether ``name`` can be a custom syntax rule: something the user made up.
+
+    extract.font123 and `say >>` are; so is a mark of their own such as `<-` or
+    `|>`. An everyday operator, a lone character or a number is not: saved as a
+    rule, `+` would carry one file's reading of + ("joins text") into every
+    other file, where it adds numbers.
+    """
+    text = " ".join(name.split())
+    if len(text) < 2:
+        return False
+    if any(character.isalpha() for character in text):
+        return sum(character.isalnum() for character in text) >= 2
+    if any(character.isdigit() for character in text):
+        return False
+    return all(len(part) >= 2 and part not in _EVERYDAY_MARKS for part in text.split())
 
 
 class MemoryStore:
@@ -299,6 +340,8 @@ def _locate(parsed: ParsedSource, kind: SymbolKind, symbol: SymbolLike) -> _Loca
         return _Located(fn.name, fn.line, fn.text, fingerprint(fn.text), fn.params)
     if kind is SymbolKind.SYNTAX_RULE:
         name = " ".join(name.split())
+        if not is_rule_name(name):
+            return None
         number = parsed.mention_line(name)
         if number is None:
             return None
@@ -404,7 +447,8 @@ class Memory:
                 if name in identifiers and name not in defined:
                     chosen.append(symbol)
             elif kind is SymbolKind.SYNTAX_RULE:
-                if name not in defined and parsed.mention_line(name) is not None:
+                # An operator saved as a rule by an earlier version is passed over (see is_rule_name).
+                if is_rule_name(name) and name not in defined and parsed.mention_line(name) is not None:
                     chosen.append(symbol)
             elif kind is SymbolKind.VIRTUAL_PATH and name in virtual_paths:
                 chosen.append(symbol)
@@ -427,8 +471,50 @@ class Memory:
                 )
             else:
                 chosen.append(group[0])
+        chosen = self._with_helpers(chosen, defined)
         chosen.sort(key=_sort_key)
         return RelevantMemory(symbols=chosen, diagnostics=diagnostics)
+
+    # The most saved definitions one file's request carries: enough for a function and
+    # everything it leans on, without a whole imported project riding along.
+    HELPER_LIMIT = 60
+
+    def _with_helpers(self, chosen: list[MemorySymbol], defined: set[str]) -> list[MemorySymbol]:
+        """Add what the chosen imported definitions need: the other imported names their code uses.
+
+        A helper from the same file is taken first. One saved from several files
+        with different code is left out, and a name the current file defines
+        itself is the file's own.
+        """
+        if not any(symbol.uses for symbol in chosen):
+            return chosen
+        by_name: dict[str, list[MemorySymbol]] = {}
+        for _, symbol in self.entries():
+            if symbol.language:
+                by_name.setdefault(symbol.name, []).append(symbol)
+        result = list(chosen)
+        seen = {symbol.key for symbol in chosen}
+        waiting = [symbol for symbol in chosen if symbol.uses]
+        while waiting and len(result) < self.HELPER_LIMIT:
+            current = waiting.pop(0)
+            for name in current.uses:
+                if name in defined:
+                    continue
+                candidates = by_name.get(name, [])
+                same_file = [candidate for candidate in candidates if candidate.origin == current.origin]
+                if same_file:
+                    pick = same_file[0]
+                elif candidates and len({candidate.fingerprint for candidate in candidates}) == 1:
+                    pick = candidates[0]
+                else:
+                    continue
+                if pick.key in seen or len(result) >= self.HELPER_LIMIT:
+                    continue
+                seen.add(pick.key)
+                result.append(pick)
+                if pick.uses:
+                    waiting.append(pick)
+        return result
 
     def conflicts(self, parsed: ParsedSource, origin: str) -> list[Diagnostic]:
         """Packs and functions this file defines that another file saved differently."""
@@ -561,6 +647,66 @@ class Memory:
             if report.conflicts:
                 raise _AbortTransaction(report)
 
+    def add_imported(self, candidates: Iterable[MemorySymbol], *, update: bool = False, store: MemoryStore | None = None) -> MemoryUpdateReport:
+        """Save definitions read from an existing project.
+
+        Like apply(), it never replaces what another file saved unless ``update``.
+        Unlike apply(), one conflict does not hold the rest back: everything that
+        can be saved is saved, and each conflict is reported.
+        """
+        target = store if store is not None else self.write_store
+        report = MemoryUpdateReport(store=target.path)
+        visible = {symbol.key: symbol for _, symbol in self.entries()}
+        with target.transaction() as data:
+            positions = {symbol.key: index for index, symbol in enumerate(data.symbols)}
+            for candidate in candidates:
+                existing = visible.get(candidate.key)
+                if existing is None:
+                    self._put(data, positions, candidate)
+                    report.added.append(candidate)
+                    visible[candidate.key] = candidate
+                    continue
+                same = (
+                    existing.fingerprint == candidate.fingerprint
+                    and existing.kind is candidate.kind
+                    and existing.language == candidate.language
+                    and existing.uses == candidate.uses
+                    and existing.meaning == candidate.meaning
+                    and existing.origin == candidate.origin
+                )
+                if same:
+                    report.unchanged.append(existing)
+                    continue
+                candidate = candidate.model_copy(update={"created_at": existing.created_at})
+                if existing.origin == candidate.origin:
+                    self._put(data, positions, candidate)
+                    report.updated.append(candidate)
+                elif update:
+                    self._put(data, positions, candidate)
+                    report.replaced.append(candidate)
+                else:
+                    report.conflicts.append(self._conflict(candidate.origin_line, f"`{candidate.name}` ({candidate.kind.value})", existing))
+                    continue
+                visible[candidate.key] = candidate
+        return report
+
+    def forget_imported(self, location: Path) -> list[tuple[Scope, MemorySymbol]]:
+        """Remove every imported definition that came from ``location`` (a file, or a folder and all inside it)."""
+        removed: list[tuple[Scope, MemorySymbol]] = []
+        for store in self.stores():
+            if not store.exists():
+                continue
+            with store.transaction() as data:
+                kept: list[MemorySymbol] = []
+                for symbol in data.symbols:
+                    origin = Path(symbol.origin)
+                    if symbol.language and (origin == location or location in origin.parents):
+                        removed.append((store.scope, symbol))
+                    else:
+                        kept.append(symbol)
+                data.symbols = kept
+        return removed
+
     @staticmethod
     def _put(data: MemoryFile, positions: dict[tuple[str, str, str], int], symbol: MemorySymbol) -> None:
         index = positions.get(symbol.key)
@@ -681,6 +827,11 @@ class CompileCache:
         except OSError as exc:
             raise MemoryStoreError(f"Can't write the compile cache in {self.directory}: {exc.strerror or exc}") from exc
         return path
+
+    def discard(self, key: str) -> None:
+        """Remove one entry (the program it holds turned out not to build)."""
+        with contextlib.suppress(OSError):
+            self._path(key).unlink()
 
     def clear(self) -> int:
         if not self.directory.is_dir():

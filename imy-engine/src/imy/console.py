@@ -24,7 +24,7 @@ from .languages import resolve_language
 from .live import LiveJob, LiveOutcome, LivePreview, changed_lines
 from .parser import parse_header, parse_text
 from .progress import working
-from .runner import build_artifact, run_artifact
+from .runner import start_program
 from .workspace import prepare_virtual_files
 
 HELP = """[bold]Type IMY code line by line[/bold], starting with a header such as
@@ -675,16 +675,18 @@ class ImyConsole:
         result = self._compile(self.target, save_memory=True)
         if result is None:
             return True
-        from .cli import render_error, render_memory
+        from .cli import build_with_repair, render_error, render_memory
 
         render_memory(result, self.console)
         try:
-            artifact = build_artifact(result, self.workspace, stem="console", run_dir=Path.cwd())
+            # A program its own build tool refuses goes back to the model for a correction first.
+            result, artifact, toolchain = build_with_repair(self.session, result, self.console, stem="console", run_dir=Path.cwd())
+            self.last = result
             prepare_virtual_files(result.vfs, self.workspace)
-            if result.language.name in ("html", "css"):
+            if toolchain is None:
                 self.console.print(f"[green]built[/green] {escape(str(artifact.path))}")
                 return True
-            outcome = run_artifact(artifact, self.workspace, args=args)
+            outcome = start_program(toolchain, artifact, self.workspace, args=args)
         except ImyError as exc:
             render_error(exc, self.console)
             return True

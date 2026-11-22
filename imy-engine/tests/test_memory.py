@@ -19,6 +19,7 @@ from imy.memory import (
     SymbolKind,
     cache_key,
     fingerprint,
+    is_rule_name,
     now_iso,
 )
 from imy.parser import parse_file, parse_text
@@ -294,6 +295,61 @@ class TestCrossSession:
         stored = {s.name: s for _, s in compiler.memory.entries()}
         assert stored["extract.font123"].meaning == "read the first font name of a PDF"
         assert result.memory_report is not None and result.memory_report.conflicts == []
+
+    @pytest.mark.parametrize("name, rule", [
+        ("extract.font123", True), ("say >>", True), ("repeat until", True), ("ab", True), ("x1", True),
+        ("<-", True), ("|>", True), ("->", True), (":: end", True), ("<- |>", True),
+        ("+", False), ("=", False), ("==", False), ("!=", False), ("&&", False), ("**", False), ("a", False),
+        ("7", False), ("12", False), ("1 2", False), ("( )", False), ("+ +", False), ("<- +", False), ("", False), (" ", False),
+    ])
+    def test_what_counts_as_a_custom_syntax_rule(self, name: str, rule: bool) -> None:
+        assert is_rule_name(name) is rule
+
+    def test_a_mark_the_user_invented_is_saved_as_their_rule(self, tmp_path: Path) -> None:
+        llm = FakeLLM()
+        compiler = make_compiler(tmp_path, llm)
+        path = write(tmp_path / "count.imy", '# ("counts down from three to one and prints each number on the screen")\ncount <- 3\nshow (count)\n')
+        llm.queue(reply("count = 3\nprint(count)\n", symbols=[symbol("<-", "syntax_rule", "binds the name on its left to the value on its right")]))
+        result = compiler.compile_file(path, CompileOptions(target="python"))
+        assert result.memory_report is not None and [s.name for s in result.memory_report.added] == ["<-"]
+
+    @pytest.mark.parametrize("name", ["+", "=", "==", "a", "7", "1 2", "( )", "+ +"])
+    def test_an_operator_is_never_saved_as_a_custom_syntax_rule(self, tmp_path: Path, name: str) -> None:
+        llm = FakeLLM()
+        compiler = make_compiler(tmp_path, llm)
+        source = '# ("greets one person by name and counts to seven on the screen")\na = "Bo"\nshow ("Hi, " + a + "!")\nif a == "Bo" then show (7)\nshow (( ) + + 1 2)\n'
+        path = write(tmp_path / "greet.imy", source)
+        llm.queue(reply('print("Hi, Bo!")\nprint(7)\n', symbols=[symbol(name, "syntax_rule", "joins two pieces of text")]))
+        result = compiler.compile_file(path, CompileOptions(target="python"))
+        assert result.memory_report is not None
+        assert result.memory_report.added == [] and name in result.memory_report.skipped
+        assert [s for _, s in compiler.memory.entries() if s.kind is SymbolKind.SYNTAX_RULE] == []
+
+    def test_an_operator_rule_saved_by_an_earlier_version_is_passed_over(self, tmp_path: Path) -> None:
+        llm = FakeLLM()
+        compiler = make_compiler(tmp_path, llm)
+        stamp = "2026-11-01T00:00:00+00:00"
+        with compiler.memory.global_store.transaction() as data:
+            data.symbols.append(
+                MemorySymbol(
+                    name="+", kind=SymbolKind.SYNTAX_RULE, meaning="string concatenation only", source_fragment='show ("Hello, " + name + "!")',
+                    fingerprint="0" * 32, origin=str(tmp_path / "hello.imy"), origin_line=4, created_at=stamp, updated_at=stamp,
+                )
+            )
+            data.symbols.append(
+                MemorySymbol(
+                    name="extract.font123", kind=SymbolKind.SYNTAX_RULE, meaning="read the first font name of a PDF",
+                    source_fragment="extract.font123", fingerprint="1" * 32, origin=str(tmp_path / "fonts.imy"), origin_line=2,
+                    created_at=stamp, updated_at=stamp,
+                )
+            )
+        path = write(tmp_path / "sum.imy", '# ("adds two prices and shows the font of a document on the screen")\ntotal = 4 + 5\nshow (total)\nshow (extract.font123 ("doc.pdf"))\n')
+        llm.queue(reply("total = 4 + 5\nprint(total)\n"))
+        compiler.compile_file(path, CompileOptions(target="python"))
+        prompt = llm.last_prompt()
+        assert "string concatenation only" not in prompt
+        # A real custom rule is still used.
+        assert "read the first font name of a PDF" in prompt
 
     def test_check_does_not_save_memory(self, fixtures_dir: Path) -> None:
         llm = FakeLLM([reply('print("ok")\n', symbols=SESSION1_SYMBOLS)])

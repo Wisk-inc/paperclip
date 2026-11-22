@@ -34,13 +34,26 @@ from .config import (
     load_stored,
     save_config,
 )
-from .errors import CompilationFailed, ConfigError, Diagnostic, ImyError, LLMError, Stage
+from .errors import BuildFailed, CompilationFailed, ConfigError, Diagnostic, ImyError, LLMError, Stage
 from .llm_client import AutomaBridgeClient, ChatMessage, LLMClient, LLMRequest, build_client
 from .memory import Memory, MemoryStore
 from .parser import parse_file, read_source
 from .progress import format_seconds, working
 from .languages import known_languages, resolve_language
-from .runner import INSTALL_HINTS, NOT_RUNNABLE, RUNNER_TOOLS, build_artifact, python_command, run_artifact, runner_tool, serve_folder
+from .runner import (
+    INSTALL_HINTS,
+    NOT_RUNNABLE,
+    RUNNER_TOOLS,
+    BuildArtifact,
+    Toolchain,
+    build_artifact,
+    prepare_program,
+    python_command,
+    runner_tool,
+    report_headline,
+    serve_folder,
+    start_program,
+)
 from .workspace import Workspace, prepare_virtual_files
 
 class ImyConsoleOutput(Console):
@@ -209,6 +222,53 @@ def _compile(session: Session, file: Path, target: str, **options: object) -> Co
 SLOW_HINT = "free models often take a minute"
 
 
+def build_with_repair(
+    session: Session,
+    result: CompileResult,
+    console: Console,
+    *,
+    stem: str | None = None,
+    run_dir: Path | None = None,
+) -> tuple[CompileResult, BuildArtifact, Toolchain | None]:
+    """Write the program into .imy/build/ and build it; nothing of it runs yet.
+
+    When the language's own build tool (or its syntax check, for code that is
+    new) refuses the program, what the tool said goes back to the model for a
+    corrected version, as often as the repair setting allows. A program that
+    still does not build leaves the cache, so the next run starts afresh.
+    Web pages have nothing to build: the toolchain is None.
+    """
+    compiler = session.compiler
+    budget = session.config.repair_attempts
+    while True:
+        artifact = build_artifact(result, session.workspace, stem=stem, run_dir=run_dir)
+        if result.language.name in NOT_RUNNABLE:
+            return result, artifact, None
+        try:
+            return result, artifact, prepare_program(artifact, session.workspace, check_syntax=not result.from_cache)
+        except BuildFailed as failure:
+            if budget <= 0:
+                compiler.forget(result)
+                raise
+            budget -= 1
+            said = report_headline(failure.report)
+            console.print(f"[yellow]{escape(failure.tool)} refused the program:[/yellow] [dim]{escape(said[:200])}[/dim]")
+            config = session.config
+            label = f"Asking {config.provider}/{config.resolved_model()} to correct it"
+            try:
+                with working(console, label, hint=SLOW_HINT if config.provider == "automa" else ""):
+                    result = compiler.repair(result, tool=failure.tool, report=failure.report)
+            except ImyError as exc:
+                compiler.forget(result)
+                raise BuildFailed(
+                    failure.message,
+                    tool=failure.tool,
+                    report=failure.report,
+                    hint=f"The model could not correct it ({exc.message.rstrip('.')}). Run it again, or pick another model.",
+                ) from exc
+            console.print(f"[dim]corrected ({escape(compile_note(result))})[/dim]")
+
+
 def compile_note(result: CompileResult) -> str:
     """Where the program came from: the cache, or which model and how long it took."""
     if result.from_cache:
@@ -346,7 +406,7 @@ def run(
         def once() -> int:
             result = _compile(session, file, target, update_memory=update_memory, use_cache=not no_cache)
             render_memory(result)
-            artifact = build_artifact(result, session.workspace)
+            result, artifact, toolchain = build_with_repair(session, result, err)
             downloaded = prepare_virtual_files(result.vfs, session.workspace, offline=offline, refresh=refresh_web)
             for url in downloaded:
                 err.print(f"[dim]mirrored {escape(url)}[/dim]")
@@ -359,7 +419,8 @@ def run(
                     serve_folder(artifact.folder, port)
                 return 0
             err.print(f"[dim]▶ {escape(file.name)} ({escape(result.language.name)}, {escape(compile_note(result))})[/dim]")
-            outcome = run_artifact(artifact, session.workspace, args=list(ctx.args), timeout=timeout, detach=detach)
+            assert toolchain is not None
+            outcome = start_program(toolchain, artifact, session.workspace, args=list(ctx.args), timeout=timeout, detach=detach)
             if outcome.pid is not None:
                 err.print(f"[green]running in the background[/green] (pid {outcome.pid}); output: {escape(str(outcome.log_path))}")
             if outcome.timed_out:

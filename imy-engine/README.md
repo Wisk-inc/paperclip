@@ -269,7 +269,28 @@ Converting works without it: imy convert file.imy --to zig
 | Web pages | html, css | nothing (`--serve` to preview) |
 
 `vb`, `ada`, `erlang` and `objc` are converted with their own rules but not run, and every
-other language name (a new one, a rare one) works with `imy convert` too. Programs run in
+other language name (a new one, a rare one) works with `imy convert` too.
+
+**When the program does not build.** A compiled language has its own judge: the C compiler,
+`rustc`, `go`, `javac`, the assembler. When it refuses the program, IMY sends what it said
+back to the model, gets a corrected version, checks it against the same output rules and
+builds again, before anything runs:
+
+```console
+$ imy run tip.imy --to asm
+cc refused the program: tip.s:23: Error: operand type mismatch for `cvtsi2sd'
+corrected (nvidia/nemotron-3-ultra-550b-a55b:free, 1 min 00 s)
+▶ tip.imy (asm, nvidia/nemotron-3-ultra-550b-a55b:free, 1 min 00 s)
+Tip: 12.60
+Each of 4 friends pays 24.15
+```
+
+Scripts get their language's own syntax check first when the code is new (`node --check`,
+`ruby -c`, `php -l`, `perl -c`, `bash -n`, `luac -p`). How often a correction is asked for is
+the `repair_attempts` setting (`IMY_REPAIR_ATTEMPTS`, 1 unless you change it; 0 turns it off).
+A program that still does not build is not kept, so the next run starts afresh.
+
+Programs run in
 the folder that holds your `.imy` file, get `IMY_PROJECT_ROOT` and `IMY_VFS_ROOT`, and never
 see `IMY_API_KEY`. A compiled program runs with your own permissions, like any script you
 start. To read the code before it runs, use `imy run --show-code`, or `imy convert` and run
