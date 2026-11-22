@@ -90,14 +90,15 @@ make_room() {
   room_for "$need"
 }
 # What to do about a phone with too little room, after "Nothing was changed":
-# $1 is the room the update needs in MB, $2 the command to run afterwards.
+# $1 is the room the update needs in MB, $2 the command to run afterwards. The
+# command ends the message, with nothing after it that could be typed with it.
 storage_advice() {
   local need="$1" again="$2" free
   free="$(free_mb)"
   if [ -n "$free" ] && [ "$free" -ge "$need" ]; then
-    printf 'There are %s MB free now, so it may work on a second try: %s. If it stops again, free more space on the phone (photos, videos, apps you don'"'"'t use%s).' "$free" "$again" "$(backups_note)"
+    printf 'There are %s MB free now, so a second try may work. If it stops again, free more space on the phone (photos, videos, apps you don'"'"'t use%s). To try again, %s' "$free" "$(backups_note)" "$again"
   else
-    printf 'It needs about %s MB free%s. Free some space on the phone (photos, videos, apps you don'"'"'t use%s), then %s.' "$need" "${free:+ and there are $free MB}" "$(backups_note)" "$again"
+    printf 'It needs about %s MB free%s. Free some space on the phone (photos, videos, apps you don'"'"'t use%s), then %s' "$need" "${free:+ and there are $free MB}" "$(backups_note)" "$again"
   fi
 }
 
@@ -744,7 +745,7 @@ case "\${1:-}" in
       # Most often a full phone; the half-unpacked copy would only take more of it.
       rm -rf "\$tmp/automa-server"
       free="\$(df -Pk "\$HOME" 2>/dev/null | awk 'NR == 2 { print int(\$4 / 1024) }')"
-      echo "Could not unpack the new server.\${free:+ \$free MB of storage is free.} If the phone is out of storage, free some space (photos, videos, apps you don't use), then run: automa update. If there is room, open the Automa app's setup screen, tap Send to Termux again, then run: automa update" >&2
+      echo "Could not unpack the new server.\${free:+ \$free MB of storage is free.} If the phone is out of storage, free some space first (photos, videos, apps you don't use). If there is room, the file did not arrive whole: open the Automa app's setup screen and tap Send to Termux again. Then run: automa update" >&2
       exit 1
     fi
     exec bash "\$tmp/automa-server/install.sh"

@@ -719,7 +719,10 @@ describe("the automa command's backup and restore", () => {
       expect(result.code).toBe(1);
       expect(result.out).toContain("Could not unpack the new server");
       expect(result.out).toContain("12 MB of storage is free");
-      expect(result.out).toContain("then run: automa update");
+      expect(result.out).toContain("free some space first");
+      expect(result.out).toContain("tap Send to Termux again");
+      // The command ends the message: nothing after it that could be typed as part of it.
+      expect(result.out.trimEnd().endsWith("Then run: automa update")).toBe(true);
       expect(await readdir(path.join(root, "tmp")).catch(() => [])).not.toContain("automa-server");
     }, 60_000);
 
@@ -767,7 +770,8 @@ describe("the automa command's backup and restore", () => {
       expect(result.code).toBe(1);
       expect(result.out).toContain("The phone ran out of storage while the update was being prepared");
       expect(result.out).toContain("Nothing was changed: Automa 9.9.9 is still installed");
-      expect(result.out).toMatch(/It needs about 3\d\d MB free and there are 10 MB\. Free some space on the phone \(photos, videos, apps you don't use\), then run: automa update\./);
+      // The command ends the message: nothing after it that could be typed as part of it.
+      expect(result.out).toMatch(/It needs about 3\d\d MB free and there are 10 MB\. Free some space on the phone \(photos, videos, apps you don't use\), then run: automa update\s*$/);
       // A clean-up that gained nothing is not announced.
       expect(result.out).not.toContain("Emptied npm's download cache");
       expect(result.out).not.toContain("connection timed out or dropped");
@@ -793,7 +797,9 @@ describe("the automa command's backup and restore", () => {
       expect(result.code).toBe(1);
       expect(result.out).toContain("The phone ran out of storage while the update was being prepared");
       // With room there again, the advice is to try once more, not to free what is already free.
-      expect(result.out).toContain("There are 4000 MB free now, so it may work on a second try: run: automa update.");
+      expect(result.out).toContain("There are 4000 MB free now, so a second try may work.");
+      // The command ends the message: nothing after it that could be typed as part of it.
+      expect(result.out.trimEnd().endsWith("To try again, run: automa update")).toBe(true);
       expect(result.out).not.toContain("connection timed out or dropped");
     }, 60_000);
 
@@ -835,7 +841,7 @@ describe("the automa command's backup and restore", () => {
       const result = await runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1", AUTOMA_NPM_RETRY_WAIT: "0", AUTOMA_INSTALL_NEED_MB: "900" } });
       expect(result.code).toBe(1);
       expect(result.out).toContain("The phone ran out of storage while Automa's packages were being installed. It needs about 900 MB free and there are 40 MB.");
-      expect(result.out).toContain("then run this installer again.");
+      expect(result.out.trimEnd().endsWith("then run this installer again")).toBe(true);
       // Not the connection, and (the cache was emptied to make room) no promise that the downloads were kept.
       expect(result.out).not.toContain("timed out or dropped");
       expect(result.out).not.toContain("what already downloaded is kept");
