@@ -43,16 +43,19 @@ class ProviderInfo:
     notes: str = ""
 
 
+# Shown when Automa's bridge can't be asked for its own, fuller list (`imy init` outside Automa).
+# These answered when 1.1.0 was released; `imy models --check` says which answer today.
 AUTOMA_FREE_MODELS: tuple[str, ...] = (
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "deepseek/deepseek-v4.1-flash:free",
-    "cohere/north-mini-code:free",
     "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "recursive/flint-v1.0:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
     "qwen/qwen3.8-27b:free",
     "google/gemma-4-31b-it:free",
-    "thinkingmachines/inkling:free",
+    "prism-ml/ternary-bonsai-27b:free",
+    "baidu/ernie-5.5-flash-preview:free",
+    "particle-ai/particle-1:free",
+    "liquid/lfm-3-1.7b:free",
     "openrouter/free",
 )
 

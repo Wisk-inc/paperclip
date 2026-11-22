@@ -205,6 +205,7 @@ export const STUDIO_FREE_MODELS = [
   "inclusionai/ling-3.2-flash:free",
   "baidu/ernie-5.5-flash-preview:free",
   "particle-ai/particle-1:free",
+  "liquid/lfm-3-1.7b:free",
 ] as const;
 
 export const STUDIO_AI_PROVIDER_INFO: Readonly<Record<StudioAiProvider, StudioAiProviderInfo>> = {

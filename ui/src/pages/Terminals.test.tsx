@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TERMINAL_TOOLS } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UI_STRINGS } from "@paperclipai/shared/ui-strings.generated";
-import { defaultModelLabel, launchModel, offeredModel, Terminals } from "./Terminals";
+import { defaultModelLabel, launchModel, modelOptionLabel, offeredModel, Terminals } from "./Terminals";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,6 +21,9 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/terminals", () => ({ terminalsApi: api }));
+// Which free models answer; empty unless a test fills it.
+const freeApi = vi.hoisted(() => ({ health: vi.fn(), checkHealth: vi.fn() }));
+vi.mock("@/api/free-models", () => ({ freeModelsApi: freeApi }));
 // The model catalog the server keeps; empty unless a test fills it.
 const catalogApi = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/api/modelCatalog", () => ({ modelCatalogApi: catalogApi }));
@@ -64,6 +67,7 @@ beforeEach(() => {
   api.status.mockResolvedValue({ kind: "phone", linuxReady: true, relayReady: true, tools: tools({ claude: true }) });
   api.sessions.mockResolvedValue({ sessions: [] });
   catalogApi.get.mockResolvedValue({ source: "built-in", fetchedAt: null, models: [] });
+  freeApi.health.mockResolvedValue({});
   api.start.mockResolvedValue({
     session: { id: "s1", companyId: "company-1", toolId: "claude", title: "Claude Code", cwd: "/", status: "running", exitCode: null, createdAt: "2026-11-02T00:00:00.000Z", agentId: null },
   });
@@ -200,6 +204,43 @@ describe("Terminals page", () => {
     expect(api.start.mock.calls[0]![1]).not.toHaveProperty("model");
   });
 
+  it("marks free models that did not answer in the IMY and Free models menus, and checks them all on request", async () => {
+    const gone = imy.models![1]!;
+    const checkedAt = new Date(Date.now() - 3 * 3600_000).toISOString();
+    freeApi.health.mockResolvedValue({ [gone]: { state: "ok", until: null, checkedAt, last: "withdrawn" } });
+    await render();
+    const menu = (label: string) => host.querySelector<HTMLSelectElement>(`select[aria-label="Model for ${label}"]`)!;
+    await vi.waitFor(() => expect([...menu("IMY").options].find((option) => option.value === gone)?.textContent).toContain("· not answering now"));
+    expect([...menu("Free models").options].find((option) => option.value === gone)?.textContent).toContain("· not answering now");
+    expect([...menu("IMY").options].filter((option) => option.textContent?.includes("not answering now"))).toHaveLength(1);
+    // A tool with its own account is never marked from the free models' record.
+    expect([...menu("Claude Code").options].some((option) => option.textContent?.includes("not answering now"))).toBe(false);
+
+    const row = host.querySelector("[data-testid=free-model-check]")!;
+    expect(row.textContent).toContain("1 of these free models did not answer when last asked.");
+
+    const other = imy.models![2]!;
+    const now = new Date().toISOString();
+    freeApi.checkHealth.mockResolvedValue({
+      checkedAt: now,
+      total: 23,
+      answering: 12,
+      health: {
+        [gone]: { state: "ok", until: null, checkedAt: now, last: "ok" },
+        [other]: { state: "withdrawn", until: new Date(Date.now() + 300_000).toISOString(), checkedAt: now, last: "withdrawn" },
+      },
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-testid=free-model-check-start]")!.click());
+    await vi.waitFor(() => expect(row.textContent).toContain("12 of 23 free models answer right now."));
+    expect(freeApi.checkHealth).toHaveBeenCalledTimes(1);
+    // The menus follow the fresh answer: the one that is back loses its mark, the one now offline gets it.
+    await vi.waitFor(() => expect([...menu("IMY").options].find((option) => option.value === other)?.textContent).toContain("· not answering now"));
+    expect([...menu("IMY").options].find((option) => option.value === gone)?.textContent).not.toContain("not answering now");
+    expect(row.querySelector("button")!.textContent).toContain("Check again");
+    // Checking never opens a terminal.
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
   it("drops a model from the link that the server would refuse", async () => {
     search.value = new URLSearchParams({ tool: "claude", model: "bad model; rm -rf /" });
     await render();
@@ -228,6 +269,20 @@ describe("terminal model choice", () => {
     expect(defaultModelLabel(claude)).toBe("The tool's own default model");
     expect(launchModel(imy, undefined)).toBeUndefined();
     expect(launchModel(imy, imy.models![0])).toBe(imy.models![0]);
+  });
+
+  it("says in a menu when a free model did not answer, for the tools that run on free models only", () => {
+    const model = imy.models![0]!;
+    const plain = modelOptionLabel("imy", model, {});
+    expect(plain).toContain(model);
+    expect(plain).not.toContain("not answering");
+    const offline = { [model]: { state: "withdrawn" as const, until: new Date(Date.now() + 60_000).toISOString(), checkedAt: new Date().toISOString() } };
+    expect(modelOptionLabel("imy", model, offline)).toBe(`${plain} · not answering now`);
+    expect(modelOptionLabel("freechat", model, offline)).toBe(`${plain} · not answering now`);
+    expect(modelOptionLabel("claude", model, offline)).toBe(plain);
+    // Busy or at its daily limit is not offline: it answers again by itself.
+    const busy = { [model]: { state: "busy" as const, until: new Date(Date.now() + 60_000).toISOString(), checkedAt: new Date().toISOString() } };
+    expect(modelOptionLabel("imy", model, busy)).toBe(plain);
   });
 
   it("keeps every tool's name, description and default-model line in the text the board may translate", () => {

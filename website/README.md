@@ -173,7 +173,7 @@ Lightning · Nemotron 3.5 Super VL · Nemotron 3.5 Content Safety · DeepSeek V4
 Flash · Gemma 4 31B · Gemma 4 26B A4B · Qwen 3.8 27B · Qwen 3.8 27B Abliterated
 Cyber · Inkling · Inkling Small · Flint v1.0 · North Mini Code · Atria Dawn
 Preview · Apodex 1.1 Mini · LFM 2.5 2.6B · Xing 4.0 29B A4B · Ternary Bonsai 27B
-· Ling 3.2 Flash · ERNIE 5.5 Flash Preview · Particle 1 · Free Router (sends each
+· Ling 3.2 Flash · ERNIE 5.5 Flash Preview · Particle 1 · LFM3 1.7B · Free Router (sends each
 question to an available free model). A free agent with no model chosen runs on
 Nemotron 3 Ultra.
 

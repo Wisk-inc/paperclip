@@ -1,10 +1,11 @@
 import { useMemo, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Gift, KeyRound, Loader2, Search, Sparkles, Zap } from "lucide-react";
-import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, isMoanModel, pairedFreeImageModel, resolveFreeModel, type Agent, type AiProvider, type FreeModelHealthEntry } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, FREE_IMAGE_MODEL_NONE, FREE_MODELS_ADAPTER_TYPE, MOAN_BLURB, MOAN_MODEL_ID, freeModelOffline, isMoanModel, pairedFreeImageModel, resolveFreeModel, type Agent, type AiProvider, type FreeModelHealthEntry } from "@paperclipai/shared";
 import { agentsApi, type AdapterModel } from "@/api/agents";
 import { aiConnectionsApi } from "@/api/ai-connections";
 import { freeModelsApi } from "@/api/free-models";
+import { FreeModelCheck } from "@/components/FreeModelCheck";
 import { getAdapterLabel } from "@/adapters/adapter-display-registry";
 import { ModelLogo } from "@/components/ModelLogo";
 import { isServerTooOld, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
@@ -91,13 +92,26 @@ function untilText(until: string | null): string {
   return `in ${hours} h${rest ? ` ${rest} min` : ""}`;
 }
 
+/** "just now", "12 min ago", "3 h ago". */
+function agoText(at: string): string {
+  const minutes = Math.round((Date.now() - new Date(at).getTime()) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 2) return "just now";
+  return minutes < 90 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
+}
+
 /** A free model's state in a few words, or null when it is answering normally. */
 export function freeHealthNote(health: FreeModelHealthEntry | null | undefined): string | null {
-  if (!health || health.state === "ok") return null;
+  if (!health) return null;
   // A hold whose time has passed is over, as the server counts it; the list
   // may still hold the last refresh, which said otherwise.
-  if (health.until && new Date(health.until).getTime() <= Date.now()) return null;
+  const held = health.state !== "ok" && !(health.until && new Date(health.until).getTime() <= Date.now());
+  if (!held) {
+    // Not held any more, so the next message asks it again; what it said the last time still counts for a day.
+    return freeModelOffline(health) ? `Did not answer when last asked (${agoText(health.checkedAt)}) · asked again when you pick it` : null;
+  }
   switch (health.state) {
+    case "ok":
+      return null;
     case "daily_limit":
       return `Daily free limit reached · back ${untilText(health.until)}`;
     case "busy":
@@ -723,6 +737,7 @@ export function ModelPickerSheet({ agent, open, onOpenChange, initialQuery = "",
               </h3>
               <QueEngineStatus companyId={companyId} />
               <FreeUsageCard companyId={companyId} />
+              <FreeModelCheck models={visibleFree.map((entry) => entry.id)} className="mx-3 mb-2" />
               {visibleFree.map((entry) => (
                 <ModelRow
                   key={`free-${entry.id}`}

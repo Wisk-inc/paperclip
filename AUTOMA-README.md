@@ -1018,6 +1018,7 @@ were.
 | Ling 3.2 Flash (new in 1.9.13) | 1M |
 | ERNIE 5.5 Flash Preview (new in 1.9.13) | 1M |
 | Particle 1 (new in 1.9.13) | 1M |
+| LFM3 1.7B (new in 1.9.15) | 262k |
 | Free Router (routes each question to an available free model) | 200k |
 
 A free agent with no model chosen runs on Nemotron 3 Ultra 550B.

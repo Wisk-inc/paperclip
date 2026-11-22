@@ -1,20 +1,118 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { activityLog, costEvents, heartbeatRuns, type Db } from "@paperclipai/db";
 import type { AdapterModel } from "@paperclipai/adapter-utils";
-import { MOAN_LABEL, MOAN_MODEL_ID, resolveFreeModel, type FreeModelUsageSummary } from "@paperclipai/shared";
+import { MOAN_LABEL, MOAN_MODEL_ID, resolveFreeModel, type FreeModelCheckResult, type FreeModelUsageSummary } from "@paperclipai/shared";
 import type { ModelCatalogSnapshot } from "@paperclipai/shared/model-catalog";
 import {
+  freeModelHealth,
   PUTER_IMAGE_MODEL_META,
   PUTER_IMAGE_MODELS,
+  PUTER_MODEL_LIST,
   PUTER_MODEL_META,
   PUTER_MODELS,
+  PuterHttpError,
+  puterStream,
   type PuterImageModelKey,
+  type PuterMessage,
   type PuterModelKey,
   type PuterUsage,
 } from "@paperclipai/shared/puter-ai";
 import { getModelCatalog } from "./model-catalog.js";
 
 export const FREE_MODELS_RESET_ACTION = "free_models.usage_reset";
+
+// ── Which free models answer right now ───────────────────────────────────
+// A provider can take a free version offline for a day or a month, and Automa
+// never answers on a different model than the one picked. Asking every model
+// for one word tells the pickers which ones to mark, so nobody has to find a
+// model that answers by trying them one at a time.
+
+const CHECK_MESSAGES: PuterMessage[] = [
+  { role: "system", content: "You are a connectivity check. Reply with exactly the word OK." },
+  { role: "user", content: "Reply with OK." },
+];
+/** How long one model gets to say its one word. */
+const CHECK_TIMEOUT_MS = 45_000;
+/** A check asked for again sooner than this gets the answer of the last one. */
+const CHECK_GAP_MS = 60_000;
+/** Models asked at the same time: few, so the check never trips the service's own rate limit. */
+const CHECK_AT_ONCE = 2;
+
+export type FreeModelProbe = "answered" | "refused" | "unreachable";
+
+/** No model could be reached at all: the phone or computer is offline, or the service is. */
+export class FreeModelsUnreachableError extends Error {
+  constructor() {
+    super("Can't reach the free models right now. Check the connection and try again.");
+  }
+}
+
+/**
+ * One word from one model. What the model answered, or how it refused, is
+ * noted by the engine itself (freeModelHealth); only "no answer of any kind"
+ * is told apart here.
+ */
+async function askFreeModelForOneWord(model: string): Promise<FreeModelProbe> {
+  try {
+    for await (const _event of puterStream(CHECK_MESSAGES, { model, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) })) {
+      // Only whether it answers matters.
+    }
+    return "answered";
+  } catch (error) {
+    return error instanceof PuterHttpError ? "refused" : "unreachable";
+  }
+}
+
+let checkInFlight: Promise<FreeModelCheckResult> | null = null;
+let lastCheck: { at: number; result: FreeModelCheckResult } | null = null;
+
+export interface FreeModelCheckOptions {
+  models?: readonly string[];
+  ask?: (model: string) => Promise<FreeModelProbe>;
+  now?: () => number;
+}
+
+/**
+ * Asks every free chat model for one word, two at a time, and returns each
+ * one's state. Two people tapping at once share one check, and a check asked
+ * for within a minute of the last gets that one's result.
+ */
+export function checkFreeModels(options: FreeModelCheckOptions = {}): Promise<FreeModelCheckResult> {
+  const now = options.now ?? Date.now;
+  if (checkInFlight) return checkInFlight;
+  if (lastCheck && now() - lastCheck.at < CHECK_GAP_MS) return Promise.resolve(lastCheck.result);
+  const models = [...(options.models ?? PUTER_MODEL_LIST)];
+  const ask = options.ask ?? askFreeModelForOneWord;
+  checkInFlight = (async () => {
+    const found = new Map<string, FreeModelProbe>();
+    const waiting = [...models];
+    const worker = async () => {
+      for (let model = waiting.shift(); model !== undefined; model = waiting.shift()) {
+        found.set(model, await ask(model).catch((): FreeModelProbe => "unreachable"));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CHECK_AT_ONCE, models.length) }, worker));
+    if (models.length > 0 && [...found.values()].every((probe) => probe === "unreachable")) throw new FreeModelsUnreachableError();
+    const health = freeModelHealth();
+    const result: FreeModelCheckResult = {
+      checkedAt: new Date(now()).toISOString(),
+      total: models.length,
+      answering: models.filter((model) => found.get(model) === "answered").length,
+      health: Object.fromEntries(models.flatMap((model) => (health[model] ? [[model, health[model]]] : []))),
+    };
+    lastCheck = { at: now(), result };
+    return result;
+  })().finally(() => {
+    checkInFlight = null;
+  });
+  return checkInFlight;
+}
+
+/** Forgets the last check (tests). */
+export function resetFreeModelCheckForTests(): void {
+  checkInFlight = null;
+  lastCheck = null;
+}
 
 /** Moan first, then the chat models, then the image models that work without an input image. */
 export function listFreeModels(): AdapterModel[] {

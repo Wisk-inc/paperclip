@@ -15,7 +15,7 @@ import { buildUiStringIndex } from "@/i18n/ui-string-index";
 const mockAgentsApi = vi.hoisted(() => ({ adapterModels: vi.fn(), update: vi.fn() }));
 const mockAiConnectionsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockPushToast = vi.hoisted(() => vi.fn());
-const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), queStats: vi.fn(), moanStatus: vi.fn(), moanRefresh: vi.fn() }));
+const mockFreeModelsApi = vi.hoisted(() => ({ usage: vi.fn(), resetUsage: vi.fn(), health: vi.fn(), checkHealth: vi.fn(), queStats: vi.fn(), moanStatus: vi.fn(), moanRefresh: vi.fn() }));
 const mockModelCatalogApi = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock("@/api/agents", () => ({ agentsApi: mockAgentsApi }));
@@ -353,6 +353,21 @@ describe("free model health notes", () => {
     expect(freeHealthNote({ state: "daily_limit", until: "2026-10-28T11:58:00.000Z", checkedAt })).toBeNull();
     expect(freeHealthNote({ state: "withdrawn", until: "2026-10-28T11:59:00.000Z", checkedAt })).toBeNull();
     expect(freeHealthNote({ state: "withdrawn", until: "2026-10-28T12:03:00.000Z", checkedAt })).toBe("Offline at its provider · checked again with each message");
+  });
+
+  it("still says a model did not answer once the hold is over, for a day", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-28T12:00:00.000Z"));
+    const offline = (checkedAt: string) => freeHealthNote({ state: "ok", until: null, checkedAt, last: "withdrawn" });
+    expect(offline("2026-10-28T11:59:30.000Z")).toBe("Did not answer when last asked (just now) · asked again when you pick it");
+    expect(offline("2026-10-28T11:48:00.000Z")).toBe("Did not answer when last asked (12 min ago) · asked again when you pick it");
+    expect(offline("2026-10-28T09:00:00.000Z")).toBe("Did not answer when last asked (3 h ago) · asked again when you pick it");
+    expect(offline("2026-10-27T11:59:00.000Z")).toBeNull();
+    // Its provider limiting it, or it starting to charge, count the same; busy and a daily limit pass by themselves.
+    expect(freeHealthNote({ state: "ok", until: null, checkedAt: "2026-10-28T11:00:00.000Z", last: "restricted" })).toContain("Did not answer when last asked (60 min ago)");
+    expect(freeHealthNote({ state: "ok", until: null, checkedAt: "2026-10-28T11:00:00.000Z", last: "busy" })).toBeNull();
+    expect(freeHealthNote({ state: "ok", until: null, checkedAt: "2026-10-28T11:00:00.000Z", last: "ok" })).toBeNull();
+    expect(freeHealthNote({ state: "ok", until: null, checkedAt: "2026-10-28T11:00:00.000Z" })).toBeNull();
   });
 });
 

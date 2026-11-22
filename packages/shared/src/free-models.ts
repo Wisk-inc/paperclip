@@ -37,10 +37,44 @@ export interface FreeModelHealthEntry {
   /** When the state should clear (daily limit) or is next checked; null when fine. */
   until: string | null;
   checkedAt: string;
+  /**
+   * What the model's last call found (1.9.15). `state` goes back to "ok" a few
+   * minutes after a refusal, so the model is asked again; `last` keeps saying
+   * what the answer was at `checkedAt` ("withdrawn": offline at its provider),
+   * so a list can still show it hours later.
+   */
+  last?: FreeModelState;
 }
 
 /** `GET /free-models/health`: every model called since the server started, by model id. */
 export type FreeModelHealthMap = Record<string, FreeModelHealthEntry>;
+
+/** `POST /free-models/health/check`: every free chat model was asked for one word. */
+export interface FreeModelCheckResult {
+  checkedAt: string;
+  /** How many models were asked. */
+  total: number;
+  /** How many answered. */
+  answering: number;
+  /** Each asked model's state, by model id. */
+  health: FreeModelHealthMap;
+}
+
+/** How long a model's last finding is worth showing. */
+export const FREE_MODEL_FINDING_MS = 24 * 60 * 60_000;
+
+/**
+ * Whether a free model is known not to answer: refused right now (closed by
+ * its provider, limited to partner apps, paused for charging), or refused that
+ * way the last time it was asked, within the last day.
+ */
+export function freeModelOffline(health: FreeModelHealthEntry | null | undefined, now: number = Date.now()): boolean {
+  if (!health) return false;
+  const closed = (state: FreeModelState | undefined) => state === "withdrawn" || state === "restricted" || state === "charged";
+  if (closed(health.state) && (!health.until || new Date(health.until).getTime() > now)) return true;
+  const checked = new Date(health.checkedAt).getTime();
+  return closed(health.last) && Number.isFinite(checked) && now - checked >= 0 && now - checked < FREE_MODEL_FINDING_MS;
+}
 
 /** The image model a free chat agent draws with until one is chosen: the fast SDXL. */
 export const DEFAULT_FREE_IMAGE_MODEL = "@cf/bytedance/stable-diffusion-xl-lightning";

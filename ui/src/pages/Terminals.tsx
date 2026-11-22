@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CircleStop, Loader2, Play, SquareTerminal, Wrench } from "lucide-react";
-import { TERMINAL_TOOLS, type TerminalSessionSummary, type TerminalToolId, type TerminalToolInfo } from "@paperclipai/shared";
+import { freeModelOffline, TERMINAL_TOOLS, type FreeModelHealthMap, type TerminalSessionSummary, type TerminalToolId, type TerminalToolInfo } from "@paperclipai/shared";
+import { freeModelsApi } from "@/api/free-models";
 import { terminalsApi } from "@/api/terminals";
+import { FreeModelCheck, freeModelHealthOf } from "@/components/FreeModelCheck";
 import { TerminalView } from "@/components/terminals/TerminalView";
 import { Mascot } from "@/components/mascot/Mascot";
 import { isServerTooOld, PhoneServerOutdated, retryUnlessServerTooOld } from "@/components/device/PhoneServerOutdated";
@@ -14,6 +16,7 @@ import { useToastActions } from "@/context/ToastContext";
 import { haptic } from "@/lib/haptics";
 import { modelDisplayName } from "@/lib/model-brand";
 import { terminalModelsWithCatalog, useModelCatalog } from "@/lib/model-catalog";
+import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
 
 /** The server's own rule for a model name passed to a tool's flag. */
@@ -31,6 +34,20 @@ export function offeredModel(tool: Pick<TerminalToolInfo, "models">, saved: stri
  */
 export function launchModel(tool: Pick<TerminalToolInfo, "id" | "models">, saved: string | undefined): string | undefined {
   return offeredModel(tool, saved) ?? (tool.id === "freechat" ? tool.models?.[0] : undefined);
+}
+
+/** The tools whose menus list Automa's free models. */
+const FREE_MODEL_TOOLS: ReadonlySet<TerminalToolId> = new Set<TerminalToolId>(["freechat", "imy"]);
+
+/**
+ * A model's line in a tool's menu. A free model that did not answer when it
+ * was last asked says so: Automa opens the tool with exactly the model picked,
+ * so picking one that is offline only fails later.
+ */
+export function modelOptionLabel(toolId: TerminalToolId, modelId: string, health?: FreeModelHealthMap): string {
+  const label = `${modelDisplayName(modelId)} · ${modelId}`;
+  if (!FREE_MODEL_TOOLS.has(toolId) || !freeModelOffline(freeModelHealthOf(health, modelId))) return label;
+  return `${label} · not answering now`;
 }
 
 /** What the model menu's first entry says: what opens when no model is picked. */
@@ -120,6 +137,18 @@ export function Terminals() {
       ? { ...tool, models: terminalModelsWithCatalog(tool.id, tool.models, modelCatalog.data?.models).models }
       : tool)),
     [modelCatalog.data],
+  );
+  // Which free models answer, for the Free models and IMY menus (filled by the check below, and by every chat).
+  const freeHealth = useQuery({
+    queryKey: queryKeys.freeModels.health(),
+    queryFn: () => freeModelsApi.health(),
+    enabled: Boolean(companyId),
+    retry: retryUnlessServerTooOld,
+    staleTime: 30_000,
+  });
+  const freeListed = useMemo(
+    () => [...new Set(tools.filter((tool) => FREE_MODEL_TOOLS.has(tool.id)).flatMap((tool) => tool.models ?? []))],
+    [tools],
   );
   const running = sessions.data?.sessions ?? [];
   const phone = status.data?.kind === "phone";
@@ -295,6 +324,8 @@ export function Terminals() {
             </section>
           ) : null}
 
+          <FreeModelCheck models={freeListed} />
+
           <section aria-label="Tools" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {tools.map((tool) => {
               const isInstalled = tool.id === "shell" || installed.get(tool.id);
@@ -331,7 +362,7 @@ export function Terminals() {
                         data-testid="terminal-model"
                       >
                         <option value="">{defaultModelLabel(tool)}</option>
-                        {tool.models.map((id) => <option key={id} value={id}>{modelDisplayName(id)} · {id}</option>)}
+                        {tool.models.map((id) => <option key={id} value={id}>{modelOptionLabel(tool.id, id, freeHealth.data)}</option>)}
                       </select>
                     ) : null}
                   </span>

@@ -1,9 +1,10 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import type { FreeModelHealthMap } from "@paperclipai/shared";
+import type { FreeModelCheckResult, FreeModelHealthMap } from "@paperclipai/shared";
 import { freeModelHealth } from "@paperclipai/shared/puter-ai";
 import { logActivity } from "../services/activity-log.js";
-import { FREE_MODELS_RESET_ACTION, freeModelUsage } from "../services/free-models.js";
+import { HttpError } from "../errors.js";
+import { checkFreeModels, FREE_MODELS_RESET_ACTION, freeModelUsage, FreeModelsUnreachableError } from "../services/free-models.js";
 import { moanKnowledge } from "../services/moan/index.js";
 import { assertAuthenticated, assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 
@@ -38,6 +39,21 @@ export function freeModelRoutes(db: Db): Router {
   router.get("/free-models/health", async (req, res) => {
     assertAuthenticated(req);
     res.json(freeModelHealth() satisfies FreeModelHealthMap);
+  });
+
+  // Asks every free model for one word, so the pickers can mark the ones
+  // that are not being served today. Instance-level like the health it
+  // fills in; the board starts it, and checks asked for within a minute of
+  // each other share one answer.
+  router.post("/free-models/health/check", async (req, res) => {
+    assertAuthenticated(req);
+    assertBoard(req);
+    try {
+      res.json((await checkFreeModels()) satisfies FreeModelCheckResult);
+    } catch (error) {
+      if (error instanceof FreeModelsUnreachableError) throw new HttpError(502, error.message);
+      throw error;
+    }
   });
 
   // Moan's Jamaican knowledge index is instance-level public content (see

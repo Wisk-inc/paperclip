@@ -46,6 +46,7 @@ export const PUTER_MODELS = {
   'atria-dawn':              'internlm/atria-dawn-preview:free',
   'apodex-mini':             'apodex/apodex-1.1-mini:free',
   'lfm-tiny':                'liquid/lfm-2.5-2.6b:free',
+  'lfm-3':                   'liquid/lfm-3-1.7b:free',
   'xing4':                   'xingchen-agi/xing4.0-29b-a4b:free',
   'bonsai-27b':              'prism-ml/ternary-bonsai-27b:free',
   'ling-flash':              'inclusionai/ling-3.2-flash:free',
@@ -78,6 +79,7 @@ export const PUTER_MODEL_META: Record<PuterModelKey, { label: string; context: n
   'atria-dawn':              { label: 'Atria Dawn Preview', context: 256_000, tags: [] },
   'apodex-mini':             { label: 'Apodex 1.1 Mini', context: 262_000, tags: [] },
   'lfm-tiny':                { label: 'LFM 2.5 2.6B', context: 65_000, tags: ['tiny', 'fast'] },
+  'lfm-3':                   { label: 'LFM3 1.7B', context: 262_000, tags: ['tiny', 'fast'] },
   'xing4':                   { label: 'Xing 4.0 29B A4B', context: 262_000, tags: [] },
   'bonsai-27b':              { label: 'Ternary Bonsai 27B', context: 262_000, tags: [] },
   'ling-flash':              { label: 'Ling 3.2 Flash', context: 1_048_000, tags: ['fast'] },
@@ -477,6 +479,7 @@ export function freeModelHealth(): Record<string, FreeModelHealthEntry> {
       state: current ? entry.state : 'ok',
       until: current ? new Date(entry.until).toISOString() : null,
       checkedAt: new Date(entry.checkedAt).toISOString(),
+      last: entry.state,
     };
   }
   return out;
