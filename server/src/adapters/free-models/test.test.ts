@@ -33,7 +33,10 @@ describe("free models connection test", () => {
     expect(result.status).toBe("warn");
     const [check] = result.checks;
     expect(check).toMatchObject({ code: "free_models_default_model_unavailable", level: "warn" });
-    expect(check!.message).toContain("Nemotron 3 Ultra 550B has used up today's free requests");
+    // The allowance most free models share: said as that, with the models that still answer.
+    expect(check!.message).toContain("Nemotron 3 Ultra 550B can't answer for now");
+    expect(check!.message).toContain("one daily allowance of free requests");
+    expect(check!.message).toContain("still answer");
     // Never the service's raw reply.
     expect(check!.message).not.toContain("{");
     expect(check!.message).not.toContain("Free model service answered");

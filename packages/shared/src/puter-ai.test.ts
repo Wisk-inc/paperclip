@@ -237,6 +237,87 @@ describe("a model at the per-day rate limit", () => {
   });
 });
 
+describe("the daily allowance most free models share", () => {
+  const ULTRA = PUTER_MODELS["nemotron-ultra"];
+  const LIGHTNING = PUTER_MODELS["nemotron-lightning"];
+  const BONSAI = PUTER_MODELS["bonsai-27b"];
+  const GEMMA = PUTER_MODELS["gemma-31b"];
+  const said = (events: PuterStreamEvent[]) => events.filter((event) => event.type === "text").map((event) => (event as { text: string }).text).join("");
+
+  it("holds every model on that route once one of them is refused for it, and asks none of them", async () => {
+    serve(refusal(429, PER_DAY));
+    await expect(collect(ULTRA)).rejects.toMatchObject({ kind: "daily_limit", sharedAllowance: true });
+    // Other models on the same route: not asked, the same refusal.
+    await expect(collect(LIGHTNING)).rejects.toMatchObject({ kind: "daily_limit", sharedAllowance: true });
+    await expect(puterComplete([{ role: "user", content: "hi" }], { model: PUTER_MODELS["deepseek-flash"] })).rejects.toMatchObject({ kind: "daily_limit" });
+    expect(calls).toHaveLength(1);
+    const health = freeModelHealth();
+    for (const key of ["nemotron-ultra", "nemotron-lightning", "deepseek-flash", "flint", "north-mini-code", "free-router"] as const) {
+      expect(health[PUTER_MODELS[key]], key).toMatchObject({ state: "daily_limit" });
+      // One allowance, one reset.
+      expect(health[PUTER_MODELS[key]]!.until, key).toBe(health[ULTRA]!.until);
+      expect(freeModelAnswering(health[PUTER_MODELS[key]]), key).toBe(false);
+    }
+    // Served another way: nothing is said about them, so they count as answering.
+    expect(freeModelAnswering(health[BONSAI])).toBe(true);
+    expect(freeModelAnswering(health[GEMMA])).toBe(true);
+  });
+
+  it("still asks a model another provider serves, and a model with a second route over that route", async () => {
+    serve(refusal(429, PER_DAY), stream("From its own provider"), stream("From the second route"));
+    await expect(collect(ULTRA)).rejects.toMatchObject({ kind: "daily_limit" });
+    expect(said(await collect(BONSAI))).toBe("From its own provider");
+    // The main route of this one shares the allowance, so it goes straight to its second route.
+    expect(said(await collect(GEMMA))).toBe("From the second route");
+    expect(calls.map((call) => call.model)).toEqual([ULTRA, "togetherai:prism-ml/ternary-bonsai-27b", "gemma-4-31b-it"]);
+    // Answers from elsewhere say nothing about the shared allowance: it is still used up.
+    await expect(collect(LIGHTNING)).rejects.toMatchObject({ kind: "daily_limit" });
+    expect(calls).toHaveLength(3);
+    expect(freeModelHealth()[GEMMA]).toMatchObject({ state: "ok" });
+  });
+
+  it("is over at the reset: the models are asked again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      serve(refusal(429, PER_DAY), stream("Back"));
+      await expect(collect(ULTRA)).rejects.toMatchObject({ kind: "daily_limit" });
+      vi.setSystemTime(Date.now() + 25 * 60 * 60_000);
+      expect(freeModelAnswering(freeModelHealth()[LIGHTNING])).toBe(true);
+      expect(said(await collect(LIGHTNING))).toBe("Back");
+      expect(calls.map((call) => call.model)).toEqual([ULTRA, LIGHTNING]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not assumed for a daily limit that names no shared allowance", async () => {
+    serve(refusal(429, DAILY_LIMIT), stream("Hello"));
+    await expect(collect(PUTER_MODELS["deepseek-flash"])).rejects.toMatchObject({ kind: "daily_limit", sharedAllowance: false });
+    expect(said(await collect(LIGHTNING))).toBe("Hello");
+    expect(freeModelHealth()[LIGHTNING]).toMatchObject({ state: "ok" });
+    expect(freeModelHealth()[ULTRA]).toBeUndefined();
+  });
+
+  it("keeps a model's own longer trouble: one that charges stays stopped for that", async () => {
+    serve(stream("Paid for", 4), refusal(429, PER_DAY));
+    await collect(PUTER_MODELS["flint"]);
+    await expect(collect(ULTRA)).rejects.toMatchObject({ kind: "daily_limit" });
+    expect(freeModelHealth()[PUTER_MODELS["flint"]]).toMatchObject({ state: "charged" });
+  });
+
+  it("says in plain words that the allowance is shared, when it is back, and which models still answer", () => {
+    const message = describePuterError(new PuterHttpError(429, PER_DAY), "Nemotron 3 Ultra 550B").message;
+    expect(message.startsWith("Nemotron 3 Ultra 550B can't answer for now: most of Automa's free models draw on one daily allowance")).toBe(true);
+    expect(message).toMatch(/It's back (?:in about|once) /);
+    expect(message).toContain("Gemma 4 31B, Gemma 4 26B A4B and Ternary Bonsai 27B run on other providers and still answer");
+    expect(message.endsWith("pick one of them in the model menu.")).toBe(true);
+    // Never a word that Automa swapped the model: it did not.
+    expect(message).not.toMatch(/switched|fell back|instead used/i);
+    // A model's own daily limit keeps its own words.
+    expect(describePuterError(new PuterHttpError(429, DAILY_LIMIT), "DeepSeek V4.1 Flash").message).toContain("DeepSeek V4.1 Flash has used up today's free requests");
+  });
+});
+
 describe("a model with a second route", () => {
   const GEMMA = PUTER_MODELS["gemma-31b"];
   const BACKUP = "gemma-4-31b-it";

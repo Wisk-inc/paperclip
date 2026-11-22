@@ -497,7 +497,8 @@ describe("free models engine", () => {
     const result = await execute(context({ model: "@cf/bytedance/stable-diffusion-xl-lightning" }));
     expect(net.sent()).toHaveLength(1);
     expect(result.exitCode).toBe(1);
-    expect(result.errorMessage).toContain("Nemotron 3.5 Super VL has used up today's free requests");
+    expect(result.errorMessage).toContain("Nemotron 3.5 Super VL can't answer for now");
+    expect(result.errorMessage).toContain("one daily allowance of free requests");
     expect(result.errorMessage).not.toContain("{");
     // The provider's quota: tried again once it lifts.
     expect(result.errorFamily).toBe("provider_quota");

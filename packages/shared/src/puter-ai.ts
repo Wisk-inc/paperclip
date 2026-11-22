@@ -338,6 +338,14 @@ function slowDownWaitMs(text: string): number {
  * minute ("free-models-per-min") is not one: that model is only busy.
  */
 const DAILY_LIMIT_TEXT = /daily limit|requests per day|free-models-per-day|per[- ]day\b|daily (?:request |usage |free )?(?:limit|quota|cap|allowance)|quota[^.]{0,80}per day/;
+/**
+ * The router that serves most free models counts the requests to all of its
+ * free models together: one allowance a day, for every model on it and for
+ * everyone who uses them through Automa. Its refusal names that limit
+ * ("free-models-per-day", "free-models-per-day-high-balance"). Once it is used
+ * up, every model on that route refuses until the reset, whichever was asked.
+ */
+const SHARED_ALLOWANCE_TEXT = /free-models-per-day/;
 /** A model at its daily limit is held at least this long and at most this long, whatever wait the refusal names. */
 const DAILY_WAIT_MIN_MS = 60_000;
 const DAILY_WAIT_MAX_MS = 24 * 60 * 60_000;
@@ -420,6 +428,8 @@ export class PuterHttpError extends Error {
   readonly retryAfterMs: number | null;
   /** The service asked this install to slow down, whatever the model: wait, do not switch model or route. */
   readonly slowDown: boolean;
+  /** A daily limit that is the allowance most free models share, not this model's own: the others on that route are out as well. */
+  readonly sharedAllowance: boolean;
   constructor(readonly status: number, readonly body: string, held?: { kind: PuterRefusalKind; retryAfterMs: number | null }) {
     body = hideToken(body);
     super(`Free model service answered ${status}: ${body.slice(0, 300)}`);
@@ -430,6 +440,7 @@ export class PuterHttpError extends Error {
     this.kind = classified.kind;
     this.retryAfterMs = classified.retryAfterMs;
     this.slowDown = !held && isServiceSlowDown(code, body.toLowerCase());
+    this.sharedAllowance = this.kind === 'daily_limit' && SHARED_ALLOWANCE_TEXT.test(body.toLowerCase());
   }
 }
 
@@ -476,6 +487,13 @@ export function describePuterError(error: unknown, modelLabel: string, retries =
   if (!(error instanceof PuterHttpError)) return error instanceof Error ? error : new Error(String(error));
   switch (error.kind) {
     case 'daily_limit':
+      if (error.sharedAllowance) {
+        const others = modelsOffSharedAllowance();
+        const stillAnswer = others.length
+          ? ` ${listOf(others)} ${others.length === 1 ? 'runs on another provider and still answers: pick it' : 'run on other providers and still answer: pick one of them'} in the model menu.`
+          : '';
+        return new Error(`${modelLabel} can't answer for now: most of Automa's free models draw on one daily allowance of free requests, shared by everyone who uses them, and today's is used up. It's back ${backIn(error.retryAfterMs)}.${stillAnswer}`);
+      }
       return new Error(`${modelLabel} has used up today's free requests. The provider shares that daily limit across everyone who uses it free, so it isn't anything you did. It's back ${backIn(error.retryAfterMs)}. To keep going now, pick another model in the model menu.`);
     case 'restricted':
       return new Error(`${modelLabel}'s provider only lets certain partner apps use it right now, so it can't answer through Automa's free service. Automa checks again with your next message (every few minutes at most), and it answers as soon as the provider opens it up. To keep going now, pick another model in the model menu.`);
@@ -519,6 +537,48 @@ function holdMs(error: PuterHttpError, state: Exclude<FreeModelState, 'ok'>, now
   return state === 'daily_limit' ? (error.retryAfterMs ?? msUntilUtcMidnight(now)) : HOLD_MS[state];
 }
 
+// ── The allowance most free models share ────────────────────────────────
+// One refusal that names it (SHARED_ALLOWANCE_TEXT) speaks for every model
+// whose main route is the router: none of them is asked again before the
+// reset, and the picker shows them all at their limit. A model another
+// provider serves is not touched, and a model with a second route is asked
+// over that one.
+
+/** The shared allowance, used up: until when, and the refusal that said so. */
+let sharedAllowanceHold: { until: number; checkedAt: number; status: number; body: string } | null = null;
+
+/** Whether the model's main route is the router whose free models share one daily allowance. */
+function onSharedAllowance(model: string): boolean {
+  return model === FREE_ROUTER_ID || (PUTER_ROUTES[model] ?? model).endsWith(':free');
+}
+
+/** The shared allowance as a refusal that stands for `model`, while it is used up and the model draws on it. */
+function sharedAllowanceOut(model: string): { state: 'daily_limit'; until: number; status: number; body: string } | null {
+  if (!sharedAllowanceHold || !onSharedAllowance(model)) return null;
+  if (sharedAllowanceHold.until <= Date.now()) {
+    sharedAllowanceHold = null;
+    return null;
+  }
+  return { state: 'daily_limit', until: sharedAllowanceHold.until, status: sharedAllowanceHold.status, body: sharedAllowanceHold.body };
+}
+
+function noteSharedAllowance(model: string, error: PuterHttpError, now: number): void {
+  if (!error.sharedAllowance || !onSharedAllowance(model)) return;
+  sharedAllowanceHold = { until: now + holdMs(error, 'daily_limit', now), checkedAt: now, status: error.status, body: error.body };
+}
+
+/** The free models that do not depend on the shared allowance: another provider serves them, or they have a second route. */
+function modelsOffSharedAllowance(): string[] {
+  return (Object.keys(PUTER_MODELS) as PuterModelKey[])
+    .filter((key) => !onSharedAllowance(PUTER_MODELS[key]) || PUTER_BACKUP_ROUTES[PUTER_MODELS[key]])
+    .map((key) => PUTER_MODEL_META[key].label);
+}
+
+/** "A", "A and B", "A, B and C". */
+function listOf(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 function noteRefusal(model: string, error: PuterHttpError) {
   // The service slowing this install down says nothing about the model: it is not busy, and its other route is no faster.
   if (error.slowDown) return;
@@ -528,10 +588,13 @@ function noteRefusal(model: string, error: PuterHttpError) {
   if (!state) return;
   const now = Date.now();
   health.set(model, { state, until: now + holdMs(error, state, now), checkedAt: now, status: error.status, body: error.body });
+  noteSharedAllowance(model, error, now);
 }
 
 function noteAnswered(model: string) {
   health.set(model, { state: 'ok', until: 0, checkedAt: Date.now(), status: 200, body: '' });
+  // An answer over the router means its allowance is there again. (A model with a second route may have answered over that one: see routeRound.)
+  if (onSharedAllowance(model) && !PUTER_BACKUP_ROUTES[model]) sharedAllowanceHold = null;
 }
 
 function noteCharged(model: string, cents: number) {
@@ -558,8 +621,10 @@ function heldRefusal(model: string): PuterHttpError | null {
     const backup = routeHold('backup', model);
     return main && main.state !== 'busy' && backup && backup.state !== 'busy' ? standingRefusal(main) : null;
   }
-  if (!entry || entry.state === 'ok' || entry.state === 'busy' || entry.until <= now) return null;
-  return standingRefusal({ ...entry, state: entry.state });
+  // The model's own longer trouble first (it charges, it is closed or offline), then the allowance it shares.
+  if (entry && entry.state !== 'ok' && entry.state !== 'busy' && entry.until > now) return standingRefusal({ ...entry, state: entry.state });
+  const shared = sharedAllowanceOut(model);
+  return shared ? standingRefusal(shared) : null;
 }
 
 // ── The two routes of a model that has a second one ─────────────────────
@@ -591,15 +656,15 @@ function noteRouteOut(route: PuterRoute, model: string, error: PuterHttpError & 
   const now = Date.now();
   const hold = holdMs(error, error.kind, now);
   routeHolds[route].set(model, { state: error.kind, until: now + (route === 'backup' ? Math.min(hold, BACKUP_ROUTE_HOLD_MS) : hold), status: error.status, body: error.body });
+  if (route === 'main') noteSharedAllowance(model, error, now);
 }
 
-/** What a route last refused with, while that still stands. */
+/** What a route last refused with, while that still stands. For the main route, the shared allowance being used up counts. */
 function routeHold(route: PuterRoute, model: string): RouteHold | null {
   const hold = routeHolds[route].get(model);
-  if (!hold) return null;
-  if (hold.until > Date.now()) return hold;
-  routeHolds[route].delete(model);
-  return null;
+  if (hold && hold.until > Date.now()) return hold;
+  if (hold) routeHolds[route].delete(model);
+  return route === 'main' ? sharedAllowanceOut(model) : null;
 }
 
 /**
@@ -622,6 +687,8 @@ function routeRound(model: string) {
     /** The route took the call: it is no longer out. */
     answered(route: PuterRoute): void {
       routeHolds[route].delete(model);
+      // The router answered: its allowance is there again, for every model on it.
+      if (route === 'main' && onSharedAllowance(model)) sharedAllowanceHold = null;
     },
     /**
      * Notes a failed call on `route`. True when the round goes on (to the
@@ -671,6 +738,21 @@ export function freeModelHealth(): Record<string, FreeModelHealthEntry> {
       last: entry.state,
     };
   }
+  // The shared allowance speaks for every model that draws on it and has no other route, asked or not.
+  if (sharedAllowanceHold && sharedAllowanceHold.until > now) {
+    for (const model of PUTER_MODEL_LIST) {
+      if (!onSharedAllowance(model) || PUTER_BACKUP_ROUTES[model]) continue;
+      const own = out[model];
+      // Its own longer trouble (closed, offline, charging) stays what is shown.
+      if (own && own.state !== 'ok' && own.state !== 'busy') continue;
+      out[model] = {
+        state: 'daily_limit',
+        until: new Date(sharedAllowanceHold.until).toISOString(),
+        checkedAt: new Date(sharedAllowanceHold.checkedAt).toISOString(),
+        last: 'daily_limit',
+      };
+    }
+  }
   return out;
 }
 
@@ -679,6 +761,7 @@ export function resetFreeModelHealth(): void {
   health.clear();
   routeHolds.main.clear();
   routeHolds.backup.clear();
+  sharedAllowanceHold = null;
   slowDownUntil = 0;
   slowDownHeld = 0;
 }

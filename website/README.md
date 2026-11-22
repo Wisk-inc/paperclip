@@ -559,7 +559,7 @@ own). A new chat starts on a model that is answering. **App Inspector has a
 chat of its own**: open a decoded app or one of its files and ask about it, on
 the free models with no key, or on Claude with your own key. An app opened
 from an APK file is now decoded in full, and **Decode again** repairs a
-project opened before. 49 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. IMY 1.1.2
+project opened before. 50 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; when the daily allowance most free models share is used up, all of them are marked at once and the model offered instead is one that still answers; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. IMY 1.1.2
 leaves the folders Bazel and Zig build into out of `imy import`, and a few
 waits are a little longer for slow phones and networks.
 
