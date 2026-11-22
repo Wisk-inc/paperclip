@@ -4955,7 +4955,7 @@ export const UI_STRINGS: readonly string[] = [
   "Invalid zip archive: truncated local file header.",
   "Invalid zip archive: unsupported local file header.",
   "Invalid {0} locale messages: {1}",
-  "Invent your own syntax, code every step, and IMY checks, compiles and runs it. Free models built in, or your own key.",
+  "Invent your own syntax and code every step. IMY checks it, turns it into the language you pick as you type, and runs it. Free models built in, or your own key.",
   "Invite UX Lab",
   "Invite a person",
   "Invite an external agent",

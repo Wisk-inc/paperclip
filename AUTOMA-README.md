@@ -83,15 +83,17 @@ supplies the data.
 
 ## 2. What's new in 1.9.15
 
-IMY comes to Terminals: a strict compiler for code you write your own way,
-working with the free models from the first tap.
+IMY comes to Terminals: a strict compiler for code you write your own way. It
+converts while you type, turns your code into the programming language you
+pick, can take in a project you already have, and works with the free models
+from the first tap.
 
 **IMY (Imagenery) in Terminals**
 - IMY reads a program written in whatever syntax you invent. The first line is
   a header, `# ("what this builds and how it works")`; under it you code every
   step yourself. IMY checks the program against its rules, turns it into
-  Python, JavaScript, Lua, Rust, a web page or another language in the
-  background, and runs it. Your `.imy` file is never changed.
+  another programming language in the background, and runs it. Your `.imy`
+  file is never changed.
 - It is strict on purpose, and names the exact lines when it stops:
   an English request in place of code (`PromptingDetected`), more than one
   `.auto…` shortcut in a file or one longer than 20 characters, a switch that
@@ -100,6 +102,30 @@ working with the free models from the first tap.
   (`ExecutionOrderViolation`; IMY never reorders your code), and a line it
   cannot be sure about (`AmbiguousIntent`; it does not guess). Nothing runs
   until the whole program is clean.
+- **Converted as you type.** In IMY's console each line you enter is checked
+  at once, and the lines so far are converted in the background. The result
+  appears above the line you are typing and shows only what is new or changed,
+  so you see your code become Python (or Ruby, or Rust) line by line. Typing
+  is never held up. `:live off` stops it.
+- **Pick the language your code becomes.** The IMY tile has a second menu:
+  Python, JavaScript, TypeScript, Bash, Lua, Ruby, PHP, Perl, C, C++, Rust, Go,
+  Zig, Assembly, Java, Kotlin, C#, Swift, SQL or HTML. Inside the console,
+  `:target ruby` switches at any time and `:languages` lists all 48 that IMY
+  knows, with the ones that can run on your device. IMY builds and runs 42 of
+  them when the language's own tool is installed, down to assembly for your
+  device's processor; every language converts even when it cannot run there.
+- **Bring a project you already have.** `:import my-folder` (or
+  `imy import my-folder`) reads an existing project and saves every function,
+  class and variable it defines. From then on your IMY code uses them by name,
+  and they come out in whatever language you compile to, each with the helpers
+  it needs. Python files are read on the device, with no model; other
+  languages are read by the model and every answer is checked against the
+  file. None of the project's code is run, and `--dry-run` shows beforehand
+  which files the model would see.
+- **A program that does not build is corrected.** When the language's own tool
+  refuses the result (the C compiler, the assembler, `node --check`…), IMY
+  hands what the tool said back to the model, gets a corrected version and
+  builds again, before anything runs.
 - What a file defines is remembered: functions, variable packs, your own
   syntax and made-up file paths are saved, so a later file can use them
   without defining them again. Running unchanged code again is instant.
@@ -107,22 +133,39 @@ working with the free models from the first tap.
   website gets no styling, images or words your code did not define.
 - **To use it:** open **Terminals** and tap **IMY**. The first tap installs it
   (inside the Linux layer on a phone; it needs Python 3.11 or newer on a
-  computer). The next tap opens IMY's console: type your code line by line,
-  then `:run`. `:convert lua` shows the same program in another language,
-  `:help` lists the rest.
+  computer). The next tap opens IMY's console, which starts with three lines
+  on how to begin. `:header prints a greeting by name` writes the header line
+  for you, `:example hello` loads one of nine ready programs, `:run` runs your
+  code, and `:help` lists the rest. While a model works, the console counts the
+  seconds and afterwards names the model and the time it took.
 - **Models:** IMY works with Automa's free models with no key. The menu on the
   IMY tile lists them; the one you pick is the one used, and if it is not
-  being served that day IMY says so instead of quietly using another. Left on
-  "IMY's own setting", it uses the free models until you run `imy init`, where
-  you can choose your own Anthropic, OpenAI or Gemini key, or a server such
-  as Ollama. A compile on the free models takes about half a minute to a
-  minute and a half.
+  being served that day IMY says so instead of quietly using another.
+  `:models check` asks every free model for one word and shows which answer
+  now and how fast. Left on "IMY's own setting", IMY uses the free models
+  until you run `imy init`, where you can choose your own Anthropic, OpenAI or
+  Gemini key, or a server such as Ollama. A compile on the free models takes
+  about half a minute to a minute and a half.
 - **Updates:** IMY comes with Automa. When a new Automa brings a newer IMY the
   tile says **Tap to update**; if the update cannot finish (no connection),
   the next tap opens the IMY you have.
-- IMY is also a Python package of its own, `imagenery`, in the repository's
-  `imy-engine/` folder, with examples of real sessions in
+- **Anyone can install IMY**, also without Automa: it is an open Python
+  package of its own (`imagenery`, in the repository's `imy-engine/` folder).
+  `pip install "git+https://github.com/Wisk-inc/paperclip@claude/automa-android-apk-uiimmy#subdirectory=imy-engine"`
+  installs it on any computer with Python 3.11 or newer, and the wheel file is
+  in this release's zip. Real sessions, with their output, are in
   `imy-engine/examples/README.md`.
+
+**Which free models answer right now**
+- Free models come and go at their providers, and Automa never answers on
+  another model than the one you picked. The Terminals page and the chat's
+  model picker now have a **Check** button that asks every free model for one
+  word. The lists then mark the ones that are not answering, so you can pick
+  one that is without trying each.
+- A model that did not answer when it was last asked says so in the picker
+  ("Did not answer when last asked (3 h ago)"), and is asked again when you
+  pick it.
+- One more free model: **LFM3 1.7B**, small and fast.
 
 **Terminals page**
 - The tools' names and descriptions are now translated with the rest of the
@@ -1362,12 +1405,25 @@ proot-distro Debian layer the page sets up for you.
   model per tool** (Claude Code's, Codex's and Gemini CLI's menus add new models
   by themselves).
 - A **Free models chat** with nothing to install.
-- **IMY** (Imagenery), the strict blueprint compiler from `imy-engine/`
-  (`pip install imagenery` anywhere else). Install it from the page; on a
-  phone it goes into the Debian layer. Then open it, type IMY code line by
-  line under a `# ("...")` header, and `:run` it. It compiles with the free
-  models (no key; pick one in the model menu), or with your own key once you
-  run `imy init`.
+- **IMY** (Imagenery), the strict blueprint compiler from `imy-engine/`.
+  Install it from the page; on a phone it goes into the Debian layer. Then
+  open it, type IMY code line by line under a `# ("...")` header, and `:run`
+  it. Each line is converted as you enter it, and the result shows above the
+  line you are typing.
+  - Two menus on the tile: the **model** (the free models, no key; or IMY's
+    own setting, which is your own key once you run `imy init`) and the
+    **language** your code becomes (Python, JavaScript, Ruby, Rust, C, Go,
+    Assembly and thirteen more; `:target` switches inside the console, and
+    `:languages` lists all 48).
+  - `:import my-folder` takes in a project you already have, so your IMY code
+    can use its functions and variables by name.
+  - A program its own build tool refuses is handed back to the model and
+    corrected before it runs.
+  - Outside Automa, anyone can install it on a computer with Python 3.11 or
+    newer:
+    `pip install "git+https://github.com/Wisk-inc/paperclip@claude/automa-android-apk-uiimmy#subdirectory=imy-engine"`.
+- A **Check** button asks every free model for one word and marks, in the
+  Free models and IMY menus, the ones that are not answering right now.
 - Terminals run where Automa runs (on the phone when Automa runs in Termux). If
   the server is older than the app, the page offers the update.
 
@@ -1678,7 +1734,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
-| 1.9.15 | 2026-11-20 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; it compiles to Python, JavaScript, Lua, Rust, HTML and more and runs the result without changing your file; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone) and says Tap to update when a new Automa brings a newer IMY; the Terminals tools' names and descriptions are translated |
+| 1.9.15 | 2026-11-22 | IMY (Imagenery) in Terminals: a strict compiler for code written in your own syntax under a `# ("...")` header; it refuses English requests, more than one `.auto…` shortcut, switches for features the code never builds, and anything used before its definition, naming the lines; each line is converted as you type it, and the result shows above the line being typed; a language menu on the tile (20 languages) and `:target` in the console choose what the code becomes, with 48 languages known and 42 built and run, down to assembly for the device's processor; `:import` takes in an existing project so its functions and variables can be used by name, in any target language; a program its own build tool refuses is corrected by the model before it runs; nine ready examples, `:header`, seconds shown while a model works; what a file defines is remembered for later files; free models with no key (the model you pick is the one used) or your own key after `imy init`; installs from the page (in the Linux layer on a phone), says Tap to update when a new Automa brings a newer IMY, and installs anywhere with pip. A Check button on Terminals and in the chat's model picker asks every free model for one word and marks the ones not answering; a model that did not answer when last asked says so; one more free model (LFM3 1.7B); the Terminals tools' names and descriptions are translated |
 | 1.9.14 | 2026-11-18 | Languages: Auto (the device's language, with its country) or one of 40, saved to your account; the main screens built in, the rest translated by the free models on first sight and kept for everyone on the server (only Automa's own wording is sent); right to left for Arabic, Persian, Hebrew and Urdu; dates and numbers follow language and country; agents write to each person in their language; the connect screen and, on Android 13+, the app's own screens, shortcuts and notification channel follow the choice |
 | 1.9.13 | 2026-11-17 | Model lists update themselves (agents, App Studio, Terminals, the chat's Newest models), newest first; Claude Fable 5.2, Gemini 4 Carbon and Hydrogen, Qwen 4 Max; security: the free models' key stored scrambled and checked out of every build, phone secrets locked to Termux, sign-in limits per real caller, no framing of the board; PostgreSQL 18 runs three fewer processes and the server stops running git every few seconds; free models Ling 3.2 Flash, ERNIE 5.5 Flash Preview and Particle 1, and no-model agents on Nemotron 3 Ultra; review fixes: Troubleshoot, Safe start and Start each get their own answer from Termux, Troubleshoot waits during a Safe start, the safe mode banner sees a slow return |
 | 1.9.12 | 2026-11-17 | Keeps running: a lighter database and fewer connections, `automa keep-alive` lifts Android's background process limit, Termux says why Automa stopped (`automa logs`); safe start (by itself after three quick stops, or on purpose) with a banner offering Restart normally and Troubleshoot; `automa troubleshoot` checks and repairs, also from the app with its report shown there; Refresh in the header, Reload app, Refresh and Reload page on the connection screens; `automa restart` |

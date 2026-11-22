@@ -293,6 +293,22 @@ key the caller may use). It never reads another member's personal key.
   computer: a downloaded project could otherwise run a command or have the
   person's key sent to another server. A key saved for one provider is not
   sent to another chosen for one run.
+- `imy-engine/tests/test_importer.py` (1.9.15): importing a project runs none
+  of its code (Python files are parsed, never executed), follows no links out
+  of the folder, skips hidden folders, and keeps only what the file itself
+  bears out: a name the model reports that is not in the file is dropped, and
+  the definition saved is the file's own lines. `--dry-run` lists which files
+  the model would be sent. `imy-engine/tests/test_build_repair.py`: what a
+  build tool said is sent back to the model without the folders the program
+  was built in.
+- `server/src/services/terminals/terminals.test.ts` (1.9.15): the programming
+  language a terminal is opened in reaches the command line only when it is
+  one the tool's own list names; anything else, and any text that is not a
+  language name, leaves the command as it was.
+- `server/src/__tests__/free-models-check.test.ts` (1.9.15): the check of the
+  free models is for the signed-in board only, runs at most one check at a
+  time and at most once a minute, and answers 502 when the service cannot be
+  reached.
 - `server/src/services/terminals/status.test.ts` (1.9.15): what the status
   looks for on the host is quoted as one word (IMY's command is a path in the
   home folder), and the installed IMY version is read from a folder name,

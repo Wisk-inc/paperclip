@@ -391,8 +391,12 @@ open the **free models chat** with nothing to install.
 **IMY** (Imagenery) is in Terminals too: a strict compiler for code you write in
 your own syntax. You say what you are building in a `# ("...")` header, code
 every step, and IMY checks it, compiles it and runs it, with the free models or
-your own key. It refuses English requests in place of code and anything your
-code does not actually build, and tells you the exact line.
+your own key. It converts each line as you type it, into the language you pick
+on its tile (Python, JavaScript, Ruby, Rust, C, Go, Assembly and more), and
+`:import` lets your code use the functions of a project you already have. It
+refuses English requests in place of code and anything your code does not
+actually build, and tells you the exact line. A **Check** button on the page
+shows which free models are answering right now.
 
 **App Inspector** takes an app on your phone (or any APK) apart: it decodes the
 manifest, resources and code, shows the code as Java, lets you search, edit and
@@ -542,21 +546,37 @@ download. There is no Automa cloud account to create, ever.
 
 ## What's new
 
-**1.9.15** (20 November 2026) — IMY comes to Terminals. IMY (Imagenery) is a
+**1.9.15** (22 November 2026) — IMY comes to Terminals. IMY (Imagenery) is a
 strict compiler for code you write your own way: the first line says what you
 are building, in a header like `# ("adds two numbers and shows the sum")`, and
 under it you code every step in whatever syntax you invent. IMY checks it,
-turns it into Python, JavaScript, Lua, Rust, a web page or another language in
-the background and runs it, without changing your file. It stops, naming the
-exact lines, at an English request in place of code, at more than one `.auto…`
-shortcut, at a switch for a feature the code never builds, at anything used
-before the line that defines it, and at a line it cannot be sure about. What a
-file defines is remembered for later files. Tap **IMY** in Terminals: the first
-tap installs it (in the Linux layer on a phone), the next opens its console. It
-works with the free models with no key (the model you pick is the one used), or
-with your own key after `imy init`. When a new Automa brings a newer IMY the
-tile says **Tap to update**. The Terminals tools' names and descriptions are now
-translated with the rest of the board.
+turns it into another programming language in the background and runs it,
+without changing your file.
+
+- **It converts while you type.** Each line you enter is checked at once, and
+  the result appears above the line you are typing.
+- **You pick the language.** A menu on the IMY tile offers 20 (Python,
+  JavaScript, Ruby, Rust, C, Go, Assembly…); `:target` switches inside the
+  console, and IMY knows 48 in all and builds and runs 42 of them.
+- **It takes in a project you already have.** `:import my-folder` saves the
+  project's functions and variables, and your IMY code uses them by name, in
+  whatever language you compile to.
+- **It corrects a program that does not build**, by handing the build tool's
+  own words back to the model, before anything runs.
+- It stops, naming the exact lines, at an English request in place of code, at
+  more than one `.auto…` shortcut, at a switch for a feature the code never
+  builds, at anything used before the line that defines it, and at a line it
+  cannot be sure about. What a file defines is remembered for later files.
+
+Tap **IMY** in Terminals: the first tap installs it (in the Linux layer on a
+phone), the next opens its console. It works with the free models with no key
+(the model you pick is the one used), or with your own key after `imy init`.
+When a new Automa brings a newer IMY the tile says **Tap to update**, and anyone
+can install IMY on a computer with pip. Also new: a **Check** button on
+Terminals and in the chat's model picker asks every free model for one word and
+marks the ones that are not answering; one more free model (LFM3 1.7B); and the
+Terminals tools' names and descriptions are translated with the rest of the
+board.
 
 **1.9.14** (18 November 2026) — Automa in your language. **Account → Language**
 offers **Auto** and 40 languages: Auto follows your phone's or browser's

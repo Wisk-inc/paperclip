@@ -262,6 +262,18 @@ models while the service token stays inside that script.
 
 - **Model menu:** passes `--free-model <id>`. With no choice, IMY uses the
   provider set by `imy init`, or the free models until `imy init` has run.
+- **Language menu:** `IMY_LANGUAGES` in `packages/shared/src/terminals.ts`
+  (each entry an `id` IMY takes and a `name`; `name`, not `label`, so the
+  string extractor never offers "Go" or "Swift" for translation, and each
+  `<option>` carries `translate="no"`). The start request's `language` is
+  passed on as `--to <id>` only when the tool lists that id (`withLanguage` in
+  `server/src/services/terminals/registry.ts`); the choice is kept per device
+  in `localStorage` under `automa.terminals.languages`. With no choice, IMY
+  keeps its own target (`:target`, or `default_target` from `imy init`).
+- **Live conversion** is on in this console because the bridge makes the
+  provider `automa` (free). It runs one preview request at a time on a worker
+  thread (`imy-engine/src/imy/live.py`), so the terminal sees the result drawn
+  above the line being typed.
 - **Install** (`linux-setup.sh install imy`): IMY gets its own venv
   (`~/.local/share/imy-venv`, linked as `~/.local/bin/imy`), inside Debian on a
   phone. It is installed from the wheel shipped in

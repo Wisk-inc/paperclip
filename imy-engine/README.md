@@ -24,15 +24,39 @@ Your name has 3 letters.
 
 ## Install
 
-Python 3.11 or newer:
+IMY is open source and runs wherever Python 3.11 or newer does: Linux, macOS, Windows, and a
+phone (in Automa, or in Termux). Anyone can install it. Pick whichever line fits:
 
 ```console
-pip install imagenery          # or: pipx install imagenery
-imy init                       # pick a provider, a model and your key (or free models)
+pip install imagenery
+pip install "git+https://github.com/Wisk-inc/paperclip@claude/automa-android-apk-uiimmy#subdirectory=imy-engine"
+pip install imagenery-1.1.0-py3-none-any.whl
 ```
 
+- The first is the usual way once the package is on PyPI. If pip answers that it finds no
+  such package, it is not published yet: use the second line.
+- The second installs straight from this repository and needs only `git`. The part after `@`
+  is the branch IMY lives on until it is merged; after that, leave `@…` out.
+- The third installs a wheel file you were given (one comes with every Automa release).
+
+`pipx install` in place of `pip install` gives IMY its own environment and puts `imy` on your
+PATH, which is the tidy way on a computer where Python belongs to the system.
+
+Then choose who compiles for you:
+
+```console
+imy init                       # pick a provider, a model and your key
+imy doctor                     # shows what IMY will use and which languages run here
+```
+
+You need one of: a key from Anthropic, OpenAI or Google; a server that speaks the OpenAI
+protocol, such as a model running on your own machine with Ollama, which costs nothing
+(`imy init --provider openai-compatible --base-url http://localhost:11434/v1 --model llama3.1`);
+or Automa, which brings its free models.
+
 **In Automa:** open **Terminals → IMY**. Automa installs IMY for you and connects it to
-Automa's free models, so no key is needed. You can still switch to your own key with `imy init`.
+Automa's free models, so no key is needed. The tile has a menu for the model and one for the
+language your code becomes. You can still switch to your own key with `imy init`.
 
 ## Quick start
 
