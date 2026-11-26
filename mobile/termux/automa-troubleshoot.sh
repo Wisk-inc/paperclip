@@ -64,11 +64,14 @@ logs="$( { tail -n 300 "$automa_home/server.log.1" 2>/dev/null; tail -n 300 "$au
 
 section "Termux"
 if command -v node >/dev/null 2>&1; then
-  node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null | tr -dc '0-9')"
-  if [ -n "$node_major" ] && [ "$node_major" -ge 24 ]; then
-    ok "Node.js $(node --version 2>/dev/null)"
+  # 24.11 or newer: the server refuses an older one as it starts.
+  node_version="$(node -p 'process.versions.node' 2>/dev/null || true)"
+  node_major="$(printf '%s' "$node_version" | cut -d. -f1 | tr -dc '0-9')"
+  node_minor="$(printf '%s' "$node_version" | cut -d. -f2 | tr -dc '0-9')"
+  if [ -n "$node_major" ] && { [ "$node_major" -gt 24 ] || { [ "$node_major" -eq 24 ] && [ "${node_minor:-0}" -ge 11 ]; }; }; then
+    ok "Node.js v$node_version"
   else
-    bad "Automa needs Node.js 24 or newer (this Termux has $(node --version 2>/dev/null || echo 'an unknown version'))."
+    bad "Automa needs Node.js 24.11 or newer (this Termux has ${node_version:+v}${node_version:-an unknown version})."
     hint "Run: pkg upgrade -y"
   fi
 else

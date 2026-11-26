@@ -220,9 +220,14 @@ for tool in python proot-distro; do
     fi
   }
 done
-node_major="$(node -p 'process.versions.node.split(".")[0]')"
-if [ "$node_major" -lt 24 ]; then
-  echo "Automa needs Node.js 24 or newer (found $(node --version)). Run: pkg upgrade -y" >&2
+# The server checks Node.js itself as it starts (24.11 or newer, the same as
+# its package.json): a phone that passed a check for 24 alone was then refused
+# at its first start with "Doctor found blocking issues".
+node_version="$(node -p 'process.versions.node')"
+node_major="$(printf '%s' "$node_version" | cut -d. -f1 | tr -dc '0-9')"
+node_minor="$(printf '%s' "$node_version" | cut -d. -f2 | tr -dc '0-9')"
+if [ "${node_major:-0}" -lt 24 ] || { [ "${node_major:-0}" -eq 24 ] && [ "${node_minor:-0}" -lt 11 ]; }; then
+  echo "Automa needs Node.js 24.11 or newer (found v$node_version). Run: pkg upgrade -y" >&2
   exit 1
 fi
 

@@ -456,8 +456,9 @@ describe("the automa command's backup and restore", () => {
       `    if [ -f "${root}/server-blocks" ]; then sleep 300 & nap=$!; trap 'kill $nap 2>/dev/null; exit 0' TERM; wait $nap; exit 0; fi`,
       `    if [ -s "${root}/server-exits" ]; then code="$(head -n 1 "${root}/server-exits")"; sed -i 1d "${root}/server-exits"; exit "$code"; fi`,
       `    exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
-      `  *process.versions*) echo 24;;`,
+      `  *process.versions*) cat "${root}/node-version" 2>/dev/null || echo 24.11.1;;`,
       `  *process.platform*) echo linux;;`,
+      `  --version) echo "v$(cat "${root}/node-version" 2>/dev/null || echo 24.11.1)";;`,
       `  *) [ -f "${root}/server-up" ];;`,
       `esac`,
     ].join("\n"), nodeMissing ? path.join(root, "pkg-files") : bin);
@@ -512,6 +513,22 @@ describe("the automa command's backup and restore", () => {
     const installs = (await calls()).split("\n").filter((line) => line.startsWith("pkg install"));
     expect(installs).toContain("pkg install -y nodejs-lts git");
     expect(installs.join("\n")).not.toContain("postgresql");
+  }, 60_000);
+
+  it("refuses a Node.js older than 24.11 before it changes anything, as the server would refuse it at its first start", async () => {
+    await installAutoma();
+    const install = () => runFile(path.join(root, "bundle", "install.sh"), [], { env: { AUTOMA_INSTALL_NO_START: "1" } });
+    await writeFile(path.join(root, "node-version"), "24.10.0\n");
+    const refused = await install();
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain("Automa needs Node.js 24.11 or newer (found v24.10.0). Run: pkg upgrade -y");
+    expect(refused.out).not.toContain("Setting up the database");
+    for (const version of ["24.11.0", "25.0.0"]) {
+      await writeFile(path.join(root, "node-version"), `${version}\n`);
+      const accepted = await install();
+      expect(accepted.code, `${version}: ${accepted.out}`).toBe(0);
+      expect(accepted.out).not.toContain("Automa needs Node.js");
+    }
   }, 60_000);
 
   it("automa link opens the app with a MAIN intent and the app key", async () => {
@@ -1346,6 +1363,18 @@ describe("the automa command's backup and restore", () => {
         expect(result.out).toContain("Run: automa keep-alive");
         expect(result.out).toContain("Settings → Developer options → Disable child process restrictions");
         expect(result.out).toContain("exit code 137");
+      }, 60_000);
+
+      it("says when Node.js is older than the 24.11 the server needs, and how to upgrade it", async () => {
+        await installAutoma();
+        await writeFile(path.join(root, "node-version"), "24.10.0\n");
+        const old = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(old.out).toContain("Automa needs Node.js 24.11 or newer (this Termux has v24.10.0).");
+        expect(old.out).toContain("Run: pkg upgrade -y");
+        await writeFile(path.join(root, "node-version"), "24.11.0\n");
+        const current = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(current.out).toContain("✓ Node.js v24.11.0");
+        expect(current.out).not.toContain("Automa needs Node.js");
       }, 60_000);
 
       it("reads the logs before freeing space, and never touches backups", async () => {
