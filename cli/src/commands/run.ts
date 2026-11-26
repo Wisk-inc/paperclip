@@ -25,6 +25,11 @@ export interface RunOptions {
   config?: string;
   instance?: string;
   repair?: boolean;
+  /**
+   * Accept the defaults without asking: onboarding defaults when no config
+   * exists, doctor repairs, and applying pending database migrations when the
+   * server starts.
+   */
   yes?: boolean;
   bind?: "loopback" | "lan" | "tailnet";
   force?: boolean;
@@ -110,7 +115,7 @@ export async function runCommand(opts: RunOptions): Promise<void> {
   }
 
   p.log.step("Starting Paperclip server...");
-  const startedServer = await importServerEntry();
+  const startedServer = await importServerEntry({ applyPendingMigrations: opts.yes === true });
   writeRuntimeInfo({
     schemaVersion: 1,
     instanceId,
@@ -219,7 +224,11 @@ function ensureDevWorkspaceBuildDeps(projectRoot: string): void {
   }
 }
 
-async function importServerEntry(): Promise<StartedServer> {
+type ServerStartOptions = {
+  applyPendingMigrations: boolean;
+};
+
+async function importServerEntry(opts: ServerStartOptions): Promise<StartedServer> {
   // Dev mode: try local workspace path (monorepo with tsx)
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
   const devEntry = path.resolve(projectRoot, "server/src/index.ts");
@@ -227,13 +236,13 @@ async function importServerEntry(): Promise<StartedServer> {
     ensureDevWorkspaceBuildDeps(projectRoot);
     maybeEnableUiDevMiddleware(devEntry);
     const mod = await import(pathToFileURL(devEntry).href);
-    return await startServerFromModule(mod, devEntry);
+    return await startServerFromModule(mod, devEntry, opts);
   }
 
   // Production mode: import the published @paperclipai/server package
   try {
     const mod = await import("@paperclipai/server");
-    return await startServerFromModule(mod, "@paperclipai/server");
+    return await startServerFromModule(mod, "@paperclipai/server", opts);
   } catch (err) {
     const missingSpecifier = getMissingModuleSpecifier(err);
     const missingServerEntrypoint = !missingSpecifier || missingSpecifier === "@paperclipai/server";
@@ -255,10 +264,40 @@ function shouldGenerateBootstrapInviteAfterStart(config: PaperclipConfig): boole
   return config.server.deploymentMode === "authenticated" && config.database.mode === "embedded-postgres";
 }
 
-async function startServerFromModule(mod: unknown, label: string): Promise<StartedServer> {
+// On a terminal the server asks before it applies pending database migrations,
+// and Enter (or an answer typed earlier) means No: an unattended `--yes` start
+// after an update then stops with "Refusing to start against a stale schema".
+// `--yes` already means "accept the defaults, don't ask", so it answers this
+// question too. A choice the person made is kept: their own
+// PAPERCLIP_MIGRATION_AUTO_APPLY, or PAPERCLIP_MIGRATION_PROMPT=never, which
+// makes the server refuse instead. This runs after the server module (and the
+// .env files it loads) is imported, and the variable is removed again once the
+// server has started, so processes it starts later do not inherit it.
+function applyPendingMigrationsWithoutAsking(env: NodeJS.ProcessEnv = process.env): () => void {
+  if (env.PAPERCLIP_MIGRATION_AUTO_APPLY !== undefined || env.PAPERCLIP_MIGRATION_PROMPT === "never") {
+    return () => {};
+  }
+  env.PAPERCLIP_MIGRATION_AUTO_APPLY = "true";
+  return () => {
+    delete env.PAPERCLIP_MIGRATION_AUTO_APPLY;
+  };
+}
+
+async function startServerFromModule(
+  mod: unknown,
+  label: string,
+  opts: ServerStartOptions,
+): Promise<StartedServer> {
   const startServer = (mod as { startServer?: () => Promise<StartedServer> }).startServer;
   if (typeof startServer !== "function") {
     throw new Error(`Paperclip server entrypoint did not export startServer(): ${label}`);
   }
-  return await startServer();
+  const restoreMigrationChoice = opts.applyPendingMigrations
+    ? applyPendingMigrationsWithoutAsking()
+    : () => {};
+  try {
+    return await startServer();
+  } finally {
+    restoreMigrationChoice();
+  }
 }

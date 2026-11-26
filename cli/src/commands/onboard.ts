@@ -115,7 +115,7 @@ function parseBooleanFromEnv(rawValue: string | undefined): boolean | null {
   return null;
 }
 
-async function runOnboardedForeground(configPath: string): Promise<void> {
+async function runOnboardedForeground(configPath: string, opts: { yes: boolean }): Promise<void> {
   const previousOpenOnListen = process.env.PAPERCLIP_OPEN_ON_LISTEN;
   const browserDisabled = parseBooleanFromEnv(process.env.PAPERCLIP_NO_BROWSER) === true;
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
@@ -132,7 +132,10 @@ async function runOnboardedForeground(configPath: string): Promise<void> {
 
   try {
     const { runCommand } = await import("./run.js");
-    await runCommand({ config: configPath, repair: true, yes: true });
+    // `yes` reaches the run only when the person passed --yes: there it also
+    // applies pending database migrations without asking. Doctor repairs stay
+    // automatic either way (run's doctor step defaults `yes` to true).
+    await runCommand({ config: configPath, repair: true, ...(opts.yes ? { yes: true } : {}) });
   } finally {
     if (previousOpenOnListen === undefined) {
       delete process.env.PAPERCLIP_OPEN_ON_LISTEN;
@@ -508,7 +511,7 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
     }
 
     if (shouldRunNow && !opts.invokedByRun) {
-      await runOnboardedForeground(configPath);
+      await runOnboardedForeground(configPath, { yes: opts.yes === true });
       return;
     }
 
@@ -779,7 +782,7 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
   }
 
   if (shouldRunNow && !opts.invokedByRun) {
-    await runOnboardedForeground(configPath);
+    await runOnboardedForeground(configPath, { yes: opts.yes === true });
     return;
   }
 
