@@ -55,6 +55,11 @@ import {
   shouldReportStartupFailure,
 } from "./startup-refusals.js";
 import {
+  decideMigrationGate,
+  pendingMigrationsRefusalMessage,
+  type PendingMigrationsReason,
+} from "./startup-migration-gate.js";
+import {
   getManagedInstanceConfig,
   type ManagedInstanceConfig,
 } from "./services/managed-config.js";
@@ -244,10 +249,14 @@ async function startServerWithDatabaseTeardown(
       : migrations.join(", ");
   }
   
-  async function promptApplyMigrations(migrations: string[]): Promise<boolean> {
-    if (process.env.PAPERCLIP_MIGRATION_AUTO_APPLY === "true") return true;
-    if (process.env.PAPERCLIP_MIGRATION_PROMPT === "never") return false;
-    if (!stdin.isTTY || !stdout.isTTY) return true;
+  async function promptApplyMigrations(
+    migrations: string[],
+    reason: PendingMigrationsReason,
+  ): Promise<boolean> {
+    // Automa's phone server applies without asking (startup-migration-gate.ts
+    // says why); everyone else keeps the upstream rules and question.
+    const decision = decideMigrationGate({ interactive: Boolean(stdin.isTTY && stdout.isTTY), reason });
+    if (decision !== "ask") return decision === "apply";
   
     const prompt = createInterface({ input: stdin, output: stdout });
     try {
@@ -288,11 +297,14 @@ async function startServerWithDatabaseTeardown(
         { tableCount: state.tableCount },
         `${label} has existing tables but no migration journal. Run migrations manually to sync schema.`,
       );
-      const apply = autoApply ? true : await promptApplyMigrations(state.pendingMigrations);
+      const apply = autoApply ? true : await promptApplyMigrations(state.pendingMigrations, state.reason);
       if (!apply) {
         throw new Error(
-          `${label} has pending migrations (${formatPendingMigrationSummary(state.pendingMigrations)}). ` +
-            "Refusing to start against a stale schema. Run pnpm db:migrate or set PAPERCLIP_MIGRATION_AUTO_APPLY=true.",
+          pendingMigrationsRefusalMessage({
+            label,
+            pendingSummary: formatPendingMigrationSummary(state.pendingMigrations),
+            reason: state.reason,
+          }),
         );
       }
   
@@ -301,7 +313,7 @@ async function startServerWithDatabaseTeardown(
       return "applied (pending migrations)";
     }
   
-    const apply = autoApply ? true : await promptApplyMigrations(state.pendingMigrations);
+    const apply = autoApply ? true : await promptApplyMigrations(state.pendingMigrations, state.reason);
     if (!apply) {
       // A database with zero applied migrations and zero tables has
       // never been migrated: under a managed-cloud supervisor that is
@@ -312,8 +324,11 @@ async function startServerWithDatabaseTeardown(
       // Error.
       throw migrationRefusalError(
         state,
-        `${label} has pending migrations (${formatPendingMigrationSummary(state.pendingMigrations)}). ` +
-          "Refusing to start against a stale schema. Run pnpm db:migrate or set PAPERCLIP_MIGRATION_AUTO_APPLY=true.",
+        pendingMigrationsRefusalMessage({
+          label,
+          pendingSummary: formatPendingMigrationSummary(state.pendingMigrations),
+          reason: state.reason,
+        }),
       );
     }
 
