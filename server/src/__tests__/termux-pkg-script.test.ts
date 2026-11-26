@@ -452,7 +452,7 @@ describe("the automa command's backup and restore", () => {
       `case "$*" in`,
       `  *automa-follow-start.mjs*|*AbortSignal.timeout*) exec "${process.execPath}" "$@";;`,
       `  *dist/index.js*)`,
-      `    echo "server $* safe=\${PAPERCLIP_SAFE_MODE:-} reason=\${AUTOMA_SAFE_REASON:-} launcher=\${AUTOMA_LAUNCHER:-} pool=\${DATABASE_POOL_MAX:-} idle=\${DATABASE_IDLE_TIMEOUT_SECONDS:-}" >> "${root}/calls.log"`,
+      `    echo "server $* safe=\${PAPERCLIP_SAFE_MODE:-} reason=\${AUTOMA_SAFE_REASON:-} launcher=\${AUTOMA_LAUNCHER:-} pool=\${DATABASE_POOL_MAX:-} idle=\${DATABASE_IDLE_TIMEOUT_SECONDS:-} migrate=\${PAPERCLIP_MIGRATION_AUTO_APPLY:-}" >> "${root}/calls.log"`,
       `    if [ -f "${root}/server-blocks" ]; then sleep 300 & nap=$!; trap 'kill $nap 2>/dev/null; exit 0' TERM; wait $nap; exit 0; fi`,
       `    if [ -s "${root}/server-exits" ]; then code="$(head -n 1 "${root}/server-exits")"; sed -i 1d "${root}/server-exits"; exit "$code"; fi`,
       `    exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
@@ -1079,6 +1079,46 @@ describe("the automa command's backup and restore", () => {
       expect(starts[1]).not.toContain("--safe");
     }, 60_000);
 
+    it("every way of starting Automa applies a new version's database changes without asking, unless the person chose otherwise", async () => {
+      await installAutoma();
+      // Asked on a terminal (automa onboard runs in the foreground), Enter
+      // meant No and the first start after an update stopped there.
+      const onboarded = await runFile(automa(), ["onboard", "--yes"]);
+      expect(onboarded.code, onboarded.out).toBe(0);
+      const ran = await runFile(automa(), ["run"]);
+      expect(ran.code, ran.out).toBe(0);
+      const safe = await runFile(automa(), ["run", "--safe"]);
+      expect(safe.code, safe.out).toBe(0);
+      const kept = await runFile(automa(), ["run"], { env: { PAPERCLIP_MIGRATION_AUTO_APPLY: "false" } });
+      expect(kept.code, kept.out).toBe(0);
+      const started = await runFile(automa(), ["start"]);
+      expect(started.out).toContain("Automa is starting (log:");
+      await vi.waitFor(async () => expect(await serverStarts()).toHaveLength(5), { timeout: 20_000, interval: 100 });
+
+      const starts = await serverStarts();
+      expect(starts[0]).toMatch(/dist\/index\.js onboard --yes .* migrate=true$/);
+      // Nothing starts that one again when it exits, so it is not the launcher's.
+      expect(starts[0]).toContain(" launcher= ");
+      expect(starts[1]).toMatch(/dist\/index\.js run .* migrate=true$/);
+      expect(starts[2]).toMatch(/safe=1 reason=asked .* migrate=true$/);
+      // A value the person set is theirs.
+      expect(starts[3]).toMatch(/ migrate=false$/);
+      expect(starts[4]).toMatch(/dist\/index\.js run .* migrate=true$/);
+    }, 60_000);
+
+    it("the installer's own last step starts the updated server so that it applies the new version's database changes", async () => {
+      await installAutoma();
+      await writeFile(path.join(root, "bundle", "VERSION"), "9.9.10\n");
+      // An update as automa update runs it: to the end, starting Automa.
+      const updated = await runFile(path.join(root, "bundle", "install.sh"), []);
+      expect(updated.code, updated.out).toBe(0);
+      expect(updated.out).toContain("Updating the Automa server 9.9.9 -> 9.9.10");
+      expect((await readdir(backups())).filter((name) => name.startsWith("automa-before-9.9.10-"))).toHaveLength(1);
+      const starts = await serverStarts();
+      expect(starts).toHaveLength(1);
+      expect(starts[0]).toMatch(/dist\/index\.js onboard --yes .* migrate=true$/);
+    }, 60_000);
+
     it("says Android ended the server (signal 9) and what stops that, and keeps a record", async () => {
       await installAutoma();
       await writeFile(path.join(root, "server-exits"), "137\n0\n");
@@ -1361,6 +1401,37 @@ describe("the automa command's backup and restore", () => {
         expect(result.out).toContain("The database was written by PostgreSQL 16, but Termux now has PostgreSQL 17");
         expect(result.out).toContain("pkg install postgresql=16*");
         expect(await calls()).not.toMatch(/pg_ctl .* start/);
+      }, 60_000);
+
+      it("says a refused database update is applied by starting Automa, and only a failed one needs a backup", async () => {
+        await installAutoma();
+        await phone();
+        // What the first start after an update printed when it was asked on a terminal and the answer was No.
+        await writeFile(
+          path.join(automaHome(), "server.log.1"),
+          "Paperclip server failed to start.\nPostgreSQL has pending migrations (0291_reflective_loners.sql). Refusing to start against a stale schema. Run pnpm db:migrate or set PAPERCLIP_MIGRATION_AUTO_APPLY=true.\n",
+        );
+        const refused = await troubleshoot(["--start", "--no-follow"], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(refused.out).toContain("The log says: the new version's database changes were not applied yet, so Automa did not start.");
+        expect(refused.out).toContain(`Starting Automa applies them; the copy of the database from before the update is in ${backups()}. Run: automa run\n`);
+        expect(refused.out).not.toContain("automa restore lists backups");
+        expect(refused.out).not.toContain("updating the database to this version failed");
+        // The start it makes (automa fix --start) applies them too.
+        await vi.waitFor(async () => expect((await calls()).split("\n").filter((line) => line.startsWith("server "))).toHaveLength(1), {
+          timeout: 20_000,
+          interval: 100,
+        });
+        expect((await calls()).split("\n").find((line) => line.startsWith("server "))).toMatch(/ migrate=true$/);
+
+        // A migration that ran and failed: the copy from before the update is the way back.
+        await writeFile(
+          path.join(automaHome(), "server.log.1"),
+          "Paperclip server failed to start.\nFailed to apply pending migrations: 0291_reflective_loners.sql\n",
+        );
+        const failed = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+        expect(failed.out).toContain("The log says: updating the database to this version failed.");
+        expect(failed.out).toContain("automa restore lists backups; the one named automa-before-<version> is from just before the update.");
+        expect(failed.out).not.toContain("database changes were not applied yet");
       }, 60_000);
 
       it("--start starts Automa in safe mode when it had fallen back to it, and follows it until it is ready", async () => {

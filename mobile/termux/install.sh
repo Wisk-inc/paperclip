@@ -834,6 +834,12 @@ export DATABASE_IDLE_TIMEOUT_SECONDS="\${DATABASE_IDLE_TIMEOUT_SECONDS:-60}"
 # Automa sends no usage data anywhere: the upstream telemetry endpoint belongs
 # to another company. Set PAPERCLIP_TELEMETRY_DISABLED=0 to opt back in.
 export PAPERCLIP_TELEMETRY_DISABLED="\${PAPERCLIP_TELEMETRY_DISABLED:-1}"
+# A new version's database changes (migrations) are applied as it starts,
+# without asking: the updater copies the whole database before every update
+# (automa restore lists the copies). Asked on a terminal, where Enter means No,
+# the question stopped the first start after an update (automa onboard, the
+# installer's last step). A value set before (by the person) is kept.
+export PAPERCLIP_MIGRATION_AUTO_APPLY="\${PAPERCLIP_MIGRATION_AUTO_APPLY:-true}"
 # A running server holds a wake lock so Android does not pause it, and the app
 # is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then
@@ -945,7 +951,9 @@ if [ "\${1:-}" = "run" ]; then
 fi
 if [ "\${1:-}" = "onboard" ]; then
   # onboard --yes starts the server too: its pid is recorded (exec keeps it),
-  # so automa stop, start and update know about this server.
+  # so automa stop, start and update know about this server. No
+  # AUTOMA_LAUNCHER here: nothing starts this one again when it exits, so the
+  # board must not offer Restart normally (its exit 75 would only stop it).
   if running_pid >/dev/null; then
     echo "Automa is already running. Stop it with: automa stop"
     exit 0
