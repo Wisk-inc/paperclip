@@ -322,7 +322,11 @@ if [ -n "$logs" ]; then
   # Refused, not failed: the server stopped before applying the new version's
   # migrations (asked on a terminal, where Enter means No). Starting it through
   # the launcher applies them, so going back to a backup would not help.
-  explain_log 'Refusing to start against a stale schema' "the new version's database changes were not applied yet, so Automa did not start." "Starting Automa applies them; the copy of the database from before the update is in $backup_dir. Run: automa run"
+  explain_log 'has pending migrations \(.*\)\. Refusing to start against a stale schema' "the new version's database changes were not applied yet, so Automa did not start." "Starting Automa applies them; the copy of the database from before the update is in $backup_dir. Run: automa run"
+  # Tables without the record of which changes they have had (a damaged
+  # restore): no update can be applied to them, and a backup brings the
+  # record back (automa backup and the updater's copies keep it).
+  explain_log 'has tables but no migration (history|journal)' "the database has lost its record of which updates it has had, so this version's changes can't be applied." "Put the newest backup back; automa restore lists them, and the one named automa-before-<version> is from just before the update. Run: automa restore"
   explain_log 'applyPendingMigrations|Failed to (apply pending|bootstrap) migrations' "updating the database to this version failed." "automa restore lists backups; the one named automa-before-<version> is from just before the update."
   explain_log 'EACCES|[Pp]ermission denied' "something wasn't allowed to read or write a file." "Run: termux-setup-storage only if Automa asked for your phone's storage; otherwise automa update repairs the files."
 fi

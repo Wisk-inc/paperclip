@@ -1461,6 +1461,18 @@ describe("the automa command's backup and restore", () => {
         expect(failed.out).toContain("The log says: updating the database to this version failed.");
         expect(failed.out).toContain("automa restore lists backups; the one named automa-before-<version> is from just before the update.");
         expect(failed.out).not.toContain("database changes were not applied yet");
+
+        // Tables without their migration history (the server says so, and so does the database package): only a backup helps.
+        for (const said of [
+          "PostgreSQL has tables but no migration history, so its pending migrations (0291_reflective_loners.sql) cannot be applied safely. Refusing to start against a stale schema. Automa's backups keep the migration history; to put the newest one back, run: automa restore",
+          "Database has tables but no migration journal; automatic migration is unsafe.",
+        ]) {
+          await writeFile(path.join(automaHome(), "server.log.1"), `Paperclip server failed to start.\n${said}\n`);
+          const lost = await troubleshoot([], { AUTOMA_HEALTH_URL: "http://127.0.0.1:9/api/health" });
+          expect(lost.out).toContain("The log says: the database has lost its record of which updates it has had, so this version's changes can't be applied.");
+          expect(lost.out).toContain("Run: automa restore\n");
+          expect(lost.out).not.toContain("database changes were not applied yet");
+        }
       }, 60_000);
 
       it("--start starts Automa in safe mode when it had fallen back to it, and follows it until it is ready", async () => {
