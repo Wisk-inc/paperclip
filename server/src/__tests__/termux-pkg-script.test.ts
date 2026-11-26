@@ -452,7 +452,7 @@ describe("the automa command's backup and restore", () => {
       `case "$*" in`,
       `  *automa-follow-start.mjs*|*AbortSignal.timeout*) exec "${process.execPath}" "$@";;`,
       `  *dist/index.js*)`,
-      `    echo "server $* safe=\${PAPERCLIP_SAFE_MODE:-} reason=\${AUTOMA_SAFE_REASON:-} launcher=\${AUTOMA_LAUNCHER:-} pool=\${DATABASE_POOL_MAX:-} idle=\${DATABASE_IDLE_TIMEOUT_SECONDS:-} migrate=\${PAPERCLIP_MIGRATION_AUTO_APPLY:-}" >> "${root}/calls.log"`,
+      `    echo "server $* safe=\${PAPERCLIP_SAFE_MODE:-} reason=\${AUTOMA_SAFE_REASON:-} launcher=\${AUTOMA_LAUNCHER:-} pool=\${DATABASE_POOL_MAX:-} idle=\${DATABASE_IDLE_TIMEOUT_SECONDS:-} nobrowser=\${PAPERCLIP_NO_BROWSER:-} migrate=\${PAPERCLIP_MIGRATION_AUTO_APPLY:-}" >> "${root}/calls.log"`,
       `    if [ -f "${root}/server-blocks" ]; then sleep 300 & nap=$!; trap 'kill $nap 2>/dev/null; exit 0' TERM; wait $nap; exit 0; fi`,
       `    if [ -s "${root}/server-exits" ]; then code="$(head -n 1 "${root}/server-exits")"; sed -i 1d "${root}/server-exits"; exit "$code"; fi`,
       `    exit "$(cat "${root}/server-exit" 2>/dev/null || echo 0)";;`,
@@ -1121,6 +1121,11 @@ describe("the automa command's backup and restore", () => {
       // A value the person set is theirs.
       expect(starts[3]).toMatch(/ migrate=false$/);
       expect(starts[4]).toMatch(/dist\/index\.js run .* migrate=true$/);
+      // The app is the board's window: a start on a terminal does not also open the phone's browser.
+      for (const start of starts) expect(start).toContain(" nobrowser=1 ");
+      const chosen = await runFile(automa(), ["run"], { env: { PAPERCLIP_NO_BROWSER: "0" } });
+      expect(chosen.code, chosen.out).toBe(0);
+      expect((await serverStarts()).at(-1)).toContain(" nobrowser=0 ");
     }, 60_000);
 
     it("the installer's own last step starts the updated server so that it applies the new version's database changes", async () => {

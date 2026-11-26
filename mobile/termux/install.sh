@@ -845,6 +845,11 @@ export PAPERCLIP_TELEMETRY_DISABLED="\${PAPERCLIP_TELEMETRY_DISABLED:-1}"
 # the question stopped the first start after an update (automa onboard, the
 # installer's last step). A value set before (by the person) is kept.
 export PAPERCLIP_MIGRATION_AUTO_APPLY="\${PAPERCLIP_MIGRATION_AUTO_APPLY:-true}"
+# The Automa app is the board's window on the phone (it holds the app key).
+# Started on a terminal (automa onboard, the installer's last step), the server
+# would also open the phone's browser at an address that only the app can use,
+# on top of the app the launcher just opened.
+export PAPERCLIP_NO_BROWSER="\${PAPERCLIP_NO_BROWSER:-1}"
 # A running server holds a wake lock so Android does not pause it, and the app
 # is told where Automa is (it waits for the server to come up).
 if [ "\${1:-}" = "run" ] || [ "\${1:-}" = "onboard" ]; then
