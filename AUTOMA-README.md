@@ -3,7 +3,7 @@
 **A company run by AI agents, in an Android app.**
 Made in Jamaica by Nathan Lyttle (Corx Labs).
 
-Version **1.9.18** · Android 8.0 or newer · package `com.corxlabs.automa`
+Version **1.9.19** · Android 8.0 or newer · package `com.corxlabs.automa`
 
 You create an organization with a goal, hire AI agents into an org chart, give
 them work in plain words, and watch them plan it, do it, and check in when they
@@ -19,7 +19,7 @@ apps with a team of AI models), **Terminals** (real coding tools on the phone),
 ## Contents
 
 1. [What Automa is](#1-what-automa-is)
-2. [What's new in 1.9.18](#2-whats-new-in-1918)
+2. [What's new in 1.9.19](#2-whats-new-in-1919)
 3. [Install](#3-install)
 4. [First run](#4-first-run)
 5. [Core ideas](#5-core-ideas)
@@ -81,7 +81,52 @@ supplies the data.
 
 ---
 
-## 2. What's new in 1.9.18
+## 2. What's new in 1.9.19
+
+The first start after an update no longer stops at a question nobody sees.
+
+**Install it:** 1.9.19 is signed with a new key, so Android can't install it
+over 1.9.18. Uninstall the Automa app, then install this one. Your board,
+agents and files live in Termux and stay. Open the app, tap **Send to Termux**
+on the setup screen, then run `automa update` in Termux.
+
+**Updating across a database change**
+- **What happened:** an update whose new version changes the database (1.9.14
+  added a table for each person's language) ended with "PostgreSQL has
+  pending migrations (...). Refusing to start against a stale schema. Run pnpm
+  db:migrate ...". The installer's last step started the server on the
+  terminal, and the server asked "Apply pending migrations now? (y/N)". The
+  Automa app opened over Termux at that moment, so the question waited unseen,
+  and Enter meant No.
+- **Now:** Automa applies a new version's database changes as it starts,
+  without asking, on every start (`automa run`, `automa start`, the app's
+  Start, the installer's last step). The updater copies the whole database
+  before every update (`automa restore` lists the copies). A setting you chose
+  yourself (`PAPERCLIP_MIGRATION_AUTO_APPLY`) is kept.
+- **If it ever stops at that step**, the message gives a command that works on
+  a phone instead of `pnpm db:migrate`. A database that lost its record of
+  past changes (after a damaged restore) gets its own message: `automa
+  restore`.
+- **`automa fix`** says "Run: automa run" for a change that was not applied
+  yet (it used to suggest restoring a backup, which brings the same change
+  back), and keeps the restore advice for a change that failed.
+
+If your phone stopped with that message on 1.9.18 or older, run this in
+Termux; it applies the change and starts Automa:
+
+```
+automa run
+```
+
+**Also**
+- **Node.js 24.11 or newer.** The installer and `automa fix` accepted any
+  Node.js 24, while the server refuses anything older than 24.11 when it
+  starts. Both now ask for 24.11 and say how to get it (`pkg upgrade -y`).
+- **No browser tab on the phone.** A start in Termux also opened the phone's
+  browser, on top of the app, at an address only the app can use. It doesn't
+  any more.
+
+### From 1.9.18
 
 The update on the phone copes with a phone that is nearly full.
 
@@ -1874,10 +1919,11 @@ The full threat model is in `doc/AUTOMA-SECURITY.md`.
 | **Update Automa on this phone** on Terminals or App Inspector | The phone's server is older than the page. | Tap it, Send to Termux, paste the command (or `automa update`). |
 | `automa update` says **Not enough free storage** or **The phone ran out of storage** | The update needs room for a second copy of the server and 300 MB to work in (the message says how many MB that is on your phone) and the phone has less, even after Automa cleared what is safe to clear. Nothing was changed. | Delete photos, videos or apps you don't use (old database copies in the backups folder can go too), then run `automa update` again. `automa fix` shows how much is free. |
 | `npm error code ENOSPC` / "no space left on device" during an update (1.9.17 or older) | The phone is full; older versions called this a dropped connection. | In Termux: `npm cache clean --force`, `apt clean`, `rm -rf ~/.npm/_logs ~/.automa/server.next ~/.automa/server.prev`, then `automa update`. |
-| "App not installed" / "conflicts with an existing package" | The installed Automa was signed with a different key (1.8.1 or older). | Uninstall Automa, then install. Board data lives in Termux and is kept. |
+| "App not installed" / "conflicts with an existing package" | The installed Automa was signed with a different key (1.9.18 or older: 1.9.19 has a new one). | Uninstall Automa, then install. Board data lives in Termux and is kept. |
+| "PostgreSQL has pending migrations (...). Refusing to start against a stale schema" after an update (1.9.18 or older) | The new version changes the database, and the start asked on the terminal, where Enter means No. Nothing was changed. | In Termux: `automa run` (it applies the change and starts). 1.9.19 and newer never ask. |
 | Termux "RunCommandService requires allow-external-apps" | Termux hasn't let the app run commands yet. | Use the app's one-tap fix, or run the installer again. |
 | The connect screen keeps waiting | Automa is still starting (the screen shows its current step and time), it stopped (the screen says so), or the address is wrong. | `automa status` in Termux shows the step; `automa run` follows the start; check the address (not the Wireless debugging one). |
-| "Automa needs Node.js 24 or newer" in Termux | Termux packages are old. | `pkg upgrade -y`, then run the install command again. |
+| "Automa needs Node.js 24.11 or newer" in Termux | Termux packages are old. | `pkg upgrade -y`, then run the install command again. |
 | Termux shows "[Process completed (signal 9)]", or Automa stops while you use it | Android ended Termux's processes: Android 12 and newer limit how many processes apps run in the background, and every Android ends apps when memory runs low. | `automa keep-alive` (once); set Termux's battery use to Unrestricted; close apps you aren't using. `automa logs` shows when it happened. |
 | A **Safe mode** banner across the top of the board | Automa kept stopping while it started, so it started without agents, schedules and plugins (or you asked for a safe start). | **Troubleshoot** on the banner (or `automa troubleshoot`), fix what it says, then **Restart normally**. |
 | The board looks stuck or out of date | A page or the live updates missed something. | **Refresh** in the header; **Reload app** in your account sheet reloads everything. |
@@ -1960,6 +2006,7 @@ Termux, Firebase), `doc/moan.md`, `doc/AUTOMA-SECURITY.md`.
 
 | Version | Date | Highlights |
 |---|---|---|
+| 1.9.19 | 2026-11-26 | The first start after an update applies the new version's database changes without asking (it asked on the terminal behind the app, and Enter meant No: "Refusing to start against a stale schema"); a refusal gives a phone command; `automa fix` advises `automa run` for it; Node.js 24.11 or newer, as the server needs; no browser tab on the phone. New signing key: uninstall the old app once. |
 | 1.9.18 | 2026-11-22 | `automa update` on a nearly full phone: checks the storage first, makes room with what is safe to clear and says what each step gained, stops before changing anything when there is still too little room (with how much is free and needed), and no longer reports a full phone as a dropped connection after three tries. One database copy per update instead of one per try. `automa fix` clears the same things. |
 | 1.9.17 | 2026-11-22 | App Studio's code screen: open files as tabs, a status line (line and column, language, saved), a key row on phones. A busy free model offers Try again and Ask another model instead (your tap switches; never a silent swap); a new chat starts on a model that is answering. App Inspector: a chat about the app or the open file, on the free models with no key or Claude with your key; an APK opened from a file is decoded in full, and **Decode again** repairs older projects. 50 fixes across App Studio, App Inspector and the free models. The ones you would have noticed: a free model at its daily limit is recognised at once instead of being retried as busy for half a minute; when the daily allowance most free models share is used up, all of them are marked at once and the model offered instead is one that still answers; saves are retried and never reported as someone else's change; switching apps no longer shows the first app's file; a sideways phone gets one pane at a time; and files that are not UTF-8 are read-only in App Inspector instead of being damaged by a save. App Inspector search reads `.toml` and `.tsv`. IMY 1.1.2: `imy import` skips `bazel-out` and `zig-out`. A few waits are longer for slow phones and networks. |
 | 1.9.16 | 2026-11-22 | IMY 1.1.1: its console reads like the file being written. It opens with one line, the name of the program file the code becomes (`main.py`, `main.rb`…); each line is typed behind its number and a bar and set again in colour once entered; the code a line became appears under it with its own number in the program file (`:code` and `:convert` show the whole file the same way); a block keeps its indentation and Tab indents; `:run` prints only what the program prints (no "compiled to", no "exit code 0"), commands answer in a word and the hints are gone. Fixes: lines pasted at once are numbered one by one; `:: end` is code, not an unknown command; a result is no longer written into a line being typed; a newer result replaces the older instead of showing a program line twice; keys pressed during a compile no longer land in the line that counts the seconds; closing the terminal keeps the lines typed |

@@ -1,6 +1,6 @@
 # Automa — your AI company, in your pocket
 
-**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.18
+**Made in Jamaica by Nathan Lyttle (Corx Labs)** · Android 8.0 or newer · Version 1.9.19
 
 Automa is an Android app that runs a whole company of AI agents for you. You hire
 agents, give them roles, chat with them like teammates, hand them tasks, let them
@@ -530,7 +530,7 @@ update, and a restore never loses the database. Set Termux's battery use to
 **You need:** Android 8.0 or newer, about 100 MB of storage, and internet for the
 AI features.
 
-1. Get the APK from the release zip, or from `releases/android/Automa-1.9.18.apk`
+1. Get the APK from the release zip, or from `releases/android/Automa-1.9.19.apk`
    in this repository.
 2. Copy it to the phone and open it. If Android asks, allow **Install unknown
    apps** for the app you opened it with.
@@ -547,6 +547,15 @@ download. There is no Automa cloud account to create, ever.
 ---
 
 ## What's new
+
+**1.9.19** (26 November 2026) — The first start after an update no longer
+stops at a question nobody sees. Automa applies a new version's database
+changes as it starts (the updater copies the database before every update),
+instead of asking on the terminal behind the app, where Enter meant No.
+`automa fix` gives the right advice for it, the installer asks for the
+Node.js 24.11 the server needs, and a start in Termux no longer opens the
+phone's browser. 1.9.19 is signed with a new key: uninstall the old app once;
+your board stays in Termux.
 
 **1.9.18** (22 November 2026) — The update on the phone copes with a phone
 that is nearly full. `automa update` checks the storage before it starts,
